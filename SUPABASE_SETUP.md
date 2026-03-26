@@ -17,7 +17,7 @@ This guide will help you set up Supabase authentication for the MarVille Resort 
 5. Click **Run** to execute the script
 
 This will create:
-- `profiles` table with all required fields
+- `guests` table with all required fields
 - Row Level Security (RLS) policies
 - Triggers for automatic profile creation
 - Indexes for performance

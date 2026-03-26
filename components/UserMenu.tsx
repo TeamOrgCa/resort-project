@@ -20,7 +20,7 @@ export default function UserMenu() {
       if (user) {
         // Fetch profile data
         const { data } = await supabase
-          .from('profiles')
+          .from('guests')
           .select('*')
           .eq('id', user.id)
           .single();

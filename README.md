@@ -20,6 +20,38 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Admin Module
+
+Admin authentication and static portal UI are implemented with a clean, modular architecture.
+
+- Admin login page: `/admin/login`
+- Staff auth API route: `POST /api/admin/auth/login`
+- Admin portal pages:
+	- `/admin`
+	- `/admin/reservations`
+	- `/admin/schedules`
+	- `/admin/transactions`
+	- `/admin/reports`
+	- `/admin/analytics`
+	- `/admin/users`
+	- `/admin/audit`
+
+Detailed architecture documentation:
+
+- `docs/ADMIN_ARCHITECTURE.md`
+
+## Staff Authentication Requirements
+
+The admin login API signs in users through Supabase Auth, then verifies the authenticated user exists in `public.staff_users` and is active.
+
+Required columns in `staff_users`:
+
+- `id` (matches `auth.users.id`)
+- `full_name`
+- `email`
+- `role` (`admin` or `staff`)
+- `is_active`
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
