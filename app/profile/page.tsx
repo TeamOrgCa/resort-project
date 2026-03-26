@@ -34,7 +34,7 @@ export default function Profile() {
       }
 
       const { data, error } = await supabase
-        .from('profiles')
+        .from('guests')
         .select('*')
         .eq('id', user.id)
         .single();
@@ -78,7 +78,7 @@ export default function Profile() {
     }
 
     const { error: updateError } = await supabase
-      .from('profiles')
+      .from('guests')
       .update({
         first_name: formData.firstName,
         last_name: formData.lastName,
