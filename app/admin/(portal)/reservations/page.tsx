@@ -6,6 +6,8 @@ import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import {
   manualEntryColumns,
   manualEntryRows,
+  ocularVisitColumns,
+  ocularVisitRows,
   paymentVerificationColumns,
   paymentVerificationRows,
   reservationProcessStages,
@@ -17,6 +19,7 @@ const reservationTabs = [
   "Reservation Records",
   "Payment Verification Queue",
   "Manual Booking Entries",
+  "Ocular Visit Records",
 ] as const;
 
 export default function AdminReservationsPage() {
@@ -118,6 +121,21 @@ export default function AdminReservationsPage() {
             ]}
             actions={["New Entry"]}
             rowActions={["View"]}
+          />
+        )}
+
+        {activeTab === "Ocular Visit Records" && (
+          <AdminTablePreview
+            title="Ocular Visit Records"
+            columns={ocularVisitColumns}
+            rows={ocularVisitRows}
+            defaultSort={{ key: "scheduledDate", direction: "asc" }}
+            filters={[
+              { key: "status", label: "Status", options: ["Pending", "Confirmed", "Cancelled"] },
+              { key: "timeSlot", label: "Time Slot", options: ["9:00 AM", "10:00 AM", "2:00 PM"] },
+            ]}
+            actions={["Schedule Visit"]}
+            rowActions={["View", "Reschedule"]}
           />
         )}
       </section>

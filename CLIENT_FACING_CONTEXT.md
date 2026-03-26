@@ -9,7 +9,8 @@ Reservation Form - This form will come after the user has been able to choose da
 Payment Form - Since the resort requires a down payment for a reservation to be acknowledged, this form will show the different accepted methods of payment (bank transfer and e-wallet). A summary of the payment along with the reservation details will be displayed after a guest successfully pays the amount due for down payment.
 Ocular Visit Scheduling - This portion will be optional for first-time guests who would like to schedule an ocular visit. This will include a calendar that shows available dates and prompts the user to enter their booking reference number to successfully schedule the visit.
 
-Manage Booking Page - In cases wherein guests would like to reschedule, cancel, or simply modify details of their bookings, this page will ask for the booking reference number of the customer that they would like to view and/or manage. 
+Manage Booking Page - This is where guests can view, reschedule, cancel their booking reservation and ocular visits.
+
 Edit Reservation Details - This will allow the guest to edit their initially submitted details for reservation such as contact details, total number of guests, and desired services and amenities.
 Rescheduling - This is where the user may choose new dates to hold their reservation from a calendar view of available dates.
 

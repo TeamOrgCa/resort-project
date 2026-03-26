@@ -217,6 +217,41 @@ export const manualEntryRows: AdminTableRow[] = [
   },
 ];
 
+export const ocularVisitColumns: AdminTableColumn[] = [
+  { key: "reference", label: "Reference" },
+  { key: "guest", label: "Guest" },
+  { key: "scheduledDate", label: "Scheduled Date" },
+  { key: "timeSlot", label: "Time Slot" },
+  { key: "status", label: "Status" },
+];
+
+export const ocularVisitRows: AdminTableRow[] = [
+  {
+    id: "ov-1",
+    reference: "MV-2026-0148",
+    guest: "Lian Dela Cruz",
+    scheduledDate: "2026-03-30",
+    timeSlot: "10:00 AM",
+    status: "Confirmed",
+  },
+  {
+    id: "ov-2",
+    reference: "MV-2026-0152",
+    guest: "Rafael Soriano",
+    scheduledDate: "2026-04-01",
+    timeSlot: "2:00 PM",
+    status: "Pending",
+  },
+  {
+    id: "ov-3",
+    reference: "MV-2026-0154",
+    guest: "Mara Hidalgo",
+    scheduledDate: "2026-04-03",
+    timeSlot: "9:00 AM",
+    status: "Cancelled",
+  },
+];
+
 export const scheduleBlocksColumns: AdminTableColumn[] = [
   { key: "date", label: "Date" },
   { key: "type", label: "Block Type" },
