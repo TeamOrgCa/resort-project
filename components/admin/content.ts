@@ -25,6 +25,28 @@ export const dashboardMetrics: AdminMetric[] = [
   { label: "Pending Transactions", value: "14", trend: "Needs verification" },
 ];
 
+export const dailyRevenueTrend = [
+  { day: "Mon", height: 62 },
+  { day: "Tue", height: 55 },
+  { day: "Wed", height: 78 },
+  { day: "Thu", height: 71 },
+  { day: "Fri", height: 89 },
+  { day: "Sat", height: 95 },
+  { day: "Sun", height: 82 },
+];
+
+export const reservationStatusData = {
+  confirmed: 64,
+  pending: 24,
+  cancelled: 12,
+};
+
+export const bookingSourcesData = [
+  { label: "Website", value: 58 },
+  { label: "Walk-in", value: 27 },
+  { label: "Phone / Assisted", value: 15 },
+];
+
 export const dashboardModules: AdminFeatureCard[] = [
   {
     title: "Reservation and Booking Management",
