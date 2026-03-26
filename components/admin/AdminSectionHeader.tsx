@@ -7,7 +7,7 @@ export default function AdminSectionHeader({ title, subtitle }: AdminSectionHead
   return (
     <header className="mb-6 rounded-2xl border border-neutral/10 bg-white p-6">
       <h1 className="text-2xl font-bold text-neutral md:text-3xl">{title}</h1>
-      <p className="mt-2 text-sm text-neutral/70 md:text-base">{subtitle}</p>
+      <p className="mt-2 text-sm text-black md:text-black">{subtitle}</p>
     </header>
   );
 }
