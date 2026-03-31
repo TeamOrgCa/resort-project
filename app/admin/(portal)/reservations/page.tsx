@@ -32,31 +32,6 @@ export default function AdminReservationsPage() {
         subtitle="Manage website reservations, walk-ins, approvals, and manual entries in one view."
       />
 
-     <section className="mt-4">
-  <article className="rounded-2xl border border-neutral/10 bg-white p-5">
-    <h3 className="text-lg font-semibold text-neutral">
-      Client-to-Admin Process
-    </h3>
-
-    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {reservationProcessStages.map((stage, index) => (
-        <div
-          key={stage}
-          className="flex items-start gap-3 rounded-xl bg-base p-4 text-sm text-neutral/80 shadow-sm hover:shadow-md transition"
-        >
-          {/* Step Number */}
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-white font-bold">
-            {index + 1}
-          </div>
-
-          {/* Text */}
-          <p className="leading-relaxed">{stage}</p>
-        </div>
-      ))}
-    </div>
-  </article>
-</section>
-
       <section className="mt-6 rounded-2xl border border-neutral/10 bg-white p-4">
         <div className="mb-4 flex flex-wrap gap-2 border-b border-neutral/10 pb-4">
           {reservationTabs.map((tab) => {

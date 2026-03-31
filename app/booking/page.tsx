@@ -15,6 +15,13 @@ export default function Booking() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [visitScheduled, setVisitScheduled] = useState(false);
 
+  const formatDateForQuery = (date: Date) => {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, "0");
+    const day = `${date.getDate()}`.padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   const availableTimes = [
     "9:00 AM", "10:00 AM", "11:00 AM", 
     "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM"
@@ -435,7 +442,19 @@ export default function Booking() {
                       <p className="text-xs text-neutral/60 mt-2">*Final price may vary based on room type and amenities</p>
                     </div>
 
-                    <Link href="/booking/form">
+                    <Link
+                      href={
+                        selectedDates.start && selectedDates.end
+                          ? {
+                              pathname: "/booking/form",
+                              query: {
+                                checkIn: formatDateForQuery(selectedDates.start),
+                                checkOut: formatDateForQuery(selectedDates.end),
+                              },
+                            }
+                          : "/booking/form"
+                      }
+                    >
                       <button className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                         disabled={!selectedDates.start || !selectedDates.end}>
                         Continue to Reservation

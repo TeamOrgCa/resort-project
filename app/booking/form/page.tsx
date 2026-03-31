@@ -1,12 +1,58 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import { createClient } from "@/lib/supabase/client";
+import { useSearchParams } from "next/navigation";
+
+interface UnitOption {
+  id: string;
+  name: string;
+  price: number;
+  description: string;
+}
+
+interface ServiceOption {
+  id: string;
+  name: string;
+  price: number;
+}
+
+interface GuestProfile {
+  first_name: string;
+  last_name: string;
+  phone_number: string;
+  address: string;
+}
+
+const parseDateFromQuery = (value: string | null) => {
+  if (!value) return null;
+
+  const parts = value.split("-");
+  if (parts.length !== 3) return null;
+
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+
+  if (!year || !month || !day) return null;
+
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
 
 export default function BookingForm() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-base" />}>
+      <BookingFormContent />
+    </Suspense>
+  );
+}
+
+function BookingFormContent() {
+  const searchParams = useSearchParams();
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -14,51 +60,121 @@ export default function BookingForm() {
     phone: "",
     address: "",
     guests: 2,
-    roomType: "deluxe",
+    roomType: "",
     specialRequests: "",
   });
 
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [services, setServices] = useState<ServiceOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
-  const roomTypes = [
-    { id: "standard", name: "Standard Room", price: 16450, description: "Comfortable room with garden view" },
-    { id: "deluxe", name: "Deluxe Ocean View", price: 24700, description: "Spacious room with ocean view" },
-    { id: "suite", name: "Executive Suite", price: 38450, description: "Luxurious suite with private balcony" },
-    { id: "villa", name: "Beach Villa", price: 54950, description: "Private villa steps from the beach" },
-  ];
+  useEffect(() => {
+    const loadCatalog = async () => {
+      setCatalogLoading(true);
+      setCatalogError(null);
 
-  const amenities = [
-    { id: "breakfast", name: "Daily Breakfast", price: 1950 },
-    { id: "spa", name: "Spa Package", price: 8250 },
-    { id: "airport", name: "Airport Transfer", price: 4125 },
-    { id: "excursion", name: "Island Excursion", price: 6600 },
-    { id: "dining", name: "Fine Dining Package", price: 11000 },
-    { id: "activities", name: "Water Sports Package", price: 9900 },
-  ];
+      const supabase = createClient();
+
+      const [unitsResult, servicesResult, authResult] = await Promise.all([
+        supabase
+          .from("units")
+          .select("unit_id, name, description, base_price, is_active, archived_at")
+          .eq("is_active", true)
+          .is("archived_at", null)
+          .order("name", { ascending: true }),
+        supabase
+          .from("services")
+          .select("service_id, name, price, is_active")
+          .eq("is_active", true)
+          .order("name", { ascending: true }),
+        supabase.auth.getUser(),
+      ]);
+
+      if (unitsResult.error || servicesResult.error) {
+        setCatalogError(unitsResult.error?.message || servicesResult.error?.message || "Failed to load booking catalog");
+        setCatalogLoading(false);
+        return;
+      }
+
+      const mappedUnits: UnitOption[] = (unitsResult.data ?? []).map((unit) => ({
+        id: unit.unit_id,
+        name: unit.name,
+        price: Number(unit.base_price),
+        description: unit.description ?? "",
+      }));
+
+      const mappedServices: ServiceOption[] = (servicesResult.data ?? []).map((service) => ({
+        id: service.service_id,
+        name: service.name,
+        price: Number(service.price),
+      }));
+
+      const authUser = authResult.data.user;
+      let guestProfile: GuestProfile | null = null;
+
+      if (authUser) {
+        const { data } = await supabase
+          .from("guests")
+          .select("first_name, last_name, phone_number, address")
+          .eq("id", authUser.id)
+          .maybeSingle<GuestProfile>();
+
+        guestProfile = data ?? null;
+      }
+
+      setUnits(mappedUnits);
+      setServices(mappedServices);
+      setFormData((prev) => ({
+        ...prev,
+        roomType: prev.roomType || mappedUnits[0]?.id || "",
+        firstName: prev.firstName || guestProfile?.first_name || authUser?.user_metadata?.first_name || "",
+        lastName: prev.lastName || guestProfile?.last_name || authUser?.user_metadata?.last_name || "",
+        email: prev.email || authUser?.email || "",
+        phone: prev.phone || guestProfile?.phone_number || authUser?.user_metadata?.phone_number || "",
+        address: prev.address || guestProfile?.address || authUser?.user_metadata?.address || "",
+      }));
+      setCatalogLoading(false);
+    };
+
+    loadCatalog();
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value,
+      [e.target.name]: e.target.name === "guests" ? Number(e.target.value) : e.target.value,
     });
   };
 
   const toggleAmenity = (amenityId: string) => {
-    if (selectedAmenities.includes(amenityId)) {
-      setSelectedAmenities(selectedAmenities.filter((id) => id !== amenityId));
-    } else {
-      setSelectedAmenities([...selectedAmenities, amenityId]);
-    }
+    setSelectedAmenities((prev) =>
+      prev.includes(amenityId) ? prev.filter((id) => id !== amenityId) : [...prev, amenityId]
+    );
   };
 
+  const fallbackCheckInDate = useMemo(() => new Date("2026-03-10"), []);
+  const fallbackCheckOutDate = useMemo(() => new Date("2026-03-13"), []);
+
+  const checkInDate = parseDateFromQuery(searchParams.get("checkIn"));
+  const checkOutDate = parseDateFromQuery(searchParams.get("checkOut"));
+
+  const effectiveCheckInDate = checkInDate ?? fallbackCheckInDate;
+  const effectiveCheckOutDate = checkOutDate ?? fallbackCheckOutDate;
+
   // Calculate pricing
-  const nights = 3; // This would come from selected dates
-  const selectedRoom = roomTypes.find((room) => room.id === formData.roomType);
+  const nights = Math.max(
+    1,
+    Math.ceil((effectiveCheckOutDate.getTime() - effectiveCheckInDate.getTime()) / (1000 * 60 * 60 * 24))
+  );
+  const selectedRoom = units.find((room) => room.id === formData.roomType);
   const roomTotal = (selectedRoom?.price || 0) * nights;
   const amenitiesTotal = selectedAmenities.reduce((total, id) => {
-    const amenity = amenities.find((a) => a.id === id);
+    const amenity = services.find((a) => a.id === id);
     return total + (amenity?.price || 0);
   }, 0);
+  const selectedServiceItems = services.filter((service) => selectedAmenities.includes(service.id));
   const subtotal = roomTotal + amenitiesTotal;
   const tax = subtotal * 0.12; // 12% tax
   const total = subtotal + tax;
@@ -185,9 +301,10 @@ export default function BookingForm() {
                         name="roomType"
                         value={formData.roomType}
                         onChange={handleInputChange}
+                        disabled={catalogLoading || units.length === 0}
                         className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       >
-                        {roomTypes.map((room) => (
+                        {units.map((room) => (
                           <option key={room.id} value={room.id}>
                             {room.name} - ₱{room.price.toLocaleString()}/night
                           </option>
@@ -205,8 +322,16 @@ export default function BookingForm() {
                 {/* Additional Services */}
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Additional Services & Amenities</h3>
+                  {catalogError && (
+                    <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
+                      {catalogError}
+                    </div>
+                  )}
+                  {catalogLoading && (
+                    <p className="mb-4 text-sm text-neutral/70">Loading available units and services...</p>
+                  )}
                   <div className="grid md:grid-cols-2 gap-4">
-                    {amenities.map((amenity) => (
+                    {services.map((amenity) => (
                       <div
                         key={amenity.id}
                         onClick={() => toggleAmenity(amenity.id)}
@@ -219,7 +344,7 @@ export default function BookingForm() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-semibold text-neutral">{amenity.name}</p>
-                            <p className="text-sm text-primary">${amenity.price}</p>
+                            <p className="text-sm text-primary">₱{amenity.price.toLocaleString()}</p>
                           </div>
                           {selectedAmenities.includes(amenity.id) && (
                             <svg className="w-6 h-6 text-primary" fill="currentColor" viewBox="0 0 20 20">
@@ -251,8 +376,32 @@ export default function BookingForm() {
                       Back
                     </button>
                   </Link>
-                  <Link href="/booking/payment" className="flex-1">
-                    <button className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105">
+                  <Link
+                    href={{
+                      pathname: "/booking/payment",
+                      query: {
+                        firstName: formData.firstName,
+                        lastName: formData.lastName,
+                        guests: String(formData.guests),
+                        checkIn: effectiveCheckInDate.toISOString().slice(0, 10),
+                        checkOut: effectiveCheckOutDate.toISOString().slice(0, 10),
+                        unitId: selectedRoom?.id || "",
+                        roomName: selectedRoom?.name || "",
+                        roomPrice: String(selectedRoom?.price || 0),
+                        nights: String(nights),
+                        subtotal: String(subtotal),
+                        tax: String(tax),
+                        total: String(total),
+                        downPayment: String(downPayment),
+                        services: JSON.stringify(selectedServiceItems),
+                      },
+                    }}
+                    className="flex-1"
+                  >
+                    <button
+                      disabled={catalogLoading || units.length === 0 || !formData.roomType}
+                      className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                    >
                       Continue to Payment
                     </button>
                   </Link>
@@ -269,11 +418,11 @@ export default function BookingForm() {
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
                       <span className="text-neutral/70">Check-in</span>
-                      <span className="font-semibold text-neutral">Mar 10, 2026</span>
+                      <span className="font-semibold text-neutral">{effectiveCheckInDate.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral/70">Check-out</span>
-                      <span className="font-semibold text-neutral">Mar 13, 2026</span>
+                      <span className="font-semibold text-neutral">{effectiveCheckOutDate.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</span>
                     </div>
                   </div>
 
@@ -292,7 +441,7 @@ export default function BookingForm() {
                     <div className="pb-4 border-b border-neutral/10">
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>
                       {selectedAmenities.map((id) => {
-                        const amenity = amenities.find((a) => a.id === id);
+                        const amenity = services.find((a) => a.id === id);
                         return (
                           <div key={id} className="flex justify-between text-sm mb-1">
                             <span className="text-neutral/70">{amenity?.name}</span>
