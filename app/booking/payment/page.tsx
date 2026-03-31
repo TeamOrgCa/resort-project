@@ -200,7 +200,7 @@ function PaymentContent() {
 
       const safeFileName = selectedProof.name.replace(/[^a-zA-Z0-9.-]/g, "_");
       const uploadPath = `${userId}/${Date.now()}-${safeFileName}`;
-      const bucketName = process.env.NEXT_PUBLIC_SUPABASE_PAYMENT_PROOF_BUCKET;
+      const bucketName = process.env.NEXT_PUBLIC_SUPABASE_PAYMENT_PROOF_BUCKET!;
 
       const { error: uploadError } = await supabase.storage
         .from(bucketName)
