@@ -1,16 +1,98 @@
 import AdminMetricCard from "@/components/admin/AdminMetricCard";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
+import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
+import { createClient } from "@/lib/supabase/server";
 import {
   bookingSourcesData,
   dailyRevenueTrend,
   dashboardMetrics,
   reservationStatusData,
-  upcomingReservationsColumns,
-  upcomingReservationsRows,
 } from "@/components/admin/content";
 
-export default function AdminDashboardPage() {
+const upcomingReservationsColumns: AdminTableColumn[] = [
+  { key: "reference", label: "Reference" },
+  { key: "guest", label: "Guest" },
+  { key: "checkIn", label: "Check-in" },
+  { key: "checkOut", label: "Check-out" },
+  { key: "status", label: "Status" },
+];
+
+interface ReservationRow {
+  reservation_id: string;
+  reference_number: string;
+  guest_id: string;
+  check_in_date: string;
+  check_out_date: string;
+  status: string;
+}
+
+interface GuestRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
+const formatDate = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const toTitleCase = (value: string) =>
+  value
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+
+export default async function AdminDashboardPage() {
+  const supabase = await createClient();
+
+  const { data: reservationsData } = await supabase
+    .from("reservations")
+    .select("reservation_id, reference_number, guest_id, check_in_date, check_out_date, status")
+    .order("check_in_date", { ascending: true })
+    .limit(20);
+
+  const reservations = (reservationsData as ReservationRow[] | null) ?? [];
+  const guestIds = [...new Set(reservations.map((row) => row.guest_id).filter(Boolean))];
+
+  const { data: guestsData } = guestIds.length
+    ? await supabase.from("guests").select("id, first_name, last_name").in("id", guestIds)
+    : { data: [] };
+
+  const guestsById = ((guestsData as GuestRow[] | null) ?? []).reduce<Record<string, GuestRow>>(
+    (accumulator, guest) => {
+      accumulator[guest.id] = guest;
+      return accumulator;
+    },
+    {}
+  );
+
+  const upcomingReservationsRows: AdminTableRow[] = reservations.map((reservation) => {
+    const guest = guestsById[reservation.guest_id];
+    const guestName = guest
+      ? `${guest.first_name} ${guest.last_name}`.replace(/\s+/g, " ").trim()
+      : `Guest ${reservation.guest_id.slice(0, 8)}`;
+
+    return {
+      id: reservation.reservation_id,
+      reference: reservation.reference_number,
+      guest: guestName,
+      checkIn: formatDate(reservation.check_in_date),
+      checkOut: formatDate(reservation.check_out_date),
+      status: toTitleCase(reservation.status),
+    };
+  });
+
   return (
     <div>
       <AdminSectionHeader

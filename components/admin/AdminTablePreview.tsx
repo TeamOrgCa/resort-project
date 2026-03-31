@@ -19,6 +19,7 @@ interface AdminTablePreviewProps {
   sortable?: boolean;
   actions?: string[];
   rowActions?: string[];
+  onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
 }
 
 function compareValues(left: string, right: string) {
@@ -50,6 +51,7 @@ export default function AdminTablePreview({
   sortable = true,
   actions = [],
   rowActions = [],
+  onRowAction,
 }: AdminTablePreviewProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
@@ -207,6 +209,7 @@ export default function AdminTablePreview({
                         <button
                           key={`${row.id}-${action}`}
                           type="button"
+                          onClick={() => onRowAction?.(action, row)}
                           className="rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base"
                         >
                           {action}
