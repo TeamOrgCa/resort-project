@@ -20,6 +20,7 @@ interface AdminTablePreviewProps {
   actions?: string[];
   rowActions?: string[];
   onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
+  isRowActionDisabled?: (action: string, row: AdminTableRow) => boolean;
 }
 
 function compareValues(left: string, right: string) {
@@ -52,6 +53,7 @@ export default function AdminTablePreview({
   actions = [],
   rowActions = [],
   onRowAction,
+  isRowActionDisabled,
 }: AdminTablePreviewProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
@@ -210,7 +212,8 @@ export default function AdminTablePreview({
                           key={`${row.id}-${action}`}
                           type="button"
                           onClick={() => onRowAction?.(action, row)}
-                          className="rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base"
+                          disabled={isRowActionDisabled?.(action, row)}
+                          className="rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                         >
                           {action}
                         </button>

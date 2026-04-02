@@ -18,6 +18,8 @@ export default function Booking() {
   const [bookingRef, setBookingRef] = useState("");
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [visitScheduled, setVisitScheduled] = useState(false);
+  const [ocularSubmitting, setOcularSubmitting] = useState(false);
+  const [ocularError, setOcularError] = useState<string | null>(null);
 
   const formatDateForStore = (date: Date) => {
     const year = date.getFullYear();
@@ -35,10 +37,25 @@ export default function Booking() {
     router.push("/booking/form");
   };
 
-  const availableTimes = [
-    "9:00 AM", "10:00 AM", "11:00 AM", 
-    "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM"
-  ];
+  const availableTimes = ["08:00-09:00", "09:00-10:00", "10:00-11:00", "13:00-14:00", "14:00-15:00"];
+
+  const formatTimeSlot = (slot: string) => {
+    if (!slot.includes("-")) return slot;
+
+    const [start, end] = slot.split("-");
+
+    const toLabel = (time: string) => {
+      const [hourRaw, minute] = time.split(":");
+      const hour = Number(hourRaw);
+      if (Number.isNaN(hour) || !minute) return time;
+
+      const period = hour >= 12 ? "PM" : "AM";
+      const normalizedHour = hour % 12 === 0 ? 12 : hour % 12;
+      return `${normalizedHour}:${minute} ${period}`;
+    };
+
+    return `${toLabel(start)} - ${toLabel(end)}`;
+  };
 
   // Sample booked dates (in real app, fetch from backend)
   const bookedDates = [
@@ -95,9 +112,50 @@ export default function Booking() {
     }
   };
 
-  const handleOcularSubmit = (e: React.FormEvent) => {
+  const handleOcularSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setVisitScheduled(true);
+
+    if (!selectedDate || !selectedTime) {
+      setOcularError("Please select both date and time for your ocular visit.");
+      return;
+    }
+
+    setOcularSubmitting(true);
+    setOcularError(null);
+
+    try {
+      const formattedDate = formatDateForStore(selectedDate);
+
+      const response = await fetch("/api/ocular-visits", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          scheduledDate: formattedDate,
+          timeSlot: selectedTime,
+        }),
+      });
+
+      const json = (await response.json()) as {
+        success?: boolean;
+        message?: string;
+        ocularVisit?: { reference?: string };
+      };
+
+      if (!response.ok || !json.success) {
+        setOcularError(json.message || "Failed to schedule ocular visit.");
+        setOcularSubmitting(false);
+        return;
+      }
+
+      setBookingRef(json.ocularVisit?.reference || "");
+      setVisitScheduled(true);
+    } catch {
+      setOcularError("Unable to schedule ocular visit right now. Please try again.");
+    } finally {
+      setOcularSubmitting(false);
+    }
   };
 
   const nextMonth = () => {
@@ -137,7 +195,7 @@ export default function Booking() {
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Time</span>
-                <span className="font-semibold text-neutral">{selectedTime}</span>
+                <span className="font-semibold text-neutral">{formatTimeSlot(selectedTime)}</span>
               </div>
             </div>
           </div>
@@ -407,7 +465,7 @@ export default function Booking() {
                             ${selectedTime === time ? "bg-accent text-base" : "bg-neutral/5 text-neutral hover:bg-accent/10"}
                           `}
                         >
-                          {time}
+                          {formatTimeSlot(time)}
                         </button>
                       ))}
                     </div>
@@ -470,19 +528,13 @@ export default function Booking() {
                   </>
                 ) : (
                   <>
-                    <div className="space-y-6 mb-8">
-                      <div>
-                        <label className="block text-sm font-medium text-neutral/70 mb-2">Booking Reference *</label>
-                        <input
-                          type="text"
-                          value={bookingRef}
-                          onChange={(e) => setBookingRef(e.target.value)}
-                          placeholder="SR-XXXXXXXX"
-                          className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-accent focus:outline-none"
-                          required
-                        />
-                        <p className="text-xs text-neutral/60 mt-2">Enter your booking reference number</p>
+                    {ocularError ? (
+                      <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
+                        {ocularError}
                       </div>
+                    ) : null}
+
+                    <div className="space-y-6 mb-8">
 
                       <div>
                         <label className="text-sm font-medium text-neutral/70">Selected Date</label>
@@ -501,14 +553,14 @@ export default function Booking() {
 
                     <button
                       type="submit"
-                      disabled={!bookingRef || !selectedDate || !selectedTime}
+                      disabled={!selectedDate || !selectedTime || ocularSubmitting}
                       className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold hover:bg-accent/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
-                      Schedule Visit
+                      {ocularSubmitting ? "Scheduling..." : "Schedule Visit"}
                     </button>
 
                     <p className="text-xs text-neutral/60 text-center mt-4">
-                      Free of charge for confirmed bookings
+                      This is free of charge but requires approval.
                     </p>
                   </>
                 )}

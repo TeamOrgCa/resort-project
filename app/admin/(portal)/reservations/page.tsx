@@ -4,12 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
+import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { createClient } from "@/lib/supabase/client";
 import {
   manualEntryColumns,
   manualEntryRows,
-  ocularVisitColumns,
-  ocularVisitRows,
 } from "@/components/admin/content";
 
 const reservationTabs = [
@@ -68,6 +67,16 @@ interface PaymentRow {
   proof_path: string;
 }
 
+interface OcularVisitRow {
+  visit_id: string;
+  reference_number: string;
+  guest_id: string;
+  scheduled_date: string;
+  time_slot: string;
+  status: "pending" | "confirmed" | "cancelled";
+  created_at: string;
+}
+
 const formatDate = (value: string | null) => {
   if (!value) return "-";
 
@@ -108,6 +117,30 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 2,
   }).format(value);
 
+const formatTimeSlotLabel = (slot: string) => {
+  const [start, end] = slot.split("-");
+
+  if (!start || !end) {
+    return slot;
+  }
+
+  const toLabel = (value: string) => {
+    const [hourValue, minuteValue] = value.split(":").map((item) => Number(item));
+
+    if (Number.isNaN(hourValue) || Number.isNaN(minuteValue)) {
+      return value;
+    }
+
+    const meridiem = hourValue >= 12 ? "PM" : "AM";
+    const normalizedHour = hourValue % 12 || 12;
+    const paddedMinute = minuteValue.toString().padStart(2, "0");
+
+    return `${normalizedHour}:${paddedMinute} ${meridiem}`;
+  };
+
+  return `${toLabel(start)} - ${toLabel(end)}`;
+};
+
 const toTitleCase = (value: string) =>
   value
     .replace(/_/g, " ")
@@ -121,6 +154,11 @@ export default function AdminReservationsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [ocularVisits, setOcularVisits] = useState<OcularVisitRow[]>([]);
+  const [pendingOcularApproval, setPendingOcularApproval] = useState<{ visitId: string; reference: string } | null>(
+    null
+  );
+  const [isApprovingOcularVisit, setIsApprovingOcularVisit] = useState(false);
   const [guestsById, setGuestsById] = useState<Record<string, GuestRow>>({});
   const [reservationReferenceById, setReservationReferenceById] = useState<Record<string, string>>({});
 
@@ -148,7 +186,21 @@ export default function AdminReservationsPage() {
 
         const reservationList = (reservationsData as ReservationRow[] | null) ?? [];
 
-        const guestIds = [...new Set(reservationList.map((item) => item.guest_id).filter(Boolean))];
+        const { data: ocularVisitsData, error: ocularVisitsError } = await supabase
+          .from("ocular_visits")
+          .select("visit_id, reference_number, guest_id, scheduled_date, time_slot, status, created_at")
+          .order("created_at", { ascending: false })
+          .limit(200);
+
+        if (ocularVisitsError) {
+          throw ocularVisitsError;
+        }
+
+        const ocularVisitList = (ocularVisitsData as OcularVisitRow[] | null) ?? [];
+
+        const guestIds = [
+          ...new Set([...reservationList.map((item) => item.guest_id), ...ocularVisitList.map((item) => item.guest_id)]),
+        ].filter(Boolean);
         const reservationIdList = reservationList.map((item) => item.reservation_id);
 
         const [{ data: guestsData, error: guestsError }, { data: paymentsData, error: paymentsError }] =
@@ -192,6 +244,7 @@ export default function AdminReservationsPage() {
 
         setReservations(reservationList);
         setPayments((paymentsData as PaymentRow[] | null) ?? []);
+        setOcularVisits(ocularVisitList);
         setGuestsById(nextGuestsById);
         setReservationReferenceById(nextReservationReferenceById);
       } catch {
@@ -272,6 +325,88 @@ export default function AdminReservationsPage() {
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
+  const ocularVisitRows: AdminTableRow[] = useMemo(
+    () =>
+      ocularVisits.map((visit) => {
+        const guest = guestsById[visit.guest_id];
+        const guestName = guest
+          ? `${guest.first_name} ${guest.last_name}`.replace(/\s+/g, " ").trim()
+          : `Guest ${visit.guest_id.slice(0, 8)}`;
+
+        return {
+          id: visit.visit_id,
+          reference: visit.reference_number,
+          guest: guestName,
+          scheduledDate: formatDate(visit.scheduled_date),
+          timeSlot: formatTimeSlotLabel(visit.time_slot),
+          status: toTitleCase(visit.status),
+          createdAt: formatDateTime(visit.created_at),
+        };
+      }),
+    [guestsById, ocularVisits]
+  );
+
+  const approveOcularVisit = async (visitId: string) => {
+    setFetchError(null);
+    setIsApprovingOcularVisit(true);
+
+    try {
+      const response = await fetch("/api/admin/ocular-visits/approve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ visitId }),
+      });
+
+      const result = (await response.json().catch(() => null)) as { message?: string } | null;
+
+      if (!response.ok) {
+        setFetchError(result?.message ?? "Failed to approve ocular visit.");
+        return;
+      }
+
+      setOcularVisits((currentVisits) =>
+        currentVisits.map((visit) =>
+          visit.visit_id === visitId
+            ? {
+                ...visit,
+                status: "confirmed",
+              }
+            : visit
+        )
+      );
+
+      setPendingOcularApproval(null);
+    } catch {
+      setFetchError("Failed to approve ocular visit.");
+    } finally {
+      setIsApprovingOcularVisit(false);
+    }
+  };
+
+  const handleOcularVisitRowAction = async (action: string, row: AdminTableRow) => {
+    if (action !== "Approve") {
+      return;
+    }
+
+    if (row.status === "Confirmed") {
+      return;
+    }
+
+    const visitId = typeof row.id === "string" ? row.id : "";
+
+    if (!visitId) {
+      setFetchError("Unable to approve this ocular visit.");
+      return;
+    }
+
+    setPendingOcularApproval({
+      visitId,
+      reference: row.reference ?? visitId,
+    });
+  };
+
   const reservationStatusOptions = useMemo(
     () => [...new Set(reservationRecordsRows.map((row) => row.status))].filter(Boolean),
     [reservationRecordsRows]
@@ -285,6 +420,16 @@ export default function AdminReservationsPage() {
   const paymentStatusOptions = useMemo(
     () => [...new Set(paymentVerificationRows.map((row) => row.status))].filter(Boolean),
     [paymentVerificationRows]
+  );
+
+  const ocularStatusOptions = useMemo(
+    () => [...new Set(ocularVisitRows.map((row) => row.status))].filter(Boolean),
+    [ocularVisitRows]
+  );
+
+  const ocularTimeSlotOptions = useMemo(
+    () => [...new Set(ocularVisitRows.map((row) => row.timeSlot))].filter(Boolean),
+    [ocularVisitRows]
   );
 
   return (
@@ -370,19 +515,50 @@ export default function AdminReservationsPage() {
 
         {activeTab === "Ocular Visit Records" && (
           <AdminTablePreview
-            title="Ocular Visit Records"
-            columns={ocularVisitColumns}
+            title={isLoading ? "Ocular Visit Records (Loading...)" : "Ocular Visit Records"}
+            columns={[
+              { key: "reference", label: "Reference" },
+              { key: "guest", label: "Guest" },
+              { key: "scheduledDate", label: "Scheduled Date" },
+              { key: "timeSlot", label: "Time Slot" },
+              { key: "status", label: "Status" },
+              { key: "createdAt", label: "Created" },
+            ]}
             rows={ocularVisitRows}
             defaultSort={{ key: "scheduledDate", direction: "asc" }}
             filters={[
-              { key: "status", label: "Status", options: ["Pending", "Confirmed", "Cancelled"] },
-              { key: "timeSlot", label: "Time Slot", options: ["9:00 AM", "10:00 AM", "2:00 PM"] },
+              { key: "status", label: "Status", options: ocularStatusOptions },
+              { key: "timeSlot", label: "Time Slot", options: ocularTimeSlotOptions },
             ]}
             actions={["Schedule Visit"]}
-            rowActions={["View", "Reschedule"]}
+            rowActions={["View", "Approve"]}
+            onRowAction={handleOcularVisitRowAction}
+            isRowActionDisabled={(action, row) =>
+              action === "Approve" &&
+              (row.status === "Confirmed" || (isApprovingOcularVisit && pendingOcularApproval?.visitId === row.id))
+            }
           />
         )}
       </section>
+
+      <ConfirmationDialog
+        isOpen={Boolean(pendingOcularApproval)}
+        title="Approve Ocular Visit"
+        message={`Approve ocular visit ${pendingOcularApproval?.reference ?? ""}?`}
+        confirmText="Approve"
+        cancelText="Cancel"
+        isConfirming={isApprovingOcularVisit}
+        onCancel={() => {
+          if (!isApprovingOcularVisit) {
+            setPendingOcularApproval(null);
+          }
+        }}
+        onConfirm={() => {
+          if (pendingOcularApproval) {
+            void approveOcularVisit(pendingOcularApproval.visitId);
+          }
+        }}
+      />
     </div>
   );
 }
