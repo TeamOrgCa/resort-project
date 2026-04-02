@@ -6,6 +6,7 @@ import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useSearchParams } from "next/navigation";
+import { useBookingStore } from "@/lib/stores/booking-store";
 
 interface UnitOption {
   id: string;
@@ -53,18 +54,21 @@ export default function BookingForm() {
 
 function BookingFormContent() {
   const searchParams = useSearchParams();
+  const bookingDraft = useBookingStore((state) => state.bookingDraft);
+  const setBookingDates = useBookingStore((state) => state.setBookingDates);
+  const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    address: "",
-    guests: 2,
-    roomType: "",
+    firstName: bookingDraft.firstName || "",
+    lastName: bookingDraft.lastName || "",
+    email: bookingDraft.email || "",
+    phone: bookingDraft.phone || "",
+    address: bookingDraft.address || "",
+    guests: bookingDraft.guests || 2,
+    roomType: bookingDraft.unitId || "",
     specialRequests: "",
   });
 
-  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+  const [selectedAmenities, setSelectedAmenities] = useState<string[]>(bookingDraft.services.map((service) => service.id));
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -157,11 +161,22 @@ function BookingFormContent() {
   const fallbackCheckInDate = useMemo(() => new Date("2026-03-10"), []);
   const fallbackCheckOutDate = useMemo(() => new Date("2026-03-13"), []);
 
-  const checkInDate = parseDateFromQuery(searchParams.get("checkIn"));
-  const checkOutDate = parseDateFromQuery(searchParams.get("checkOut"));
+  const queryCheckInDate = parseDateFromQuery(searchParams.get("checkIn"));
+  const queryCheckOutDate = parseDateFromQuery(searchParams.get("checkOut"));
+  const storeCheckInDate = parseDateFromQuery(bookingDraft.checkIn || null);
+  const storeCheckOutDate = parseDateFromQuery(bookingDraft.checkOut || null);
 
-  const effectiveCheckInDate = checkInDate ?? fallbackCheckInDate;
-  const effectiveCheckOutDate = checkOutDate ?? fallbackCheckOutDate;
+  useEffect(() => {
+    const checkInValue = searchParams.get("checkIn");
+    const checkOutValue = searchParams.get("checkOut");
+
+    if (checkInValue && checkOutValue) {
+      setBookingDates(checkInValue, checkOutValue);
+    }
+  }, [searchParams, setBookingDates]);
+
+  const effectiveCheckInDate = storeCheckInDate ?? queryCheckInDate ?? fallbackCheckInDate;
+  const effectiveCheckOutDate = storeCheckOutDate ?? queryCheckOutDate ?? fallbackCheckOutDate;
 
   // Calculate pricing
   const nights = Math.max(
@@ -179,6 +194,32 @@ function BookingFormContent() {
   const tax = subtotal * 0.12; // 12% tax
   const total = subtotal + tax;
   const downPayment = total * 0.3; // 30% down payment
+
+  const handleContinueToPayment = () => {
+    if (!selectedRoom) {
+      return;
+    }
+
+    setBookingDraft({
+      checkIn: effectiveCheckInDate.toISOString().slice(0, 10),
+      checkOut: effectiveCheckOutDate.toISOString().slice(0, 10),
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      phone: formData.phone,
+      address: formData.address,
+      guests: formData.guests,
+      unitId: selectedRoom.id,
+      roomName: selectedRoom.name,
+      roomPrice: selectedRoom.price,
+      nights,
+      subtotal,
+      tax,
+      total,
+      downPayment,
+      services: selectedServiceItems,
+    });
+  };
 
   return (
     <div className="min-h-screen bg-base">
@@ -376,28 +417,7 @@ function BookingFormContent() {
                       Back
                     </button>
                   </Link>
-                  <Link
-                    href={{
-                      pathname: "/booking/payment",
-                      query: {
-                        firstName: formData.firstName,
-                        lastName: formData.lastName,
-                        guests: String(formData.guests),
-                        checkIn: effectiveCheckInDate.toISOString().slice(0, 10),
-                        checkOut: effectiveCheckOutDate.toISOString().slice(0, 10),
-                        unitId: selectedRoom?.id || "",
-                        roomName: selectedRoom?.name || "",
-                        roomPrice: String(selectedRoom?.price || 0),
-                        nights: String(nights),
-                        subtotal: String(subtotal),
-                        tax: String(tax),
-                        total: String(total),
-                        downPayment: String(downPayment),
-                        services: JSON.stringify(selectedServiceItems),
-                      },
-                    }}
-                    className="flex-1"
-                  >
+                  <Link href="/booking/payment" className="flex-1" onClick={handleContinueToPayment}>
                     <button
                       disabled={catalogLoading || units.length === 0 || !formData.roomType}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"

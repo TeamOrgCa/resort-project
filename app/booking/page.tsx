@@ -3,10 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import { useBookingStore } from "@/lib/stores/booking-store";
 
 export default function Booking() {
+  const router = useRouter();
+  const setBookingDates = useBookingStore((state) => state.setBookingDates);
   const [bookingType, setBookingType] = useState<"stay" | "ocular">("stay");
   const [selectedDates, setSelectedDates] = useState<{ start: Date | null; end: Date | null }>({start: null, end: null});
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -15,11 +19,20 @@ export default function Booking() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [visitScheduled, setVisitScheduled] = useState(false);
 
-  const formatDateForQuery = (date: Date) => {
+  const formatDateForStore = (date: Date) => {
     const year = date.getFullYear();
     const month = `${date.getMonth() + 1}`.padStart(2, "0");
     const day = `${date.getDate()}`.padStart(2, "0");
     return `${year}-${month}-${day}`;
+  };
+
+  const handleContinueToReservation = () => {
+    if (!selectedDates.start || !selectedDates.end) {
+      return;
+    }
+
+    setBookingDates(formatDateForStore(selectedDates.start), formatDateForStore(selectedDates.end));
+    router.push("/booking/form");
   };
 
   const availableTimes = [
@@ -442,24 +455,14 @@ export default function Booking() {
                       <p className="text-xs text-neutral/60 mt-2">*Final price may vary based on room type and amenities</p>
                     </div>
 
-                    <Link
-                      href={
-                        selectedDates.start && selectedDates.end
-                          ? {
-                              pathname: "/booking/form",
-                              query: {
-                                checkIn: formatDateForQuery(selectedDates.start),
-                                checkOut: formatDateForQuery(selectedDates.end),
-                              },
-                            }
-                          : "/booking/form"
-                      }
+                    <button
+                      type="button"
+                      onClick={handleContinueToReservation}
+                      className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      disabled={!selectedDates.start || !selectedDates.end}
                     >
-                      <button className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                        disabled={!selectedDates.start || !selectedDates.end}>
-                        Continue to Reservation
-                      </button>
-                    </Link>
+                      Continue to Reservation
+                    </button>
                     
                     <p className="text-xs text-neutral/60 text-center mt-4">
                       No payment required at this stage

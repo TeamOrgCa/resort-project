@@ -3,22 +3,10 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
-
-interface ServiceLineItem {
-  id: string;
-  name: string;
-  price: number;
-}
-
-const parseNumber = (value: string | null, fallback = 0) => {
-  if (!value) return fallback;
-  const numberValue = Number(value);
-  return Number.isNaN(numberValue) ? fallback : numberValue;
-};
+import { useBookingStore } from "@/lib/stores/booking-store";
 
 const parseDateString = (value: string | null) => {
   if (!value) return null;
@@ -35,18 +23,6 @@ const parseDateString = (value: string | null) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const parseServices = (value: string | null): ServiceLineItem[] => {
-  if (!value) return [];
-
-  try {
-    const parsed = JSON.parse(value) as ServiceLineItem[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item) => item && typeof item.name === "string" && typeof item.price === "number");
-  } catch {
-    return [];
-  }
-};
-
 export default function Payment() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-base" />}>
@@ -56,13 +32,23 @@ export default function Payment() {
 }
 
 function PaymentContent() {
-  const searchParams = useSearchParams();
+  const bookingDraft = useBookingStore((state) => state.bookingDraft);
+  const resetBookingDraft = useBookingStore((state) => state.resetBookingDraft);
   const [paymentMethod, setPaymentMethod] = useState<"bank" | "ewallet">("bank");
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadedProofPath, setUploadedProofPath] = useState<string | null>(null);
   const [reservationReference, setReservationReference] = useState<string | null>(null);
+  const [submittedSummary, setSubmittedSummary] = useState<{
+    guestName: string;
+    guests: number;
+    roomName: string;
+    checkIn: string;
+    checkOut: string;
+    totalAmount: number;
+    downPayment: number;
+  } | null>(null);
   const bankFileInputRef = useRef<HTMLInputElement | null>(null);
   const ewalletFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -148,32 +134,33 @@ function PaymentContent() {
     };
   }, [ewalletProofPreviewUrl]);
 
-  const firstName = searchParams.get("firstName") || "Guest";
-  const lastName = searchParams.get("lastName") || "";
+  const firstName = bookingDraft.firstName || "Guest";
+  const lastName = bookingDraft.lastName || "";
   const guestName = `${firstName} ${lastName}`.trim();
-  const guests = parseNumber(searchParams.get("guests"), 1);
+  const guests = bookingDraft.guests || 1;
 
-  const checkInDate = parseDateString(searchParams.get("checkIn"));
-  const checkOutDate = parseDateString(searchParams.get("checkOut"));
-  const unitId = searchParams.get("unitId") || "";
+  const checkInDate = parseDateString(bookingDraft.checkIn || null);
+  const checkOutDate = parseDateString(bookingDraft.checkOut || null);
+  const unitId = bookingDraft.unitId || "";
 
-  const roomName = searchParams.get("roomName") || "Selected Room";
-  const roomPrice = parseNumber(searchParams.get("roomPrice"), 0);
-  const nights = parseNumber(searchParams.get("nights"), 1);
+  const roomName = bookingDraft.roomName || "Selected Room";
+  const roomPrice = bookingDraft.roomPrice || 0;
+  const nights = bookingDraft.nights || 1;
 
-  const subtotal = parseNumber(searchParams.get("subtotal"), 0);
-  const tax = parseNumber(searchParams.get("tax"), 0);
-  const totalAmount = parseNumber(searchParams.get("total"), 0);
-  const downPayment = parseNumber(searchParams.get("downPayment"), totalAmount * 0.3);
-  const selectedServices = parseServices(searchParams.get("services"));
+  const subtotal = bookingDraft.subtotal || 0;
+  const tax = bookingDraft.tax || 0;
+  const totalAmount = bookingDraft.total || 0;
+  const downPayment = bookingDraft.downPayment || totalAmount * 0.3;
+  const selectedServices = bookingDraft.services || [];
 
-  const backToFormHref = {
-    pathname: "/booking/form",
-    query: {
-      checkIn: searchParams.get("checkIn") || "",
-      checkOut: searchParams.get("checkOut") || "",
-    },
-  };
+  const backToFormHref = "/booking/form";
+  const successCheckInDate = parseDateString(submittedSummary?.checkIn ?? null) ?? checkInDate;
+  const successCheckOutDate = parseDateString(submittedSummary?.checkOut ?? null) ?? checkOutDate;
+  const successGuestName = submittedSummary?.guestName ?? guestName;
+  const successGuests = submittedSummary?.guests ?? guests;
+  const successRoomName = submittedSummary?.roomName ?? roomName;
+  const successTotalAmount = submittedSummary?.totalAmount ?? totalAmount;
+  const successDownPayment = submittedSummary?.downPayment ?? downPayment;
 
   const handlePaymentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -224,8 +211,8 @@ function PaymentContent() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          checkInDate: searchParams.get("checkIn"),
-          checkOutDate: searchParams.get("checkOut"),
+          checkInDate: bookingDraft.checkIn,
+          checkOutDate: bookingDraft.checkOut,
           totalGuests: guests,
           unitId,
           selectedServices: selectedServices.map((service) => ({
@@ -265,7 +252,17 @@ function PaymentContent() {
         return;
       }
 
+      setSubmittedSummary({
+        guestName,
+        guests,
+        roomName,
+        checkIn: bookingDraft.checkIn,
+        checkOut: bookingDraft.checkOut,
+        totalAmount,
+        downPayment,
+      });
       setReservationReference(checkoutJson.reservation?.referenceNumber || null);
+      resetBookingDraft();
       setPaymentComplete(true);
     } catch {
       setSubmitError("Unable to process payment right now. Please try again.");
@@ -295,39 +292,39 @@ function PaymentContent() {
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Guest Name</span>
-                <span className="font-semibold text-neutral">{guestName}</span>
+                <span className="font-semibold text-neutral">{successGuestName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Check-in</span>
                 <span className="font-semibold text-neutral">
-                  {checkInDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) || "N/A"}
+                  {successCheckInDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) || "N/A"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Check-out</span>
                 <span className="font-semibold text-neutral">
-                  {checkOutDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) || "N/A"}
+                  {successCheckOutDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) || "N/A"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Room Type</span>
-                <span className="font-semibold text-neutral">{roomName}</span>
+                <span className="font-semibold text-neutral">{successRoomName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Guests</span>
-                <span className="font-semibold text-neutral">{guests} {guests === 1 ? "Guest" : "Guests"}</span>
+                <span className="font-semibold text-neutral">{successGuests} {successGuests === 1 ? "Guest" : "Guests"}</span>
               </div>
               <div className="flex justify-between pt-3 border-t border-neutral/10">
                 <span className="text-neutral/70">Total Amount</span>
-                <span className="font-semibold text-neutral">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="font-semibold text-neutral">₱{successTotalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Paid (Down Payment)</span>
-                <span className="font-semibold text-secondary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="font-semibold text-secondary">₱{successDownPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Balance Due at Checkout</span>
-                <span className="font-bold text-primary text-lg">₱{(totalAmount - downPayment).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="font-bold text-primary text-lg">₱{(successTotalAmount - successDownPayment).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               {uploadedProofPath && (
                 <div className="flex justify-between">

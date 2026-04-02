@@ -334,10 +334,15 @@ export async function POST(request: Request) {
       }
     }
 
-    const { error: transactionUpdateError } = await supabase
-      .from("transactions")
-      .update({ total_amount: totalAmount })
-      .eq("reservation_id", reservation.reservation_id);
+    const { error: transactionUpdateError } = await supabase.from("transactions").upsert(
+      {
+        reservation_id: reservation.reservation_id,
+        total_amount: totalAmount,
+      },
+      {
+        onConflict: "reservation_id",
+      }
+    );
 
     if (transactionUpdateError) {
       await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
