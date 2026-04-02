@@ -59,7 +59,7 @@ interface PaymentRow {
   payment_id: string;
   reservation_id: string;
   amount: number;
-  payment_method: "bank_transfer" | "e_wallet";
+  payment_method: "bank_transfer" | "e_wallet" | "cash";
   payment_type: "downpayment" | "full" | "additional";
   status: "pending" | "verified";
   paid_at: string | null;
@@ -75,6 +75,22 @@ interface OcularVisitRow {
   time_slot: string;
   status: "pending" | "confirmed" | "cancelled";
   created_at: string;
+}
+
+interface TransactionBalanceRow {
+  reservation_id: string;
+  balance: number | null;
+}
+
+type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
+
+interface ManualPaymentForm {
+  amount: string;
+  paymentReference: string;
+  method: ManualPaymentMethod;
+  accountName: string;
+  accountNumber: string;
+  proofFile: File | null;
 }
 
 const formatDate = (value: string | null) => {
@@ -148,21 +164,37 @@ const toTitleCase = (value: string) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
+const generatePaymentReference = () =>
+  `PMT-${Date.now().toString().slice(-8)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+
 export default function AdminReservationsPage() {
   const [activeTab, setActiveTab] = useState<(typeof reservationTabs)[number]>("Reservation Records");
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [selectedPaymentRowIds, setSelectedPaymentRowIds] = useState<string[]>([]);
+  const [isManualPaymentDialogOpen, setIsManualPaymentDialogOpen] = useState(false);
+  const [isCreatingManualPayment, setIsCreatingManualPayment] = useState(false);
+  const [manualPaymentError, setManualPaymentError] = useState<string | null>(null);
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [pendingPaymentApproval, setPendingPaymentApproval] = useState<{ paymentId: string; reference: string } | null>(
     null
   );
   const [isApprovingPayment, setIsApprovingPayment] = useState(false);
+  const [manualPaymentForm, setManualPaymentForm] = useState<ManualPaymentForm>({
+    amount: "",
+    paymentReference: generatePaymentReference(),
+    method: "bank_transfer",
+    accountName: "",
+    accountNumber: "",
+    proofFile: null,
+  });
   const [ocularVisits, setOcularVisits] = useState<OcularVisitRow[]>([]);
   const [pendingOcularApproval, setPendingOcularApproval] = useState<{ visitId: string; reference: string } | null>(
     null
   );
   const [isApprovingOcularVisit, setIsApprovingOcularVisit] = useState(false);
+  const [remainingBalanceByReservationId, setRemainingBalanceByReservationId] = useState<Record<string, number>>({});
   const [guestsById, setGuestsById] = useState<Record<string, GuestRow>>({});
   const [reservationReferenceById, setReservationReferenceById] = useState<Record<string, string>>({});
 
@@ -207,7 +239,11 @@ export default function AdminReservationsPage() {
         ].filter(Boolean);
         const reservationIdList = reservationList.map((item) => item.reservation_id);
 
-        const [{ data: guestsData, error: guestsError }, { data: paymentsData, error: paymentsError }] =
+        const [
+          { data: guestsData, error: guestsError },
+          { data: paymentsData, error: paymentsError },
+          { data: transactionsData, error: transactionsError },
+        ] =
           await Promise.all([
             guestIds.length
               ? supabase.from("guests").select("id, first_name, last_name").in("id", guestIds)
@@ -221,6 +257,9 @@ export default function AdminReservationsPage() {
                   .in("reservation_id", reservationIdList)
                   .order("paid_at", { ascending: false })
               : Promise.resolve({ data: [], error: null }),
+                reservationIdList.length
+                  ? supabase.from("transactions").select("reservation_id, balance").in("reservation_id", reservationIdList)
+                  : Promise.resolve({ data: [], error: null }),
           ]);
 
         if (guestsError) {
@@ -229,6 +268,10 @@ export default function AdminReservationsPage() {
 
         if (paymentsError) {
           throw paymentsError;
+        }
+
+        if (transactionsError) {
+          throw transactionsError;
         }
 
         if (!isMounted) return;
@@ -246,11 +289,19 @@ export default function AdminReservationsPage() {
           return accumulator;
         }, {});
 
+        const nextRemainingBalanceByReservationId = (
+          (transactionsData as TransactionBalanceRow[] | null) ?? []
+        ).reduce<Record<string, number>>((accumulator, transaction) => {
+          accumulator[transaction.reservation_id] = Number(transaction.balance ?? 0);
+          return accumulator;
+        }, {});
+
         setReservations(reservationList);
         setPayments((paymentsData as PaymentRow[] | null) ?? []);
         setOcularVisits(ocularVisitList);
         setGuestsById(nextGuestsById);
         setReservationReferenceById(nextReservationReferenceById);
+        setRemainingBalanceByReservationId(nextRemainingBalanceByReservationId);
       } catch {
         if (!isMounted) return;
         setFetchError("Failed to load reservation and payment records.");
@@ -297,15 +348,186 @@ export default function AdminReservationsPage() {
         reservationId: payment.reservation_id,
         reservationReference: reservationReferenceById[payment.reservation_id] ?? "-",
         paymentReference: payment.reference_number,
-        method: payment.payment_method === "bank_transfer" ? "Bank Transfer" : "E-wallet",
+        method:
+          payment.payment_method === "bank_transfer"
+            ? "Bank Transfer"
+            : payment.payment_method === "e_wallet"
+              ? "E-wallet"
+              : "Cash",
         type: toTitleCase(payment.payment_type),
         amount: formatCurrency(Number(payment.amount ?? 0)),
+        remainingBalance: formatCurrency(Number(remainingBalanceByReservationId[payment.reservation_id] ?? 0)),
         status: toTitleCase(payment.status),
         paidAt: formatDateTime(payment.paid_at),
         proofPath: payment.proof_path,
       })),
-    [payments, reservationReferenceById]
+    [payments, reservationReferenceById, remainingBalanceByReservationId]
   );
+
+  const selectedPaymentRow = useMemo(() => {
+    const selectedId = selectedPaymentRowIds[0];
+    if (!selectedId) return null;
+    return paymentVerificationRows.find((row) => row.id === selectedId) ?? null;
+  }, [paymentVerificationRows, selectedPaymentRowIds]);
+
+  const selectedPaymentReservationId = selectedPaymentRow?.reservationId ?? "";
+  const selectedRemainingBalance = Number(remainingBalanceByReservationId[selectedPaymentReservationId] ?? 0);
+
+  const resetManualPaymentForm = () => {
+    setManualPaymentForm({
+      amount: selectedRemainingBalance > 0 ? selectedRemainingBalance.toFixed(2) : "",
+      paymentReference: generatePaymentReference(),
+      method: "bank_transfer",
+      accountName: "",
+      accountNumber: "",
+      proofFile: null,
+    });
+  };
+
+  const handlePaymentAction = (action: string) => {
+    if (action !== "Add New Payment Entry") {
+      return;
+    }
+
+    if (!selectedPaymentRow) {
+      setFetchError("Select one payment row first before adding a new payment entry.");
+      return;
+    }
+
+    if (selectedRemainingBalance <= 0) {
+      setFetchError("Selected reservation has no remaining balance.");
+      return;
+    }
+
+    setFetchError(null);
+    setManualPaymentError(null);
+    resetManualPaymentForm();
+    setIsManualPaymentDialogOpen(true);
+  };
+
+  const handleCreateManualPayment = async () => {
+    if (!selectedPaymentRow || !selectedPaymentReservationId) {
+      setManualPaymentError("Select a reservation payment row first.");
+      return;
+    }
+
+    const parsedAmount = Number(manualPaymentForm.amount);
+
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setManualPaymentError("Enter a valid payment amount.");
+      return;
+    }
+
+    if (parsedAmount > selectedRemainingBalance) {
+      setManualPaymentError("Amount cannot exceed remaining balance.");
+      return;
+    }
+
+    const isCash = manualPaymentForm.method === "cash";
+
+    if (!isCash) {
+      if (!manualPaymentForm.accountName.trim() || !manualPaymentForm.accountNumber.trim()) {
+        setManualPaymentError("Account details are required for this method.");
+        return;
+      }
+
+      if (!manualPaymentForm.proofFile) {
+        setManualPaymentError("Screenshot of payment is required for this method.");
+        return;
+      }
+    }
+
+    setManualPaymentError(null);
+    setIsCreatingManualPayment(true);
+
+    try {
+      let proofPath = "";
+
+      if (!isCash && manualPaymentForm.proofFile) {
+        const supabase = createClient();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          setManualPaymentError("Unable to resolve current staff session for proof upload.");
+          return;
+        }
+
+        const safeFileName = manualPaymentForm.proofFile.name.replace(/[^a-zA-Z0-9_.-]/g, "_");
+        proofPath = `${user.id}/${Date.now()}-${safeFileName}`;
+
+        const { error: uploadError } = await supabase.storage.from("payment-proofs").upload(proofPath, manualPaymentForm.proofFile, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+        if (uploadError) {
+          setManualPaymentError(uploadError.message || "Failed to upload payment screenshot.");
+          return;
+        }
+      }
+
+      const response = await fetch("/api/admin/payments/manual-entry", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId: selectedPaymentReservationId,
+          amount: parsedAmount,
+          paymentMethod: manualPaymentForm.method,
+          paymentReference: manualPaymentForm.paymentReference,
+          accountName: isCash ? undefined : manualPaymentForm.accountName,
+          accountNumber: isCash ? undefined : manualPaymentForm.accountNumber,
+          proofPath,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as
+        | {
+            success?: boolean;
+            message?: string;
+            payment?: PaymentRow;
+            reservationId?: string;
+            remainingBalance?: number;
+          }
+        | null;
+
+      if (!response.ok || !result?.success || !result.payment) {
+        setManualPaymentError(result?.message ?? "Failed to create payment entry.");
+        return;
+      }
+
+      setPayments((currentPayments) => [result.payment as PaymentRow, ...currentPayments]);
+
+      if (result?.reservationId) {
+        setReservations((currentReservations) =>
+          currentReservations.map((reservation) =>
+            reservation.reservation_id === result.reservationId
+              ? {
+                  ...reservation,
+                  status: "confirmed",
+                }
+              : reservation
+          )
+        );
+
+        setRemainingBalanceByReservationId((currentBalances) => ({
+          ...currentBalances,
+          [result.reservationId as string]: Number(result.remainingBalance ?? 0),
+        }));
+      }
+
+      setIsManualPaymentDialogOpen(false);
+      setSelectedPaymentRowIds([]);
+    } catch {
+      setManualPaymentError("Failed to create payment entry.");
+    } finally {
+      setIsCreatingManualPayment(false);
+    }
+  };
 
   const handlePaymentRowAction = async (action: string, row: AdminTableRow) => {
     if (action === "Approve") {
@@ -363,7 +585,7 @@ export default function AdminReservationsPage() {
       });
 
       const result = (await response.json().catch(() => null)) as
-        | { message?: string; reservationId?: string }
+        | { message?: string; reservationId?: string; remainingBalance?: number }
         | null;
 
       if (!response.ok) {
@@ -393,6 +615,11 @@ export default function AdminReservationsPage() {
               : reservation
           )
         );
+
+        setRemainingBalanceByReservationId((currentBalances) => ({
+          ...currentBalances,
+          [result.reservationId as string]: Number(result.remainingBalance ?? 0),
+        }));
       }
 
       setPendingPaymentApproval(null);
@@ -560,14 +787,23 @@ export default function AdminReservationsPage() {
         {activeTab === "Payment Verification Queue" && (
           <AdminTablePreview
             title={isLoading ? "Payment Verification Queue (Loading...)" : "Payment Verification Queue"}
-            columns={paymentVerificationColumns}
+            columns={[
+              ...paymentVerificationColumns,
+              { key: "remainingBalance", label: "Remaining Balance" },
+            ]}
             rows={paymentVerificationRows}
             defaultSort={{ key: "paidAt", direction: "desc" }}
             filters={[
               { key: "method", label: "Method", options: paymentMethodOptions },
               { key: "status", label: "Status", options: paymentStatusOptions },
             ]}
-            actions={["Verify Selected"]}
+            actions={["Export", "Add New Payment Entry"]}
+            onAction={handlePaymentAction}
+            isActionDisabled={(action) => action === "Add New Payment Entry" && selectedPaymentRowIds.length === 0}
+            selectableRows
+            singleSelect
+            selectedRowIds={selectedPaymentRowIds}
+            onSelectedRowIdsChange={setSelectedPaymentRowIds}
             rowActions={["Review", "Approve"]}
             onRowAction={handlePaymentRowAction}
             isRowActionDisabled={(action, row) =>
@@ -660,6 +896,158 @@ export default function AdminReservationsPage() {
           }
         }}
       />
+
+      {isManualPaymentDialogOpen && selectedPaymentRow ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/40 px-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-2xl rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-neutral">Add New Payment Entry</h3>
+            <p className="mt-1 text-sm text-neutral/70">
+              Reservation {selectedPaymentRow.reservationReference} • Remaining balance {formatCurrency(selectedRemainingBalance)}
+            </p>
+
+            {manualPaymentError ? (
+              <p className="mt-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                {manualPaymentError}
+              </p>
+            ) : null}
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Remaining Balance</label>
+                <input
+                  value={formatCurrency(selectedRemainingBalance)}
+                  readOnly
+                  className="w-full rounded-lg border border-neutral/20 bg-base px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Payment Reference</label>
+                <input
+                  value={manualPaymentForm.paymentReference}
+                  readOnly
+                  className="w-full rounded-lg border border-neutral/20 bg-base px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Amount</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={manualPaymentForm.amount}
+                  onChange={(event) =>
+                    setManualPaymentForm((current) => ({
+                      ...current,
+                      amount: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Method</label>
+                <select
+                  value={manualPaymentForm.method}
+                  onChange={(event) =>
+                    setManualPaymentForm((current) => ({
+                      ...current,
+                      method: event.target.value as ManualPaymentMethod,
+                      accountName: "",
+                      accountNumber: "",
+                      proofFile: null,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                >
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="e_wallet">E-wallet</option>
+                  <option value="cash">Cash</option>
+                </select>
+              </div>
+
+              {manualPaymentForm.method !== "cash" ? (
+                <>
+                  <div>
+                    <label className="mb-2 block text-sm text-neutral/70">Account Name</label>
+                    <input
+                      value={manualPaymentForm.accountName}
+                      onChange={(event) =>
+                        setManualPaymentForm((current) => ({
+                          ...current,
+                          accountName: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm text-neutral/70">
+                      {manualPaymentForm.method === "bank_transfer" ? "Reference Number" : "Account Number"}
+                    </label>
+                    <input
+                      value={manualPaymentForm.accountNumber}
+                      onChange={(event) =>
+                        setManualPaymentForm((current) => ({
+                          ...current,
+                          accountNumber: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm text-neutral/70">Screenshot of Payment</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) =>
+                        setManualPaymentForm((current) => ({
+                          ...current,
+                          proofFile: event.target.files?.[0] ?? null,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                    />
+                    {manualPaymentForm.proofFile ? (
+                      <p className="mt-2 text-xs text-neutral/70">Selected: {manualPaymentForm.proofFile.name}</p>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={isCreatingManualPayment}
+                onClick={() => {
+                  if (!isCreatingManualPayment) {
+                    setIsManualPaymentDialogOpen(false);
+                  }
+                }}
+                className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isCreatingManualPayment}
+                onClick={() => {
+                  void handleCreateManualPayment();
+                }}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isCreatingManualPayment ? "Saving..." : "Save Payment Entry"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

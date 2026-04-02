@@ -19,6 +19,9 @@ interface ReservationRow {
 
 interface TransactionRow {
   total_amount: number;
+  paid_amount?: number | null;
+  status?: "unpaid" | "partial" | "paid";
+  balance?: number | null;
 }
 
 const parsePayload = (value: unknown): ApprovePaymentPayload | null => {
@@ -241,11 +244,91 @@ export async function POST(request: Request) {
       );
     }
 
+    const { data: transactionSummary, error: transactionSummaryError } = await staffContext.supabase
+      .from("transactions")
+      .select("total_amount")
+      .eq("reservation_id", reservation.reservation_id)
+      .maybeSingle<TransactionRow>();
+
+    if (transactionSummaryError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Failed to read transaction summary.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const { data: verifiedPayments, error: verifiedPaymentsError } = await staffContext.supabase
+      .from("payments")
+      .select("amount")
+      .eq("reservation_id", reservation.reservation_id)
+      .eq("status", "verified");
+
+    if (verifiedPaymentsError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Failed to aggregate verified payments.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const paidAmount = ((verifiedPayments as Array<{ amount: number }> | null) ?? []).reduce(
+      (sum, payment) => sum + Number(payment.amount ?? 0),
+      0
+    );
+
+    const totalAmount = Number(transactionSummary?.total_amount ?? 0);
+    const transactionStatus: "unpaid" | "partial" | "paid" =
+      paidAmount <= 0 ? "unpaid" : paidAmount >= totalAmount ? "paid" : "partial";
+
+    const { error: syncError } = await staffContext.supabase.from("transactions").upsert(
+      {
+        reservation_id: reservation.reservation_id,
+        total_amount: totalAmount,
+        paid_amount: paidAmount,
+        status: transactionStatus,
+      },
+      {
+        onConflict: "reservation_id",
+      }
+    );
+
+    if (syncError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Failed to synchronize transaction totals.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const { data: refreshedTransaction, error: refreshedTransactionError } = await staffContext.supabase
+      .from("transactions")
+      .select("balance")
+      .eq("reservation_id", reservation.reservation_id)
+      .maybeSingle<TransactionRow>();
+
+    if (refreshedTransactionError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Failed to read updated transaction balance.",
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json(
       {
         success: true,
         message: "Payment approved and billing documents generated.",
         reservationId: reservation.reservation_id,
+        remainingBalance: Number(refreshedTransaction?.balance ?? 0),
       },
       { status: 200 }
     );
