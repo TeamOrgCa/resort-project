@@ -154,6 +154,10 @@ export default function AdminReservationsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [pendingPaymentApproval, setPendingPaymentApproval] = useState<{ paymentId: string; reference: string } | null>(
+    null
+  );
+  const [isApprovingPayment, setIsApprovingPayment] = useState(false);
   const [ocularVisits, setOcularVisits] = useState<OcularVisitRow[]>([]);
   const [pendingOcularApproval, setPendingOcularApproval] = useState<{ visitId: string; reference: string } | null>(
     null
@@ -290,6 +294,7 @@ export default function AdminReservationsPage() {
     () =>
       payments.map((payment) => ({
         id: payment.payment_id,
+        reservationId: payment.reservation_id,
         reservationReference: reservationReferenceById[payment.reservation_id] ?? "-",
         paymentReference: payment.reference_number,
         method: payment.payment_method === "bank_transfer" ? "Bank Transfer" : "E-wallet",
@@ -303,6 +308,25 @@ export default function AdminReservationsPage() {
   );
 
   const handlePaymentRowAction = async (action: string, row: AdminTableRow) => {
+    if (action === "Approve") {
+      if (row.status === "Verified") {
+        return;
+      }
+
+      const paymentId = typeof row.id === "string" ? row.id : "";
+
+      if (!paymentId) {
+        setFetchError("Unable to approve this payment.");
+        return;
+      }
+
+      setPendingPaymentApproval({
+        paymentId,
+        reference: row.paymentReference ?? paymentId,
+      });
+      return;
+    }
+
     if (action !== "Review") {
       return;
     }
@@ -323,6 +347,60 @@ export default function AdminReservationsPage() {
     }
 
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const approvePaymentVerification = async (paymentId: string) => {
+    setFetchError(null);
+    setIsApprovingPayment(true);
+
+    try {
+      const response = await fetch("/api/admin/payments/approve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ paymentId }),
+      });
+
+      const result = (await response.json().catch(() => null)) as
+        | { message?: string; reservationId?: string }
+        | null;
+
+      if (!response.ok) {
+        setFetchError(result?.message ?? "Failed to approve payment.");
+        return;
+      }
+
+      setPayments((currentPayments) =>
+        currentPayments.map((payment) =>
+          payment.payment_id === paymentId
+            ? {
+                ...payment,
+                status: "verified",
+              }
+            : payment
+        )
+      );
+
+      if (result?.reservationId) {
+        setReservations((currentReservations) =>
+          currentReservations.map((reservation) =>
+            reservation.reservation_id === result.reservationId
+              ? {
+                  ...reservation,
+                  status: "confirmed",
+                }
+              : reservation
+          )
+        );
+      }
+
+      setPendingPaymentApproval(null);
+    } catch {
+      setFetchError("Failed to approve payment.");
+    } finally {
+      setIsApprovingPayment(false);
+    }
   };
 
   const ocularVisitRows: AdminTableRow[] = useMemo(
@@ -492,6 +570,10 @@ export default function AdminReservationsPage() {
             actions={["Verify Selected"]}
             rowActions={["Review", "Approve"]}
             onRowAction={handlePaymentRowAction}
+            isRowActionDisabled={(action, row) =>
+              action === "Approve" &&
+              (row.status === "Verified" || (isApprovingPayment && pendingPaymentApproval?.paymentId === row.id))
+            }
           />
         )}
 
@@ -556,6 +638,25 @@ export default function AdminReservationsPage() {
         onConfirm={() => {
           if (pendingOcularApproval) {
             void approveOcularVisit(pendingOcularApproval.visitId);
+          }
+        }}
+      />
+
+      <ConfirmationDialog
+        isOpen={Boolean(pendingPaymentApproval)}
+        title="Approve Payment"
+        message={`Approve payment ${pendingPaymentApproval?.reference ?? ""}? This will verify payment, confirm reservation, and generate invoice/receipt.`}
+        confirmText="Approve"
+        cancelText="Cancel"
+        isConfirming={isApprovingPayment}
+        onCancel={() => {
+          if (!isApprovingPayment) {
+            setPendingPaymentApproval(null);
+          }
+        }}
+        onConfirm={() => {
+          if (pendingPaymentApproval) {
+            void approvePaymentVerification(pendingPaymentApproval.paymentId);
           }
         }}
       />
