@@ -47,12 +47,17 @@ interface ReservationRow {
   total_guests: number;
   status: string;
   created_at: string;
+  booking_type: "online" | "walk_in" | null;
 }
 
 interface GuestRow {
   id: string;
   first_name: string;
   last_name: string;
+  middle_name?: string | null;
+  email?: string | null;
+  phone_number?: string | null;
+  address?: string | null;
 }
 
 interface PaymentRow {
@@ -80,6 +85,44 @@ interface OcularVisitRow {
 interface TransactionBalanceRow {
   reservation_id: string;
   balance: number | null;
+}
+
+interface ReservationUnitDetailRow {
+  quantity: number;
+  price_per_night: number;
+  units: {
+    name: string;
+    capacity: number;
+  } | Array<{
+    name: string;
+    capacity: number;
+  }> | null;
+}
+
+interface ReservationServiceDetailRow {
+  quantity: number;
+  price_at_time: number;
+  services: {
+    name: string;
+  } | Array<{
+    name: string;
+  }> | null;
+}
+
+interface ReservationDetails {
+  reservation: ReservationRow;
+  guest: GuestRow | null;
+  units: Array<{
+    name: string;
+    quantity: number;
+    capacity: number;
+    pricePerNight: number;
+  }>;
+  services: Array<{
+    name: string;
+    quantity: number;
+    priceAtTime: number;
+  }>;
 }
 
 type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
@@ -175,6 +218,10 @@ export default function AdminReservationsPage() {
   const [isManualPaymentDialogOpen, setIsManualPaymentDialogOpen] = useState(false);
   const [isCreatingManualPayment, setIsCreatingManualPayment] = useState(false);
   const [manualPaymentError, setManualPaymentError] = useState<string | null>(null);
+  const [isReservationDetailsOpen, setIsReservationDetailsOpen] = useState(false);
+  const [isReservationDetailsLoading, setIsReservationDetailsLoading] = useState(false);
+  const [reservationDetailsError, setReservationDetailsError] = useState<string | null>(null);
+  const [reservationDetails, setReservationDetails] = useState<ReservationDetails | null>(null);
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [pendingPaymentApproval, setPendingPaymentApproval] = useState<{ paymentId: string; reference: string } | null>(
@@ -211,7 +258,7 @@ export default function AdminReservationsPage() {
         const { data: reservationsData, error: reservationsError } = await supabase
           .from("reservations")
           .select(
-            "reservation_id, reference_number, guest_id, check_in_date, check_out_date, total_guests, status, created_at"
+            "reservation_id, reference_number, guest_id, check_in_date, check_out_date, total_guests, status, created_at, booking_type"
           )
           .order("created_at", { ascending: false })
           .limit(200);
@@ -571,6 +618,85 @@ export default function AdminReservationsPage() {
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
+  const handleReservationRowAction = async (action: string, row: AdminTableRow) => {
+    if (action !== "View") {
+      return;
+    }
+
+    const reservationId = typeof row.id === "string" ? row.id : "";
+
+    if (!reservationId) {
+      setFetchError("Unable to view reservation details.");
+      return;
+    }
+
+    setIsReservationDetailsOpen(true);
+    setIsReservationDetailsLoading(true);
+    setReservationDetailsError(null);
+    setReservationDetails(null);
+
+    try {
+      const supabase = createClient();
+
+      const { data: reservation, error: reservationError } = await supabase
+        .from("reservations")
+        .select(
+          "reservation_id, reference_number, guest_id, check_in_date, check_out_date, total_guests, status, created_at, booking_type"
+        )
+        .eq("reservation_id", reservationId)
+        .maybeSingle<ReservationRow>();
+
+      if (reservationError || !reservation) {
+        setReservationDetailsError("Reservation details were not found.");
+        return;
+      }
+
+      const [guestResult, unitsResult, servicesResult] = await Promise.all([
+        supabase
+          .from("guests")
+          .select("id, first_name, last_name, middle_name, email, phone_number, address")
+          .eq("id", reservation.guest_id)
+          .maybeSingle<GuestRow>(),
+        supabase
+          .from("reservation_units")
+          .select("quantity, price_per_night, units(name, capacity)")
+          .eq("reservation_id", reservationId),
+        supabase
+          .from("reservation_services")
+          .select("quantity, price_at_time, services(name)")
+          .eq("reservation_id", reservationId),
+      ]);
+
+      if (guestResult.error || unitsResult.error || servicesResult.error) {
+        setReservationDetailsError("Failed to load complete reservation details.");
+        return;
+      }
+
+      const unitRows = (unitsResult.data as ReservationUnitDetailRow[] | null) ?? [];
+      const serviceRows = (servicesResult.data as ReservationServiceDetailRow[] | null) ?? [];
+
+      setReservationDetails({
+        reservation,
+        guest: guestResult.data,
+        units: unitRows.map((unit) => ({
+          name: (Array.isArray(unit.units) ? unit.units[0]?.name : unit.units?.name) ?? "Unit",
+          quantity: Number(unit.quantity ?? 0),
+          capacity: Number((Array.isArray(unit.units) ? unit.units[0]?.capacity : unit.units?.capacity) ?? 0),
+          pricePerNight: Number(unit.price_per_night ?? 0),
+        })),
+        services: serviceRows.map((service) => ({
+          name: (Array.isArray(service.services) ? service.services[0]?.name : service.services?.name) ?? "Service",
+          quantity: Number(service.quantity ?? 0),
+          priceAtTime: Number(service.price_at_time ?? 0),
+        })),
+      });
+    } catch {
+      setReservationDetailsError("Failed to load complete reservation details.");
+    } finally {
+      setIsReservationDetailsLoading(false);
+    }
+  };
+
   const approvePaymentVerification = async (paymentId: string) => {
     setFetchError(null);
     setIsApprovingPayment(true);
@@ -781,6 +907,7 @@ export default function AdminReservationsPage() {
             ]}
             actions={["Export"]}
             rowActions={["View", "Edit"]}
+            onRowAction={handleReservationRowAction}
           />
         )}
 
@@ -1045,6 +1172,119 @@ export default function AdminReservationsPage() {
                 {isCreatingManualPayment ? "Saving..." : "Save Payment Entry"}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isReservationDetailsOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/40 px-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-3xl rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral">Reservation Details</h3>
+                <p className="mt-1 text-sm text-neutral/70">Full reservation, guest, units, and services summary.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReservationDetailsOpen(false);
+                }}
+                className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
+              >
+                Close
+              </button>
+            </div>
+
+            {isReservationDetailsLoading ? <p className="mt-5 text-sm text-neutral/70">Loading reservation details...</p> : null}
+
+            {reservationDetailsError ? (
+              <p className="mt-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                {reservationDetailsError}
+              </p>
+            ) : null}
+
+            {!isReservationDetailsLoading && reservationDetails ? (
+              <div className="mt-5 space-y-6">
+                <section className="rounded-xl border border-neutral/10 p-4">
+                  <h4 className="text-sm font-semibold text-neutral">Reservation</h4>
+                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 md:grid-cols-2">
+                    <p>
+                      Reference: <span className="font-semibold text-neutral">{reservationDetails.reservation.reference_number}</span>
+                    </p>
+                    <p>
+                      Status: <span className="font-semibold text-neutral">{toTitleCase(reservationDetails.reservation.status)}</span>
+                    </p>
+                    <p>
+                      Check-in: <span className="font-semibold text-neutral">{formatDate(reservationDetails.reservation.check_in_date)}</span>
+                    </p>
+                    <p>
+                      Check-out: <span className="font-semibold text-neutral">{formatDate(reservationDetails.reservation.check_out_date)}</span>
+                    </p>
+                    <p>
+                      Guests: <span className="font-semibold text-neutral">{reservationDetails.reservation.total_guests}</span>
+                    </p>
+                    <p>
+                      Booking Type: <span className="font-semibold text-neutral">{toTitleCase(reservationDetails.reservation.booking_type ?? "online")}</span>
+                    </p>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-neutral/10 p-4">
+                  <h4 className="text-sm font-semibold text-neutral">Guest Info</h4>
+                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 md:grid-cols-2">
+                    <p>
+                      Name:{" "}
+                      <span className="font-semibold text-neutral">
+                        {reservationDetails.guest
+                          ? `${reservationDetails.guest.first_name} ${reservationDetails.guest.middle_name ?? ""} ${reservationDetails.guest.last_name}`
+                              .replace(/\s+/g, " ")
+                              .trim()
+                          : "Unknown Guest"}
+                      </span>
+                    </p>
+                    <p>
+                      Email: <span className="font-semibold text-neutral">{reservationDetails.guest?.email ?? "-"}</span>
+                    </p>
+                    <p>
+                      Phone: <span className="font-semibold text-neutral">{reservationDetails.guest?.phone_number ?? "-"}</span>
+                    </p>
+                    <p>
+                      Address: <span className="font-semibold text-neutral">{reservationDetails.guest?.address ?? "-"}</span>
+                    </p>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-neutral/10 p-4">
+                  <h4 className="text-sm font-semibold text-neutral">Reserved Units</h4>
+                  {reservationDetails.units.length === 0 ? (
+                    <p className="mt-3 text-sm text-neutral/70">No units found.</p>
+                  ) : (
+                    <div className="mt-3 space-y-2 text-sm text-neutral/80">
+                      {reservationDetails.units.map((unit, index) => (
+                        <p key={`${unit.name}-${index}`}>
+                          <span className="font-semibold text-neutral">{unit.name}</span> • Qty {unit.quantity} • Capacity {unit.capacity} • {formatCurrency(unit.pricePerNight)}/night
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="rounded-xl border border-neutral/10 p-4">
+                  <h4 className="text-sm font-semibold text-neutral">Services</h4>
+                  {reservationDetails.services.length === 0 ? (
+                    <p className="mt-3 text-sm text-neutral/70">No add-on services selected.</p>
+                  ) : (
+                    <div className="mt-3 space-y-2 text-sm text-neutral/80">
+                      {reservationDetails.services.map((service, index) => (
+                        <p key={`${service.name}-${index}`}>
+                          <span className="font-semibold text-neutral">{service.name}</span> • Qty {service.quantity} • {formatCurrency(service.priceAtTime)}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
