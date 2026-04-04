@@ -125,6 +125,27 @@ interface ReservationDetails {
   }>;
 }
 
+interface PaymentDetails {
+  reservationReference: string;
+  paymentReference: string;
+  method: string;
+  type: string;
+  amount: string;
+  remainingBalance: string;
+  status: string;
+  paidAt: string;
+  proofPath: string;
+}
+
+interface OcularVisitDetails {
+  reference: string;
+  guest: string;
+  scheduledDate: string;
+  timeSlot: string;
+  status: string;
+  createdAt: string;
+}
+
 type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
 
 interface ManualPaymentForm {
@@ -214,6 +235,7 @@ export default function AdminReservationsPage() {
   const [activeTab, setActiveTab] = useState<(typeof reservationTabs)[number]>("Reservation Records");
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedPaymentRowIds, setSelectedPaymentRowIds] = useState<string[]>([]);
   const [isManualPaymentDialogOpen, setIsManualPaymentDialogOpen] = useState(false);
   const [isCreatingManualPayment, setIsCreatingManualPayment] = useState(false);
@@ -222,6 +244,10 @@ export default function AdminReservationsPage() {
   const [isReservationDetailsLoading, setIsReservationDetailsLoading] = useState(false);
   const [reservationDetailsError, setReservationDetailsError] = useState<string | null>(null);
   const [reservationDetails, setReservationDetails] = useState<ReservationDetails | null>(null);
+  const [isPaymentDetailsOpen, setIsPaymentDetailsOpen] = useState(false);
+  const [paymentDetails, setPaymentDetails] = useState<PaymentDetails | null>(null);
+  const [isOcularVisitDetailsOpen, setIsOcularVisitDetailsOpen] = useState(false);
+  const [ocularVisitDetails, setOcularVisitDetails] = useState<OcularVisitDetails | null>(null);
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [pendingPaymentApproval, setPendingPaymentApproval] = useState<{ paymentId: string; reference: string } | null>(
@@ -244,6 +270,18 @@ export default function AdminReservationsPage() {
   const [remainingBalanceByReservationId, setRemainingBalanceByReservationId] = useState<Record<string, number>>({});
   const [guestsById, setGuestsById] = useState<Record<string, GuestRow>>({});
   const [reservationReferenceById, setReservationReferenceById] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!toastMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setToastMessage(null);
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
 
   useEffect(() => {
     let isMounted = true;
@@ -577,6 +615,22 @@ export default function AdminReservationsPage() {
   };
 
   const handlePaymentRowAction = async (action: string, row: AdminTableRow) => {
+    if (action === "View") {
+      setPaymentDetails({
+        reservationReference: row.reservationReference ?? "-",
+        paymentReference: row.paymentReference ?? "-",
+        method: row.method ?? "-",
+        type: row.type ?? "-",
+        amount: row.amount ?? "-",
+        remainingBalance: row.remainingBalance ?? "-",
+        status: row.status ?? "-",
+        paidAt: row.paidAt ?? "-",
+        proofPath: row.proofPath ?? "",
+      });
+      setIsPaymentDetailsOpen(true);
+      return;
+    }
+
     if (action === "Approve") {
       if (row.status === "Verified") {
         return;
@@ -603,7 +657,7 @@ export default function AdminReservationsPage() {
     const proofPath = row.proofPath;
 
     if (!proofPath) {
-      setFetchError("This payment has no uploaded proof file.");
+      setToastMessage("This payment has no uploaded proof file.");
       return;
     }
 
@@ -611,7 +665,7 @@ export default function AdminReservationsPage() {
     const { data, error } = await supabase.storage.from("payment-proofs").createSignedUrl(proofPath, 120);
 
     if (error || !data?.signedUrl) {
-      setFetchError("Unable to open payment proof image.");
+      setToastMessage("Unable to open payment proof image.");
       return;
     }
 
@@ -817,6 +871,19 @@ export default function AdminReservationsPage() {
   };
 
   const handleOcularVisitRowAction = async (action: string, row: AdminTableRow) => {
+    if (action === "View") {
+      setOcularVisitDetails({
+        reference: row.reference ?? "-",
+        guest: row.guest ?? "-",
+        scheduledDate: row.scheduledDate ?? "-",
+        timeSlot: row.timeSlot ?? "-",
+        status: row.status ?? "-",
+        createdAt: row.createdAt ?? "-",
+      });
+      setIsOcularVisitDetailsOpen(true);
+      return;
+    }
+
     if (action !== "Approve") {
       return;
     }
@@ -877,6 +944,12 @@ export default function AdminReservationsPage() {
           </p>
         ) : null}
 
+        {toastMessage ? (
+          <div className="fixed bottom-4 right-4 z-60 rounded-xl border border-neutral/10 bg-neutral px-4 py-3 text-sm text-base shadow-xl">
+            {toastMessage}
+          </div>
+        ) : null}
+
         <div className="mb-4 flex flex-wrap gap-2 border-b border-neutral/10 pb-4">
           {reservationTabs.map((tab) => {
             const isActive = tab === activeTab;
@@ -931,7 +1004,7 @@ export default function AdminReservationsPage() {
             singleSelect
             selectedRowIds={selectedPaymentRowIds}
             onSelectedRowIdsChange={setSelectedPaymentRowIds}
-            rowActions={["Review", "Approve"]}
+            rowActions={["View", "Review", "Approve"]}
             onRowAction={handlePaymentRowAction}
             isRowActionDisabled={(action, row) =>
               action === "Approve" &&
@@ -1025,8 +1098,8 @@ export default function AdminReservationsPage() {
       />
 
       {isManualPaymentDialogOpen && selectedPaymentRow ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/40 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-2xl rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-neutral">Add New Payment Entry</h3>
             <p className="mt-1 text-sm text-neutral/70">
               Reservation {selectedPaymentRow.reservationReference} • Remaining balance {formatCurrency(selectedRemainingBalance)}
@@ -1176,9 +1249,130 @@ export default function AdminReservationsPage() {
         </div>
       ) : null}
 
+      {isPaymentDetailsOpen && paymentDetails ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral">Payment Details</h3>
+                <p className="mt-1 text-sm text-neutral/70">Verification details for the selected payment.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPaymentDetailsOpen(false);
+                }}
+                className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-2 text-sm text-neutral/80 md:grid-cols-2">
+              <p>
+                Reservation Ref: <span className="font-semibold text-neutral">{paymentDetails.reservationReference}</span>
+              </p>
+              <p>
+                Payment Ref: <span className="font-semibold text-neutral">{paymentDetails.paymentReference}</span>
+              </p>
+              <p>
+                Method: <span className="font-semibold text-neutral">{paymentDetails.method}</span>
+              </p>
+              <p>
+                Type: <span className="font-semibold text-neutral">{paymentDetails.type}</span>
+              </p>
+              <p>
+                Amount: <span className="font-semibold text-neutral">{paymentDetails.amount}</span>
+              </p>
+              <p>
+                Remaining Balance: <span className="font-semibold text-neutral">{paymentDetails.remainingBalance}</span>
+              </p>
+              <p>
+                Status: <span className="font-semibold text-neutral">{paymentDetails.status}</span>
+              </p>
+              <p>
+                Paid At: <span className="font-semibold text-neutral">{paymentDetails.paidAt}</span>
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!paymentDetails.proofPath) {
+                    setToastMessage("This payment has no uploaded proof file.");
+                    return;
+                  }
+
+                  void (async () => {
+                    const supabase = createClient();
+                    const { data, error } = await supabase.storage
+                      .from("payment-proofs")
+                      .createSignedUrl(paymentDetails.proofPath, 120);
+
+                    if (error || !data?.signedUrl) {
+                      setToastMessage("Unable to open payment proof image.");
+                      return;
+                    }
+
+                    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+                  })();
+                }}
+                className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-medium text-neutral hover:bg-base"
+              >
+                Open Proof Image
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isOcularVisitDetailsOpen && ocularVisitDetails ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral">Ocular Visit Details</h3>
+                <p className="mt-1 text-sm text-neutral/70">Complete details for the selected ocular appointment.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOcularVisitDetailsOpen(false);
+                }}
+                className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-2 text-sm text-neutral/80 md:grid-cols-2">
+              <p>
+                Reference: <span className="font-semibold text-neutral">{ocularVisitDetails.reference}</span>
+              </p>
+              <p>
+                Guest: <span className="font-semibold text-neutral">{ocularVisitDetails.guest}</span>
+              </p>
+              <p>
+                Scheduled Date: <span className="font-semibold text-neutral">{ocularVisitDetails.scheduledDate}</span>
+              </p>
+              <p>
+                Time Slot: <span className="font-semibold text-neutral">{ocularVisitDetails.timeSlot}</span>
+              </p>
+              <p>
+                Status: <span className="font-semibold text-neutral">{ocularVisitDetails.status}</span>
+              </p>
+              <p>
+                Created: <span className="font-semibold text-neutral">{ocularVisitDetails.createdAt}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {isReservationDetailsOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/40 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-3xl rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-neutral">Reservation Details</h3>

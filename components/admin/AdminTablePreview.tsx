@@ -155,12 +155,12 @@ export default function AdminTablePreview({
   };
 
   return (
-    <section className="rounded-2xl border border-neutral/10 bg-white p-5">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <section className="rounded-2xl border border-neutral/10 bg-white p-4 sm:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <h3 className="text-lg font-semibold text-neutral">{title}</h3>
 
         {actions.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
             {actions.map((action) => (
               <button
                 key={action}
@@ -177,18 +177,18 @@ export default function AdminTablePreview({
       </div>
 
       {(enableSearch || filters.length > 0) && (
-        <div className="mb-4 flex flex-wrap gap-3 rounded-xl bg-base p-3">
+        <div className="mb-4 flex flex-col gap-3 rounded-xl bg-base p-3 sm:flex-row sm:flex-wrap sm:items-center">
           {enableSearch ? (
             <input
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder={searchPlaceholder}
-              className="min-w-55 flex-1 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              className="w-full min-w-0 flex-1 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none sm:min-w-55"
             />
           ) : null}
 
           {filters.map((filter) => (
-            <label key={filter.key} className="flex items-center gap-2 text-xs text-neutral/70">
+            <label key={filter.key} className="flex w-full items-center justify-between gap-2 text-xs text-neutral/70 sm:w-auto sm:justify-start">
               <span>{filter.label}</span>
               <select
                 value={activeFilters[filter.key] ?? "all"}
@@ -198,7 +198,7 @@ export default function AdminTablePreview({
                     [filter.key]: event.target.value,
                   }))
                 }
-                className="rounded-lg border border-neutral/20 bg-white px-2 py-2 text-xs text-neutral"
+                className="w-40 rounded-lg border border-neutral/20 bg-white px-2 py-2 text-xs text-neutral sm:w-auto"
               >
                 <option value="all">All</option>
                 {filter.options.map((option) => (
@@ -213,7 +213,7 @@ export default function AdminTablePreview({
       )}
 
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
+        <table className="min-w-180 text-left text-sm sm:min-w-full">
           <thead className="border-b border-neutral/10 text-neutral/70">
             <tr>
               {selectableRows ? <th className="px-3 py-2 font-medium" aria-label="Select" /> : null}
@@ -269,7 +269,7 @@ export default function AdminTablePreview({
                           type="button"
                           onClick={() => onRowAction?.(action, row)}
                           disabled={isRowActionDisabled?.(action, row)}
-                          className="rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                          className="whitespace-nowrap rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                         >
                           {action}
                         </button>
