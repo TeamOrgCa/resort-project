@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { sendReservationConfirmedEmail } from "@/lib/email";
 
 interface ApprovePaymentPayload {
   paymentId: string;
@@ -14,7 +15,17 @@ interface PaymentRow {
 
 interface ReservationRow {
   reservation_id: string;
+  guest_id: string;
+  reference_number: string;
+  check_in_date: string;
+  check_out_date: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
+}
+
+interface GuestEmailRow {
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
 }
 
 interface TransactionRow {
@@ -88,7 +99,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
-      .select("reservation_id, status")
+      .select("reservation_id, guest_id, reference_number, check_in_date, check_out_date, status")
       .eq("reservation_id", payment.reservation_id)
       .maybeSingle<ReservationRow>();
 
@@ -323,12 +334,35 @@ export async function POST(request: Request) {
       );
     }
 
+    let emailSent = false;
+
+    const { data: guest, error: guestLookupError } = await staffContext.supabase
+      .from("guests")
+      .select("email, first_name, last_name")
+      .eq("id", reservation.guest_id)
+      .maybeSingle<GuestEmailRow>();
+
+    if (guestLookupError) {
+      console.error("Failed to read guest email for confirmation notice.", guestLookupError);
+    } else if (guest?.email) {
+      emailSent = await sendReservationConfirmedEmail({
+        guestEmail: guest.email,
+        guestName: `${guest.first_name ?? ""} ${guest.last_name ?? ""}`.replace(/\s+/g, " ").trim() || "Guest",
+        reservationReference: reservation.reference_number,
+        checkInDate: reservation.check_in_date,
+        checkOutDate: reservation.check_out_date,
+      });
+    }
+
     return NextResponse.json(
       {
         success: true,
-        message: "Payment approved and billing documents generated.",
+        message: emailSent
+          ? "Payment approved, billing documents generated, and confirmation email sent."
+          : "Payment approved and billing documents generated. Email delivery could not be confirmed.",
         reservationId: reservation.reservation_id,
         remainingBalance: Number(refreshedTransaction?.balance ?? 0),
+        emailSent,
       },
       { status: 200 }
     );

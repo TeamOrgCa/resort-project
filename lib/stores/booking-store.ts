@@ -15,7 +15,8 @@ export interface BookingDraft {
   email: string;
   phone: string;
   address: string;
-  guests: number;
+  adultCount: number;
+  childCount: number;
   unitId: string;
   roomName: string;
   roomPrice: number;
@@ -25,6 +26,7 @@ export interface BookingDraft {
   total: number;
   downPayment: number;
   services: BookingServiceItem[];
+  specialRequests: string;
 }
 
 interface BookingStoreState {
@@ -42,7 +44,8 @@ const initialDraft: BookingDraft = {
   email: "",
   phone: "",
   address: "",
-  guests: 2,
+  adultCount: 1,
+  childCount: 0,
   unitId: "",
   roomName: "",
   roomPrice: 0,
@@ -52,6 +55,7 @@ const initialDraft: BookingDraft = {
   total: 0,
   downPayment: 0,
   services: [],
+  specialRequests: "",
 };
 
 export const useBookingStore = create<BookingStoreState>()(

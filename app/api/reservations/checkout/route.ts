@@ -12,8 +12,10 @@ interface ServiceSelectionInput {
 interface CheckoutPayload {
   checkInDate: string;
   checkOutDate: string;
-  totalGuests: number;
+  adultCount: number;
+  childCount: number;
   unitId: string;
+  specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
   payment: {
     method: PaymentMethod;
@@ -56,7 +58,8 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     typeof payload.checkInDate !== "string" ||
     typeof payload.checkOutDate !== "string" ||
     typeof payload.unitId !== "string" ||
-    typeof payload.totalGuests !== "number" ||
+    typeof payload.adultCount !== "number" ||
+    typeof payload.childCount !== "number" ||
     !payload.payment ||
     typeof payload.payment !== "object"
   ) {
@@ -80,15 +83,21 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     return null;
   }
 
-  if (!Number.isInteger(payload.totalGuests) || payload.totalGuests <= 0) {
+  if (!Number.isInteger(payload.adultCount) || payload.adultCount <= 0) {
+    return null;
+  }
+
+  if (!Number.isInteger(payload.childCount) || payload.childCount < 0) {
     return null;
   }
 
   return {
     checkInDate: payload.checkInDate,
     checkOutDate: payload.checkOutDate,
-    totalGuests: payload.totalGuests,
+    adultCount: payload.adultCount,
+    childCount: payload.childCount,
     unitId: payload.unitId,
+    specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices: Array.isArray(payload.selectedServices)
       ? payload.selectedServices
           .filter((item): item is ServiceSelectionInput => typeof item?.serviceId === "string")
@@ -271,7 +280,9 @@ export async function POST(request: Request) {
         reference_number: reservationReference,
         check_in_date: payload.checkInDate,
         check_out_date: payload.checkOutDate,
-        total_guests: payload.totalGuests,
+        adult_count: payload.adultCount,
+        child_count: payload.childCount,
+        special_requests: payload.specialRequests || null,
         status: "pending",
       })
       .select("reservation_id, reference_number, status")

@@ -4,10 +4,11 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { createClient } from "@/lib/supabase/client";
 
 type ManageTab = "bookings" | "ocular";
-type RecordMode = "view" | "edit" | "reschedule" | "cancel" | null;
+type RecordMode = "view" | "edit" | "reschedule" | null;
 
 interface BookingRecord {
   id: string;
@@ -99,6 +100,9 @@ export default function ManageBooking() {
   const [recordMode, setRecordMode] = useState<RecordMode>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [isCancellingBooking, setIsCancellingBooking] = useState(false);
+  const [pendingCancellation, setPendingCancellation] = useState<{ id: string; reference: string; checkIn: string } | null>(null);
 
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
 
@@ -109,6 +113,65 @@ export default function ManageBooking() {
 
   const selectedBooking = bookings.find((item) => item.id === selectedBookingId) ?? null;
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
+
+  const getDaysBeforeCheckIn = (checkInDate: string) => {
+    const checkIn = new Date(`${checkInDate}T00:00:00`);
+    if (Number.isNaN(checkIn.getTime())) return 0;
+
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    return (checkIn.getTime() - now.getTime()) / dayMs;
+  };
+
+  const handleCancelReservation = async (reservationId: string) => {
+    const bookingToCancel = bookings.find((item) => item.id === reservationId);
+
+    if (!bookingToCancel) {
+      setCancelError("No booking selected for cancellation.");
+      return;
+    }
+
+    setCancelError(null);
+    setIsCancellingBooking(true);
+
+    try {
+      const response = await fetch("/api/reservations/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId,
+          acceptedNoRefundPolicy: true,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+
+      if (!response.ok || !result?.success) {
+        setCancelError(result?.message ?? "Failed to cancel booking.");
+        return;
+      }
+
+      setBookings((prev) =>
+        prev.map((item) =>
+          item.id === reservationId
+            ? {
+                ...item,
+                status: "Cancelled",
+              }
+            : item
+        )
+      );
+
+      setRecordMode("view");
+      setPendingCancellation(null);
+    } catch {
+      setCancelError("Failed to cancel booking.");
+    } finally {
+      setIsCancellingBooking(false);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -338,8 +401,23 @@ export default function ManageBooking() {
                               </button>
                               <button
                                 onClick={() => {
-                                  setSelectedBookingId(record.id);
-                                  setRecordMode("cancel");
+                                  setCancelError(null);
+
+                                  if (record.status.toLowerCase() === "cancelled") {
+                                    setCancelError("This reservation is already cancelled.");
+                                    return;
+                                  }
+
+                                  if (getDaysBeforeCheckIn(record.checkIn) < 2) {
+                                    setCancelError("Cancellation is only allowed at least 2 days before check-in.");
+                                    return;
+                                  }
+
+                                  setPendingCancellation({
+                                    id: record.id,
+                                    reference: record.reference,
+                                    checkIn: record.checkIn,
+                                  });
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
@@ -471,35 +549,6 @@ export default function ManageBooking() {
                   </form>
                 )}
 
-                {recordMode === "cancel" && selectedBooking && (
-                  <div className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4">
-                    <h3 className="text-lg font-semibold text-neutral">Cancel Booking</h3>
-                    <p className="text-sm text-neutral/80">
-                      You are about to cancel booking <span className="font-semibold text-neutral">{selectedBooking.reference}</span>.
-                    </p>
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        onClick={() => setRecordMode("view")}
-                        className="rounded-full border border-neutral/20 px-6 py-3 font-semibold text-neutral hover:bg-neutral/5"
-                      >
-                        Keep Booking
-                      </button>
-                      <button
-                        onClick={() => {
-                          setBookings((prev) =>
-                            prev.map((item) =>
-                              item.id === selectedBooking.id ? { ...item, status: "Cancelled" } : item
-                            )
-                          );
-                          setRecordMode("view");
-                        }}
-                        className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90"
-                      >
-                        Confirm Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
               </>
             )}
 
@@ -642,6 +691,25 @@ export default function ManageBooking() {
           </div>
         </div>
       </section>
+
+      <ConfirmationDialog
+        isOpen={Boolean(pendingCancellation)}
+        title="Cancel Booking"
+        message={`Cancel booking ${pendingCancellation?.reference ?? ""}? This action follows the no-refund policy and can only be requested at least 2 days before check-in.`}
+        confirmText="Confirm Cancel"
+        cancelText="Keep Booking"
+        isConfirming={isCancellingBooking}
+        onCancel={() => {
+          if (!isCancellingBooking) {
+            setPendingCancellation(null);
+          }
+        }}
+        onConfirm={() => {
+          if (pendingCancellation) {
+            void handleCancelReservation(pendingCancellation.id);
+          }
+        }}
+      />
 
       <Footer />
     </div>

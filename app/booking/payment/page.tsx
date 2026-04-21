@@ -8,6 +8,8 @@ import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 
+const ENABLE_OCR = false;
+
 const parseDateString = (value: string | null) => {
   if (!value) return null;
   const parts = value.split("-");
@@ -21,6 +23,42 @@ const parseDateString = (value: string | null) => {
 
   const date = new Date(year, month - 1, day);
   return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const normalizeMoneyValue = (value: string) => {
+  const cleaned = value.replace(/[^\d.,]/g, "").trim();
+  if (!cleaned) return Number.NaN;
+
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+
+  if (hasComma && hasDot) {
+    return Number.parseFloat(cleaned.replace(/,/g, ""));
+  }
+
+  if (hasComma && !hasDot) {
+    const commaParts = cleaned.split(",");
+    const last = commaParts[commaParts.length - 1] || "";
+    if (last.length === 2) {
+      return Number.parseFloat(cleaned.replace(/,/g, "."));
+    }
+    return Number.parseFloat(cleaned.replace(/,/g, ""));
+  }
+
+  return Number.parseFloat(cleaned);
+};
+
+const extractAmountCandidates = (text: string) => {
+  const matches = text.match(/(?:total\s+amount\s+sent|amount\s+sent|total\s+sent|sent\s+amount)?\s*[:\-]??\s*\d[\d,]*(?:\.\d{1,2})?/gi) ?? [];
+
+  return matches
+    .map((item) => normalizeMoneyValue(item))
+    .filter((value) => Number.isFinite(value));
+};
+
+const hasMatchingAmount = (candidates: number[], expected: number) => {
+  const expectedRounded = Math.round(expected * 100) / 100;
+  return candidates.some((candidate) => Math.abs(candidate - expectedRounded) <= 0.05);
 };
 
 export default function Payment() {
@@ -38,11 +76,13 @@ function PaymentContent() {
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [uploadedProofPath, setUploadedProofPath] = useState<string | null>(null);
   const [reservationReference, setReservationReference] = useState<string | null>(null);
   const [submittedSummary, setSubmittedSummary] = useState<{
     guestName: string;
-    guests: number;
+    adultCount: number;
+    childCount: number;
     roomName: string;
     checkIn: string;
     checkOut: string;
@@ -137,7 +177,8 @@ function PaymentContent() {
   const firstName = bookingDraft.firstName || "Guest";
   const lastName = bookingDraft.lastName || "";
   const guestName = `${firstName} ${lastName}`.trim();
-  const guests = bookingDraft.guests || 1;
+  const adultCount = bookingDraft.adultCount || 1;
+  const childCount = bookingDraft.childCount || 0;
 
   const checkInDate = parseDateString(bookingDraft.checkIn || null);
   const checkOutDate = parseDateString(bookingDraft.checkOut || null);
@@ -152,12 +193,14 @@ function PaymentContent() {
   const totalAmount = bookingDraft.total || 0;
   const downPayment = bookingDraft.downPayment || totalAmount * 0.3;
   const selectedServices = bookingDraft.services || [];
+  const specialRequests = bookingDraft.specialRequests || "";
 
   const backToFormHref = "/booking/form";
   const successCheckInDate = parseDateString(submittedSummary?.checkIn ?? null) ?? checkInDate;
   const successCheckOutDate = parseDateString(submittedSummary?.checkOut ?? null) ?? checkOutDate;
   const successGuestName = submittedSummary?.guestName ?? guestName;
-  const successGuests = submittedSummary?.guests ?? guests;
+  const successAdultCount = submittedSummary?.adultCount ?? adultCount;
+  const successChildCount = submittedSummary?.childCount ?? childCount;
   const successRoomName = submittedSummary?.roomName ?? roomName;
   const successTotalAmount = submittedSummary?.totalAmount ?? totalAmount;
   const successDownPayment = submittedSummary?.downPayment ?? downPayment;
@@ -165,6 +208,11 @@ function PaymentContent() {
   const handlePaymentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSubmitError(null);
+
+    if (!acceptedTerms) {
+      setSubmitError("Please agree to the Terms and Conditions before confirming payment.");
+      return;
+    }
 
     const selectedProof = paymentMethod === "bank" ? bankDetails.uploadProof : ewalletDetails.uploadProof;
 
@@ -178,9 +226,40 @@ function PaymentContent() {
       return;
     }
 
+    if (!selectedProof.type.startsWith("image/")) {
+      setSubmitError("Please upload an image proof so we can verify the downpayment amount automatically.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
+      // OCR validation (can be disabled via ENABLE_OCR env var)
+      if (ENABLE_OCR) {
+        const tesseract = await import("tesseract.js");
+        const {
+          data: { text: extractedText },
+        } = await tesseract.recognize(selectedProof, "eng");
+
+        console.log("[Payment OCR] Extracted text:", extractedText);
+
+        const amountCandidates = extractAmountCandidates(extractedText);
+        console.log("[Payment OCR] Amount candidates:", amountCandidates);
+
+        if (!hasMatchingAmount(amountCandidates, downPayment)) {
+          setSubmitError(
+            `The uploaded receipt does not show a sent amount matching ₱${downPayment.toLocaleString("en-PH", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}.`
+          );
+          setIsSubmitting(false);
+          return;
+        }
+      } else {
+        console.log("[Payment] OCR validation disabled");
+      }
+
       const supabase = createClient();
       const { data: authData } = await supabase.auth.getUser();
       const userId = authData.user?.id ?? "guest";
@@ -213,8 +292,10 @@ function PaymentContent() {
         body: JSON.stringify({
           checkInDate: bookingDraft.checkIn,
           checkOutDate: bookingDraft.checkOut,
-          totalGuests: guests,
+          adultCount,
+          childCount,
           unitId,
+          specialRequests,
           selectedServices: selectedServices.map((service) => ({
             serviceId: service.id,
             quantity: 1,
@@ -254,7 +335,8 @@ function PaymentContent() {
 
       setSubmittedSummary({
         guestName,
-        guests,
+        adultCount,
+        childCount,
         roomName,
         checkIn: bookingDraft.checkIn,
         checkOut: bookingDraft.checkOut,
@@ -311,8 +393,12 @@ function PaymentContent() {
                 <span className="font-semibold text-neutral">{successRoomName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral/70">Guests</span>
-                <span className="font-semibold text-neutral">{successGuests} {successGuests === 1 ? "Guest" : "Guests"}</span>
+                <span className="text-neutral/70">Adults</span>
+                <span className="font-semibold text-neutral">{successAdultCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral/70">Children</span>
+                <span className="font-semibold text-neutral">{successChildCount}</span>
               </div>
               <div className="flex justify-between pt-3 border-t border-neutral/10">
                 <span className="text-neutral/70">Total Amount</span>
@@ -660,6 +746,20 @@ function PaymentContent() {
                     </div>
                   )}
 
+                  <div className="mb-6 rounded-lg border border-neutral/20 bg-base px-4 py-3">
+                    <label className="flex items-start gap-2 text-sm text-neutral/80">
+                      <input
+                        type="checkbox"
+                        checked={acceptedTerms}
+                        onChange={(event) => setAcceptedTerms(event.target.checked)}
+                        className="mt-1 h-4 w-4 rounded border-neutral/30"
+                      />
+                      <span>
+                        I agree to the Terms and Conditions, including the no-refund cancellation policy and that cancellations must be requested at least 2 days before check-in.
+                      </span>
+                    </label>
+                  </div>
+
                   <div className="flex gap-4">
                     <Link href={backToFormHref} className="flex-1">
                       <button type="button" className="w-full bg-neutral/10 text-neutral px-6 py-4 rounded-full font-semibold hover:bg-neutral/20 transition-colors">
@@ -668,7 +768,7 @@ function PaymentContent() {
                     </Link>
                     <button
                       type="submit"
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || !acceptedTerms}
                       className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {isSubmitting ? "Processing..." : "Confirm Payment"}
@@ -701,6 +801,22 @@ function PaymentContent() {
                       <span className="text-neutral/70">Duration</span>
                       <span className="font-semibold text-neutral">{nights} nights</span>
                     </div>
+                  </div>
+
+                  <div className="pb-4 border-b border-neutral/10">
+                    <p className="text-sm font-semibold text-neutral mb-2">Guest Charges</p>
+                    {adultCount > 0 && (
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-neutral/70">{adultCount} Adult(s) × ₱150/night × {nights} nights</span>
+                        <span className="text-neutral">₱{(adultCount * 150 * nights).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                    {childCount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-neutral/70">{childCount} Child(ren) × ₱120/night × {nights} nights</span>
+                        <span className="text-neutral">₱{(childCount * 120 * nights).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
                   </div>
 
                   {selectedServices.length > 0 && (
@@ -757,7 +873,7 @@ function PaymentContent() {
 
                 <div className="bg-highlight/10 p-4 rounded-lg">
                   <h4 className="font-semibold text-neutral mb-2 text-sm">Cancellation Policy</h4>
-                  <p className="text-xs text-neutral/70">Free cancellation up to 48 hours before check-in. Down payment will be fully refunded.</p>
+                  <p className="text-xs text-neutral/70">No-refund policy applies. Cancellation requests must be made at least 2 days before check-in.</p>
                 </div>
               </div>
             </div>

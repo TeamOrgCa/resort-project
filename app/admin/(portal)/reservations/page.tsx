@@ -44,8 +44,11 @@ interface ReservationRow {
   guest_id: string;
   check_in_date: string;
   check_out_date: string;
-  total_guests: number;
+  adult_count: number;
+  child_count: number;
   status: string;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
   created_at: string;
   booking_type: "online" | "walk_in" | null;
 }
@@ -231,6 +234,14 @@ const toTitleCase = (value: string) =>
 const generatePaymentReference = () =>
   `PMT-${Date.now().toString().slice(-8)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
+const reservationCancellationReasons = [
+  "Guest requested for cancellation",
+  "Maintenance",
+  "Emergency Situation",
+] as const;
+
+type ReservationCancellationReason = (typeof reservationCancellationReasons)[number];
+
 export default function AdminReservationsPage() {
   const [activeTab, setActiveTab] = useState<(typeof reservationTabs)[number]>("Reservation Records");
   const [isLoading, setIsLoading] = useState(true);
@@ -267,6 +278,14 @@ export default function AdminReservationsPage() {
     null
   );
   const [isApprovingOcularVisit, setIsApprovingOcularVisit] = useState(false);
+  const [pendingReservationCancellation, setPendingReservationCancellation] = useState<{
+    reservationId: string;
+    reference: string;
+  } | null>(null);
+  const [reservationCancellationReason, setReservationCancellationReason] = useState<ReservationCancellationReason>(
+    reservationCancellationReasons[0]
+  );
+  const [isCancellingReservation, setIsCancellingReservation] = useState(false);
   const [remainingBalanceByReservationId, setRemainingBalanceByReservationId] = useState<Record<string, number>>({});
   const [guestsById, setGuestsById] = useState<Record<string, GuestRow>>({});
   const [reservationReferenceById, setReservationReferenceById] = useState<Record<string, string>>({});
@@ -296,7 +315,7 @@ export default function AdminReservationsPage() {
         const { data: reservationsData, error: reservationsError } = await supabase
           .from("reservations")
           .select(
-            "reservation_id, reference_number, guest_id, check_in_date, check_out_date, total_guests, status, created_at, booking_type"
+            "reservation_id, reference_number, guest_id, check_in_date, check_out_date, adult_count, child_count, status, created_at, booking_type"
           )
           .order("created_at", { ascending: false })
           .limit(200);
@@ -418,7 +437,7 @@ export default function AdminReservationsPage() {
           guest: guestName,
           checkIn: formatDate(reservation.check_in_date),
           checkOut: formatDate(reservation.check_out_date),
-          totalGuests: String(reservation.total_guests),
+          totalGuests: String((reservation.adult_count || 0) + (reservation.child_count || 0)),
           status: toTitleCase(reservation.status),
           createdAt: formatDateTime(reservation.created_at),
         };
@@ -673,6 +692,33 @@ export default function AdminReservationsPage() {
   };
 
   const handleReservationRowAction = async (action: string, row: AdminTableRow) => {
+    if (action === "Cancel") {
+      if (row.status === "Cancelled") {
+        setFetchError("This reservation is already cancelled.");
+        return;
+      }
+
+      if (row.status === "Completed") {
+        setFetchError("Completed reservations can no longer be cancelled.");
+        return;
+      }
+
+      const reservationId = typeof row.id === "string" ? row.id : "";
+
+      if (!reservationId) {
+        setFetchError("Unable to cancel this reservation.");
+        return;
+      }
+
+      setFetchError(null);
+      setReservationCancellationReason(reservationCancellationReasons[0]);
+      setPendingReservationCancellation({
+        reservationId,
+        reference: row.reference ?? reservationId,
+      });
+      return;
+    }
+
     if (action !== "View") {
       return;
     }
@@ -695,7 +741,7 @@ export default function AdminReservationsPage() {
       const { data: reservation, error: reservationError } = await supabase
         .from("reservations")
         .select(
-          "reservation_id, reference_number, guest_id, check_in_date, check_out_date, total_guests, status, created_at, booking_type"
+          "reservation_id, reference_number, guest_id, check_in_date, check_out_date, adult_count, child_count, status, cancelled_at, cancellation_reason, created_at, booking_type"
         )
         .eq("reservation_id", reservationId)
         .maybeSingle<ReservationRow>();
@@ -748,6 +794,51 @@ export default function AdminReservationsPage() {
       setReservationDetailsError("Failed to load complete reservation details.");
     } finally {
       setIsReservationDetailsLoading(false);
+    }
+  };
+
+  const cancelReservation = async (reservationId: string, cancellationReason: ReservationCancellationReason) => {
+    setFetchError(null);
+    setIsCancellingReservation(true);
+
+    try {
+      const response = await fetch("/api/admin/reservations/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId,
+          cancellationReason,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as
+        | { message?: string; reservationId?: string }
+        | null;
+
+      if (!response.ok) {
+        setFetchError(result?.message ?? "Failed to cancel reservation.");
+        return;
+      }
+
+      setReservations((currentReservations) =>
+        currentReservations.map((reservation) =>
+          reservation.reservation_id === reservationId
+            ? {
+                ...reservation,
+                status: "cancelled",
+              }
+            : reservation
+        )
+      );
+
+      setToastMessage(`Reservation ${pendingReservationCancellation?.reference ?? reservationId} cancelled.`);
+      setPendingReservationCancellation(null);
+    } catch {
+      setFetchError("Failed to cancel reservation.");
+    } finally {
+      setIsCancellingReservation(false);
     }
   };
 
@@ -979,8 +1070,14 @@ export default function AdminReservationsPage() {
               { key: "status", label: "Status", options: reservationStatusOptions },
             ]}
             actions={["Export"]}
-            rowActions={["View", "Edit"]}
+            rowActions={["View", "Edit", "Cancel"]}
             onRowAction={handleReservationRowAction}
+            isRowActionDisabled={(action, row) =>
+              action === "Cancel" &&
+              (row.status === "Cancelled" ||
+                row.status === "Completed" ||
+                (isCancellingReservation && pendingReservationCancellation?.reservationId === row.id))
+            }
           />
         )}
 
@@ -1096,6 +1193,62 @@ export default function AdminReservationsPage() {
           }
         }}
       />
+
+      {pendingReservationCancellation ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
+          <div className="w-full max-w-lg rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-neutral">Cancel Reservation</h3>
+            <p className="mt-1 text-sm text-neutral/70">
+              Reservation {pendingReservationCancellation.reference} will be marked as cancelled.
+            </p>
+
+            <div className="mt-5">
+              <label className="mb-2 block text-sm text-neutral/70">Cancellation Reason</label>
+              <select
+                value={reservationCancellationReason}
+                onChange={(event) =>
+                  setReservationCancellationReason(event.target.value as ReservationCancellationReason)
+                }
+                className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+              >
+                {reservationCancellationReasons.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {reason}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={isCancellingReservation}
+                onClick={() => {
+                  if (!isCancellingReservation) {
+                    setPendingReservationCancellation(null);
+                  }
+                }}
+                className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={isCancellingReservation}
+                onClick={() => {
+                  void cancelReservation(
+                    pendingReservationCancellation.reservationId,
+                    reservationCancellationReason
+                  );
+                }}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isCancellingReservation ? "Cancelling..." : "Confirm Cancellation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isManualPaymentDialogOpen && selectedPaymentRow ? (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
@@ -1415,10 +1568,22 @@ export default function AdminReservationsPage() {
                       Check-out: <span className="font-semibold text-neutral">{formatDate(reservationDetails.reservation.check_out_date)}</span>
                     </p>
                     <p>
-                      Guests: <span className="font-semibold text-neutral">{reservationDetails.reservation.total_guests}</span>
+                      Adults: <span className="font-semibold text-neutral">{reservationDetails.reservation.adult_count}</span>
+                    </p>
+                    <p>
+                      Children: <span className="font-semibold text-neutral">{reservationDetails.reservation.child_count}</span>
+                    </p>
+                    <p>
+                      Total Guests: <span className="font-semibold text-neutral">{(reservationDetails.reservation.adult_count || 0) + (reservationDetails.reservation.child_count || 0)}</span>
                     </p>
                     <p>
                       Booking Type: <span className="font-semibold text-neutral">{toTitleCase(reservationDetails.reservation.booking_type ?? "online")}</span>
+                    </p>
+                    <p>
+                      Cancellation Reason: <span className="font-semibold text-neutral">{reservationDetails.reservation.cancellation_reason ?? "-"}</span>
+                    </p>
+                    <p>
+                      Cancelled At: <span className="font-semibold text-neutral">{formatDateTime(reservationDetails.reservation.cancelled_at ?? null)}</span>
                     </p>
                   </div>
                 </section>

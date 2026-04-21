@@ -63,9 +63,10 @@ function BookingFormContent() {
     email: bookingDraft.email || "",
     phone: bookingDraft.phone || "",
     address: bookingDraft.address || "",
-    guests: bookingDraft.guests || 2,
+    adultCount: bookingDraft.adultCount || 1,
+    childCount: bookingDraft.childCount || 0,
     roomType: bookingDraft.unitId || "",
-    specialRequests: "",
+    specialRequests: bookingDraft.specialRequests || "",
   });
 
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>(bookingDraft.services.map((service) => service.id));
@@ -148,7 +149,7 @@ function BookingFormContent() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.name === "guests" ? Number(e.target.value) : e.target.value,
+      [e.target.name]: e.target.name === "adultCount" || e.target.name === "childCount" ? Number(e.target.value) : e.target.value,
     });
   };
 
@@ -185,18 +186,20 @@ function BookingFormContent() {
   );
   const selectedRoom = units.find((room) => room.id === formData.roomType);
   const roomTotal = (selectedRoom?.price || 0) * nights;
+  const adultsTotal = (formData.adultCount || 0) * 150 * nights;
+  const childrenTotal = (formData.childCount || 0) * 120 * nights;
   const amenitiesTotal = selectedAmenities.reduce((total, id) => {
     const amenity = services.find((a) => a.id === id);
     return total + (amenity?.price || 0);
   }, 0);
   const selectedServiceItems = services.filter((service) => selectedAmenities.includes(service.id));
-  const subtotal = roomTotal + amenitiesTotal;
+  const subtotal = roomTotal + adultsTotal + childrenTotal + amenitiesTotal;
   const tax = subtotal * 0.12; // 12% tax
   const total = subtotal + tax;
   const downPayment = total * 0.3; // 30% down payment
 
   const handleContinueToPayment = () => {
-    if (!selectedRoom) {
+    if (!selectedRoom || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0) {
       return;
     }
 
@@ -208,7 +211,8 @@ function BookingFormContent() {
       email: formData.email,
       phone: formData.phone,
       address: formData.address,
-      guests: formData.guests,
+      adultCount: formData.adultCount,
+      childCount: formData.childCount,
       unitId: selectedRoom.id,
       roomName: selectedRoom.name,
       roomPrice: selectedRoom.price,
@@ -218,6 +222,7 @@ function BookingFormContent() {
       total,
       downPayment,
       services: selectedServiceItems,
+      specialRequests: formData.specialRequests,
     });
   };
 
@@ -320,30 +325,40 @@ function BookingFormContent() {
                 {/* Booking Details */}
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Booking Details</h3>
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Guests *</label>
-                      <select
-                        name="guests"
-                        value={formData.guests}
+                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Adults (₱150/person/night)</label>
+                      <input
+                        type="number"
+                        name="adultCount"
+                        value={formData.adultCount}
                         onChange={handleInputChange}
+                        min="1"
+                        max="10"
                         className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                      >
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map((num) => (
-                          <option key={num} value={num}>
-                            {num} {num === 1 ? "Guest" : "Guests"}
-                          </option>
-                        ))}
-                      </select>
+                        required
+                      />
                     </div>
                     <div>
+                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Children (₱120/person/night)</label>
+                      <input
+                        type="number"
+                        name="childCount"
+                        value={formData.childCount}
+                        onChange={handleInputChange}
+                        min="0"
+                        max="10"
+                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
+                      />
+                    </div>
+                    <div className="mt-4.5">
                       <label className="block text-sm font-medium text-neutral/70 mb-2">Room Type *</label>
                       <select
                         name="roomType"
                         value={formData.roomType}
                         onChange={handleInputChange}
                         disabled={catalogLoading || units.length === 0}
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
+                        className="w-full px-0 py-3.5 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       >
                         {units.map((room) => (
                           <option key={room.id} value={room.id}>
@@ -419,7 +434,7 @@ function BookingFormContent() {
                   </Link>
                   <Link href="/booking/payment" className="flex-1" onClick={handleContinueToPayment}>
                     <button
-                      disabled={catalogLoading || units.length === 0 || !formData.roomType}
+                      disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Continue to Payment
@@ -455,6 +470,22 @@ function BookingFormContent() {
                       <span className="text-neutral/70">{nights} nights</span>
                       <span className="font-semibold text-neutral">₱{roomTotal.toLocaleString()}</span>
                     </div>
+                  </div>
+
+                  <div className="pb-4 border-b border-neutral/10">
+                    <p className="text-sm font-semibold text-neutral mb-2">Guest Charges</p>
+                    {formData.adultCount > 0 && (
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-neutral/70">{formData.adultCount} Adult(s) × ₱150/night × {nights} nights</span>
+                        <span className="text-neutral">₱{adultsTotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                    {formData.childCount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-neutral/70">{formData.childCount} Child(ren) × ₱120/night × {nights} nights</span>
+                        <span className="text-neutral">₱{childrenTotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
                   </div>
 
                   {selectedAmenities.length > 0 && (
