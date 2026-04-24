@@ -15,6 +15,7 @@ const transactionColumns: AdminTableColumn[] = [
   { key: "total", label: "Total Amount" },
   { key: "paid", label: "Paid Amount" },
   { key: "balance", label: "Balance" },
+  { key: "overpaid", label: "Overpaid" },
   { key: "status", label: "Status" },
   { key: "updatedAt", label: "Updated" },
 ];
@@ -40,6 +41,7 @@ interface TransactionRow {
   total_amount: number;
   paid_amount: number | null;
   balance: number | null;
+  overpaid_amount: number | null;
   status: "unpaid" | "partial" | "paid";
   created_at: string;
   updated_at: string;
@@ -165,6 +167,53 @@ interface PaymentRow {
   reference_number: string;
 }
 
+interface ReceiptDetailReceiptRow {
+  receipt_id: string;
+  payment_id: string;
+  receipt_number: string;
+  issued_at: string;
+  is_active: boolean | null;
+  archived_at: string | null;
+}
+
+interface ReceiptDetailPaymentRow {
+  payment_id: string;
+  reservation_id: string;
+  reference_number: string;
+  amount: number;
+  payment_method: "bank_transfer" | "e_wallet" | "cash";
+  payment_type: "downpayment" | "full" | "additional";
+  status: "pending" | "verified";
+  paid_at: string | null;
+  account_name: string;
+  account_number: string | null;
+  proof_path: string;
+}
+
+interface ReceiptDetailReservationRow {
+  reservation_id: string;
+  guest_id: string;
+  reference_number: string;
+  booking_type: "online" | "walk_in" | null;
+  status: "pending" | "confirmed" | "cancelled" | "completed" | null;
+  check_in_date: string;
+  check_out_date: string;
+}
+
+interface ReceiptDetailGuestRow {
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+}
+
+interface ReceiptDetailTransactionRow {
+  total_amount: number;
+  paid_amount: number | null;
+  balance: number | null;
+  overpaid_amount: number | null;
+  status: "unpaid" | "partial" | "paid";
+}
+
 interface ViewField {
   label: string;
   value: string;
@@ -232,6 +281,22 @@ const calculateNights = (checkInDate: string, checkOutDate: string) => {
   return diffDays > 0 ? diffDays : 0;
 };
 
+const deriveTransactionStatus = (totalAmount: number, paidAmount: number, balanceAmount: number) => {
+  if (balanceAmount > 0 && paidAmount > 0) {
+    return "partial";
+  }
+
+  if (balanceAmount > 0) {
+    return "unpaid";
+  }
+
+  if (totalAmount > 0 && paidAmount >= totalAmount) {
+    return "paid";
+  }
+
+  return "unpaid";
+};
+
 export default function AdminTransactionsPage() {
   const [activeTab, setActiveTab] = useState<(typeof transactionTabs)[number]>("Transaction Ledger");
   const [isLoading, setIsLoading] = useState(true);
@@ -261,7 +326,7 @@ export default function AdminTransactionsPage() {
 
         const { data: transactionsData, error: transactionsError } = await supabase
           .from("transactions")
-          .select("transaction_id, reservation_id, total_amount, paid_amount, balance, status, created_at, updated_at")
+          .select("transaction_id, reservation_id, total_amount, paid_amount, balance, overpaid_amount, status, created_at, updated_at")
           .order("updated_at", { ascending: false })
           .limit(200);
 
@@ -354,16 +419,23 @@ export default function AdminTransactionsPage() {
 
   const transactionRows: AdminTableRow[] = useMemo(
     () =>
-      transactions.map((transaction) => ({
-        id: transaction.transaction_id,
-        reference: reservationReferencesById[transaction.reservation_id] ?? "-",
-        bookingType: toTitleCase(bookingTypesById[transaction.reservation_id] ?? "online"),
-        total: formatCurrency(Number(transaction.total_amount ?? 0)),
-        paid: formatCurrency(Number(transaction.paid_amount ?? 0)),
-        balance: formatCurrency(Number(transaction.balance ?? 0)),
-        status: toTitleCase(transaction.status),
-        updatedAt: formatDateTime(transaction.updated_at),
-      })),
+      transactions.map((transaction) => {
+        const totalAmount = Number(transaction.total_amount ?? 0);
+        const paidAmount = Number(transaction.paid_amount ?? 0);
+        const balanceAmount = Number(transaction.balance ?? 0);
+
+        return {
+          id: transaction.transaction_id,
+          reference: reservationReferencesById[transaction.reservation_id] ?? "-",
+          bookingType: toTitleCase(bookingTypesById[transaction.reservation_id] ?? "online"),
+          total: formatCurrency(totalAmount),
+          paid: formatCurrency(paidAmount),
+          balance: formatCurrency(balanceAmount),
+          overpaid: formatCurrency(Number(transaction.overpaid_amount ?? 0)),
+          status: toTitleCase(deriveTransactionStatus(totalAmount, paidAmount, balanceAmount)),
+          updatedAt: formatDateTime(transaction.updated_at),
+        };
+      }),
     [bookingTypesById, reservationReferencesById, transactions]
   );
 
@@ -402,7 +474,14 @@ export default function AdminTransactionsPage() {
     [transactions]
   );
 
-  const outstanding = useMemo(() => totalDue - collected, [collected, totalDue]);
+  const outstanding = useMemo(
+    () => transactions.reduce((sum, item) => sum + Number(item.balance ?? 0), 0),
+    [transactions]
+  );
+  const overpaid = useMemo(
+    () => transactions.reduce((sum, item) => sum + Number(item.overpaid_amount ?? 0), 0),
+    [transactions]
+  );
   const pendingVerifications = useMemo(
     () => receipts.filter((receipt) => receipt.is_active !== false && !receipt.archived_at).length,
     [receipts]
@@ -413,9 +492,10 @@ export default function AdminTransactionsPage() {
       { label: "Total Due", value: formatCurrency(totalDue), trend: "Current billing cycle" },
       { label: "Collected", value: formatCurrency(collected), trend: `${totalDue > 0 ? ((collected / totalDue) * 100).toFixed(1) : 0}% collected` },
       { label: "Outstanding", value: formatCurrency(outstanding), trend: "Requires follow-up" },
+      { label: "Overpaid", value: formatCurrency(overpaid), trend: "Above billed totals" },
       { label: "Pending Verifications", value: String(pendingVerifications), trend: "Queued records" },
     ],
-    [collected, outstanding, pendingVerifications, totalDue]
+    [collected, outstanding, overpaid, pendingVerifications, totalDue]
   );
 
   const handleTransactionRowAction = (action: string, row: AdminTableRow) => {
@@ -431,6 +511,7 @@ export default function AdminTransactionsPage() {
         { label: "Total Amount", value: row.total ?? "-" },
         { label: "Paid Amount", value: row.paid ?? "-" },
         { label: "Balance", value: row.balance ?? "-" },
+        { label: "Overpaid", value: row.overpaid ?? "-" },
         { label: "Status", value: row.status ?? "-" },
         { label: "Updated", value: row.updatedAt ?? "-" },
       ],
@@ -582,21 +663,108 @@ export default function AdminTransactionsPage() {
     }
   };
 
-  const handleReceiptRowAction = (action: string, row: AdminTableRow) => {
+  const handleReceiptRowAction = async (action: string, row: AdminTableRow) => {
     if (action !== "View") {
       return;
     }
 
-    setViewDetails({
-      title: "Receipt Details",
-      fields: [
-        { label: "Receipt No.", value: row.receiptNumber ?? "-" },
-        { label: "Reservation Ref", value: row.reference ?? "-" },
-        { label: "Payment Ref", value: row.paymentReference ?? "-" },
-        { label: "Issued At", value: row.issuedAt ?? "-" },
-        { label: "Status", value: row.status ?? "-" },
-      ],
-    });
+    const receiptId = typeof row.id === "string" ? row.id : "";
+
+    if (!receiptId) {
+      setFetchError("Unable to view this receipt record.");
+      return;
+    }
+
+    try {
+      const supabase = createClient();
+
+      const { data: receiptRecord, error: receiptError } = await supabase
+        .from("receipts")
+        .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at")
+        .eq("receipt_id", receiptId)
+        .maybeSingle<ReceiptDetailReceiptRow>();
+
+      if (receiptError || !receiptRecord) {
+        setFetchError("Receipt record was not found.");
+        return;
+      }
+
+      const { data: paymentRecord, error: paymentError } = await supabase
+        .from("payments")
+        .select(
+          "payment_id, reservation_id, reference_number, amount, payment_method, payment_type, status, paid_at, account_name, account_number, proof_path"
+        )
+        .eq("payment_id", receiptRecord.payment_id)
+        .maybeSingle<ReceiptDetailPaymentRow>();
+
+      if (paymentError || !paymentRecord) {
+        setFetchError("Failed to load payment details for this receipt.");
+        return;
+      }
+
+      const [{ data: reservationRecord, error: reservationError }, { data: transactionRecord, error: transactionError }] =
+        await Promise.all([
+          supabase
+            .from("reservations")
+            .select("reservation_id, guest_id, reference_number, booking_type, status, check_in_date, check_out_date")
+            .eq("reservation_id", paymentRecord.reservation_id)
+            .maybeSingle<ReceiptDetailReservationRow>(),
+          supabase
+            .from("transactions")
+            .select("total_amount, paid_amount, balance, overpaid_amount, status")
+            .eq("reservation_id", paymentRecord.reservation_id)
+            .maybeSingle<ReceiptDetailTransactionRow>(),
+        ]);
+
+      if (reservationError || !reservationRecord || transactionError) {
+        setFetchError("Failed to load reservation billing details for this receipt.");
+        return;
+      }
+
+      const { data: guestRecord } = await supabase
+        .from("guests")
+        .select("first_name, last_name, email")
+        .eq("id", reservationRecord.guest_id)
+        .maybeSingle<ReceiptDetailGuestRow>();
+
+      const receiptStatus =
+        receiptRecord.is_active === false || receiptRecord.archived_at ? "Archived" : "Active";
+      const guestName = `${guestRecord?.first_name ?? ""} ${guestRecord?.last_name ?? ""}`
+        .replace(/\s+/g, " ")
+        .trim();
+
+      setViewDetails({
+        title: "Receipt Details",
+        fields: [
+          { label: "Receipt No.", value: receiptRecord.receipt_number ?? "-" },
+          { label: "Issued At", value: formatDateTime(receiptRecord.issued_at) },
+          { label: "Receipt Status", value: receiptStatus },
+          { label: "Reservation Ref", value: reservationRecord.reference_number ?? "-" },
+          { label: "Guest", value: guestName || "-" },
+          { label: "Guest Email", value: guestRecord?.email ?? "-" },
+          { label: "Booking Type", value: toTitleCase(reservationRecord.booking_type ?? "online") },
+          { label: "Reservation Status", value: toTitleCase(reservationRecord.status ?? "pending") },
+          { label: "Check-in", value: formatDate(reservationRecord.check_in_date) },
+          { label: "Check-out", value: formatDate(reservationRecord.check_out_date) },
+          { label: "Payment Ref", value: paymentRecord.reference_number ?? "-" },
+          { label: "Payment Amount", value: formatCurrency(Number(paymentRecord.amount ?? 0)) },
+          { label: "Payment Method", value: toTitleCase(paymentRecord.payment_method ?? "") },
+          { label: "Payment Type", value: toTitleCase(paymentRecord.payment_type ?? "") },
+          { label: "Payment Status", value: toTitleCase(paymentRecord.status ?? "") },
+          { label: "Paid At", value: paymentRecord.paid_at ? formatDateTime(paymentRecord.paid_at) : "-" },
+          { label: "Account Name", value: paymentRecord.account_name || "-" },
+          { label: "Account Number", value: paymentRecord.account_number || "-" },
+          { label: "Proof Path", value: paymentRecord.proof_path || "-" },
+          { label: "Transaction Total", value: formatCurrency(Number(transactionRecord?.total_amount ?? 0)) },
+          { label: "Transaction Paid", value: formatCurrency(Number(transactionRecord?.paid_amount ?? 0)) },
+          { label: "Transaction Balance", value: formatCurrency(Number(transactionRecord?.balance ?? 0)) },
+          { label: "Transaction Overpaid", value: formatCurrency(Number(transactionRecord?.overpaid_amount ?? 0)) },
+          { label: "Transaction Status", value: toTitleCase(transactionRecord?.status ?? "unpaid") },
+        ],
+      });
+    } catch {
+      setFetchError("Failed to load receipt details.");
+    }
   };
 
   return (
@@ -606,7 +774,7 @@ export default function AdminTransactionsPage() {
         subtitle="Record payments, monitor balances, and prepare billing documents."
       />
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {liveTransactionMetrics.map((metric) => (
           <AdminMetricCard key={metric.label} metric={metric} />
         ))}

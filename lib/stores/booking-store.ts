@@ -27,6 +27,8 @@ export interface BookingDraft {
   downPayment: number;
   services: BookingServiceItem[];
   specialRequests: string;
+  reservationId: string;
+  reservationReference: string;
 }
 
 interface BookingStoreState {
@@ -56,6 +58,8 @@ const initialDraft: BookingDraft = {
   downPayment: 0,
   services: [],
   specialRequests: "",
+  reservationId: "",
+  reservationReference: "",
 };
 
 export const useBookingStore = create<BookingStoreState>()(

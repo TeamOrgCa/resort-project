@@ -71,7 +71,7 @@ export default function Payment() {
 
 function PaymentContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
-  const resetBookingDraft = useBookingStore((state) => state.resetBookingDraft);
+  const [payOption, setPayOption] = useState<"downpayment" | "full">("downpayment");
   const [paymentMethod, setPaymentMethod] = useState<"bank" | "ewallet">("bank");
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -87,7 +87,8 @@ function PaymentContent() {
     checkIn: string;
     checkOut: string;
     totalAmount: number;
-    downPayment: number;
+    paidAmount: number;
+    payOption: "downpayment" | "full";
   } | null>(null);
   const bankFileInputRef = useRef<HTMLInputElement | null>(null);
   const ewalletFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -183,6 +184,8 @@ function PaymentContent() {
   const checkInDate = parseDateString(bookingDraft.checkIn || null);
   const checkOutDate = parseDateString(bookingDraft.checkOut || null);
   const unitId = bookingDraft.unitId || "";
+  const reservationId = bookingDraft.reservationId || "";
+  const reservationReferenceFromDraft = bookingDraft.reservationReference || "";
 
   const roomName = bookingDraft.roomName || "Selected Room";
   const roomPrice = bookingDraft.roomPrice || 0;
@@ -193,9 +196,8 @@ function PaymentContent() {
   const totalAmount = bookingDraft.total || 0;
   const downPayment = bookingDraft.downPayment || totalAmount * 0.3;
   const selectedServices = bookingDraft.services || [];
-  const specialRequests = bookingDraft.specialRequests || "";
 
-  const backToFormHref = "/booking/form";
+  const backToFormHref = "/booking/details";
   const successCheckInDate = parseDateString(submittedSummary?.checkIn ?? null) ?? checkInDate;
   const successCheckOutDate = parseDateString(submittedSummary?.checkOut ?? null) ?? checkOutDate;
   const successGuestName = submittedSummary?.guestName ?? guestName;
@@ -203,7 +205,10 @@ function PaymentContent() {
   const successChildCount = submittedSummary?.childCount ?? childCount;
   const successRoomName = submittedSummary?.roomName ?? roomName;
   const successTotalAmount = submittedSummary?.totalAmount ?? totalAmount;
-  const successDownPayment = submittedSummary?.downPayment ?? downPayment;
+  const successPaidAmount = submittedSummary?.paidAmount ?? downPayment;
+  const successPayOption = submittedSummary?.payOption ?? payOption;
+  const payableNow = payOption === "full" ? totalAmount : downPayment;
+  const remainingAfterThisPayment = Math.max(totalAmount - payableNow, 0);
 
   const handlePaymentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -221,13 +226,13 @@ function PaymentContent() {
       return;
     }
 
-    if (!checkInDate || !checkOutDate || !unitId) {
+    if (!checkInDate || !checkOutDate || !unitId || !reservationId) {
       setSubmitError("Missing reservation details. Please go back and review your booking.");
       return;
     }
 
     if (!selectedProof.type.startsWith("image/")) {
-      setSubmitError("Please upload an image proof so we can verify the downpayment amount automatically.");
+      setSubmitError("Please upload an image proof so we can verify your selected payment amount automatically.");
       return;
     }
 
@@ -246,9 +251,9 @@ function PaymentContent() {
         const amountCandidates = extractAmountCandidates(extractedText);
         console.log("[Payment OCR] Amount candidates:", amountCandidates);
 
-        if (!hasMatchingAmount(amountCandidates, downPayment)) {
+        if (!hasMatchingAmount(amountCandidates, payableNow)) {
           setSubmitError(
-            `The uploaded receipt does not show a sent amount matching ₱${downPayment.toLocaleString("en-PH", {
+            `The uploaded receipt does not show a sent amount matching ₱${payableNow.toLocaleString("en-PH", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}.`
@@ -284,26 +289,17 @@ function PaymentContent() {
 
       setUploadedProofPath(uploadPath);
 
-      const checkoutResponse = await fetch("/api/reservations/checkout", {
+      const checkoutResponse = await fetch("/api/reservations/payment", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          checkInDate: bookingDraft.checkIn,
-          checkOutDate: bookingDraft.checkOut,
-          adultCount,
-          childCount,
-          unitId,
-          specialRequests,
-          selectedServices: selectedServices.map((service) => ({
-            serviceId: service.id,
-            quantity: 1,
-          })),
+          reservationId,
           payment: {
             method: paymentMethod === "bank" ? "bank_transfer" : "e_wallet",
-            type: "downpayment",
-            amount: downPayment,
+            type: payOption,
+            amount: payableNow,
             referenceNumber:
               paymentMethod === "bank"
                 ? bankDetails.referenceNumber
@@ -321,14 +317,32 @@ function PaymentContent() {
         }),
       });
 
-      const checkoutJson = (await checkoutResponse.json()) as {
+      let checkoutJson: {
         success?: boolean;
         message?: string;
-        reservation?: { referenceNumber?: string };
-      };
+        errorCode?: string | null;
+        payment?: { id?: string; status?: string };
+      } | null = null;
+      let checkoutRaw = "";
 
-      if (!checkoutResponse.ok || !checkoutJson.success) {
-        setSubmitError(checkoutJson.message || "Failed to create reservation checkout.");
+      try {
+        checkoutJson = (await checkoutResponse.json()) as {
+          success?: boolean;
+          message?: string;
+          errorCode?: string | null;
+          payment?: { id?: string; status?: string };
+        };
+      } catch {
+        checkoutRaw = await checkoutResponse.text().catch(() => "");
+      }
+
+      if (!checkoutResponse.ok || !checkoutJson?.success) {
+        const statusLabel = `Payment submission failed (${checkoutResponse.status})`;
+        const details = checkoutJson?.errorCode ? ` [${checkoutJson.errorCode}]` : "";
+        const fallbackRaw = checkoutRaw.trim() ? ` ${checkoutRaw.trim().slice(0, 220)}` : "";
+        setSubmitError(
+          `${statusLabel}: ${checkoutJson?.message || "Failed to submit payment."}${details}${fallbackRaw}`
+        );
         setIsSubmitting(false);
         return;
       }
@@ -341,10 +355,10 @@ function PaymentContent() {
         checkIn: bookingDraft.checkIn,
         checkOut: bookingDraft.checkOut,
         totalAmount,
-        downPayment,
+        paidAmount: payableNow,
+        payOption,
       });
-      setReservationReference(checkoutJson.reservation?.referenceNumber || null);
-      resetBookingDraft();
+      setReservationReference(reservationReferenceFromDraft || null);
       setPaymentComplete(true);
     } catch {
       setSubmitError("Unable to process payment right now. Please try again.");
@@ -405,12 +419,14 @@ function PaymentContent() {
                 <span className="font-semibold text-neutral">₱{successTotalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral/70">Paid (Down Payment)</span>
-                <span className="font-semibold text-secondary">₱{successDownPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="text-neutral/70">
+                  Paid ({successPayOption === "full" ? "Full Payment" : "Down Payment"})
+                </span>
+                <span className="font-semibold text-secondary">₱{successPaidAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Balance Due at Checkout</span>
-                <span className="font-bold text-primary text-lg">₱{(successTotalAmount - successDownPayment).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="font-bold text-primary text-lg">₱{Math.max(successTotalAmount - successPaidAmount, 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               {uploadedProofPath && (
                 <div className="flex justify-between">
@@ -492,7 +508,12 @@ function PaymentContent() {
             </div>
             <div className="w-12 h-0.5 bg-primary" />
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">3</div>
+              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">✓</div>
+              <span className="text-sm font-medium text-neutral">Review & Save</span>
+            </div>
+            <div className="w-12 h-0.5 bg-primary" />
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">4</div>
               <span className="text-sm font-medium text-primary">Payment</span>
             </div>
           </div>
@@ -505,6 +526,12 @@ function PaymentContent() {
             <div className="lg:col-span-2">
               <div className="bg-white rounded-3xl shadow-xl p-8">
                 <h2 className="text-3xl font-bold text-neutral mb-8">Payment Details</h2>
+
+                {!reservationId ? (
+                  <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
+                    Save your booking on the review page first before submitting payment.
+                  </div>
+                ) : null}
 
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Select Payment Method</h3>
@@ -556,6 +583,36 @@ function PaymentContent() {
                 </div>
 
                 <form onSubmit={handlePaymentSubmit}>
+                  <div className="mb-6 rounded-xl border border-neutral/10 bg-base p-4">
+                    <h3 className="text-lg font-semibold text-neutral mb-3">Choose Amount To Pay</h3>
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setPayOption("downpayment")}
+                        className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                          payOption === "downpayment"
+                            ? "border-primary bg-primary/5"
+                            : "border-neutral/20 bg-white hover:border-primary/50"
+                        }`}
+                      >
+                        <p className="font-semibold text-neutral">30% Down Payment</p>
+                        <p className="text-sm text-neutral/70">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPayOption("full")}
+                        className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                          payOption === "full"
+                            ? "border-primary bg-primary/5"
+                            : "border-neutral/20 bg-white hover:border-primary/50"
+                        }`}
+                      >
+                        <p className="font-semibold text-neutral">Full Payment</p>
+                        <p className="text-sm text-neutral/70">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      </button>
+                    </div>
+                  </div>
+
                   {submitError && (
                     <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
                       {submitError}
@@ -768,7 +825,7 @@ function PaymentContent() {
                     </Link>
                     <button
                       type="submit"
-                      disabled={isSubmitting || !acceptedTerms}
+                      disabled={isSubmitting || !acceptedTerms || !reservationId}
                       className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {isSubmitting ? "Processing..." : "Confirm Payment"}
@@ -785,7 +842,7 @@ function PaymentContent() {
                 <div className="space-y-4 mb-6">
                   <div className="pb-4 border-b border-neutral/10">
                     <p className="text-sm text-neutral/70 mb-1">Booking Reference</p>
-                    <p className="font-mono font-bold text-neutral">{bookingReference}</p>
+                    <p className="font-mono font-bold text-neutral">{reservationReferenceFromDraft || bookingReference}</p>
                   </div>
 
                   <div className="pb-4 border-b border-neutral/10">
@@ -848,15 +905,17 @@ function PaymentContent() {
 
                   <div className="bg-primary/5 p-4 rounded-lg">
                     <div className="flex justify-between mb-2">
-                      <span className="font-semibold text-neutral">Down Payment (30%)</span>
-                      <span className="text-xl font-bold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="font-semibold text-neutral">
+                        {payOption === "full" ? "Paying Now (Full)" : "Down Payment (30%)"}
+                      </span>
+                      <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
-                    <p className="text-xs text-neutral/60">Required now to confirm booking</p>
+                    <p className="text-xs text-neutral/60">{payOption === "full" ? "You are clearing the full current reservation amount." : "Required now to confirm booking"}</p>
                   </div>
 
                   <div className="flex justify-between pt-4 border-t border-neutral/10">
                     <span className="text-neutral/70">Remaining Balance</span>
-                    <span className="font-semibold text-neutral">₱{(totalAmount - downPayment).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="font-semibold text-neutral">₱{remainingAfterThisPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
 
                   <p className="text-xs text-neutral/60">Balance payable upon checkout</p>

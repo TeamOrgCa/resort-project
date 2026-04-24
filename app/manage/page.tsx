@@ -17,9 +17,19 @@ interface BookingRecord {
   checkOut: string;
   guests: number;
   totalAmount: number;
+  paidAmount: number;
+  remainingBalance: number;
   status: string;
   email: string;
   phone: string;
+}
+
+interface EditableReservationService {
+  serviceId: string;
+  name: string;
+  quantity: number;
+  minQuantity: number;
+  priceAtTime: number;
 }
 
 interface OcularRecord {
@@ -36,13 +46,16 @@ interface ReservationRow {
   reference_number: string;
   check_in_date: string;
   check_out_date: string;
-  total_guests: number;
+  adult_count: number;
+  child_count: number;
   status: string;
 }
 
 interface TransactionRow {
   reservation_id: string;
   total_amount: number;
+  paid_amount: number | null;
+  balance: number | null;
 }
 
 interface OcularVisitRow {
@@ -58,6 +71,34 @@ interface GuestRow {
   email: string;
   phone_number: string;
 }
+
+interface ReservationServiceRow {
+  reservation_id: string;
+  service_id: string;
+  quantity: number;
+  price_at_time: number;
+  services:
+    | {
+        name: string;
+      }
+    | Array<{
+        name: string;
+      }>
+    | null;
+}
+
+interface ServiceCatalogRow {
+  service_id: string;
+  name: string;
+  price: number;
+}
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    maximumFractionDigits: 2,
+  }).format(value);
 
 const formatDate = (value: string) => {
   const date = new Date(value);
@@ -107,6 +148,30 @@ export default function ManageBooking() {
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
 
   const [ocularBookings, setOcularBookings] = useState<OcularRecord[]>([]);
+  const [reservationServicesById, setReservationServicesById] = useState<Record<string, EditableReservationService[]>>({});
+  const [availableServices, setAvailableServices] = useState<ServiceCatalogRow[]>([]);
+  const [editableServices, setEditableServices] = useState<EditableReservationService[]>([]);
+  const [selectedAddServiceId, setSelectedAddServiceId] = useState("");
+  const [addServiceQuantity, setAddServiceQuantity] = useState("1");
+  const [serviceEditError, setServiceEditError] = useState<string | null>(null);
+  const [isSavingServices, setIsSavingServices] = useState(false);
+  const [remainingPaymentMethod, setRemainingPaymentMethod] = useState<"bank" | "ewallet">("bank");
+  const [remainingPaymentError, setRemainingPaymentError] = useState<string | null>(null);
+  const [remainingPaymentSuccess, setRemainingPaymentSuccess] = useState<string | null>(null);
+  const [isSubmittingRemainingPayment, setIsSubmittingRemainingPayment] = useState(false);
+
+  const [remainingBankDetails, setRemainingBankDetails] = useState({
+    accountName: "",
+    referenceNumber: "",
+    uploadProof: null as File | null,
+  });
+
+  const [remainingEwalletDetails, setRemainingEwalletDetails] = useState({
+    accountName: "",
+    accountNumber: "",
+    referenceNumber: "",
+    uploadProof: null as File | null,
+  });
 
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [selectedOcularId, setSelectedOcularId] = useState<string | null>(null);
@@ -173,6 +238,203 @@ export default function ManageBooking() {
     }
   };
 
+  const handleSaveServices = async () => {
+    if (!selectedBooking) {
+      setServiceEditError("Select a booking first.");
+      return;
+    }
+
+    if (editableServices.length === 0) {
+      setServiceEditError("At least one service is required.");
+      return;
+    }
+
+    setServiceEditError(null);
+    setIsSavingServices(true);
+
+    try {
+      const response = await fetch("/api/reservations/services", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId: selectedBooking.id,
+          services: editableServices.map((service) => ({
+            serviceId: service.serviceId,
+            quantity: Number(service.quantity),
+          })),
+        }),
+      });
+
+      let result: { success?: boolean; message?: string; errorCode?: string | null } | null = null;
+      let rawText = "";
+
+      try {
+        result = (await response.json()) as { success?: boolean; message?: string; errorCode?: string | null };
+      } catch {
+        rawText = await response.text().catch(() => "");
+      }
+
+      if (!response.ok || !result?.success) {
+        const statusLabel = `Save failed (${response.status})`;
+        const codeLabel = result?.errorCode ? ` [${result.errorCode}]` : "";
+        const rawLabel = rawText.trim() ? ` ${rawText.trim().slice(0, 200)}` : "";
+        setServiceEditError(`${statusLabel}: ${result?.message ?? "Failed to update services."}${codeLabel}${rawLabel}`);
+        return;
+      }
+
+      setReservationServicesById((current) => ({
+        ...current,
+        [selectedBooking.id]: editableServices,
+      }));
+
+      const supabase = createClient();
+      const { data: transactionRow } = await supabase
+        .from("transactions")
+        .select("total_amount")
+        .eq("reservation_id", selectedBooking.id)
+        .maybeSingle<{ total_amount: number }>();
+
+      if (transactionRow) {
+        setBookings((currentBookings) =>
+          currentBookings.map((booking) =>
+            booking.id === selectedBooking.id
+              ? {
+                  ...booking,
+                  totalAmount: Number(transactionRow.total_amount ?? booking.totalAmount),
+                  remainingBalance: Math.max(
+                    Number(transactionRow.total_amount ?? booking.totalAmount) - Number(booking.paidAmount ?? 0),
+                    0
+                  ),
+                }
+              : booking
+          )
+        );
+      }
+
+      setRecordMode("view");
+    } catch {
+      setServiceEditError("Failed to update services.");
+    } finally {
+      setIsSavingServices(false);
+    }
+  };
+
+  const handleSubmitRemainingPayment = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!selectedBooking) {
+      setRemainingPaymentError("Select a booking first.");
+      return;
+    }
+
+    if (selectedBooking.remainingBalance <= 0) {
+      setRemainingPaymentError("This booking has no remaining balance.");
+      return;
+    }
+
+    if (selectedBooking.status.toLowerCase() === "cancelled" || selectedBooking.status.toLowerCase() === "completed") {
+      setRemainingPaymentError("Cannot submit payment for this booking status.");
+      return;
+    }
+
+    const selectedProof =
+      remainingPaymentMethod === "bank"
+        ? remainingBankDetails.uploadProof
+        : remainingEwalletDetails.uploadProof;
+
+    if (!selectedProof) {
+      setRemainingPaymentError("Please upload payment proof before submitting.");
+      return;
+    }
+
+    if (!selectedProof.type.startsWith("image/")) {
+      setRemainingPaymentError("Please upload an image proof of payment.");
+      return;
+    }
+
+    const accountName =
+      remainingPaymentMethod === "bank"
+        ? remainingBankDetails.accountName.trim()
+        : remainingEwalletDetails.accountName.trim();
+    const referenceNumber =
+      remainingPaymentMethod === "bank"
+        ? remainingBankDetails.referenceNumber.trim()
+        : remainingEwalletDetails.referenceNumber.trim();
+    const accountNumber =
+      remainingPaymentMethod === "bank"
+        ? null
+        : remainingEwalletDetails.accountNumber.trim();
+
+    if (!accountName || !referenceNumber || (remainingPaymentMethod === "ewallet" && !accountNumber)) {
+      setRemainingPaymentError("Please complete all payment details.");
+      return;
+    }
+
+    setRemainingPaymentError(null);
+    setRemainingPaymentSuccess(null);
+    setIsSubmittingRemainingPayment(true);
+
+    try {
+      const supabase = createClient();
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData.user?.id ?? "guest";
+      const safeFileName = selectedProof.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+      const uploadPath = `${userId}/${Date.now()}-${safeFileName}`;
+      const bucketName = process.env.NEXT_PUBLIC_SUPABASE_PAYMENT_PROOF_BUCKET!;
+
+      const { error: uploadError } = await supabase.storage
+        .from(bucketName)
+        .upload(uploadPath, selectedProof, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: selectedProof.type || undefined,
+        });
+
+      if (uploadError) {
+        setRemainingPaymentError(uploadError.message || "Failed to upload payment proof.");
+        return;
+      }
+
+      const response = await fetch("/api/reservations/payment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId: selectedBooking.id,
+          payment: {
+            method: remainingPaymentMethod === "bank" ? "bank_transfer" : "e_wallet",
+            type: "additional",
+            amount: Number(selectedBooking.remainingBalance),
+            referenceNumber,
+            accountName,
+            accountNumber: accountNumber || null,
+            proofPath: uploadPath,
+          },
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+
+      if (!response.ok || !result?.success) {
+        setRemainingPaymentError(result?.message ?? "Failed to submit remaining balance payment.");
+        return;
+      }
+
+      setRemainingPaymentSuccess(
+        "Remaining balance payment submitted successfully. It will be reflected after admin verification."
+      );
+      setRemainingBankDetails({ accountName: "", referenceNumber: "", uploadProof: null });
+      setRemainingEwalletDetails({ accountName: "", accountNumber: "", referenceNumber: "", uploadProof: null });
+    } catch {
+      setRemainingPaymentError("Failed to submit remaining balance payment.");
+    } finally {
+      setIsSubmittingRemainingPayment(false);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
 
@@ -200,7 +462,7 @@ export default function ManageBooking() {
           supabase.from("guests").select("email, phone_number").eq("id", user.id).maybeSingle<GuestRow>(),
           supabase
             .from("reservations")
-            .select("reservation_id, reference_number, check_in_date, check_out_date, total_guests, status")
+            .select("reservation_id, reference_number, check_in_date, check_out_date, adult_count, child_count, status")
             .eq("guest_id", user.id)
             .order("created_at", { ascending: false }),
           supabase
@@ -217,24 +479,45 @@ export default function ManageBooking() {
         const reservationRows = (reservationsResult.data as ReservationRow[] | null) ?? [];
         const reservationIds = reservationRows.map((row) => row.reservation_id);
 
-        const { data: transactionRows, error: transactionsError } = reservationIds.length
-          ? await supabase
-              .from("transactions")
-              .select("reservation_id, total_amount")
-              .in("reservation_id", reservationIds)
-          : { data: [], error: null };
+        const [
+          { data: transactionRows, error: transactionsError },
+          { data: reservationServicesData, error: reservationServicesError },
+          { data: availableServicesData, error: availableServicesError },
+        ] = await Promise.all([
+          reservationIds.length
+            ? supabase
+                .from("transactions")
+                .select("reservation_id, total_amount, paid_amount, balance")
+                .in("reservation_id", reservationIds)
+            : Promise.resolve({ data: [], error: null }),
+          reservationIds.length
+            ? supabase
+                .from("reservation_services")
+                .select("reservation_id, service_id, quantity, price_at_time, services(name)")
+                .in("reservation_id", reservationIds)
+            : Promise.resolve({ data: [], error: null }),
+          supabase.from("services").select("service_id, name, price").eq("is_active", true).order("name", { ascending: true }),
+        ]);
 
         if (transactionsError) {
           throw transactionsError;
+        }
+
+        if (reservationServicesError || availableServicesError) {
+          throw reservationServicesError || availableServicesError;
         }
 
         if (!isMounted) return;
 
         const guestData = guestResult.data;
         const transactionByReservationId = ((transactionRows as TransactionRow[] | null) ?? []).reduce<
-          Record<string, number>
+          Record<string, { total: number; paid: number; balance: number }>
         >((accumulator, transaction) => {
-          accumulator[transaction.reservation_id] = Number(transaction.total_amount ?? 0);
+          accumulator[transaction.reservation_id] = {
+            total: Number(transaction.total_amount ?? 0),
+            paid: Number(transaction.paid_amount ?? 0),
+            balance: Number(transaction.balance ?? 0),
+          };
           return accumulator;
         }, {});
 
@@ -243,12 +526,33 @@ export default function ManageBooking() {
           reference: reservation.reference_number,
           checkIn: reservation.check_in_date,
           checkOut: reservation.check_out_date,
-          guests: reservation.total_guests,
-          totalAmount: transactionByReservationId[reservation.reservation_id] ?? 0,
+          guests: Number(reservation.adult_count ?? 0) + Number(reservation.child_count ?? 0),
+          totalAmount: transactionByReservationId[reservation.reservation_id]?.total ?? 0,
+          paidAmount: transactionByReservationId[reservation.reservation_id]?.paid ?? 0,
+          remainingBalance: transactionByReservationId[reservation.reservation_id]?.balance ?? 0,
           status: toTitleCase(reservation.status),
           email: guestData?.email ?? user.email ?? "-",
           phone: guestData?.phone_number ?? "-",
         }));
+
+        const nextReservationServicesById = ((reservationServicesData as ReservationServiceRow[] | null) ?? []).reduce<
+          Record<string, EditableReservationService[]>
+        >((accumulator, serviceRow) => {
+          const name =
+            (Array.isArray(serviceRow.services) ? serviceRow.services[0]?.name : serviceRow.services?.name) ??
+            "Service";
+
+          const existing = accumulator[serviceRow.reservation_id] ?? [];
+          existing.push({
+            serviceId: serviceRow.service_id,
+            name,
+            quantity: Number(serviceRow.quantity ?? 1),
+            minQuantity: Number(serviceRow.quantity ?? 1),
+            priceAtTime: Number(serviceRow.price_at_time ?? 0),
+          });
+          accumulator[serviceRow.reservation_id] = existing;
+          return accumulator;
+        }, {});
 
         const mappedOcularBookings: OcularRecord[] = ((ocularResult.data as OcularVisitRow[] | null) ?? []).map(
           (visit) => ({
@@ -263,6 +567,8 @@ export default function ManageBooking() {
 
         setBookings(mappedBookings);
         setOcularBookings(mappedOcularBookings);
+        setReservationServicesById(nextReservationServicesById);
+        setAvailableServices((availableServicesData as ServiceCatalogRow[] | null) ?? []);
       } catch {
         if (!isMounted) return;
         setFetchError("Failed to load your booking records.");
@@ -281,6 +587,62 @@ export default function ManageBooking() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!bookings.length) {
+      return;
+    }
+
+    const reservationIds = bookings.map((booking) => booking.id);
+
+    const refreshTransactionSnapshots = async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("reservation_id, total_amount, paid_amount, balance")
+        .in("reservation_id", reservationIds);
+
+      if (error) {
+        return;
+      }
+
+      const nextByReservationId = ((data as TransactionRow[] | null) ?? []).reduce<
+        Record<string, { total: number; paid: number; balance: number }>
+      >((accumulator, transaction) => {
+        accumulator[transaction.reservation_id] = {
+          total: Number(transaction.total_amount ?? 0),
+          paid: Number(transaction.paid_amount ?? 0),
+          balance: Number(transaction.balance ?? 0),
+        };
+        return accumulator;
+      }, {});
+
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) => {
+          const nextSnapshot = nextByReservationId[booking.id];
+
+          if (!nextSnapshot) {
+            return booking;
+          }
+
+          return {
+            ...booking,
+            totalAmount: nextSnapshot.total,
+            paidAmount: nextSnapshot.paid,
+            remainingBalance: nextSnapshot.balance,
+          };
+        })
+      );
+    };
+
+    const timer = window.setInterval(() => {
+      void refreshTransactionSnapshots();
+    }, 20000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [bookings]);
 
   return (
     <div className="min-h-screen bg-base">
@@ -340,6 +702,11 @@ export default function ManageBooking() {
             {activeTab === "bookings" && (
               <>
                 <h2 className="text-2xl font-bold text-neutral mb-4">Your Booking Records</h2>
+                {cancelError ? (
+                  <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                    {cancelError}
+                  </p>
+                ) : null}
                 {isLoading ? <p className="mb-4 text-sm text-neutral/70">Loading booking records...</p> : null}
                 <div className="overflow-x-auto rounded-2xl border border-neutral/10">
                   <table className="min-w-full text-left text-sm">
@@ -376,6 +743,11 @@ export default function ManageBooking() {
                                 onClick={() => {
                                   setSelectedBookingId(record.id);
                                   setRecordMode("view");
+                                  setRemainingPaymentError(null);
+                                  setRemainingPaymentSuccess(null);
+                                  setRemainingPaymentMethod("bank");
+                                  setRemainingBankDetails({ accountName: "", referenceNumber: "", uploadProof: null });
+                                  setRemainingEwalletDetails({ accountName: "", accountNumber: "", referenceNumber: "", uploadProof: null });
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
@@ -385,6 +757,14 @@ export default function ManageBooking() {
                                 onClick={() => {
                                   setSelectedBookingId(record.id);
                                   setRecordMode("edit");
+                                  setServiceEditError(null);
+                                  setSelectedAddServiceId("");
+                                  setAddServiceQuantity("1");
+                                  setEditableServices(
+                                    (reservationServicesById[record.id] ?? []).map((service) => ({
+                                      ...service,
+                                    }))
+                                  );
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
@@ -398,6 +778,33 @@ export default function ManageBooking() {
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
                                 Resched
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (
+                                    record.remainingBalance <= 0 ||
+                                    record.status.toLowerCase() === "cancelled" ||
+                                    record.status.toLowerCase() === "completed"
+                                  ) {
+                                    return;
+                                  }
+
+                                  setSelectedBookingId(record.id);
+                                  setRecordMode("view");
+                                  setRemainingPaymentError(null);
+                                  setRemainingPaymentSuccess(null);
+                                  setRemainingPaymentMethod("bank");
+                                  setRemainingBankDetails({ accountName: "", referenceNumber: "", uploadProof: null });
+                                  setRemainingEwalletDetails({ accountName: "", accountNumber: "", referenceNumber: "", uploadProof: null });
+                                }}
+                                disabled={
+                                  record.remainingBalance <= 0 ||
+                                  record.status.toLowerCase() === "cancelled" ||
+                                  record.status.toLowerCase() === "completed"
+                                }
+                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Pay Balance
                               </button>
                               <button
                                 onClick={() => {
@@ -453,7 +860,149 @@ export default function ManageBooking() {
                       <p>
                         Total Amount: <span className="font-semibold text-neutral">₱{selectedBooking.totalAmount.toFixed(2)}</span>
                       </p>
+                      <p>
+                        Paid Amount: <span className="font-semibold text-neutral">₱{selectedBooking.paidAmount.toFixed(2)}</span>
+                      </p>
+                      <p>
+                        Remaining Balance: <span className="font-semibold text-neutral">₱{selectedBooking.remainingBalance.toFixed(2)}</span>
+                      </p>
+                      <div className="md:col-span-2">
+                        <p className="font-medium text-neutral">Booked Services</p>
+                        {(reservationServicesById[selectedBooking.id] ?? []).length === 0 ? (
+                          <p className="mt-1">No services selected.</p>
+                        ) : (
+                          <div className="mt-2 space-y-1">
+                            {(reservationServicesById[selectedBooking.id] ?? []).map((service) => (
+                              <p key={service.serviceId}>
+                                {service.name} x {service.quantity} ({formatCurrency(service.priceAtTime)} each)
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
+
+                    {selectedBooking.remainingBalance > 0 &&
+                    selectedBooking.status.toLowerCase() !== "cancelled" &&
+                    selectedBooking.status.toLowerCase() !== "completed" ? (
+                      <form className="mt-5 rounded-xl border border-neutral/10 bg-white p-4" onSubmit={handleSubmitRemainingPayment}>
+                        <h4 className="font-semibold text-neutral">Pay Remaining Balance</h4>
+                        <p className="mt-1 text-sm text-neutral/70">
+                          Amount to pay now: <span className="font-semibold text-neutral">{formatCurrency(selectedBooking.remainingBalance)}</span>
+                        </p>
+
+                        {remainingPaymentError ? (
+                          <p className="mt-3 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                            {remainingPaymentError}
+                          </p>
+                        ) : null}
+
+                        {remainingPaymentSuccess ? (
+                          <p className="mt-3 rounded-lg border border-secondary/30 bg-secondary/10 px-3 py-2 text-sm text-neutral">
+                            {remainingPaymentSuccess}
+                          </p>
+                        ) : null}
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={() => setRemainingPaymentMethod("bank")}
+                            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                              remainingPaymentMethod === "bank"
+                                ? "border-primary bg-primary/5 text-neutral"
+                                : "border-neutral/20 bg-base text-neutral"
+                            }`}
+                          >
+                            Bank Transfer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRemainingPaymentMethod("ewallet")}
+                            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                              remainingPaymentMethod === "ewallet"
+                                ? "border-primary bg-primary/5 text-neutral"
+                                : "border-neutral/20 bg-base text-neutral"
+                            }`}
+                          >
+                            E-Wallet
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <input
+                            type="text"
+                            placeholder="Account Name"
+                            value={
+                              remainingPaymentMethod === "bank"
+                                ? remainingBankDetails.accountName
+                                : remainingEwalletDetails.accountName
+                            }
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              if (remainingPaymentMethod === "bank") {
+                                setRemainingBankDetails((prev) => ({ ...prev, accountName: next }));
+                              } else {
+                                setRemainingEwalletDetails((prev) => ({ ...prev, accountName: next }));
+                              }
+                            }}
+                            className="rounded-lg border border-neutral/20 px-3 py-2"
+                          />
+
+                          <input
+                            type="text"
+                            placeholder="Reference Number"
+                            value={
+                              remainingPaymentMethod === "bank"
+                                ? remainingBankDetails.referenceNumber
+                                : remainingEwalletDetails.referenceNumber
+                            }
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              if (remainingPaymentMethod === "bank") {
+                                setRemainingBankDetails((prev) => ({ ...prev, referenceNumber: next }));
+                              } else {
+                                setRemainingEwalletDetails((prev) => ({ ...prev, referenceNumber: next }));
+                              }
+                            }}
+                            className="rounded-lg border border-neutral/20 px-3 py-2"
+                          />
+
+                          {remainingPaymentMethod === "ewallet" ? (
+                            <input
+                              type="text"
+                              placeholder="Account Number"
+                              value={remainingEwalletDetails.accountNumber}
+                              onChange={(event) =>
+                                setRemainingEwalletDetails((prev) => ({ ...prev, accountNumber: event.target.value }))
+                              }
+                              className="rounded-lg border border-neutral/20 px-3 py-2"
+                            />
+                          ) : null}
+
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0] || null;
+                              if (remainingPaymentMethod === "bank") {
+                                setRemainingBankDetails((prev) => ({ ...prev, uploadProof: file }));
+                              } else {
+                                setRemainingEwalletDetails((prev) => ({ ...prev, uploadProof: file }));
+                              }
+                            }}
+                            className="rounded-lg border border-neutral/20 px-3 py-2"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingRemainingPayment}
+                          className="mt-4 rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSubmittingRemainingPayment ? "Submitting Payment..." : "Pay Remaining Balance"}
+                        </button>
+                      </form>
+                    ) : null}
                   </div>
                 )}
 
@@ -462,42 +1011,135 @@ export default function ManageBooking() {
                     className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      setRecordMode("view");
+                      void handleSaveServices();
                     }}
                   >
-                    <h3 className="text-lg font-semibold text-neutral">Edit Booking</h3>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div>
-                        <label className="mb-2 block text-sm text-neutral/70">Email</label>
+                    <h3 className="text-lg font-semibold text-neutral">Edit Booking Services</h3>
+                    <p className="text-sm text-neutral/70">
+                      You can add new services or increase quantities. Existing services cannot be reduced or removed.
+                    </p>
+
+                    {serviceEditError ? (
+                      <p className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                        {serviceEditError}
+                      </p>
+                    ) : null}
+
+                    <div className="space-y-3">
+                      {editableServices.length === 0 ? (
+                        <p className="text-sm text-neutral/70">No services yet. Add one below to continue.</p>
+                      ) : null}
+
+                      {editableServices.map((service) => (
+                        <div key={service.serviceId} className="grid gap-3 rounded-xl border border-neutral/10 bg-white p-3 md:grid-cols-3">
+                          <p className="text-sm text-neutral">
+                            <span className="font-semibold">{service.name}</span>
+                            <span className="block text-neutral/70">{formatCurrency(service.priceAtTime)} each</span>
+                          </p>
+                          <div>
+                            <label className="mb-1 block text-xs text-neutral/70">Quantity</label>
+                            <input
+                              type="number"
+                              min={service.minQuantity}
+                              step={1}
+                              value={service.quantity}
+                              onChange={(event) => {
+                                const parsedValue = Number.parseInt(event.target.value, 10);
+                                const nextQuantity = Number.isNaN(parsedValue)
+                                  ? service.minQuantity
+                                  : Math.max(service.minQuantity, parsedValue);
+
+                                setEditableServices((current) =>
+                                  current.map((currentService) =>
+                                    currentService.serviceId === service.serviceId
+                                      ? {
+                                          ...currentService,
+                                          quantity: nextQuantity,
+                                        }
+                                      : currentService
+                                  )
+                                );
+                              }}
+                              className="w-full rounded-lg border border-neutral/20 px-3 py-2"
+                            />
+                          </div>
+                          <p className="text-xs text-neutral/70 md:text-sm">Minimum allowed: {service.minQuantity}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="rounded-xl border border-neutral/10 bg-white p-3">
+                      <p className="mb-3 text-sm font-semibold text-neutral">Add New Service</p>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <select
+                          value={selectedAddServiceId}
+                          onChange={(event) => setSelectedAddServiceId(event.target.value)}
+                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
+                        >
+                          <option value="">Select a service</option>
+                          {availableServices
+                            .filter((service) => !editableServices.some((entry) => entry.serviceId === service.service_id))
+                            .map((service) => (
+                              <option key={service.service_id} value={service.service_id}>
+                                {service.name} ({formatCurrency(Number(service.price ?? 0))})
+                              </option>
+                            ))}
+                        </select>
                         <input
-                          value={selectedBooking.email}
-                          onChange={(event) =>
-                            setBookings((prev) =>
-                              prev.map((item) =>
-                                item.id === selectedBooking.id ? { ...item, email: event.target.value } : item
-                              )
-                            )
-                          }
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={addServiceQuantity}
+                          onChange={(event) => setAddServiceQuantity(event.target.value)}
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm text-neutral/70">Phone</label>
-                        <input
-                          value={selectedBooking.phone}
-                          onChange={(event) =>
-                            setBookings((prev) =>
-                              prev.map((item) =>
-                                item.id === selectedBooking.id ? { ...item, phone: event.target.value } : item
-                              )
-                            )
-                          }
-                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setServiceEditError(null);
+
+                            if (!selectedAddServiceId) {
+                              setServiceEditError("Select a service to add.");
+                              return;
+                            }
+
+                            const selectedService = availableServices.find(
+                              (service) => service.service_id === selectedAddServiceId
+                            );
+
+                            if (!selectedService) {
+                              setServiceEditError("Selected service is no longer available.");
+                              return;
+                            }
+
+                            const parsedQuantity = Number.parseInt(addServiceQuantity, 10);
+                            const nextQuantity = Number.isNaN(parsedQuantity) ? 1 : Math.max(1, parsedQuantity);
+
+                            setEditableServices((current) => [
+                              ...current,
+                              {
+                                serviceId: selectedService.service_id,
+                                name: selectedService.name,
+                                quantity: nextQuantity,
+                                minQuantity: 1,
+                                priceAtTime: Number(selectedService.price ?? 0),
+                              },
+                            ]);
+                            setSelectedAddServiceId("");
+                            setAddServiceQuantity("1");
+                          }}
+                          className="rounded-lg border border-neutral/20 px-3 py-2 text-sm font-medium text-neutral hover:bg-base"
+                        >
+                          Add Service
+                        </button>
                       </div>
                     </div>
-                    <button className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90">
-                      Save Changes
+
+                    <button
+                      disabled={isSavingServices}
+                      className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSavingServices ? "Saving..." : "Save Service Changes"}
                     </button>
                   </form>
                 )}

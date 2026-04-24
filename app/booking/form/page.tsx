@@ -223,6 +223,8 @@ function BookingFormContent() {
       downPayment,
       services: selectedServiceItems,
       specialRequests: formData.specialRequests,
+      reservationId: "",
+      reservationReference: "",
     });
   };
 
@@ -246,6 +248,11 @@ function BookingFormContent() {
             <div className="w-12 h-0.5 bg-neutral/20"></div>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-neutral/20 text-neutral/50 flex items-center justify-center font-semibold">3</div>
+              <span className="text-sm font-medium text-neutral/50">Review & Save</span>
+            </div>
+            <div className="w-12 h-0.5 bg-neutral/20"></div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-neutral/20 text-neutral/50 flex items-center justify-center font-semibold">4</div>
               <span className="text-sm font-medium text-neutral/50">Payment</span>
             </div>
           </div>
@@ -432,12 +439,12 @@ function BookingFormContent() {
                       Back
                     </button>
                   </Link>
-                  <Link href="/booking/payment" className="flex-1" onClick={handleContinueToPayment}>
+                  <Link href="/booking/details" className="flex-1" onClick={handleContinueToPayment}>
                     <button
                       disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
-                      Continue to Payment
+                      Review Full Details
                     </button>
                   </Link>
                 </div>

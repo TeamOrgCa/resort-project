@@ -20,6 +20,7 @@ interface ReservationRow {
 
 interface TransactionRow {
   balance: number | null;
+  overpaid_amount?: number | null;
   total_amount?: number;
   paid_amount?: number | null;
   status?: "unpaid" | "partial" | "paid";
@@ -162,16 +163,6 @@ export async function POST(request: Request) {
       );
     }
 
-    if (payload.amount > remainingBalance) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Amount cannot exceed remaining balance.",
-        },
-        { status: 400 }
-      );
-    }
-
     const { data: insertedPayment, error: insertError } = await staffContext.supabase
       .from("payments")
       .insert({
@@ -253,54 +244,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: existingInvoice, error: invoiceLookupError } = await staffContext.supabase
-      .from("invoices")
-      .select("invoice_id")
-      .eq("reservation_id", reservation.reservation_id)
-      .maybeSingle();
-
-    if (invoiceLookupError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to validate generated invoice.",
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!existingInvoice) {
-      const { data: transactionData, error: transactionLookupError } = await staffContext.supabase
-        .from("transactions")
-        .select("total_amount")
-        .eq("reservation_id", reservation.reservation_id)
-        .maybeSingle<TransactionRow>();
-
-      if (transactionLookupError) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Failed to prepare invoice amount.",
-          },
-          { status: 500 }
-        );
-      }
-
-      const { error: createInvoiceError } = await staffContext.supabase.from("invoices").insert({
-        reservation_id: reservation.reservation_id,
-        total_amount: Number(transactionData?.total_amount ?? 0),
-      });
-
-      if (createInvoiceError && createInvoiceError.code !== "23505") {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Failed to create invoice.",
-          },
-          { status: 500 }
-        );
-      }
-    }
+    // Invoice creation is handled by database triggers.
 
     const { data: existingReceipt, error: receiptLookupError } = await staffContext.supabase
       .from("receipts")
@@ -418,7 +362,7 @@ export async function POST(request: Request) {
 
     const { data: updatedTransaction, error: updatedTransactionError } = await staffContext.supabase
       .from("transactions")
-      .select("balance")
+      .select("balance, overpaid_amount")
       .eq("reservation_id", reservation.reservation_id)
       .maybeSingle<TransactionRow>();
 
@@ -454,6 +398,7 @@ export async function POST(request: Request) {
         payment: createdPayment,
         reservationId: reservation.reservation_id,
         remainingBalance: Number(updatedTransaction?.balance ?? 0),
+        overpaidAmount: Number(updatedTransaction?.overpaid_amount ?? 0),
       },
       { status: 201 }
     );

@@ -33,6 +33,7 @@ interface TransactionRow {
   paid_amount?: number | null;
   status?: "unpaid" | "partial" | "paid";
   balance?: number | null;
+  overpaid_amount?: number | null;
 }
 
 const parsePayload = (value: unknown): ApprovePaymentPayload | null => {
@@ -157,54 +158,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: existingInvoice, error: invoiceLookupError } = await staffContext.supabase
-      .from("invoices")
-      .select("invoice_id")
-      .eq("reservation_id", reservation.reservation_id)
-      .maybeSingle();
-
-    if (invoiceLookupError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to validate generated invoice.",
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!existingInvoice) {
-      const { data: transactionData, error: transactionError } = await staffContext.supabase
-        .from("transactions")
-        .select("total_amount")
-        .eq("reservation_id", reservation.reservation_id)
-        .maybeSingle<TransactionRow>();
-
-      if (transactionError) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Failed to prepare invoice amount.",
-          },
-          { status: 500 }
-        );
-      }
-
-      const { error: createInvoiceError } = await staffContext.supabase.from("invoices").insert({
-        reservation_id: reservation.reservation_id,
-        total_amount: Number(transactionData?.total_amount ?? payment.amount ?? 0),
-      });
-
-      if (createInvoiceError && createInvoiceError.code !== "23505") {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Failed to create invoice.",
-          },
-          { status: 500 }
-        );
-      }
-    }
+    // Invoice creation is handled by database triggers.
 
     const { data: existingReceipt, error: receiptLookupError } = await staffContext.supabase
       .from("receipts")
@@ -320,7 +274,7 @@ export async function POST(request: Request) {
 
     const { data: refreshedTransaction, error: refreshedTransactionError } = await staffContext.supabase
       .from("transactions")
-      .select("balance")
+      .select("balance, overpaid_amount")
       .eq("reservation_id", reservation.reservation_id)
       .maybeSingle<TransactionRow>();
 
@@ -362,6 +316,7 @@ export async function POST(request: Request) {
           : "Payment approved and billing documents generated. Email delivery could not be confirmed.",
         reservationId: reservation.reservation_id,
         remainingBalance: Number(refreshedTransaction?.balance ?? 0),
+        overpaidAmount: Number(refreshedTransaction?.overpaid_amount ?? 0),
         emailSent,
       },
       { status: 200 }

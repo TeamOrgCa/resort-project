@@ -136,6 +136,21 @@ export async function POST(request: Request) {
       );
     }
 
+    const { error: voidInvoicesError } = await staffContext.supabase
+      .from("invoices")
+      .update({ status: "void" })
+      .eq("reservation_id", reservation.reservation_id);
+
+    if (voidInvoicesError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Reservation cancelled but failed to void related invoices.",
+        },
+        { status: 500 }
+      );
+    }
+
     const auditSuccess = await createAuditLog(staffContext, {
       action: `Cancelled reservation (cancellation_reason: ${payload.cancellationReason})`,
       entityType: "reservation",

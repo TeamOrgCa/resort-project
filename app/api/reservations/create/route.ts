@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-type PaymentMethod = "bank_transfer" | "e_wallet";
-type PaymentType = "downpayment" | "full" | "additional";
+type DbErrorLike = {
+  message?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+};
 
 interface ServiceSelectionInput {
   serviceId: string;
   quantity?: number;
 }
 
-interface CheckoutPayload {
+interface CreateReservationPayload {
   checkInDate: string;
   checkOutDate: string;
   adultCount: number;
@@ -17,15 +21,6 @@ interface CheckoutPayload {
   unitId: string;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
-  payment: {
-    method: PaymentMethod;
-    type?: PaymentType;
-    amount: number;
-    referenceNumber: string;
-    accountName: string;
-    accountNumber?: string | null;
-    proofPath: string;
-  };
 }
 
 interface UnitRow {
@@ -41,14 +36,9 @@ interface ServiceRow {
   is_active: boolean;
 }
 
-interface DbErrorLike {
-  message?: string;
-  code?: string;
-  details?: string;
-  hint?: string;
-}
-
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ADULT_RATE_PER_NIGHT = 150;
+const CHILD_RATE_PER_NIGHT = 120;
 const TAX_RATE = 0.12;
 
 const toDbError = (error: unknown): DbErrorLike => {
@@ -65,26 +55,6 @@ const formatDbError = (error: unknown, fallback: string) => {
     return fallback;
   }
   return `${fallback} (${parts.join(" | ")})`;
-};
-
-const isInvoiceConstraintConflict = (error: unknown) => {
-  const dbError = toDbError(error);
-  const text = `${dbError.message ?? ""} ${dbError.details ?? ""} ${dbError.hint ?? ""}`.toLowerCase();
-
-  return (
-    dbError.code === "23505" &&
-    (text.includes("invoices") || text.includes("reservation_id"))
-  );
-};
-
-const isAuditStaffForeignKeyConflict = (error: unknown) => {
-  const dbError = toDbError(error);
-  const text = `${dbError.message ?? ""} ${dbError.details ?? ""} ${dbError.hint ?? ""}`.toLowerCase();
-
-  return (
-    dbError.code === "23503" &&
-    (text.includes("audit_logs") || text.includes("staff_users") || text.includes("user_id"))
-  );
 };
 
 const buildDbFailurePayload = (error: unknown, fallback: string) => {
@@ -104,32 +74,17 @@ const isValidDate = (value: string) => {
   return !Number.isNaN(date.getTime());
 };
 
-const parsePayload = (value: unknown): CheckoutPayload | null => {
+const parsePayload = (value: unknown): CreateReservationPayload | null => {
   if (!value || typeof value !== "object") return null;
 
-  const payload = value as Partial<CheckoutPayload>;
+  const payload = value as Partial<CreateReservationPayload>;
 
   if (
     typeof payload.checkInDate !== "string" ||
     typeof payload.checkOutDate !== "string" ||
     typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
-    typeof payload.childCount !== "number" ||
-    !payload.payment ||
-    typeof payload.payment !== "object"
-  ) {
-    return null;
-  }
-
-  const payment = payload.payment as CheckoutPayload["payment"];
-
-  if (
-    (payment.method !== "bank_transfer" && payment.method !== "e_wallet") ||
-    typeof payment.amount !== "number" ||
-    payment.amount <= 0 ||
-    typeof payment.referenceNumber !== "string" ||
-    typeof payment.accountName !== "string" ||
-    typeof payment.proofPath !== "string"
+    typeof payload.childCount !== "number"
   ) {
     return null;
   }
@@ -161,18 +116,6 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
             quantity: Number.isInteger(item.quantity) && (item.quantity ?? 0) > 0 ? item.quantity : 1,
           }))
       : [],
-    payment: {
-      method: payment.method,
-      type:
-        payment.type === "full" || payment.type === "additional" || payment.type === "downpayment"
-          ? payment.type
-          : "downpayment",
-      amount: payment.amount,
-      referenceNumber: payment.referenceNumber.trim(),
-      accountName: payment.accountName.trim(),
-      accountNumber: payment.accountNumber?.trim() || null,
-      proofPath: payment.proofPath.trim(),
-    },
   };
 };
 
@@ -204,7 +147,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid checkout payload.",
+          message: "Invalid reservation payload.",
         },
         { status: 400 }
       );
@@ -234,7 +177,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          message: "You must be logged in to complete checkout.",
+          message: "You must be logged in to save your booking.",
         },
         { status: 401 }
       );
@@ -297,24 +240,17 @@ export async function POST(request: Request) {
     }
 
     const roomTotal = Number(unit.base_price) * nights;
+    const guestsTotal =
+      nights *
+      (Number(payload.adultCount ?? 0) * ADULT_RATE_PER_NIGHT +
+        Number(payload.childCount ?? 0) * CHILD_RATE_PER_NIGHT);
     const servicesTotal = selectedServices.reduce((sum, service) => {
       const matchedService = servicesById.get(service.serviceId);
       if (!matchedService) return sum;
       return sum + Number(matchedService.price) * (service.quantity ?? 1);
     }, 0);
-
-    const subtotal = roomTotal + servicesTotal;
+    const subtotal = roomTotal + guestsTotal + servicesTotal;
     const totalAmount = Number((subtotal * (1 + TAX_RATE)).toFixed(2));
-
-    if (payload.payment.amount > totalAmount) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Payment amount cannot exceed total reservation amount.",
-        },
-        { status: 400 }
-      );
-    }
 
     const reservationReference = await generateReferenceNumber(supabase);
 
@@ -344,34 +280,10 @@ export async function POST(request: Request) {
       .single();
 
     if (reservationError || !reservation) {
-      console.error("[checkout] Failed to create reservation", reservationError);
-      return NextResponse.json(
-        buildDbFailurePayload(reservationError, "Failed to create reservation."),
-        { status: 500 }
-      );
+      return NextResponse.json(buildDbFailurePayload(reservationError, "Failed to create reservation."), { status: 500 });
     }
 
     reservationId = reservation.reservation_id;
-
-    // Seed transaction total before unit/service triggers run so invoice creation has a non-null amount.
-    const { error: seedTransactionError } = await supabase.from("transactions").upsert(
-      {
-        reservation_id: reservation.reservation_id,
-        total_amount: totalAmount,
-      },
-      {
-        onConflict: "reservation_id",
-      }
-    );
-
-    if (seedTransactionError) {
-      console.error("[checkout] Failed to initialize transaction total", seedTransactionError);
-      await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
-      return NextResponse.json(
-        buildDbFailurePayload(seedTransactionError, "Failed to initialize transaction total."),
-        { status: 500 }
-      );
-    }
 
     const { error: reservationUnitError } = await supabase.from("reservation_units").insert({
       reservation_id: reservation.reservation_id,
@@ -381,35 +293,10 @@ export async function POST(request: Request) {
     });
 
     if (reservationUnitError) {
-      console.error("[checkout] Failed to attach selected unit", reservationUnitError);
       await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
-
-      if (isInvoiceConstraintConflict(reservationUnitError)) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Billing trigger conflict detected while creating invoice records. Check invoice uniqueness and trigger constraints.",
-          },
-          { status: 500 }
-        );
-      }
-
-      if (isAuditStaffForeignKeyConflict(reservationUnitError)) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Audit logging trigger conflict detected for guest checkout. Update log_service_change() to only write staff user_id values.",
-          },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json(
-        buildDbFailurePayload(reservationUnitError, "Failed to attach selected unit."),
-        { status: 500 }
-      );
+      return NextResponse.json(buildDbFailurePayload(reservationUnitError, "Failed to attach selected unit."), {
+        status: 500,
+      });
     }
 
     if (selectedServices.length > 0) {
@@ -428,31 +315,7 @@ export async function POST(request: Request) {
         .insert(reservationServicesPayload);
 
       if (reservationServicesError) {
-        console.error("[checkout] Failed to attach selected services", reservationServicesError);
         await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
-
-        if (isInvoiceConstraintConflict(reservationServicesError)) {
-          return NextResponse.json(
-            {
-              success: false,
-              message:
-                "Billing trigger conflict detected while creating invoice records. Check invoice uniqueness and trigger constraints.",
-            },
-            { status: 500 }
-          );
-        }
-
-        if (isAuditStaffForeignKeyConflict(reservationServicesError)) {
-          return NextResponse.json(
-            {
-              success: false,
-              message:
-                "Audit logging trigger conflict detected for guest checkout. Update log_service_change() to only write staff user_id values.",
-            },
-            { status: 500 }
-          );
-        }
-
         return NextResponse.json(
           buildDbFailurePayload(reservationServicesError, "Failed to attach selected services."),
           { status: 500 }
@@ -460,27 +323,21 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: payment, error: paymentError } = await supabase
-      .from("payments")
-      .insert({
+    const { error: seedTransactionError } = await supabase.from("transactions").upsert(
+      {
         reservation_id: reservation.reservation_id,
-        amount: payload.payment.amount,
-        payment_method: payload.payment.method,
-        payment_type: payload.payment.type,
-        status: "pending",
-        reference_number: payload.payment.referenceNumber,
-        account_name: payload.payment.accountName,
-        account_number: payload.payment.accountNumber,
-        proof_path: payload.payment.proofPath,
-      })
-      .select("payment_id, status")
-      .single();
+        total_amount: totalAmount,
+        status: "unpaid",
+      },
+      {
+        onConflict: "reservation_id",
+      }
+    );
 
-    if (paymentError || !payment) {
-      console.error("[checkout] Failed to record payment", paymentError);
+    if (seedTransactionError) {
       await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
       return NextResponse.json(
-        buildDbFailurePayload(paymentError, "Failed to record payment."),
+        buildDbFailurePayload(seedTransactionError, "Failed to initialize transaction total."),
         { status: 500 }
       );
     }
@@ -494,18 +351,10 @@ export async function POST(request: Request) {
           status: reservation.status,
           totalAmount,
         },
-        payment: {
-          id: payment.payment_id,
-          status: payment.status,
-          amount: payload.payment.amount,
-          proofPath: payload.payment.proofPath,
-        },
       },
       { status: 201 }
     );
   } catch (error) {
-    console.error("[checkout] Unexpected error", error);
-
     if (reservationId) {
       const supabase = await createClient();
       await supabase.from("reservations").delete().eq("reservation_id", reservationId);
@@ -516,8 +365,8 @@ export async function POST(request: Request) {
         success: false,
         message:
           error instanceof Error
-            ? `Unexpected error while creating reservation checkout. ${error.message}`
-            : "Unexpected error while creating reservation checkout.",
+            ? `Unexpected error while saving reservation. ${error.message}`
+            : "Unexpected error while saving reservation.",
       },
       { status: 500 }
     );
