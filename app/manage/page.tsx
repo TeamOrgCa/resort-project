@@ -24,6 +24,11 @@ interface BookingRecord {
   phone: string;
 }
 
+interface RescheduleFormState {
+  checkIn: string;
+  checkOut: string;
+}
+
 interface EditableReservationService {
   serviceId: string;
   name: string;
@@ -136,6 +141,25 @@ const formatTimeSlot = (slot: string) => {
   return `${toLabel(start)} - ${toLabel(end)}`;
 };
 
+const parseDateValue = (value: string) => {
+  const [year, month, day] = value.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return null;
+
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const isAtLeastTwoDaysAway = (checkInValue: string) => {
+  const checkInDate = parseDateValue(checkInValue);
+  if (!checkInDate) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const diffDays = (checkInDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000);
+  return diffDays >= 2;
+};
+
 export default function ManageBooking() {
   const [activeTab, setActiveTab] = useState<ManageTab>("bookings");
   const [recordMode, setRecordMode] = useState<RecordMode>(null);
@@ -155,6 +179,12 @@ export default function ManageBooking() {
   const [addServiceQuantity, setAddServiceQuantity] = useState("1");
   const [serviceEditError, setServiceEditError] = useState<string | null>(null);
   const [isSavingServices, setIsSavingServices] = useState(false);
+  const [rescheduleFormError, setRescheduleFormError] = useState<string | null>(null);
+  const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  const [rescheduleForm, setRescheduleForm] = useState<RescheduleFormState>({
+    checkIn: "",
+    checkOut: "",
+  });
   const [remainingPaymentMethod, setRemainingPaymentMethod] = useState<"bank" | "ewallet">("bank");
   const [remainingPaymentError, setRemainingPaymentError] = useState<string | null>(null);
   const [remainingPaymentSuccess, setRemainingPaymentSuccess] = useState<string | null>(null);
@@ -318,6 +348,98 @@ export default function ManageBooking() {
       setServiceEditError("Failed to update services.");
     } finally {
       setIsSavingServices(false);
+    }
+  };
+
+  const handleSubmitReschedule = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!selectedBooking) {
+      setRescheduleFormError("Select a booking first.");
+      return;
+    }
+
+    if (selectedBooking.status.toLowerCase() === "cancelled" || selectedBooking.status.toLowerCase() === "completed") {
+      setRescheduleFormError("This reservation can no longer be rescheduled.");
+      return;
+    }
+
+    if (selectedBooking.status.toLowerCase() === "reschedule requested") {
+      setRescheduleFormError("A reschedule request is already pending for this reservation.");
+      return;
+    }
+
+    // if (!isAtLeastTwoDaysAway(selectedBooking.checkIn)) {
+    //   setRescheduleFormError("Reschedule requests must be submitted at least 2 days before check-in.");
+    //   return;
+    // }
+
+    const nextCheckIn = parseDateValue(rescheduleForm.checkIn);
+    const nextCheckOut = parseDateValue(rescheduleForm.checkOut);
+
+    if (!nextCheckIn || !nextCheckOut) {
+      setRescheduleFormError("Please choose valid reschedule dates.");
+      return;
+    }
+
+    if (nextCheckOut.getTime() <= nextCheckIn.getTime()) {
+      setRescheduleFormError("Check-out must be after check-in.");
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (nextCheckIn.getTime() < today.getTime()) {
+      setRescheduleFormError("Reschedule dates must be in the future.");
+      return;
+    }
+
+    if (nextCheckIn.getTime() === parseDateValue(selectedBooking.checkIn)?.getTime() && nextCheckOut.getTime() === parseDateValue(selectedBooking.checkOut)?.getTime()) {
+      setRescheduleFormError("Please choose different dates from the current reservation.");
+      return;
+    }
+
+    setRescheduleFormError(null);
+    setIsSubmittingReschedule(true);
+
+    try {
+      const response = await fetch("/api/reservations/reschedule", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId: selectedBooking.id,
+          newCheckInDate: rescheduleForm.checkIn,
+          newCheckOutDate: rescheduleForm.checkOut,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+
+      if (!response.ok || !result?.success) {
+        setRescheduleFormError(result?.message ?? "Failed to submit reschedule request.");
+        return;
+      }
+
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) =>
+          booking.id === selectedBooking.id
+            ? {
+                ...booking,
+                status: "Reschedule Requested",
+              }
+            : booking
+        )
+      );
+
+      setRecordMode("view");
+      setRescheduleFormError(null);
+    } catch {
+      setRescheduleFormError("Failed to submit reschedule request.");
+    } finally {
+      setIsSubmittingReschedule(false);
     }
   };
 
@@ -772,9 +894,30 @@ export default function ManageBooking() {
                               </button>
                               <button
                                 onClick={() => {
+                                  const normalizedStatus = record.status.toLowerCase();
+
+                                  if (
+                                    normalizedStatus === "cancelled" ||
+                                    normalizedStatus === "completed" ||
+                                    normalizedStatus === "reschedule requested"
+                                  ) {
+                                    setCancelError("This reservation can no longer be rescheduled.");
+                                    return;
+                                  }
+
                                   setSelectedBookingId(record.id);
                                   setRecordMode("reschedule");
+                                  setRescheduleFormError(null);
+                                  setRescheduleForm({
+                                    checkIn: record.checkIn,
+                                    checkOut: record.checkOut,
+                                  });
                                 }}
+                                disabled={
+                                  record.status.toLowerCase() === "cancelled" ||
+                                  record.status.toLowerCase() === "completed" ||
+                                  record.status.toLowerCase() === "reschedule requested"
+                                }
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
                                 Resched
@@ -1149,22 +1292,29 @@ export default function ManageBooking() {
                     className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      setRecordMode("view");
+                      void handleSubmitReschedule(event);
                     }}
                   >
                     <h3 className="text-lg font-semibold text-neutral">Reschedule Booking</h3>
+
+                    {rescheduleFormError ? (
+                      <p className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                        {rescheduleFormError}
+                      </p>
+                    ) : null}
+
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
                         <label className="mb-2 block text-sm text-neutral/70">Check-in</label>
                         <input
                           type="date"
-                          value={selectedBooking.checkIn}
+                          value={rescheduleForm.checkIn}
+                          min={selectedBooking.checkIn}
                           onChange={(event) =>
-                            setBookings((prev) =>
-                              prev.map((item) =>
-                                item.id === selectedBooking.id ? { ...item, checkIn: event.target.value } : item
-                              )
-                            )
+                            setRescheduleForm((current) => ({
+                              ...current,
+                              checkIn: event.target.value,
+                            }))
                           }
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         />
@@ -1173,20 +1323,24 @@ export default function ManageBooking() {
                         <label className="mb-2 block text-sm text-neutral/70">Check-out</label>
                         <input
                           type="date"
-                          value={selectedBooking.checkOut}
+                          value={rescheduleForm.checkOut}
+                          min={rescheduleForm.checkIn || selectedBooking.checkOut}
                           onChange={(event) =>
-                            setBookings((prev) =>
-                              prev.map((item) =>
-                                item.id === selectedBooking.id ? { ...item, checkOut: event.target.value } : item
-                              )
-                            )
+                            setRescheduleForm((current) => ({
+                              ...current,
+                              checkOut: event.target.value,
+                            }))
                           }
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         />
                       </div>
                     </div>
-                    <button className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90">
-                      Save New Dates
+                    <button
+                      type="submit"
+                      disabled={isSubmittingReschedule}
+                      className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSubmittingReschedule ? "Submitting Request..." : "Submit Reschedule Request"}
                     </button>
                   </form>
                 )}

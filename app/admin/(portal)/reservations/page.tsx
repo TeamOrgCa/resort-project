@@ -13,6 +13,7 @@ import {
 
 const reservationTabs = [
   "Reservation Records",
+  "Reschedule Requests",
   "Payment Verification Queue",
   "Manual Booking Entries",
   "Ocular Visit Records",
@@ -36,6 +37,17 @@ const paymentVerificationColumns: AdminTableColumn[] = [
   { key: "amount", label: "Amount" },
   { key: "status", label: "Status" },
   { key: "paidAt", label: "Paid At" },
+];
+
+const rescheduleRequestColumns: AdminTableColumn[] = [
+  { key: "reference", label: "Reservation Ref" },
+  { key: "guest", label: "Guest" },
+  { key: "oldCheckIn", label: "Old Check-in" },
+  { key: "oldCheckOut", label: "Old Check-out" },
+  { key: "newCheckIn", label: "New Check-in" },
+  { key: "newCheckOut", label: "New Check-out" },
+  { key: "status", label: "Status" },
+  { key: "requestedAt", label: "Requested" },
 ];
 
 interface ReservationRow {
@@ -73,6 +85,21 @@ interface PaymentRow {
   paid_at: string | null;
   reference_number: string;
   proof_path: string;
+}
+
+interface RescheduleRequestRow {
+  reschedule_id: string;
+  reservation_id: string;
+  requested_by: string | null;
+  old_check_in: string;
+  old_check_out: string;
+  new_check_in: string;
+  new_check_out: string;
+  status: "pending" | "approved" | "rejected";
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
 }
 
 interface OcularVisitRow {
@@ -126,6 +153,22 @@ interface ReservationDetails {
     quantity: number;
     priceAtTime: number;
   }>;
+}
+
+interface RescheduleRequestDetails {
+  rescheduleId: string;
+  reservationReference: string;
+  guestName: string;
+  requestedBy: string;
+  oldCheckIn: string;
+  oldCheckOut: string;
+  newCheckIn: string;
+  newCheckOut: string;
+  status: string;
+  approvedBy: string;
+  approvedAt: string;
+  rejectionReason: string;
+  requestedAt: string;
 }
 
 interface PaymentDetails {
@@ -255,6 +298,16 @@ export default function AdminReservationsPage() {
   const [isReservationDetailsLoading, setIsReservationDetailsLoading] = useState(false);
   const [reservationDetailsError, setReservationDetailsError] = useState<string | null>(null);
   const [reservationDetails, setReservationDetails] = useState<ReservationDetails | null>(null);
+  const [rescheduleRequests, setRescheduleRequests] = useState<RescheduleRequestRow[]>([]);
+  const [isRescheduleDetailsOpen, setIsRescheduleDetailsOpen] = useState(false);
+  const [isRescheduleDetailsLoading, setIsRescheduleDetailsLoading] = useState(false);
+  const [rescheduleDetailsError, setRescheduleDetailsError] = useState<string | null>(null);
+  const [rescheduleDetails, setRescheduleDetails] = useState<RescheduleRequestDetails | null>(null);
+  const [pendingRescheduleApproval, setPendingRescheduleApproval] = useState<{ rescheduleId: string; reference: string } | null>(null);
+  const [pendingRescheduleRejection, setPendingRescheduleRejection] = useState<{ rescheduleId: string; reference: string } | null>(null);
+  const [rescheduleRejectionReason, setRescheduleRejectionReason] = useState("");
+  const [isApprovingReschedule, setIsApprovingReschedule] = useState(false);
+  const [isRejectingReschedule, setIsRejectingReschedule] = useState(false);
   const [isPaymentDetailsOpen, setIsPaymentDetailsOpen] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails | null>(null);
   const [isOcularVisitDetailsOpen, setIsOcularVisitDetailsOpen] = useState(false);
@@ -347,6 +400,7 @@ export default function AdminReservationsPage() {
           { data: guestsData, error: guestsError },
           { data: paymentsData, error: paymentsError },
           { data: transactionsData, error: transactionsError },
+          { data: reschedulesData, error: reschedulesError },
         ] =
           await Promise.all([
             guestIds.length
@@ -364,6 +418,13 @@ export default function AdminReservationsPage() {
                 reservationIdList.length
                   ? supabase.from("transactions").select("reservation_id, balance").in("reservation_id", reservationIdList)
                   : Promise.resolve({ data: [], error: null }),
+            supabase
+              .from("reservation_reschedules")
+              .select(
+                "reschedule_id, reservation_id, requested_by, old_check_in, old_check_out, new_check_in, new_check_out, status, approved_by, approved_at, rejection_reason, created_at"
+              )
+              .order("created_at", { ascending: false })
+              .limit(200),
           ]);
 
         if (guestsError) {
@@ -376,6 +437,10 @@ export default function AdminReservationsPage() {
 
         if (transactionsError) {
           throw transactionsError;
+        }
+
+        if (reschedulesError) {
+          throw reschedulesError;
         }
 
         if (!isMounted) return;
@@ -403,6 +468,7 @@ export default function AdminReservationsPage() {
         setReservations(reservationList);
         setPayments((paymentsData as PaymentRow[] | null) ?? []);
         setOcularVisits(ocularVisitList);
+        setRescheduleRequests((reschedulesData as RescheduleRequestRow[] | null) ?? []);
         setGuestsById(nextGuestsById);
         setReservationReferenceById(nextReservationReferenceById);
         setRemainingBalanceByReservationId(nextRemainingBalanceByReservationId);
@@ -445,6 +511,28 @@ export default function AdminReservationsPage() {
     [guestsById, reservations]
   );
 
+  const rescheduleRequestRows: AdminTableRow[] = useMemo(
+    () =>
+      rescheduleRequests.map((request) => {
+        const reservationReference = reservationReferenceById[request.reservation_id] ?? "-";
+        const guest = guestsById[request.requested_by ?? ""];
+        const guestName = guest ? `${guest.first_name} ${guest.last_name}`.replace(/\s+/g, " ").trim() : "-";
+
+        return {
+          id: request.reschedule_id,
+          reference: reservationReference,
+          guest: guestName,
+          oldCheckIn: formatDate(request.old_check_in),
+          oldCheckOut: formatDate(request.old_check_out),
+          newCheckIn: formatDate(request.new_check_in),
+          newCheckOut: formatDate(request.new_check_out),
+          status: toTitleCase(request.status),
+          requestedAt: formatDateTime(request.created_at),
+        };
+      }),
+    [guestsById, reservationReferenceById, rescheduleRequests]
+  );
+
   const paymentVerificationRows: AdminTableRow[] = useMemo(
     () =>
       payments.map((payment) => ({
@@ -467,6 +555,212 @@ export default function AdminReservationsPage() {
       })),
     [payments, reservationReferenceById, remainingBalanceByReservationId]
   );
+
+  const openRescheduleDetails = async (rescheduleId: string) => {
+    setIsRescheduleDetailsOpen(true);
+    setIsRescheduleDetailsLoading(true);
+    setRescheduleDetailsError(null);
+    setRescheduleDetails(null);
+
+    try {
+      const supabase = createClient();
+
+      const { data: requestRow, error: requestError } = await supabase
+        .from("reservation_reschedules")
+        .select(
+          "reschedule_id, reservation_id, requested_by, old_check_in, old_check_out, new_check_in, new_check_out, status, approved_by, approved_at, rejection_reason, created_at"
+        )
+        .eq("reschedule_id", rescheduleId)
+        .maybeSingle<RescheduleRequestRow>();
+
+      if (requestError || !requestRow) {
+        setRescheduleDetailsError("Reschedule request was not found.");
+        return;
+      }
+
+      const reservationReference = reservationReferenceById[requestRow.reservation_id] ?? "-";
+      const requester = guestsById[requestRow.requested_by ?? ""];
+
+      setRescheduleDetails({
+        rescheduleId: requestRow.reschedule_id,
+        reservationReference,
+        guestName: requester
+          ? `${requester.first_name} ${requester.last_name}`.replace(/\s+/g, " ").trim()
+          : "-",
+        requestedBy: requester?.email ?? "-",
+        oldCheckIn: formatDate(requestRow.old_check_in),
+        oldCheckOut: formatDate(requestRow.old_check_out),
+        newCheckIn: formatDate(requestRow.new_check_in),
+        newCheckOut: formatDate(requestRow.new_check_out),
+        status: toTitleCase(requestRow.status),
+        approvedBy: requestRow.approved_by ?? "-",
+        approvedAt: formatDateTime(requestRow.approved_at),
+        rejectionReason: requestRow.rejection_reason ?? "-",
+        requestedAt: formatDateTime(requestRow.created_at),
+      });
+    } catch {
+      setRescheduleDetailsError("Failed to load reschedule request details.");
+    } finally {
+      setIsRescheduleDetailsLoading(false);
+    }
+  };
+
+  const approveRescheduleRequest = async (rescheduleId: string) => {
+    setFetchError(null);
+    setIsApprovingReschedule(true);
+
+    try {
+      const response = await fetch("/api/admin/reschedule-requests/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rescheduleId }),
+      });
+
+      const result = (await response.json().catch(() => null)) as
+        | {
+            success?: boolean;
+            message?: string;
+            reservation?: { reservationId?: string; checkInDate?: string; checkOutDate?: string; status?: string };
+          }
+        | null;
+
+      if (!response.ok || !result?.success) {
+        setFetchError(result?.message ?? "Failed to approve reschedule request.");
+        return;
+      }
+
+      setRescheduleRequests((currentRequests) =>
+        currentRequests.map((request) =>
+          request.reschedule_id === rescheduleId
+            ? {
+                ...request,
+                status: "approved",
+                approved_by: null,
+                approved_at: new Date().toISOString(),
+                rejection_reason: null,
+              }
+            : request
+        )
+      );
+
+      if (result?.reservation?.reservationId) {
+        setReservations((currentReservations) =>
+          currentReservations.map((reservation) =>
+            reservation.reservation_id === result.reservation?.reservationId
+              ? {
+                  ...reservation,
+                  ...(result.reservation?.checkInDate ? { check_in_date: result.reservation.checkInDate } : {}),
+                  ...(result.reservation?.checkOutDate ? { check_out_date: result.reservation.checkOutDate } : {}),
+                  ...(result.reservation?.status ? { status: result.reservation.status } : {}),
+                }
+              : reservation
+          )
+        );
+      }
+
+      setIsRescheduleDetailsOpen(false);
+      setRescheduleDetails(null);
+      setRescheduleRejectionReason("");
+      setToastMessage("Reschedule request approved.");
+    } catch {
+      setFetchError("Failed to approve reschedule request.");
+    } finally {
+      setIsApprovingReschedule(false);
+    }
+  };
+
+  const rejectRescheduleRequest = async (rescheduleId: string) => {
+    if (!rescheduleRejectionReason.trim()) {
+      setRescheduleDetailsError("Please provide a rejection reason.");
+      return;
+    }
+
+    setFetchError(null);
+    setIsRejectingReschedule(true);
+
+    try {
+      const response = await fetch("/api/admin/reschedule-requests/reject", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rescheduleId, rejectionReason: rescheduleRejectionReason }),
+      });
+
+      const result = (await response.json().catch(() => null)) as
+        | {
+            success?: boolean;
+            message?: string;
+            reservation?: { reservationId?: string; status?: string };
+          }
+        | null;
+
+      if (!response.ok || !result?.success) {
+        setFetchError(result?.message ?? "Failed to reject reschedule request.");
+        return;
+      }
+
+      setRescheduleRequests((currentRequests) =>
+        currentRequests.map((request) =>
+          request.reschedule_id === rescheduleId
+            ? {
+                ...request,
+                status: "rejected",
+                approved_by: null,
+                approved_at: new Date().toISOString(),
+                rejection_reason: rescheduleRejectionReason,
+              }
+            : request
+        )
+      );
+
+      if (result?.reservation?.reservationId) {
+        setReservations((currentReservations) =>
+          currentReservations.map((reservation) =>
+            reservation.reservation_id === result.reservation?.reservationId
+              ? {
+                  ...reservation,
+                  ...(result.reservation?.status ? { status: result.reservation.status } : {}),
+                }
+              : reservation
+          )
+        );
+      }
+
+      setIsRescheduleDetailsOpen(false);
+      setRescheduleDetails(null);
+      setRescheduleRejectionReason("");
+      setToastMessage("Reschedule request rejected.");
+    } catch {
+      setFetchError("Failed to reject reschedule request.");
+    } finally {
+      setIsRejectingReschedule(false);
+    }
+  };
+
+  const handleRescheduleRowAction = async (action: string, row: AdminTableRow) => {
+    const rescheduleId = typeof row.id === "string" ? row.id : "";
+
+    if (!rescheduleId) {
+      setFetchError("Unable to load this reschedule request.");
+      return;
+    }
+
+    if (action === "View") {
+      await openRescheduleDetails(rescheduleId);
+      return;
+    }
+
+    if (action === "Approve") {
+      await openRescheduleDetails(rescheduleId);
+      void approveRescheduleRequest(rescheduleId);
+      return;
+    }
+
+    if (action === "Reject") {
+      await openRescheduleDetails(rescheduleId);
+      setRescheduleRejectionReason("");
+      return;
+    }
+  };
 
   const selectedPaymentRow = useMemo(() => {
     const selectedId = selectedPaymentRowIds[0];
@@ -1081,9 +1375,22 @@ export default function AdminReservationsPage() {
           />
         )}
 
+        {activeTab === "Reschedule Requests" && (
+          <AdminTablePreview
+            title={isLoading ? "Reschedule Requests (Loading...)" : "Reschedule Requests"}
+            columns={rescheduleRequestColumns}
+            rows={rescheduleRequestRows}
+            defaultSort={{ key: "requestedAt", direction: "desc" }}
+            filters={[{ key: "status", label: "Status", options: ["Pending", "Approved", "Rejected"] }]}
+            actions={[]}
+            rowActions={["View"]}
+            onRowAction={handleRescheduleRowAction}
+          />
+        )}
+
         {activeTab === "Payment Verification Queue" && (
           <AdminTablePreview
-            title={isLoading ? "Payment Verification Queue (Loading...)" : "Payment Verification Queue"}
+            title={isLoading ? "Payment Verification Queue (Loading..." : "Payment Verification Queue"}
             columns={[
               ...paymentVerificationColumns,
               { key: "remainingBalance", label: "Remaining Balance" },
@@ -1398,6 +1705,133 @@ export default function AdminReservationsPage() {
                 {isCreatingManualPayment ? "Saving..." : "Save Payment Entry"}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isRescheduleDetailsOpen && rescheduleDetails ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral">Reschedule Request Details</h3>
+                <p className="mt-1 text-sm text-neutral/70">Review the requested date change before approving or rejecting.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRescheduleDetailsOpen(false);
+                  setRescheduleDetails(null);
+                  setRescheduleDetailsError(null);
+                  setRescheduleRejectionReason("");
+                }}
+                className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
+              >
+                Close
+              </button>
+            </div>
+
+            {isRescheduleDetailsLoading ? <p className="mt-5 text-sm text-neutral/70">Loading reschedule details...</p> : null}
+
+            {rescheduleDetailsError ? (
+              <p className="mt-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                {rescheduleDetailsError}
+              </p>
+            ) : null}
+
+            {!isRescheduleDetailsLoading ? (
+              <div className="mt-5 space-y-6">
+                <section className="rounded-xl border border-neutral/10 p-4">
+                  <h4 className="text-sm font-semibold text-neutral">Request Summary</h4>
+                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 md:grid-cols-2">
+                    <p>
+                      Reservation Ref: <span className="font-semibold text-neutral">{rescheduleDetails.reservationReference}</span>
+                    </p>
+                    <p>
+                      Status: <span className="font-semibold text-neutral">{rescheduleDetails.status}</span>
+                    </p>
+                    <p>
+                      Requested By: <span className="font-semibold text-neutral">{rescheduleDetails.guestName}</span>
+                    </p>
+                    <p>
+                      Requester Email: <span className="font-semibold text-neutral">{rescheduleDetails.requestedBy}</span>
+                    </p>
+                    <p>
+                      Requested At: <span className="font-semibold text-neutral">{rescheduleDetails.requestedAt}</span>
+                    </p>
+                    <p>
+                      Approved At: <span className="font-semibold text-neutral">{rescheduleDetails.approvedAt}</span>
+                    </p>
+                    <p>
+                      Approved By: <span className="font-semibold text-neutral">{rescheduleDetails.approvedBy}</span>
+                    </p>
+                    <p>
+                      Rejection Reason: <span className="font-semibold text-neutral">{rescheduleDetails.rejectionReason}</span>
+                    </p>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-neutral/10 p-4">
+                  <h4 className="text-sm font-semibold text-neutral">Old Dates</h4>
+                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 md:grid-cols-2">
+                    <p>
+                      Check-in: <span className="font-semibold text-neutral">{rescheduleDetails.oldCheckIn}</span>
+                    </p>
+                    <p>
+                      Check-out: <span className="font-semibold text-neutral">{rescheduleDetails.oldCheckOut}</span>
+                    </p>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-neutral/10 p-4">
+                  <h4 className="text-sm font-semibold text-neutral">Requested New Dates</h4>
+                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 md:grid-cols-2">
+                    <p>
+                      Check-in: <span className="font-semibold text-neutral">{rescheduleDetails.newCheckIn}</span>
+                    </p>
+                    <p>
+                      Check-out: <span className="font-semibold text-neutral">{rescheduleDetails.newCheckOut}</span>
+                    </p>
+                  </div>
+                </section>
+
+                {rescheduleDetails.status === "Pending" ? (
+                  <section className="rounded-xl border border-neutral/10 p-4">
+                    <label className="mb-2 block text-sm font-semibold text-neutral">Rejection Reason</label>
+                    <textarea
+                      value={rescheduleRejectionReason}
+                      onChange={(event) => setRescheduleRejectionReason(event.target.value)}
+                      rows={4}
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                      placeholder="Explain why the request is being rejected"
+                    />
+                  </section>
+                ) : null}
+
+                <div className="flex flex-wrap justify-end gap-3">
+                  <button
+                    type="button"
+                    disabled={isApprovingReschedule || rescheduleDetails.status !== "Pending"}
+                    onClick={() => {
+                      void approveRescheduleRequest(rescheduleDetails.rescheduleId);
+                    }}
+                    className="rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-base hover:bg-secondary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isApprovingReschedule ? "Approving..." : "Approve Request"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isRejectingReschedule || rescheduleDetails.status !== "Pending"}
+                    onClick={() => {
+                      void rejectRescheduleRequest(rescheduleDetails.rescheduleId);
+                    }}
+                    className="rounded-lg border border-highlight/40 bg-highlight/10 px-4 py-2 text-sm font-semibold text-neutral hover:bg-highlight/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isRejectingReschedule ? "Rejecting..." : "Reject Request"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
