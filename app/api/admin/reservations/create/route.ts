@@ -88,7 +88,9 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
   };
 };
 
-const generateReferenceNumber = async (supabase: Awaited<ReturnType<typeof requireActiveStaff>> extends Promise<infer T> ? NonNullable<T>["supabase"] : never) => {
+type StaffContext = NonNullable<Awaited<ReturnType<typeof requireActiveStaff>>>;
+
+const generateReferenceNumber = async (supabase: StaffContext["supabase"]) => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const candidate = `MB-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
 
