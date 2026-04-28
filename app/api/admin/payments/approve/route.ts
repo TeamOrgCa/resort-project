@@ -100,7 +100,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, check_in_date, check_out_date, status")
+      .select("reservation_id, guest_id, reference_number, start_datetime, end_datetime, status")
       .eq("reservation_id", payment.reservation_id)
       .maybeSingle<ReservationRow>();
 

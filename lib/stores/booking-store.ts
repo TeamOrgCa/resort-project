@@ -10,6 +10,14 @@ export interface BookingServiceItem {
 export interface BookingDraft {
   checkIn: string;
   checkOut: string;
+  bookingMode: "day" | "night" | "whole_day" | "custom";
+  startDatetime: string;
+  endDatetime: string;
+  wholeDayVariant: "day_to_night" | "night_to_day";
+  customStartTime: string;
+  customEndTime: string;
+  customEndDate: string;
+  customDurationHours: number;
   firstName: string;
   lastName: string;
   email: string;
@@ -34,6 +42,18 @@ export interface BookingDraft {
 interface BookingStoreState {
   bookingDraft: BookingDraft;
   setBookingDates: (checkIn: string, checkOut: string) => void;
+  setBookingWindow: (
+    bookingMode: BookingDraft["bookingMode"],
+    startDatetime: string,
+    endDatetime: string,
+    options?: {
+      wholeDayVariant?: BookingDraft["wholeDayVariant"];
+      customStartTime?: string;
+      customEndTime?: string;
+      customEndDate?: string;
+      customDurationHours?: number;
+    }
+  ) => void;
   setBookingDraft: (draft: Partial<BookingDraft>) => void;
   resetBookingDraft: () => void;
 }
@@ -41,6 +61,14 @@ interface BookingStoreState {
 const initialDraft: BookingDraft = {
   checkIn: "",
   checkOut: "",
+  bookingMode: "day",
+  startDatetime: "",
+  endDatetime: "",
+  wholeDayVariant: "day_to_night",
+  customStartTime: "08:00",
+  customEndTime: "11:00",
+  customEndDate: "",
+  customDurationHours: 0,
   firstName: "",
   lastName: "",
   email: "",
@@ -72,6 +100,22 @@ export const useBookingStore = create<BookingStoreState>()(
             ...state.bookingDraft,
             checkIn,
             checkOut,
+          },
+        })),
+      setBookingWindow: (bookingMode, startDatetime, endDatetime, options) =>
+        set((state) => ({
+          bookingDraft: {
+            ...state.bookingDraft,
+            bookingMode,
+            startDatetime,
+            endDatetime,
+            wholeDayVariant: options?.wholeDayVariant ?? state.bookingDraft.wholeDayVariant,
+            customStartTime: options?.customStartTime ?? state.bookingDraft.customStartTime,
+            customEndTime: options?.customEndTime ?? state.bookingDraft.customEndTime,
+            customEndDate: options?.customEndDate ?? state.bookingDraft.customEndDate,
+            customDurationHours: options?.customDurationHours ?? state.bookingDraft.customDurationHours,
+            checkIn: startDatetime ? startDatetime.slice(0, 10) : state.bookingDraft.checkIn,
+            checkOut: endDatetime ? endDatetime.slice(0, 10) : state.bookingDraft.checkOut,
           },
         })),
       setBookingDraft: (draft) =>

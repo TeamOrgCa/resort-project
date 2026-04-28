@@ -5,8 +5,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
-import { useSearchParams } from "next/navigation";
 import { useBookingStore } from "@/lib/stores/booking-store";
+import { computeBookingPricing } from "@/lib/booking/pricing";
 
 interface UnitOption {
   id: string;
@@ -28,19 +28,10 @@ interface GuestProfile {
   address: string;
 }
 
-const parseDateFromQuery = (value: string | null) => {
+const parseDateTime = (value: string | null) => {
   if (!value) return null;
 
-  const parts = value.split("-");
-  if (parts.length !== 3) return null;
-
-  const year = Number(parts[0]);
-  const month = Number(parts[1]);
-  const day = Number(parts[2]);
-
-  if (!year || !month || !day) return null;
-
-  const date = new Date(year, month - 1, day);
+  const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
@@ -53,9 +44,7 @@ export default function BookingForm() {
 }
 
 function BookingFormContent() {
-  const searchParams = useSearchParams();
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
-  const setBookingDates = useBookingStore((state) => state.setBookingDates);
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [formData, setFormData] = useState({
     firstName: bookingDraft.firstName || "",
@@ -159,44 +148,35 @@ function BookingFormContent() {
     );
   };
 
-  const fallbackCheckInDate = useMemo(() => new Date("2026-03-10"), []);
-  const fallbackCheckOutDate = useMemo(() => new Date("2026-03-13"), []);
+  const fallbackStartDate = useMemo(() => new Date(), []);
+  const fallbackEndDate = useMemo(() => {
+    const date = new Date();
+    date.setHours(date.getHours() + 8);
+    return date;
+  }, []);
 
-  const queryCheckInDate = parseDateFromQuery(searchParams.get("checkIn"));
-  const queryCheckOutDate = parseDateFromQuery(searchParams.get("checkOut"));
-  const storeCheckInDate = parseDateFromQuery(bookingDraft.checkIn || null);
-  const storeCheckOutDate = parseDateFromQuery(bookingDraft.checkOut || null);
+  const effectiveStartDate = parseDateTime(bookingDraft.startDatetime || null) ?? fallbackStartDate;
+  const effectiveEndDate = parseDateTime(bookingDraft.endDatetime || null) ?? fallbackEndDate;
 
-  useEffect(() => {
-    const checkInValue = searchParams.get("checkIn");
-    const checkOutValue = searchParams.get("checkOut");
-
-    if (checkInValue && checkOutValue) {
-      setBookingDates(checkInValue, checkOutValue);
-    }
-  }, [searchParams, setBookingDates]);
-
-  const effectiveCheckInDate = storeCheckInDate ?? queryCheckInDate ?? fallbackCheckInDate;
-  const effectiveCheckOutDate = storeCheckOutDate ?? queryCheckOutDate ?? fallbackCheckOutDate;
-
-  // Calculate pricing
-  const nights = Math.max(
-    1,
-    Math.ceil((effectiveCheckOutDate.getTime() - effectiveCheckInDate.getTime()) / (1000 * 60 * 60 * 24))
-  );
+  const durationHours = Math.max(1, (effectiveEndDate.getTime() - effectiveStartDate.getTime()) / (1000 * 60 * 60));
   const selectedRoom = units.find((room) => room.id === formData.roomType);
-  const roomTotal = (selectedRoom?.price || 0) * nights;
-  const adultsTotal = (formData.adultCount || 0) * 150 * nights;
-  const childrenTotal = (formData.childCount || 0) * 120 * nights;
   const amenitiesTotal = selectedAmenities.reduce((total, id) => {
     const amenity = services.find((a) => a.id === id);
     return total + (amenity?.price || 0);
   }, 0);
   const selectedServiceItems = services.filter((service) => selectedAmenities.includes(service.id));
-  const subtotal = roomTotal + adultsTotal + childrenTotal + amenitiesTotal;
-  const tax = subtotal * 0.12; // 12% tax
-  const total = subtotal + tax;
-  const downPayment = total * 0.3; // 30% down payment
+  const pricing = computeBookingPricing({
+    bookingMode: bookingDraft.bookingMode,
+    startDatetime: effectiveStartDate.toISOString(),
+    endDatetime: effectiveEndDate.toISOString(),
+    adultCount: formData.adultCount,
+    childCount: formData.childCount,
+    servicesTotal: amenitiesTotal,
+  });
+  const subtotal = pricing.subtotal;
+  const tax = pricing.tax;
+  const total = pricing.total;
+  const downPayment = pricing.downPaymentMin;
 
   const handleContinueToPayment = () => {
     if (!selectedRoom || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0) {
@@ -204,8 +184,10 @@ function BookingFormContent() {
     }
 
     setBookingDraft({
-      checkIn: effectiveCheckInDate.toISOString().slice(0, 10),
-      checkOut: effectiveCheckOutDate.toISOString().slice(0, 10),
+      checkIn: effectiveStartDate.toISOString().slice(0, 10),
+      checkOut: effectiveEndDate.toISOString().slice(0, 10),
+      startDatetime: effectiveStartDate.toISOString(),
+      endDatetime: effectiveEndDate.toISOString(),
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,
@@ -215,8 +197,8 @@ function BookingFormContent() {
       childCount: formData.childCount,
       unitId: selectedRoom.id,
       roomName: selectedRoom.name,
-      roomPrice: selectedRoom.price,
-      nights,
+      roomPrice: pricing.packageRate,
+      nights: Math.max(1, Math.ceil(durationHours / 24)),
       subtotal,
       tax,
       total,
@@ -334,7 +316,7 @@ function BookingFormContent() {
                   <h3 className="text-xl font-semibold text-neutral mb-4">Booking Details</h3>
                   <div className="grid md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Adults (₱150/person/night)</label>
+                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Adults</label>
                       <input
                         type="number"
                         name="adultCount"
@@ -347,7 +329,7 @@ function BookingFormContent() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Children (₱120/person/night)</label>
+                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Children</label>
                       <input
                         type="number"
                         name="childCount"
@@ -369,7 +351,7 @@ function BookingFormContent() {
                       >
                         {units.map((room) => (
                           <option key={room.id} value={room.id}>
-                            {room.name} - ₱{room.price.toLocaleString()}/night
+                            {room.name} - Unit selection
                           </option>
                         ))}
                       </select>
@@ -459,40 +441,44 @@ function BookingFormContent() {
                 <div className="space-y-4 mb-6">
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
-                      <span className="text-neutral/70">Check-in</span>
-                      <span className="font-semibold text-neutral">{effectiveCheckInDate.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</span>
+                      <span className="text-neutral/70">Start</span>
+                      <span className="font-semibold text-neutral">{effectiveStartDate.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-neutral/70">Check-out</span>
-                      <span className="font-semibold text-neutral">{effectiveCheckOutDate.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</span>
+                      <span className="text-neutral/70">End</span>
+                      <span className="font-semibold text-neutral">{effectiveEndDate.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                    </div>
+                    <div className="flex justify-between mt-2">
+                      <span className="text-neutral/70">Mode</span>
+                      <span className="font-semibold text-neutral">{bookingDraft.bookingMode === "whole_day" ? "Whole-Day" : bookingDraft.bookingMode.charAt(0).toUpperCase() + bookingDraft.bookingMode.slice(1)}</span>
                     </div>
                   </div>
 
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
-                      <span className="text-neutral/70">{selectedRoom?.name}</span>
-                      <span className="font-semibold text-neutral">₱{selectedRoom?.price.toLocaleString()}/night</span>
+                      <span className="text-neutral/70">Package ({pricing.rateTier})</span>
+                      <span className="font-semibold text-neutral">₱{pricing.packageRate.toLocaleString("en-PH")}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-neutral/70">{nights} nights</span>
-                      <span className="font-semibold text-neutral">₱{roomTotal.toLocaleString()}</span>
+                      <span className="text-neutral/70">Guests included</span>
+                      <span className="font-semibold text-neutral">{pricing.includedGuests} pax</span>
                     </div>
                   </div>
 
                   <div className="pb-4 border-b border-neutral/10">
-                    <p className="text-sm font-semibold text-neutral mb-2">Guest Charges</p>
-                    {formData.adultCount > 0 && (
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-neutral/70">{formData.adultCount} Adult(s) × ₱150/night × {nights} nights</span>
-                        <span className="text-neutral">₱{adultsTotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      </div>
-                    )}
-                    {formData.childCount > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-neutral/70">{formData.childCount} Child(ren) × ₱120/night × {nights} nights</span>
-                        <span className="text-neutral">₱{childrenTotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      </div>
-                    )}
+                    <p className="text-sm font-semibold text-neutral mb-2">Guest Pricing</p>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-neutral/70">Total guests</span>
+                      <span className="text-neutral">{pricing.totalGuests}</span>
+                    </div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-neutral/70">Extra guests ({pricing.addOnPerHead.toLocaleString("en-PH")}/head)</span>
+                      <span className="text-neutral">{pricing.extraGuests}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-neutral/70">Extra guest total</span>
+                      <span className="text-neutral">₱{pricing.extraGuestTotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
                   </div>
 
                   {selectedAmenities.length > 0 && (
@@ -516,7 +502,7 @@ function BookingFormContent() {
                       <span className="font-semibold text-neutral">₱{subtotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-neutral/70">Tax (12%)</span>
+                      <span className="text-neutral/70">Tax</span>
                       <span className="font-semibold text-neutral">₱{tax.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   </div>
@@ -528,7 +514,7 @@ function BookingFormContent() {
 
                   <div className="bg-accent/10 p-4 rounded-lg">
                     <div className="flex justify-between">
-                      <span className="text-sm font-semibold text-neutral">Down Payment (30%)</span>
+                      <span className="text-sm font-semibold text-neutral">Minimum Down Payment (20%)</span>
                       <span className="text-lg font-bold text-accent">₱{downPayment.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <p className="text-xs text-neutral/60 mt-2">Required to confirm reservation</p>

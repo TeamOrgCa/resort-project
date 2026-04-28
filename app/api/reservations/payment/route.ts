@@ -10,7 +10,7 @@ interface ReservationPaymentPayload {
     method: PaymentMethod;
     type?: PaymentType;
     amount: number;
-referenceNumber: string;
+    referenceNumber: string;
     accountName: string;
     accountNumber?: string | null;
     proofPath: string;
@@ -28,6 +28,8 @@ interface TransactionRow {
   paid_amount: number | null;
   balance: number | null;
 }
+
+const MIN_DOWNPAYMENT_RATE = 0.2;
 
 const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
   if (!value || typeof value !== "object") return null;
@@ -132,6 +134,34 @@ export async function POST(request: Request) {
       );
     }
 
+    const { data: pendingPayment, error: pendingPaymentError } = await supabase
+      .from("payments")
+      .select("payment_id")
+      .eq("reservation_id", reservation.reservation_id)
+      .eq("status", "pending")
+      .limit(1)
+      .maybeSingle();
+
+    if (pendingPaymentError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unable to validate pending payments.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (pendingPayment) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "A payment for this reservation is already pending review. Please wait for approval before submitting another one.",
+        },
+        { status: 409 }
+      );
+    }
+
     if (reservation.status === "cancelled" || reservation.status === "completed") {
       return NextResponse.json(
         {
@@ -172,6 +202,22 @@ export async function POST(request: Request) {
 
     const requestedAmount = Number(payload.payment.amount ?? 0);
     const effectiveAmount = payload.payment.type === "full" ? remainingBalance : requestedAmount;
+
+    if (payload.payment.type === "downpayment") {
+      const minimumDownpayment = Number(transaction.total_amount ?? 0) * MIN_DOWNPAYMENT_RATE;
+      if (requestedAmount + 0.0001 < minimumDownpayment) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Downpayment must be at least 20% of total (₱${minimumDownpayment.toLocaleString("en-PH", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}).`,
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     if (payload.payment.type !== "full" && requestedAmount > remainingBalance) {
       return NextResponse.json(

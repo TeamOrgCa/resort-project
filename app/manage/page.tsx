@@ -1,11 +1,13 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { createClient } from "@/lib/supabase/client";
+import { useBookingStore } from "@/lib/stores/booking-store";
 
 type ManageTab = "bookings" | "ocular";
 type RecordMode = "view" | "edit" | "reschedule" | null;
@@ -13,6 +15,8 @@ type RecordMode = "view" | "edit" | "reschedule" | null;
 interface BookingRecord {
   id: string;
   reference: string;
+  startDatetime: string;
+  endDatetime: string;
   checkIn: string;
   checkOut: string;
   guests: number;
@@ -49,8 +53,9 @@ interface OcularRecord {
 interface ReservationRow {
   reservation_id: string;
   reference_number: string;
-  check_in_date: string;
-  check_out_date: string;
+  start_datetime: string;
+  end_datetime: string;
+  booking_mode: "day" | "night" | "whole_day" | "custom" | null;
   adult_count: number;
   child_count: number;
   status: string;
@@ -149,6 +154,30 @@ const parseDateValue = (value: string) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const toDateOnly = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  const year = parsed.getFullYear();
+  const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
+  const day = `${parsed.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const withOriginalTime = (nextDate: string, sourceDateTime: string) => {
+  const source = new Date(sourceDateTime);
+  if (Number.isNaN(source.getTime())) {
+    return `${nextDate}T08:00:00`;
+  }
+
+  const hours = `${source.getHours()}`.padStart(2, "0");
+  const minutes = `${source.getMinutes()}`.padStart(2, "0");
+  const seconds = `${source.getSeconds()}`.padStart(2, "0");
+  return `${nextDate}T${hours}:${minutes}:${seconds}`;
+};
+
 const isAtLeastTwoDaysAway = (checkInValue: string) => {
   const checkInDate = parseDateValue(checkInValue);
   if (!checkInDate) return false;
@@ -161,6 +190,8 @@ const isAtLeastTwoDaysAway = (checkInValue: string) => {
 };
 
 export default function ManageBooking() {
+  const router = useRouter();
+  const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [activeTab, setActiveTab] = useState<ManageTab>("bookings");
   const [recordMode, setRecordMode] = useState<RecordMode>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -216,6 +247,37 @@ export default function ManageBooking() {
     const now = new Date();
     const dayMs = 24 * 60 * 60 * 1000;
     return (checkIn.getTime() - now.getTime()) / dayMs;
+  };
+
+  const openPaymentPortal = (booking: BookingRecord) => {
+    setBookingDraft({
+      bookingMode: "custom",
+      startDatetime: booking.startDatetime,
+      endDatetime: booking.endDatetime,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      adultCount: booking.guests,
+      childCount: 0,
+      roomName: "Remaining Balance Payment",
+      roomPrice: booking.remainingBalance,
+      nights: 1,
+      subtotal: booking.remainingBalance,
+      tax: 0,
+      total: booking.remainingBalance,
+      downPayment: booking.remainingBalance,
+      firstName: "",
+      lastName: "",
+      email: booking.email,
+      phone: booking.phone,
+      address: "",
+      unitId: "balance-payment",
+      services: [],
+      specialRequests: "",
+      reservationId: booking.id,
+      reservationReference: booking.reference,
+    });
+
+    router.push("/booking/payment");
   };
 
   const handleCancelReservation = async (reservationId: string) => {
@@ -413,6 +475,8 @@ export default function ManageBooking() {
           reservationId: selectedBooking.id,
           newCheckInDate: rescheduleForm.checkIn,
           newCheckOutDate: rescheduleForm.checkOut,
+          newStartDatetime: withOriginalTime(rescheduleForm.checkIn, selectedBooking.startDatetime),
+          newEndDatetime: withOriginalTime(rescheduleForm.checkOut, selectedBooking.endDatetime),
         }),
       });
 
@@ -443,118 +507,22 @@ export default function ManageBooking() {
     }
   };
 
-  const handleSubmitRemainingPayment = async (event: React.FormEvent) => {
+  const handleSubmitRemainingPayment = (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!selectedBooking) {
-      setRemainingPaymentError("Select a booking first.");
-      return;
-    }
-
-    if (selectedBooking.remainingBalance <= 0) {
-      setRemainingPaymentError("This booking has no remaining balance.");
+    if (!selectedBooking || selectedBooking.remainingBalance <= 0) {
+      setRemainingPaymentError("Select a booking with an outstanding balance first.");
       return;
     }
 
     if (selectedBooking.status.toLowerCase() === "cancelled" || selectedBooking.status.toLowerCase() === "completed") {
-      setRemainingPaymentError("Cannot submit payment for this booking status.");
-      return;
-    }
-
-    const selectedProof =
-      remainingPaymentMethod === "bank"
-        ? remainingBankDetails.uploadProof
-        : remainingEwalletDetails.uploadProof;
-
-    if (!selectedProof) {
-      setRemainingPaymentError("Please upload payment proof before submitting.");
-      return;
-    }
-
-    if (!selectedProof.type.startsWith("image/")) {
-      setRemainingPaymentError("Please upload an image proof of payment.");
-      return;
-    }
-
-    const accountName =
-      remainingPaymentMethod === "bank"
-        ? remainingBankDetails.accountName.trim()
-        : remainingEwalletDetails.accountName.trim();
-    const referenceNumber =
-      remainingPaymentMethod === "bank"
-        ? remainingBankDetails.referenceNumber.trim()
-        : remainingEwalletDetails.referenceNumber.trim();
-    const accountNumber =
-      remainingPaymentMethod === "bank"
-        ? null
-        : remainingEwalletDetails.accountNumber.trim();
-
-    if (!accountName || !referenceNumber || (remainingPaymentMethod === "ewallet" && !accountNumber)) {
-      setRemainingPaymentError("Please complete all payment details.");
+      setRemainingPaymentError("Cannot continue payment for this booking status.");
       return;
     }
 
     setRemainingPaymentError(null);
     setRemainingPaymentSuccess(null);
-    setIsSubmittingRemainingPayment(true);
-
-    try {
-      const supabase = createClient();
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData.user?.id ?? "guest";
-      const safeFileName = selectedProof.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-      const uploadPath = `${userId}/${Date.now()}-${safeFileName}`;
-      const bucketName = process.env.NEXT_PUBLIC_SUPABASE_PAYMENT_PROOF_BUCKET!;
-
-      const { error: uploadError } = await supabase.storage
-        .from(bucketName)
-        .upload(uploadPath, selectedProof, {
-          cacheControl: "3600",
-          upsert: false,
-          contentType: selectedProof.type || undefined,
-        });
-
-      if (uploadError) {
-        setRemainingPaymentError(uploadError.message || "Failed to upload payment proof.");
-        return;
-      }
-
-      const response = await fetch("/api/reservations/payment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          reservationId: selectedBooking.id,
-          payment: {
-            method: remainingPaymentMethod === "bank" ? "bank_transfer" : "e_wallet",
-            type: "additional",
-            amount: Number(selectedBooking.remainingBalance),
-            referenceNumber,
-            accountName,
-            accountNumber: accountNumber || null,
-            proofPath: uploadPath,
-          },
-        }),
-      });
-
-      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
-
-      if (!response.ok || !result?.success) {
-        setRemainingPaymentError(result?.message ?? "Failed to submit remaining balance payment.");
-        return;
-      }
-
-      setRemainingPaymentSuccess(
-        "Remaining balance payment submitted successfully. It will be reflected after admin verification."
-      );
-      setRemainingBankDetails({ accountName: "", referenceNumber: "", uploadProof: null });
-      setRemainingEwalletDetails({ accountName: "", accountNumber: "", referenceNumber: "", uploadProof: null });
-    } catch {
-      setRemainingPaymentError("Failed to submit remaining balance payment.");
-    } finally {
-      setIsSubmittingRemainingPayment(false);
-    }
+    openPaymentPortal(selectedBooking);
   };
 
   useEffect(() => {
@@ -584,7 +552,7 @@ export default function ManageBooking() {
           supabase.from("guests").select("email, phone_number").eq("id", user.id).maybeSingle<GuestRow>(),
           supabase
             .from("reservations")
-            .select("reservation_id, reference_number, check_in_date, check_out_date, adult_count, child_count, status")
+            .select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status")
             .eq("guest_id", user.id)
             .order("created_at", { ascending: false }),
           supabase
@@ -646,8 +614,10 @@ export default function ManageBooking() {
         const mappedBookings: BookingRecord[] = reservationRows.map((reservation) => ({
           id: reservation.reservation_id,
           reference: reservation.reference_number,
-          checkIn: reservation.check_in_date,
-          checkOut: reservation.check_out_date,
+          startDatetime: reservation.start_datetime,
+          endDatetime: reservation.end_datetime,
+          checkIn: toDateOnly(reservation.start_datetime),
+          checkOut: toDateOnly(reservation.end_datetime),
           guests: Number(reservation.adult_count ?? 0) + Number(reservation.child_count ?? 0),
           totalAmount: transactionByReservationId[reservation.reservation_id]?.total ?? 0,
           paidAmount: transactionByReservationId[reservation.reservation_id]?.paid ?? 0,
@@ -932,13 +902,7 @@ export default function ManageBooking() {
                                     return;
                                   }
 
-                                  setSelectedBookingId(record.id);
-                                  setRecordMode("view");
-                                  setRemainingPaymentError(null);
-                                  setRemainingPaymentSuccess(null);
-                                  setRemainingPaymentMethod("bank");
-                                  setRemainingBankDetails({ accountName: "", referenceNumber: "", uploadProof: null });
-                                  setRemainingEwalletDetails({ accountName: "", accountNumber: "", referenceNumber: "", uploadProof: null });
+                                  openPaymentPortal(record);
                                 }}
                                 disabled={
                                   record.remainingBalance <= 0 ||

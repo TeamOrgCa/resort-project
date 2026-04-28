@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { computeBookingPricing } from "@/lib/booking/pricing";
+import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 
 type DbErrorLike = {
   message?: string;
@@ -14,8 +16,12 @@ interface ServiceSelectionInput {
 }
 
 interface CreateReservationPayload {
-  checkInDate: string;
-  checkOutDate: string;
+  bookingMode: BookingMode;
+  startDatetime: string;
+  endDatetime: string;
+  wholeDayVariant?: WholeDayVariant | null;
+  customStartTime?: string | null;
+  customEndTime?: string | null;
   adultCount: number;
   childCount: number;
   unitId: string;
@@ -35,11 +41,6 @@ interface ServiceRow {
   price: number;
   is_active: boolean;
 }
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const ADULT_RATE_PER_NIGHT = 150;
-const CHILD_RATE_PER_NIGHT = 120;
-const TAX_RATE = 0.12;
 
 const toDbError = (error: unknown): DbErrorLike => {
   if (typeof error === "object" && error !== null) {
@@ -80,8 +81,9 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
   const payload = value as Partial<CreateReservationPayload>;
 
   if (
-    typeof payload.checkInDate !== "string" ||
-    typeof payload.checkOutDate !== "string" ||
+    (payload.bookingMode !== "day" && payload.bookingMode !== "night" && payload.bookingMode !== "whole_day" && payload.bookingMode !== "custom") ||
+    typeof payload.startDatetime !== "string" ||
+    typeof payload.endDatetime !== "string" ||
     typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
     typeof payload.childCount !== "number"
@@ -89,7 +91,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     return null;
   }
 
-  if (!isValidDate(payload.checkInDate) || !isValidDate(payload.checkOutDate)) {
+  if (!isValidDate(payload.startDatetime) || !isValidDate(payload.endDatetime)) {
     return null;
   }
 
@@ -102,8 +104,15 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
   }
 
   return {
-    checkInDate: payload.checkInDate,
-    checkOutDate: payload.checkOutDate,
+    bookingMode: payload.bookingMode,
+    startDatetime: payload.startDatetime,
+    endDatetime: payload.endDatetime,
+    wholeDayVariant:
+      payload.wholeDayVariant === "day_to_night" || payload.wholeDayVariant === "night_to_day"
+        ? payload.wholeDayVariant
+        : null,
+    customStartTime: typeof payload.customStartTime === "string" ? payload.customStartTime : null,
+    customEndTime: typeof payload.customEndTime === "string" ? payload.customEndTime : null,
     adultCount: payload.adultCount,
     childCount: payload.childCount,
     unitId: payload.unitId,
@@ -153,15 +162,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const checkIn = new Date(payload.checkInDate);
-    const checkOut = new Date(payload.checkOutDate);
-    const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / DAY_MS);
+    const bookingValidation = validateBookingWindow({
+      bookingMode: payload.bookingMode,
+      startDatetime: payload.startDatetime,
+      endDatetime: payload.endDatetime,
+      wholeDayVariant: payload.wholeDayVariant,
+      customStartTime: payload.customStartTime,
+      customEndTime: payload.customEndTime,
+    });
 
-    if (nights <= 0) {
+    if (!bookingValidation.valid) {
       return NextResponse.json(
         {
           success: false,
-          message: "Check-out date must be after check-in date.",
+          message: bookingValidation.message || "Invalid booking window.",
         },
         { status: 400 }
       );
@@ -180,6 +194,35 @@ export async function POST(request: Request) {
           message: "You must be logged in to save your booking.",
         },
         { status: 401 }
+      );
+    }
+
+    const { data: overlapReservation, error: overlapError } = await supabase
+      .from("reservations")
+      .select("reservation_id")
+      .in("status", ["pending", "confirmed"])
+      .lt("start_datetime", payload.endDatetime)
+      .gt("end_datetime", payload.startDatetime)
+      .limit(1)
+      .maybeSingle();
+
+    if (overlapError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unable to validate overlapping reservations.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (overlapReservation) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "The selected schedule overlaps with an existing reservation.",
+        },
+        { status: 409 }
       );
     }
 
@@ -239,18 +282,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const roomTotal = Number(unit.base_price) * nights;
-    const guestsTotal =
-      nights *
-      (Number(payload.adultCount ?? 0) * ADULT_RATE_PER_NIGHT +
-        Number(payload.childCount ?? 0) * CHILD_RATE_PER_NIGHT);
     const servicesTotal = selectedServices.reduce((sum, service) => {
       const matchedService = servicesById.get(service.serviceId);
       if (!matchedService) return sum;
       return sum + Number(matchedService.price) * (service.quantity ?? 1);
     }, 0);
-    const subtotal = roomTotal + guestsTotal + servicesTotal;
-    const totalAmount = Number((subtotal * (1 + TAX_RATE)).toFixed(2));
+    const pricing = computeBookingPricing({
+      bookingMode: payload.bookingMode,
+      startDatetime: payload.startDatetime,
+      endDatetime: payload.endDatetime,
+      adultCount: payload.adultCount,
+      childCount: payload.childCount,
+      servicesTotal,
+    });
+    const totalAmount = pricing.total;
 
     const reservationReference = await generateReferenceNumber(supabase);
 
@@ -269,8 +314,9 @@ export async function POST(request: Request) {
       .insert({
         guest_id: user.id,
         reference_number: reservationReference,
-        check_in_date: payload.checkInDate,
-        check_out_date: payload.checkOutDate,
+        booking_mode: payload.bookingMode,
+        start_datetime: payload.startDatetime,
+        end_datetime: payload.endDatetime,
         adult_count: payload.adultCount,
         child_count: payload.childCount,
         special_requests: payload.specialRequests || null,

@@ -3,61 +3,81 @@ import { createClient } from "@/lib/supabase/server";
 
 interface ReschedulePayload {
   reservationId: string;
-  newCheckInDate: string;
-  newCheckOutDate: string;
+  newStartDatetime: string;
+  newEndDatetime: string;
 }
 
 interface ReservationRow {
   reservation_id: string;
   guest_id: string;
-  check_in_date: string;
-  check_out_date: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
+  start_datetime: string;
+  end_datetime: string;
+  status:
+    | "pending"
+    | "confirmed"
+    | "cancelled"
+    | "completed"
+    | "reschedule_requested";
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MIN_RESCHEDULE_DAYS = 2;
+const calculateRescheduleFee = (startDatetime: string) => {
+  const start = new Date(startDatetime);
 
-const parsePayload = (value: unknown): ReschedulePayload | null => {
-  if (!value || typeof value !== "object") {
-    return null;
+  if (Number.isNaN(start.getTime())) {
+    return 500;
   }
+
+  const daysUntilStart = (start.getTime() - Date.now()) / DAY_MS;
+
+  if (daysUntilStart >= 6) {
+    return 50;
+  }
+
+  if (daysUntilStart >= 3) {
+    return 100;
+  }
+
+  if (daysUntilStart >= 1) {
+    return 300;
+  }
+
+  return 500;
+};
+
+/* -----------------------------
+   VALIDATE PAYLOAD
+------------------------------*/
+const parsePayload = (value: unknown): ReschedulePayload | null => {
+  if (!value || typeof value !== "object") return null;
 
   const payload = value as Partial<ReschedulePayload>;
 
   if (
     typeof payload.reservationId !== "string" ||
-    !payload.reservationId.trim() ||
-    typeof payload.newCheckInDate !== "string" ||
-    typeof payload.newCheckOutDate !== "string"
+    typeof payload.newStartDatetime !== "string" ||
+    typeof payload.newEndDatetime !== "string"
   ) {
     return null;
   }
 
-  const newCheckIn = new Date(payload.newCheckInDate);
-  const newCheckOut = new Date(payload.newCheckOutDate);
+  const start = new Date(payload.newStartDatetime);
+  const end = new Date(payload.newEndDatetime);
 
-  if (Number.isNaN(newCheckIn.getTime()) || Number.isNaN(newCheckOut.getTime())) {
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return null;
   }
 
   return {
     reservationId: payload.reservationId.trim(),
-    newCheckInDate: payload.newCheckInDate,
-    newCheckOutDate: payload.newCheckOutDate,
+    newStartDatetime: payload.newStartDatetime,
+    newEndDatetime: payload.newEndDatetime,
   };
 };
 
-const hasLeadTime = (checkInDate: string) => {
-  const checkIn = new Date(`${checkInDate}T00:00:00`);
-  if (Number.isNaN(checkIn.getTime())) {
-    return false;
-  }
-
-  const now = new Date();
-  return (checkIn.getTime() - now.getTime()) / DAY_MS >= MIN_RESCHEDULE_DAYS;
-};
-
+/* -----------------------------
+   MAIN HANDLER
+------------------------------*/
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -65,38 +85,33 @@ export async function POST(request: Request) {
 
     if (!payload) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid reschedule payload.",
-        },
+        { success: false, message: "Invalid reschedule payload." },
         { status: 400 }
       );
     }
 
-    const newCheckIn = new Date(payload.newCheckInDate);
-    const newCheckOut = new Date(payload.newCheckOutDate);
+    const newStart = new Date(payload.newStartDatetime);
+    const newEnd = new Date(payload.newEndDatetime);
 
-    if (newCheckOut.getTime() <= newCheckIn.getTime()) {
+    if (newEnd.getTime() <= newStart.getTime()) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Check-out date must be after check-in date.",
-        },
+        { success: false, message: "End datetime must be after start datetime." },
         { status: 400 }
       );
     }
 
-    if (newCheckIn.getTime() < new Date().setHours(0, 0, 0, 0)) {
+    if (newStart.getTime() < new Date().setHours(0, 0, 0, 0)) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Reschedule dates must be in the future.",
-        },
+        { success: false, message: "Reschedule must be in the future." },
         { status: 400 }
       );
     }
 
     const supabase = await createClient();
+
+    /* -----------------------------
+       AUTH CHECK
+    ------------------------------*/
     const {
       data: { user },
       error: authError,
@@ -104,41 +119,43 @@ export async function POST(request: Request) {
 
     if (authError || !user) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "You must be logged in to request a reschedule.",
-        },
+        { success: false, message: "You must be logged in." },
         { status: 401 }
       );
     }
 
+    /* -----------------------------
+       FETCH RESERVATION
+    ------------------------------*/
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, check_in_date, check_out_date, status")
+      .select(
+        "reservation_id, guest_id, start_datetime, end_datetime, status"
+      )
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
     if (reservationError || !reservation) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Reservation not found.",
-        },
+        { success: false, message: "Reservation not found." },
         { status: 404 }
       );
     }
 
+    /* -----------------------------
+       OWNERSHIP CHECK
+    ------------------------------*/
     if (reservation.guest_id !== user.id) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "You can only request a reschedule for your own reservation.",
-        },
+        { success: false, message: "Not your reservation." },
         { status: 403 }
       );
     }
 
-    if (reservation.status === "cancelled" || reservation.status === "completed") {
+    /* -----------------------------
+       STATUS CHECK
+    ------------------------------*/
+    if (["cancelled", "completed"].includes(reservation.status)) {
       return NextResponse.json(
         {
           success: false,
@@ -152,34 +169,27 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          message: "A reschedule request is already pending for this reservation.",
+          message: "A reschedule request is already pending.",
         },
         { status: 400 }
       );
     }
 
-    // if (!hasLeadTime(reservation.check_in_date)) {
-    //   return NextResponse.json(
-    //     {
-    //       success: false,
-    //       message: "Reschedule requests must be submitted at least 2 days before check-in.",
-    //     },
-    //     { status: 400 }
-    //   );
-    // }
-
-    const { data: pendingRequest, error: pendingRequestError } = await supabase
+    /* -----------------------------
+       CHECK EXISTING PENDING REQUEST
+    ------------------------------*/
+    const { data: pendingRequest, error: pendingError } = await supabase
       .from("reservation_reschedules")
       .select("reschedule_id")
       .eq("reservation_id", reservation.reservation_id)
       .eq("status", "pending")
       .maybeSingle();
 
-    if (pendingRequestError) {
+    if (pendingError) {
       return NextResponse.json(
         {
           success: false,
-          message: "Unable to validate existing reschedule requests.",
+          message: "Failed to validate existing requests.",
         },
         { status: 500 }
       );
@@ -189,21 +199,31 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          message: "A pending reschedule request already exists for this reservation.",
+          message: "Pending reschedule already exists.",
         },
         { status: 400 }
       );
     }
 
-    const { error: insertError } = await supabase.from("reservation_reschedules").insert({
-      reservation_id: reservation.reservation_id,
-      requested_by: user.id,
-      old_check_in: reservation.check_in_date,
-      old_check_out: reservation.check_out_date,
-      new_check_in: payload.newCheckInDate,
-      new_check_out: payload.newCheckOutDate,
-      status: "pending",
-    });
+    /* -----------------------------
+       INSERT RESCHEDULE REQUEST
+    ------------------------------*/
+    const { error: insertError } = await supabase
+      .from("reservation_reschedules")
+      .insert({
+        reservation_id: reservation.reservation_id,
+        requested_by: user.id,
+
+        old_start: reservation.start_datetime,
+        old_end: reservation.end_datetime,
+
+        new_start: payload.newStartDatetime,
+        new_end: payload.newEndDatetime,
+
+        reschedule_fee: calculateRescheduleFee(reservation.start_datetime),
+
+        status: "pending",
+      });
 
     if (insertError) {
       return NextResponse.json(
@@ -215,36 +235,43 @@ export async function POST(request: Request) {
       );
     }
 
+    /* -----------------------------
+       UPDATE RESERVATION STATUS
+    ------------------------------*/
     const { error: updateError } = await supabase
       .from("reservations")
       .update({ status: "reschedule_requested" })
-      .eq("reservation_id", reservation.reservation_id)
-      .eq("guest_id", user.id);
+      .eq("reservation_id", reservation.reservation_id);
 
     if (updateError) {
       return NextResponse.json(
         {
           success: false,
-          message: "Reschedule request was created but reservation status could not be updated.",
+          message:
+            "Request created but reservation status update failed.",
         },
         { status: 500 }
       );
     }
 
+    /* -----------------------------
+       SUCCESS RESPONSE
+    ------------------------------*/
     return NextResponse.json(
       {
         success: true,
         reservationId: reservation.reservation_id,
         status: "reschedule_requested",
+        rescheduleFee: calculateRescheduleFee(reservation.start_datetime),
         message: "Reschedule request submitted successfully.",
       },
       { status: 201 }
     );
-  } catch {
+  } catch (err) {
     return NextResponse.json(
       {
         success: false,
-        message: "Unexpected error while submitting reschedule request.",
+        message: "Unexpected server error.",
       },
       { status: 500 }
     );

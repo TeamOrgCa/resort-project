@@ -9,8 +9,9 @@ interface RescheduleRequestRow {
   reschedule_id: string;
   reservation_id: string;
   status: "pending" | "approved" | "rejected";
-  new_check_in: string;
-  new_check_out: string;
+  new_start: string;
+  new_end: string;
+  reschedule_fee: number | null;
 }
 
 interface ReservationRow {
@@ -19,6 +20,7 @@ interface ReservationRow {
 }
 
 interface TransactionRow {
+  total_amount: number | null;
   paid_amount: number | null;
 }
 
@@ -38,6 +40,18 @@ const parsePayload = (value: unknown): ApproveReschedulePayload | null => {
 
 const deriveReservationStatus = (paidAmount: number) => (paidAmount > 0 ? "confirmed" : "pending");
 
+const deriveTransactionStatus = (paidAmount: number, totalAmount: number): "unpaid" | "partial" | "paid" => {
+  if (paidAmount <= 0) {
+    return "unpaid";
+  }
+
+  if (paidAmount >= totalAmount) {
+    return "paid";
+  }
+
+  return "partial";
+};
+
 export async function POST(request: Request) {
   try {
     const staffContext = await requireActiveStaff();
@@ -55,7 +69,7 @@ export async function POST(request: Request) {
 
     const { data: requestRow, error: requestError } = await staffContext.supabase
       .from("reservation_reschedules")
-      .select("reschedule_id, reservation_id, status, new_check_in, new_check_out")
+      .select("reschedule_id, reservation_id, status, new_start, new_end, reschedule_fee")
       .eq("reschedule_id", payload.rescheduleId)
       .maybeSingle<RescheduleRequestRow>();
 
@@ -82,7 +96,7 @@ export async function POST(request: Request) {
 
     const { data: transaction, error: transactionError } = await staffContext.supabase
       .from("transactions")
-      .select("paid_amount")
+      .select("total_amount, paid_amount")
       .eq("reservation_id", requestRow.reservation_id)
       .maybeSingle<TransactionRow>();
 
@@ -91,12 +105,13 @@ export async function POST(request: Request) {
     }
 
     const nextReservationStatus = deriveReservationStatus(Number(transaction?.paid_amount ?? 0));
+    const nextTotalAmount = Number(transaction?.total_amount ?? 0) + Number(requestRow.reschedule_fee ?? 0);
 
     const { error: updateReservationError } = await staffContext.supabase
       .from("reservations")
       .update({
-        check_in_date: requestRow.new_check_in,
-        check_out_date: requestRow.new_check_out,
+        start_datetime: requestRow.new_start,
+        end_datetime: requestRow.new_end,
         status: nextReservationStatus,
       })
       .eq("reservation_id", requestRow.reservation_id);
@@ -104,6 +119,21 @@ export async function POST(request: Request) {
     if (updateReservationError) {
       return NextResponse.json(
         { success: false, message: "Failed to update reservation dates." },
+        { status: 500 }
+      );
+    }
+
+    const { error: updateTransactionError } = await staffContext.supabase
+      .from("transactions")
+      .update({
+        total_amount: nextTotalAmount,
+        status: deriveTransactionStatus(Number(transaction?.paid_amount ?? 0), nextTotalAmount),
+      })
+      .eq("reservation_id", requestRow.reservation_id);
+
+    if (updateTransactionError) {
+      return NextResponse.json(
+        { success: false, message: "Reservation updated but transaction total could not be adjusted." },
         { status: 500 }
       );
     }
@@ -146,10 +176,11 @@ export async function POST(request: Request) {
         status: "approved",
         reservation: {
           reservationId: requestRow.reservation_id,
-          checkInDate: requestRow.new_check_in,
-          checkOutDate: requestRow.new_check_out,
+          checkInDate: requestRow.new_start,
+          checkOutDate: requestRow.new_end,
           status: nextReservationStatus,
         },
+        rescheduleFee: Number(requestRow.reschedule_fee ?? 0),
         message: "Reschedule request approved.",
       },
       { status: 200 }

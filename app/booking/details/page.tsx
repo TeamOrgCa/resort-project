@@ -6,18 +6,9 @@ import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 
-const parseDateString = (value: string | null) => {
+const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
-  const parts = value.split("-");
-  if (parts.length !== 3) return null;
-
-  const year = Number(parts[0]);
-  const month = Number(parts[1]);
-  const day = Number(parts[2]);
-
-  if (!year || !month || !day) return null;
-
-  const date = new Date(year, month - 1, day);
+  const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
@@ -37,12 +28,12 @@ function BookingDetailsContent() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
-  const checkInDate = parseDateString(bookingDraft.checkIn || null);
-  const checkOutDate = parseDateString(bookingDraft.checkOut || null);
+  const startDateTime = parseDateTimeString(bookingDraft.startDatetime || null);
+  const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
 
   const hasValidDraft =
-    Boolean(bookingDraft.checkIn) &&
-    Boolean(bookingDraft.checkOut) &&
+    Boolean(bookingDraft.startDatetime) &&
+    Boolean(bookingDraft.endDatetime) &&
     Boolean(bookingDraft.unitId) &&
     bookingDraft.adultCount > 0;
 
@@ -75,8 +66,12 @@ function BookingDetailsContent() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          checkInDate: bookingDraft.checkIn,
-          checkOutDate: bookingDraft.checkOut,
+          bookingMode: bookingDraft.bookingMode,
+          startDatetime: bookingDraft.startDatetime,
+          endDatetime: bookingDraft.endDatetime,
+          wholeDayVariant: bookingDraft.wholeDayVariant,
+          customStartTime: bookingDraft.customStartTime,
+          customEndTime: bookingDraft.customEndTime,
           adultCount: bookingDraft.adultCount,
           childCount: bookingDraft.childCount,
           unitId: bookingDraft.unitId,
@@ -202,13 +197,14 @@ function BookingDetailsContent() {
                     <h3 className="text-lg font-semibold text-neutral mb-3">Booking Details</h3>
                     <div className="grid sm:grid-cols-2 gap-2 text-sm text-neutral/80">
                       <p>
-                        Check-in: <span className="font-semibold text-neutral">{checkInDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) || "-"}</span>
+                        Start: <span className="font-semibold text-neutral">{startDateTime?.toLocaleString("en-PH", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
                       </p>
                       <p>
-                        Check-out: <span className="font-semibold text-neutral">{checkOutDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) || "-"}</span>
+                        End: <span className="font-semibold text-neutral">{endDateTime?.toLocaleString("en-PH", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
                       </p>
+                      <p>Mode: <span className="font-semibold text-neutral">{bookingDraft.bookingMode === "whole_day" ? `Whole-Day (${bookingDraft.wholeDayVariant === "day_to_night" ? "Variant A" : "Variant B"})` : bookingDraft.bookingMode.replace("_", " ")}</span></p>
                       <p>Room: <span className="font-semibold text-neutral">{bookingDraft.roomName}</span></p>
-                      <p>Nights: <span className="font-semibold text-neutral">{bookingDraft.nights}</span></p>
+                      <p>Duration: <span className="font-semibold text-neutral">{bookingDraft.customDurationHours || bookingDraft.nights} {bookingDraft.bookingMode === "custom" ? "hours" : "day(s)"}</span></p>
                       <p>Adults: <span className="font-semibold text-neutral">{bookingDraft.adultCount}</span></p>
                       <p>Children: <span className="font-semibold text-neutral">{bookingDraft.childCount}</span></p>
                       <p>Total Guests: <span className="font-semibold text-neutral">{totalGuests}</span></p>
@@ -233,6 +229,7 @@ function BookingDetailsContent() {
                   <div className="rounded-xl border border-neutral/10 p-4">
                     <h3 className="text-lg font-semibold text-neutral mb-3">Billing Breakdown</h3>
                     <div className="space-y-2 text-sm text-neutral/80">
+                      <div className="flex justify-between"><span>Package</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.roomPrice || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       <div className="flex justify-between"><span>Subtotal</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.subtotal || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       <div className="flex justify-between"><span>Tax (12%)</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.tax || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       <div className="flex justify-between border-t border-neutral/10 pt-2"><span className="font-semibold text-neutral">Total</span><span className="font-bold text-primary">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
@@ -297,7 +294,7 @@ function BookingDetailsContent() {
                 </div>
 
                 <div className="mt-6 rounded-lg bg-highlight/10 p-4 text-sm text-neutral/80">
-                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>.
+                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. Downpayment minimum is 20% and cancellation downpayments are non-refundable.
                 </div>
               </div>
             </div>

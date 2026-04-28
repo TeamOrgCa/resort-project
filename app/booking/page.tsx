@@ -7,12 +7,19 @@ import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
+import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 
 export default function Booking() {
   const router = useRouter();
-  const setBookingDates = useBookingStore((state) => state.setBookingDates);
+  const setBookingWindow = useBookingStore((state) => state.setBookingWindow);
   const [bookingType, setBookingType] = useState<"stay" | "ocular">("stay");
-  const [selectedDates, setSelectedDates] = useState<{ start: Date | null; end: Date | null }>({start: null, end: null});
+  const [bookingMode, setBookingMode] = useState<BookingMode>("day");
+  const [wholeDayVariant, setWholeDayVariant] = useState<WholeDayVariant>("day_to_night");
+  const [selectedStayDate, setSelectedStayDate] = useState<Date | null>(null);
+  const [customStartTime, setCustomStartTime] = useState("08:00");
+  const [customEndTime, setCustomEndTime] = useState("11:00");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [stayError, setStayError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState("");
   const [bookingRef, setBookingRef] = useState("");
@@ -28,12 +35,74 @@ export default function Booking() {
     return `${year}-${month}-${day}`;
   };
 
+  const parseLocalDateValue = (value: string) => {
+    const parts = value.split("-");
+    if (parts.length !== 3) return null;
+
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    if (!year || !month || !day) return null;
+
+    const parsed = new Date(year, month - 1, day);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
   const handleContinueToReservation = () => {
-    if (!selectedDates.start || !selectedDates.end) {
+    if (!selectedStayDate) {
+      setStayError("Please select a booking date.");
       return;
     }
 
-    setBookingDates(formatDateForStore(selectedDates.start), formatDateForStore(selectedDates.end));
+    const selectedCustomEndDate =
+      bookingMode === "custom"
+        ? parseLocalDateValue(customEndDate || formatDateForStore(selectedStayDate))
+        : null;
+
+    if (bookingMode === "custom" && !selectedCustomEndDate) {
+      setStayError("Please select a valid custom end date.");
+      return;
+    }
+
+    const generatedWindow = buildBookingWindow({
+      bookingMode,
+      date: selectedStayDate,
+      wholeDayVariant,
+      customStartTime,
+      customEndTime,
+      customEndDate: selectedCustomEndDate ?? undefined,
+    });
+
+    if ("error" in generatedWindow) {
+      setStayError(generatedWindow.error || "Invalid booking window.");
+      return;
+    }
+
+    const validation = validateBookingWindow({
+      bookingMode,
+      startDatetime: generatedWindow.startDatetime,
+      endDatetime: generatedWindow.endDatetime,
+      wholeDayVariant,
+      customStartTime,
+      customEndTime,
+    });
+
+    if (!validation.valid) {
+      setStayError(validation.message || "Invalid booking window.");
+      return;
+    }
+
+    setStayError(null);
+    setBookingWindow(bookingMode, generatedWindow.startDatetime, generatedWindow.endDatetime, {
+      wholeDayVariant,
+      customStartTime,
+      customEndTime,
+      customEndDate:
+        bookingMode === "custom"
+          ? formatDateForStore(selectedCustomEndDate ?? selectedStayDate)
+          : "",
+      customDurationHours: generatedWindow.customDurationHours,
+    });
     router.push("/booking/form");
   };
 
@@ -84,11 +153,8 @@ export default function Booking() {
   };
 
   const isDateSelected = (date: Date) => {
-    if (!selectedDates.start) return false;
-    if (!selectedDates.end) {
-      return date.toDateString() === selectedDates.start.toDateString();
-    }
-    return date >= selectedDates.start && date <= selectedDates.end;
+    if (!selectedStayDate) return false;
+    return date.toDateString() === selectedStayDate.toDateString();
   };
 
   const handleDateClick = (date: Date) => {
@@ -99,16 +165,22 @@ export default function Booking() {
       }
     } else {
       if (isDateBooked(date)) return;
-      
-      if (!selectedDates.start || (selectedDates.start && selectedDates.end)) {
-        setSelectedDates({ start: date, end: null });
-      } else {
-        if (date > selectedDates.start) {
-          setSelectedDates({ ...selectedDates, end: date });
+
+      const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+      if (isPast) return;
+
+      setSelectedStayDate(date);
+      if (bookingMode === "custom") {
+        if (!customEndDate) {
+          setCustomEndDate(formatDateForStore(date));
         } else {
-          setSelectedDates({ start: date, end: null });
+          const parsedEnd = parseLocalDateValue(customEndDate);
+          if (!parsedEnd || parsedEnd < date) {
+            setCustomEndDate(formatDateForStore(date));
+          }
         }
       }
+      setStayError(null);
     }
   };
 
@@ -281,6 +353,7 @@ export default function Booking() {
                 setSelectedDate(null);
                 setSelectedTime("");
                 setBookingRef("");
+                setStayError(null);
               }}
               className={`px-8 py-4 rounded-full font-semibold transition-all ${
                 bookingType === "stay"
@@ -293,7 +366,7 @@ export default function Booking() {
             <button
               onClick={() => {
                 setBookingType("ocular");
-                setSelectedDates({ start: null, end: null });
+                setSelectedStayDate(null);
               }}
               className={`px-8 py-4 rounded-full font-semibold transition-all ${
                 bookingType === "ocular"
@@ -323,6 +396,113 @@ export default function Booking() {
               </div>
             </div>
           )}
+
+          {bookingType === "stay" && (
+            <div className="bg-primary/5 p-6 rounded-2xl mb-8">
+              <h3 className="font-bold text-neutral mb-4">Select Booking Mode</h3>
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                {[
+                  { value: "day", label: "Day", subtitle: "8:00 AM - 4:00 PM" },
+                  { value: "night", label: "Night", subtitle: "6:00 PM - 6:00 AM" },
+                  { value: "whole_day", label: "Whole-Day", subtitle: "22-hour package" },
+                  { value: "custom", label: "Custom", subtitle: "8:00 AM - 10:00 PM" },
+                ].map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    onClick={() => {
+                      setBookingMode(mode.value as BookingMode);
+                      if (mode.value === "custom" && selectedStayDate && !customEndDate) {
+                        setCustomEndDate(formatDateForStore(selectedStayDate));
+                      }
+                      setStayError(null);
+                    }}
+                    className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                      bookingMode === mode.value
+                        ? "border-primary bg-white"
+                        : "border-neutral/20 bg-white/60 hover:border-primary/40"
+                    }`}
+                  >
+                    <p className="font-semibold text-neutral">{mode.label}</p>
+                    <p className="text-xs text-neutral/70">{mode.subtitle}</p>
+                  </button>
+                ))}
+              </div>
+
+              {bookingMode === "whole_day" && (
+                <div className="grid md:grid-cols-2 gap-3 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setWholeDayVariant("day_to_night")}
+                    className={`rounded-lg border px-4 py-3 text-sm text-left ${wholeDayVariant === "day_to_night" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
+                  >
+                    <p className="font-semibold text-neutral">Variant A</p>
+                    <p className="text-neutral/70">8:00 AM - 6:00 AM (next day)</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWholeDayVariant("night_to_day")}
+                    className={`rounded-lg border px-4 py-3 text-sm text-left ${wholeDayVariant === "night_to_day" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
+                  >
+                    <p className="font-semibold text-neutral">Variant B</p>
+                    <p className="text-neutral/70">6:00 PM - 4:00 PM (next day)</p>
+                  </button>
+                </div>
+              )}
+
+              {bookingMode === "custom" && (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-neutral/70 mb-1">Custom End Date</label>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      min={selectedStayDate ? formatDateForStore(selectedStayDate) : undefined}
+                      onChange={(event) => {
+                        setCustomEndDate(event.target.value);
+                        setStayError(null);
+                      }}
+                      disabled={!selectedStayDate}
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2 disabled:bg-neutral/10"
+                    />
+                    <p className="mt-1 text-xs text-neutral/60">Start date comes from the calendar selection.</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral/70 mb-1">Custom Start Time</label>
+                    <input
+                      type="time"
+                      value={customStartTime}
+                      min="08:00"
+                      max="22:00"
+                      onChange={(event) => {
+                        setCustomStartTime(event.target.value);
+                        setStayError(null);
+                      }}
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral/70 mb-1">Custom End Time</label>
+                    <input
+                      type="time"
+                      value={customEndTime}
+                      min="08:00"
+                      max="22:00"
+                      onChange={(event) => {
+                        setCustomEndTime(event.target.value);
+                        setStayError(null);
+                      }}
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-neutral/70 mt-3">
+                Custom bookings must stay within 8:00 AM to 10:00 PM and be at least 3 hours.
+              </p>
+            </div>
+          )}
           
 
           <form
@@ -340,7 +520,7 @@ export default function Booking() {
               <div className="bg-white rounded-3xl shadow-xl p-8">
                 <div className="flex items-center justify-between mb-8">
                   <h2 className="text-3xl font-bold text-neutral">
-                    {bookingType === "stay" ? "Select Dates" : "Select Visit Date"}
+                    {bookingType === "stay" ? "Select Booking Date" : "Select Visit Date"}
                   </h2>
                   <div className="flex gap-2">
                     <button type="button" onClick={prevMonth} className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
@@ -487,20 +667,43 @@ export default function Booking() {
                       <div>
                         <label className="text-sm text-neutral/70">Check-in</label>
                         <p className="text-lg font-semibold text-neutral">
-                          {selectedDates.start ? selectedDates.start.toLocaleDateString() : "Select date"}
+                          {selectedStayDate ? selectedStayDate.toLocaleDateString() : "Select date"}
                         </p>
                       </div>
                       <div>
                         <label className="text-sm text-neutral/70">Check-out</label>
                         <p className="text-lg font-semibold text-neutral">
-                          {selectedDates.end ? selectedDates.end.toLocaleDateString() : "Select date"}
+                          {selectedStayDate
+                            ? (() => {
+                                const bookingWindow = buildBookingWindow({
+                                  bookingMode,
+                                  date: selectedStayDate,
+                                  wholeDayVariant,
+                                  customStartTime,
+                                  customEndTime,
+                                    customEndDate:
+                                      bookingMode === "custom"
+                                        ? parseLocalDateValue(customEndDate || formatDateForStore(selectedStayDate)) ?? selectedStayDate
+                                        : undefined,
+                                });
+                                if ("error" in bookingWindow) return "Select date";
+                                return new Date(bookingWindow.endDatetime).toLocaleString("en-PH", {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                });
+                              })()
+                            : "Select date"}
                         </p>
                       </div>
-                      {selectedDates.start && selectedDates.end && (
+                      {selectedStayDate && (
                         <div>
-                          <label className="text-sm text-neutral/70">Duration</label>
+                          <label className="text-sm text-neutral/70">Mode</label>
                           <p className="text-lg font-semibold text-neutral">
-                            {Math.ceil((selectedDates.end.getTime() - selectedDates.start.getTime()) / (1000 * 60 * 60 * 24))} nights
+                            {bookingMode === "whole_day"
+                              ? `Whole-Day (${wholeDayVariant === "day_to_night" ? "Variant A" : "Variant B"})`
+                              : bookingMode.charAt(0).toUpperCase() + bookingMode.slice(1)}
                           </p>
                         </div>
                       )}
@@ -513,11 +716,17 @@ export default function Booking() {
                       <p className="text-xs text-neutral/60 mt-2">*Final price may vary based on room type and amenities</p>
                     </div>
 
+                    {stayError ? (
+                      <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
+                        {stayError}
+                      </div>
+                    ) : null}
+
                     <button
                       type="button"
                       onClick={handleContinueToReservation}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                      disabled={!selectedDates.start || !selectedDates.end}
+                      disabled={!selectedStayDate}
                     >
                       Continue to Reservation
                     </button>
@@ -574,7 +783,7 @@ export default function Booking() {
       {/* Info Section */}
       <section className="py-20 px-4 bg-neutral/5">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-3xl font-bold text-neutral mb-12 text-center">
+                  <h2 className="text-3xl font-bold text-neutral mb-12 text-center">
             {bookingType === "stay" ? "Booking Information" : "Why Schedule an Ocular Visit?"}
           </h2>
           <div className="grid md:grid-cols-3 gap-8">
@@ -586,8 +795,8 @@ export default function Booking() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <h3 className="text-xl font-bold text-neutral mb-2">Flexible Cancellation</h3>
-                  <p className="text-neutral/70">Free cancellation up to 48 hours before check-in</p>
+                  <h3 className="text-xl font-bold text-neutral mb-2">Reschedule-Friendly</h3>
+                  <p className="text-neutral/70">Downpayments are non-refundable, but rescheduling is available within policy windows.</p>
                 </div>
 
                 <div className="bg-base p-6 rounded-2xl">

@@ -10,18 +10,9 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 
 const ENABLE_OCR = false;
 
-const parseDateString = (value: string | null) => {
+const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
-  const parts = value.split("-");
-  if (parts.length !== 3) return null;
-
-  const year = Number(parts[0]);
-  const month = Number(parts[1]);
-  const day = Number(parts[2]);
-
-  if (!year || !month || !day) return null;
-
-  const date = new Date(year, month - 1, day);
+  const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
@@ -71,7 +62,9 @@ export default function Payment() {
 
 function PaymentContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
-  const [payOption, setPayOption] = useState<"downpayment" | "full">("downpayment");
+  const [payOption, setPayOption] = useState<"downpayment" | "full">(
+    bookingDraft.reservationId ? "full" : "downpayment"
+  );
   const [paymentMethod, setPaymentMethod] = useState<"bank" | "ewallet">("bank");
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,8 +77,8 @@ function PaymentContent() {
     adultCount: number;
     childCount: number;
     roomName: string;
-    checkIn: string;
-    checkOut: string;
+    startDatetime: string;
+    endDatetime: string;
     totalAmount: number;
     paidAmount: number;
     payOption: "downpayment" | "full";
@@ -181,11 +174,12 @@ function PaymentContent() {
   const adultCount = bookingDraft.adultCount || 1;
   const childCount = bookingDraft.childCount || 0;
 
-  const checkInDate = parseDateString(bookingDraft.checkIn || null);
-  const checkOutDate = parseDateString(bookingDraft.checkOut || null);
+  const startDateTime = parseDateTimeString(bookingDraft.startDatetime || null);
+  const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
   const unitId = bookingDraft.unitId || "";
   const reservationId = bookingDraft.reservationId || "";
   const reservationReferenceFromDraft = bookingDraft.reservationReference || "";
+  const isBalancePayment = Boolean(reservationId);
 
   const roomName = bookingDraft.roomName || "Selected Room";
   const roomPrice = bookingDraft.roomPrice || 0;
@@ -194,12 +188,12 @@ function PaymentContent() {
   const subtotal = bookingDraft.subtotal || 0;
   const tax = bookingDraft.tax || 0;
   const totalAmount = bookingDraft.total || 0;
-  const downPayment = bookingDraft.downPayment || totalAmount * 0.3;
+  const downPayment = bookingDraft.downPayment || totalAmount * 0.2;
   const selectedServices = bookingDraft.services || [];
 
-  const backToFormHref = "/booking/details";
-  const successCheckInDate = parseDateString(submittedSummary?.checkIn ?? null) ?? checkInDate;
-  const successCheckOutDate = parseDateString(submittedSummary?.checkOut ?? null) ?? checkOutDate;
+  const backToFormHref = isBalancePayment ? "/manage" : "/booking/details";
+  const successStartDateTime = parseDateTimeString(submittedSummary?.startDatetime ?? null) ?? startDateTime;
+  const successEndDateTime = parseDateTimeString(submittedSummary?.endDatetime ?? null) ?? endDateTime;
   const successGuestName = submittedSummary?.guestName ?? guestName;
   const successAdultCount = submittedSummary?.adultCount ?? adultCount;
   const successChildCount = submittedSummary?.childCount ?? childCount;
@@ -207,7 +201,7 @@ function PaymentContent() {
   const successTotalAmount = submittedSummary?.totalAmount ?? totalAmount;
   const successPaidAmount = submittedSummary?.paidAmount ?? downPayment;
   const successPayOption = submittedSummary?.payOption ?? payOption;
-  const payableNow = payOption === "full" ? totalAmount : downPayment;
+  const payableNow = isBalancePayment ? totalAmount : payOption === "full" ? totalAmount : downPayment;
   const remainingAfterThisPayment = Math.max(totalAmount - payableNow, 0);
 
   const handlePaymentSubmit = async (event: React.FormEvent) => {
@@ -226,7 +220,7 @@ function PaymentContent() {
       return;
     }
 
-    if (!checkInDate || !checkOutDate || !unitId || !reservationId) {
+    if (!startDateTime || !endDateTime || !reservationId || (!unitId && !isBalancePayment)) {
       setSubmitError("Missing reservation details. Please go back and review your booking.");
       return;
     }
@@ -352,8 +346,8 @@ function PaymentContent() {
         adultCount,
         childCount,
         roomName,
-        checkIn: bookingDraft.checkIn,
-        checkOut: bookingDraft.checkOut,
+        startDatetime: bookingDraft.startDatetime,
+        endDatetime: bookingDraft.endDatetime,
         totalAmount,
         paidAmount: payableNow,
         payOption,
@@ -393,13 +387,13 @@ function PaymentContent() {
               <div className="flex justify-between">
                 <span className="text-neutral/70">Check-in</span>
                 <span className="font-semibold text-neutral">
-                  {successCheckInDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) || "N/A"}
+                  {successStartDateTime?.toLocaleString("en-PH", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "N/A"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Check-out</span>
                 <span className="font-semibold text-neutral">
-                  {successCheckOutDate?.toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" }) || "N/A"}
+                  {successEndDateTime?.toLocaleString("en-PH", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "N/A"}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -462,7 +456,7 @@ function PaymentContent() {
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Free cancellation available up to 48 hours before check-in
+                Downpayments are non-refundable; rescheduling is allowed within policy windows
               </li>
             </ul>
           </div>
@@ -583,35 +577,48 @@ function PaymentContent() {
                 </div>
 
                 <form onSubmit={handlePaymentSubmit}>
-                  <div className="mb-6 rounded-xl border border-neutral/10 bg-base p-4">
-                    <h3 className="text-lg font-semibold text-neutral mb-3">Choose Amount To Pay</h3>
-                    <div className="grid md:grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setPayOption("downpayment")}
-                        className={`rounded-lg border px-4 py-3 text-left transition-colors ${
-                          payOption === "downpayment"
-                            ? "border-primary bg-primary/5"
-                            : "border-neutral/20 bg-white hover:border-primary/50"
-                        }`}
-                      >
-                        <p className="font-semibold text-neutral">30% Down Payment</p>
-                        <p className="text-sm text-neutral/70">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPayOption("full")}
-                        className={`rounded-lg border px-4 py-3 text-left transition-colors ${
-                          payOption === "full"
-                            ? "border-primary bg-primary/5"
-                            : "border-neutral/20 bg-white hover:border-primary/50"
-                        }`}
-                      >
-                        <p className="font-semibold text-neutral">Full Payment</p>
-                        <p className="text-sm text-neutral/70">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                      </button>
+                  {isBalancePayment ? (
+                    <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                      <h3 className="text-lg font-semibold text-neutral mb-2">Remaining Balance Payment</h3>
+                      <p className="text-sm text-neutral/70">
+                        This portal is locked to the outstanding balance for your selected reservation.
+                      </p>
+                      <div className="mt-4 flex items-center justify-between rounded-lg bg-white px-4 py-3">
+                        <span className="font-semibold text-neutral">Amount due now</span>
+                        <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="mb-6 rounded-xl border border-neutral/10 bg-base p-4">
+                      <h3 className="text-lg font-semibold text-neutral mb-3">Choose Amount To Pay</h3>
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setPayOption("downpayment")}
+                          className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                            payOption === "downpayment"
+                              ? "border-primary bg-primary/5"
+                              : "border-neutral/20 bg-white hover:border-primary/50"
+                          }`}
+                        >
+                          <p className="font-semibold text-neutral">Minimum 20% Down Payment</p>
+                          <p className="text-sm text-neutral/70">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPayOption("full")}
+                          className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+                            payOption === "full"
+                              ? "border-primary bg-primary/5"
+                              : "border-neutral/20 bg-white hover:border-primary/50"
+                          }`}
+                        >
+                          <p className="font-semibold text-neutral">Full Payment</p>
+                          <p className="text-sm text-neutral/70">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {submitError && (
                     <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
@@ -812,7 +819,7 @@ function PaymentContent() {
                         className="mt-1 h-4 w-4 rounded border-neutral/30"
                       />
                       <span>
-                        I agree to the Terms and Conditions, including the no-refund cancellation policy and that cancellations must be requested at least 2 days before check-in.
+                        I agree to the Terms and Conditions, including the 20% minimum downpayment, no-refund cancellation policy, and reschedule-only guidance.
                       </span>
                     </label>
                   </div>
@@ -852,7 +859,7 @@ function PaymentContent() {
                     </div>
                     <div className="flex justify-between mb-1">
                       <span className="text-neutral/70">Rate</span>
-                      <span className="font-semibold text-neutral">₱{roomPrice.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/night</span>
+                      <span className="font-semibold text-neutral">₱{roomPrice.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} package</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral/70">Duration</span>
@@ -864,14 +871,14 @@ function PaymentContent() {
                     <p className="text-sm font-semibold text-neutral mb-2">Guest Charges</p>
                     {adultCount > 0 && (
                       <div className="flex justify-between text-sm mb-1">
-                        <span className="text-neutral/70">{adultCount} Adult(s) × ₱150/night × {nights} nights</span>
-                        <span className="text-neutral">₱{(adultCount * 150 * nights).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span className="text-neutral/70">Guests included</span>
+                        <span className="text-neutral">20 pax</span>
                       </div>
                     )}
                     {childCount > 0 && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-neutral/70">{childCount} Child(ren) × ₱120/night × {nights} nights</span>
-                        <span className="text-neutral">₱{(childCount * 120 * nights).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span className="text-neutral/70">Total guests</span>
+                        <span className="text-neutral">{adultCount + childCount} pax</span>
                       </div>
                     )}
                   </div>
@@ -906,7 +913,7 @@ function PaymentContent() {
                   <div className="bg-primary/5 p-4 rounded-lg">
                     <div className="flex justify-between mb-2">
                       <span className="font-semibold text-neutral">
-                        {payOption === "full" ? "Paying Now (Full)" : "Down Payment (30%)"}
+                        {payOption === "full" ? "Paying Now (Full)" : "Down Payment (20% minimum)"}
                       </span>
                       <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
@@ -932,7 +939,7 @@ function PaymentContent() {
 
                 <div className="bg-highlight/10 p-4 rounded-lg">
                   <h4 className="font-semibold text-neutral mb-2 text-sm">Cancellation Policy</h4>
-                  <p className="text-xs text-neutral/70">No-refund policy applies. Cancellation requests must be made at least 2 days before check-in.</p>
+                  <p className="text-xs text-neutral/70">No-refund policy applies for cancellations. Rescheduling is available based on notice windows.</p>
                 </div>
               </div>
             </div>

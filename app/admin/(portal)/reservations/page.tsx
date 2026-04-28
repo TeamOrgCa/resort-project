@@ -8,7 +8,6 @@ import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { createClient } from "@/lib/supabase/client";
 import {
   manualEntryColumns,
-  manualEntryRows,
 } from "@/components/admin/content";
 
 const reservationTabs = [
@@ -54,8 +53,9 @@ interface ReservationRow {
   reservation_id: string;
   reference_number: string;
   guest_id: string;
-  check_in_date: string;
-  check_out_date: string;
+  start_datetime: string;
+  end_datetime: string;
+  booking_mode: "day" | "night" | "whole_day" | "custom" | null;
   adult_count: number;
   child_count: number;
   status: string;
@@ -63,6 +63,15 @@ interface ReservationRow {
   cancellation_reason?: string | null;
   created_at: string;
   booking_type: "online" | "walk_in" | null;
+}
+
+interface UnitRow {
+  unit_id: string;
+  name: string;
+  capacity: number;
+  base_price: number;
+  is_active: boolean;
+  archived_at: string | null;
 }
 
 interface GuestRow {
@@ -91,10 +100,10 @@ interface RescheduleRequestRow {
   reschedule_id: string;
   reservation_id: string;
   requested_by: string | null;
-  old_check_in: string;
-  old_check_out: string;
-  new_check_in: string;
-  new_check_out: string;
+  old_start: string;
+  old_end: string;
+  new_start: string;
+  new_end: string;
   status: "pending" | "approved" | "rejected";
   approved_by: string | null;
   approved_at: string | null;
@@ -115,6 +124,7 @@ interface OcularVisitRow {
 interface TransactionBalanceRow {
   reservation_id: string;
   balance: number | null;
+  overpaid_amount: number | null;
 }
 
 interface ReservationUnitDetailRow {
@@ -178,6 +188,7 @@ interface PaymentDetails {
   type: string;
   amount: string;
   remainingBalance: string;
+  overpaidAmount: string;
   status: string;
   paidAt: string;
   proofPath: string;
@@ -201,6 +212,20 @@ interface ManualPaymentForm {
   accountName: string;
   accountNumber: string;
   proofFile: File | null;
+}
+
+interface ManualBookingForm {
+  guestEmail: string;
+  bookingMode: "day" | "night" | "whole_day" | "custom";
+  startDatetime: string;
+  endDatetime: string;
+  wholeDayVariant: "day_to_night" | "night_to_day";
+  customStartTime: string;
+  customEndTime: string;
+  adultCount: string;
+  childCount: string;
+  unitId: string;
+  specialRequests: string;
 }
 
 const formatDate = (value: string | null) => {
@@ -294,6 +319,23 @@ export default function AdminReservationsPage() {
   const [isManualPaymentDialogOpen, setIsManualPaymentDialogOpen] = useState(false);
   const [isCreatingManualPayment, setIsCreatingManualPayment] = useState(false);
   const [manualPaymentError, setManualPaymentError] = useState<string | null>(null);
+  const [isManualBookingDialogOpen, setIsManualBookingDialogOpen] = useState(false);
+  const [isCreatingManualBooking, setIsCreatingManualBooking] = useState(false);
+  const [manualBookingError, setManualBookingError] = useState<string | null>(null);
+  const [availableUnits, setAvailableUnits] = useState<UnitRow[]>([]);
+  const [manualBookingForm, setManualBookingForm] = useState<ManualBookingForm>({
+    guestEmail: "",
+    bookingMode: "day",
+    startDatetime: "",
+    endDatetime: "",
+    wholeDayVariant: "day_to_night",
+    customStartTime: "08:00",
+    customEndTime: "11:00",
+    adultCount: "1",
+    childCount: "0",
+    unitId: "",
+    specialRequests: "",
+  });
   const [isReservationDetailsOpen, setIsReservationDetailsOpen] = useState(false);
   const [isReservationDetailsLoading, setIsReservationDetailsLoading] = useState(false);
   const [reservationDetailsError, setReservationDetailsError] = useState<string | null>(null);
@@ -340,6 +382,7 @@ export default function AdminReservationsPage() {
   );
   const [isCancellingReservation, setIsCancellingReservation] = useState(false);
   const [remainingBalanceByReservationId, setRemainingBalanceByReservationId] = useState<Record<string, number>>({});
+  const [overpaidAmountByReservationId, setOverpaidAmountByReservationId] = useState<Record<string, number>>({});
   const [guestsById, setGuestsById] = useState<Record<string, GuestRow>>({});
   const [reservationReferenceById, setReservationReferenceById] = useState<Record<string, string>>({});
 
@@ -368,7 +411,7 @@ export default function AdminReservationsPage() {
         const { data: reservationsData, error: reservationsError } = await supabase
           .from("reservations")
           .select(
-            "reservation_id, reference_number, guest_id, check_in_date, check_out_date, adult_count, child_count, status, created_at, booking_type"
+            "reservation_id, reference_number, guest_id, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, created_at, booking_type"
           )
           .order("created_at", { ascending: false })
           .limit(200);
@@ -401,10 +444,11 @@ export default function AdminReservationsPage() {
           { data: paymentsData, error: paymentsError },
           { data: transactionsData, error: transactionsError },
           { data: reschedulesData, error: reschedulesError },
+          { data: unitsData, error: unitsError },
         ] =
           await Promise.all([
             guestIds.length
-              ? supabase.from("guests").select("id, first_name, last_name").in("id", guestIds)
+              ? supabase.from("guests").select("id, first_name, last_name, email").in("id", guestIds)
               : Promise.resolve({ data: [], error: null }),
             reservationIdList.length
               ? supabase
@@ -416,15 +460,20 @@ export default function AdminReservationsPage() {
                   .order("paid_at", { ascending: false })
               : Promise.resolve({ data: [], error: null }),
                 reservationIdList.length
-                  ? supabase.from("transactions").select("reservation_id, balance").in("reservation_id", reservationIdList)
+                  ? supabase.from("transactions").select("reservation_id, balance, overpaid_amount").in("reservation_id", reservationIdList)
                   : Promise.resolve({ data: [], error: null }),
             supabase
               .from("reservation_reschedules")
               .select(
-                "reschedule_id, reservation_id, requested_by, old_check_in, old_check_out, new_check_in, new_check_out, status, approved_by, approved_at, rejection_reason, created_at"
+                "reschedule_id, reservation_id, requested_by, old_start, old_end, new_start, new_end, status, approved_by, approved_at, rejection_reason, created_at"
               )
               .order("created_at", { ascending: false })
               .limit(200),
+            supabase
+              .from("units")
+              .select("unit_id, name, capacity, base_price, is_active, archived_at")
+              .eq("is_active", true)
+              .order("name", { ascending: true }),
           ]);
 
         if (guestsError) {
@@ -441,6 +490,10 @@ export default function AdminReservationsPage() {
 
         if (reschedulesError) {
           throw reschedulesError;
+        }
+
+        if (unitsError) {
+          throw unitsError;
         }
 
         if (!isMounted) return;
@@ -465,13 +518,22 @@ export default function AdminReservationsPage() {
           return accumulator;
         }, {});
 
+        const nextOverpaidAmountByReservationId = (
+          (transactionsData as TransactionBalanceRow[] | null) ?? []
+        ).reduce<Record<string, number>>((accumulator, transaction) => {
+          accumulator[transaction.reservation_id] = Number(transaction.overpaid_amount ?? 0);
+          return accumulator;
+        }, {});
+
         setReservations(reservationList);
         setPayments((paymentsData as PaymentRow[] | null) ?? []);
         setOcularVisits(ocularVisitList);
         setRescheduleRequests((reschedulesData as RescheduleRequestRow[] | null) ?? []);
+        setAvailableUnits((unitsData as UnitRow[] | null) ?? []);
         setGuestsById(nextGuestsById);
         setReservationReferenceById(nextReservationReferenceById);
         setRemainingBalanceByReservationId(nextRemainingBalanceByReservationId);
+        setOverpaidAmountByReservationId(nextOverpaidAmountByReservationId);
       } catch {
         if (!isMounted) return;
         setFetchError("Failed to load reservation and payment records.");
@@ -501,8 +563,8 @@ export default function AdminReservationsPage() {
           id: reservation.reservation_id,
           reference: reservation.reference_number,
           guest: guestName,
-          checkIn: formatDate(reservation.check_in_date),
-          checkOut: formatDate(reservation.check_out_date),
+          checkIn: formatDateTime(reservation.start_datetime),
+          checkOut: formatDateTime(reservation.end_datetime),
           totalGuests: String((reservation.adult_count || 0) + (reservation.child_count || 0)),
           status: toTitleCase(reservation.status),
           createdAt: formatDateTime(reservation.created_at),
@@ -522,10 +584,10 @@ export default function AdminReservationsPage() {
           id: request.reschedule_id,
           reference: reservationReference,
           guest: guestName,
-          oldCheckIn: formatDate(request.old_check_in),
-          oldCheckOut: formatDate(request.old_check_out),
-          newCheckIn: formatDate(request.new_check_in),
-          newCheckOut: formatDate(request.new_check_out),
+          oldCheckIn: formatDate(request.old_start),
+          oldCheckOut: formatDate(request.old_end),
+          newCheckIn: formatDate(request.new_start),
+          newCheckOut: formatDate(request.new_end),
           status: toTitleCase(request.status),
           requestedAt: formatDateTime(request.created_at),
         };
@@ -549,11 +611,34 @@ export default function AdminReservationsPage() {
         type: toTitleCase(payment.payment_type),
         amount: formatCurrency(Number(payment.amount ?? 0)),
         remainingBalance: formatCurrency(Number(remainingBalanceByReservationId[payment.reservation_id] ?? 0)),
+        overpaidAmount: formatCurrency(Number(overpaidAmountByReservationId[payment.reservation_id] ?? 0)),
         status: toTitleCase(payment.status),
         paidAt: formatDateTime(payment.paid_at),
         proofPath: payment.proof_path,
       })),
-    [payments, reservationReferenceById, remainingBalanceByReservationId]
+    [payments, reservationReferenceById, remainingBalanceByReservationId, overpaidAmountByReservationId]
+  );
+
+  const manualBookingRows: AdminTableRow[] = useMemo(
+    () =>
+      reservations
+        .filter((reservation) => reservation.booking_type === "walk_in")
+        .map((reservation) => {
+          const guest = guestsById[reservation.guest_id];
+          const guestName = guest
+            ? `${guest.first_name} ${guest.last_name}`.replace(/\s+/g, " ").trim()
+            : `Guest ${reservation.guest_id.slice(0, 8)}`;
+
+          return {
+            id: reservation.reservation_id,
+            reference: reservation.reference_number,
+            encodedBy: "Staff",
+            guest: guestName,
+            guests: String((reservation.adult_count || 0) + (reservation.child_count || 0)),
+            notes: `${toTitleCase(reservation.booking_mode ?? "custom")} booking`,
+          };
+        }),
+    [guestsById, reservations]
   );
 
   const openRescheduleDetails = async (rescheduleId: string) => {
@@ -568,7 +653,7 @@ export default function AdminReservationsPage() {
       const { data: requestRow, error: requestError } = await supabase
         .from("reservation_reschedules")
         .select(
-          "reschedule_id, reservation_id, requested_by, old_check_in, old_check_out, new_check_in, new_check_out, status, approved_by, approved_at, rejection_reason, created_at"
+          "reschedule_id, reservation_id, requested_by, old_start, old_end, new_start, new_end, status, approved_by, approved_at, rejection_reason, created_at"
         )
         .eq("reschedule_id", rescheduleId)
         .maybeSingle<RescheduleRequestRow>();
@@ -588,10 +673,10 @@ export default function AdminReservationsPage() {
           ? `${requester.first_name} ${requester.last_name}`.replace(/\s+/g, " ").trim()
           : "-",
         requestedBy: requester?.email ?? "-",
-        oldCheckIn: formatDate(requestRow.old_check_in),
-        oldCheckOut: formatDate(requestRow.old_check_out),
-        newCheckIn: formatDate(requestRow.new_check_in),
-        newCheckOut: formatDate(requestRow.new_check_out),
+        oldCheckIn: formatDate(requestRow.old_start),
+        oldCheckOut: formatDate(requestRow.old_end),
+        newCheckIn: formatDate(requestRow.new_start),
+        newCheckOut: formatDate(requestRow.new_end),
         status: toTitleCase(requestRow.status),
         approvedBy: requestRow.approved_by ?? "-",
         approvedAt: formatDateTime(requestRow.approved_at),
@@ -620,7 +705,14 @@ export default function AdminReservationsPage() {
         | {
             success?: boolean;
             message?: string;
-            reservation?: { reservationId?: string; checkInDate?: string; checkOutDate?: string; status?: string };
+            reservation?: {
+              reservationId?: string;
+              startDatetime?: string;
+              endDatetime?: string;
+              checkInDate?: string;
+              checkOutDate?: string;
+              status?: string;
+            };
           }
         | null;
 
@@ -649,8 +741,16 @@ export default function AdminReservationsPage() {
             reservation.reservation_id === result.reservation?.reservationId
               ? {
                   ...reservation,
-                  ...(result.reservation?.checkInDate ? { check_in_date: result.reservation.checkInDate } : {}),
-                  ...(result.reservation?.checkOutDate ? { check_out_date: result.reservation.checkOutDate } : {}),
+                  ...(result.reservation?.startDatetime
+                    ? { start_datetime: result.reservation.startDatetime }
+                    : result.reservation?.checkInDate
+                      ? { start_datetime: result.reservation.checkInDate }
+                      : {}),
+                  ...(result.reservation?.endDatetime
+                    ? { end_datetime: result.reservation.endDatetime }
+                    : result.reservation?.checkOutDate
+                      ? { end_datetime: result.reservation.checkOutDate }
+                      : {}),
                   ...(result.reservation?.status ? { status: result.reservation.status } : {}),
                 }
               : reservation
@@ -803,6 +903,92 @@ export default function AdminReservationsPage() {
     setIsManualPaymentDialogOpen(true);
   };
 
+  const resetManualBookingForm = () => {
+    setManualBookingForm({
+      guestEmail: "",
+      bookingMode: "day",
+      startDatetime: "",
+      endDatetime: "",
+      wholeDayVariant: "day_to_night",
+      customStartTime: "08:00",
+      customEndTime: "11:00",
+      adultCount: "1",
+      childCount: "0",
+      unitId: availableUnits[0]?.unit_id ?? "",
+      specialRequests: "",
+    });
+  };
+
+  const handleManualBookingAction = (action: string) => {
+    if (action !== "New Entry") {
+      return;
+    }
+
+    setManualBookingError(null);
+    resetManualBookingForm();
+    setIsManualBookingDialogOpen(true);
+  };
+
+  const handleCreateManualBooking = async () => {
+    if (!manualBookingForm.guestEmail.trim()) {
+      setManualBookingError("Enter the guest email address.");
+      return;
+    }
+
+    if (!manualBookingForm.startDatetime || !manualBookingForm.endDatetime || !manualBookingForm.unitId) {
+      setManualBookingError("Select a unit and booking dates.");
+      return;
+    }
+
+    const parsedAdultCount = Number(manualBookingForm.adultCount);
+    const parsedChildCount = Number(manualBookingForm.childCount);
+
+    if (!Number.isInteger(parsedAdultCount) || parsedAdultCount <= 0 || !Number.isInteger(parsedChildCount) || parsedChildCount < 0) {
+      setManualBookingError("Enter valid guest counts.");
+      return;
+    }
+
+    setManualBookingError(null);
+    setIsCreatingManualBooking(true);
+
+    try {
+      const response = await fetch("/api/admin/reservations/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          guestEmail: manualBookingForm.guestEmail,
+          bookingMode: manualBookingForm.bookingMode,
+          startDatetime: manualBookingForm.startDatetime,
+          endDatetime: manualBookingForm.endDatetime,
+          wholeDayVariant: manualBookingForm.bookingMode === "whole_day" ? manualBookingForm.wholeDayVariant : null,
+          customStartTime: manualBookingForm.bookingMode === "custom" ? manualBookingForm.customStartTime : null,
+          customEndTime: manualBookingForm.bookingMode === "custom" ? manualBookingForm.customEndTime : null,
+          adultCount: parsedAdultCount,
+          childCount: parsedChildCount,
+          unitId: manualBookingForm.unitId,
+          specialRequests: manualBookingForm.specialRequests,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+
+      if (!response.ok || !result?.success) {
+        setManualBookingError(result?.message ?? "Failed to create manual reservation.");
+        return;
+      }
+
+      setIsManualBookingDialogOpen(false);
+      setToastMessage("Manual reservation created.");
+      window.location.reload();
+    } catch {
+      setManualBookingError("Failed to create manual reservation.");
+    } finally {
+      setIsCreatingManualBooking(false);
+    }
+  };
+
   const handleCreateManualPayment = async () => {
     if (!selectedPaymentRow || !selectedPaymentReservationId) {
       setManualPaymentError("Select a reservation payment row first.");
@@ -936,6 +1122,7 @@ export default function AdminReservationsPage() {
         type: row.type ?? "-",
         amount: row.amount ?? "-",
         remainingBalance: row.remainingBalance ?? "-",
+        overpaidAmount: (row as any).overpaidAmount ?? "-",
         status: row.status ?? "-",
         paidAt: row.paidAt ?? "-",
         proofPath: row.proofPath ?? "",
@@ -1035,7 +1222,7 @@ export default function AdminReservationsPage() {
       const { data: reservation, error: reservationError } = await supabase
         .from("reservations")
         .select(
-          "reservation_id, reference_number, guest_id, check_in_date, check_out_date, adult_count, child_count, status, cancelled_at, cancellation_reason, created_at, booking_type"
+          "reservation_id, reference_number, guest_id, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, cancelled_at, cancellation_reason, created_at, booking_type"
         )
         .eq("reservation_id", reservationId)
         .maybeSingle<ReservationRow>();
@@ -1421,16 +1608,17 @@ export default function AdminReservationsPage() {
           <AdminTablePreview
             title="Manual Booking Entries"
             columns={manualEntryColumns}
-            rows={manualEntryRows}
+            rows={manualBookingRows}
             defaultSort={{ key: "reference", direction: "desc" }}
             filters={[
               {
                 key: "encodedBy",
                 label: "Encoded By",
-                options: ["Alex Mendoza", "Bea Navarro", "Carlo Lim"],
+                options: ["Staff"],
               },
             ]}
             actions={["New Entry"]}
+            onAction={handleManualBookingAction}
             rowActions={["View"]}
           />
         )}
@@ -1551,6 +1739,207 @@ export default function AdminReservationsPage() {
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isCancellingReservation ? "Cancelling..." : "Confirm Cancellation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isManualBookingDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-neutral">New Manual Booking Entry</h3>
+            <p className="mt-1 text-sm text-neutral/70">
+              Create a reservation record for an existing guest profile using the staff portal.
+            </p>
+
+            {manualBookingError ? (
+              <p className="mt-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                {manualBookingError}
+              </p>
+            ) : null}
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Guest Email</label>
+                <input
+                  type="email"
+                  value={manualBookingForm.guestEmail}
+                  onChange={(event) => setManualBookingForm((current) => ({ ...current, guestEmail: event.target.value }))}
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                  placeholder="guest@example.com"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Booking Mode</label>
+                <select
+                  value={manualBookingForm.bookingMode}
+                  onChange={(event) =>
+                    setManualBookingForm((current) => ({
+                      ...current,
+                      bookingMode: event.target.value as ManualBookingForm["bookingMode"],
+                    }))
+                  }
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                >
+                  <option value="day">Day</option>
+                  <option value="night">Night</option>
+                  <option value="whole_day">Whole Day</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Unit</label>
+                <select
+                  value={manualBookingForm.unitId}
+                  onChange={(event) => setManualBookingForm((current) => ({ ...current, unitId: event.target.value }))}
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                >
+                  <option value="">Select a unit</option>
+                  {availableUnits.map((unit) => (
+                    <option key={unit.unit_id} value={unit.unit_id}>
+                      {unit.name} ({unit.capacity} pax)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Adults</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={manualBookingForm.adultCount}
+                  onChange={(event) =>
+                    setManualBookingForm((current) => ({ ...current, adultCount: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Children</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={manualBookingForm.childCount}
+                  onChange={(event) =>
+                    setManualBookingForm((current) => ({ ...current, childCount: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">Start Datetime</label>
+                <input
+                  type="datetime-local"
+                  value={manualBookingForm.startDatetime}
+                  onChange={(event) =>
+                    setManualBookingForm((current) => ({ ...current, startDatetime: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm text-neutral/70">End Datetime</label>
+                <input
+                  type="datetime-local"
+                  value={manualBookingForm.endDatetime}
+                  onChange={(event) =>
+                    setManualBookingForm((current) => ({ ...current, endDatetime: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                />
+              </div>
+
+              {manualBookingForm.bookingMode === "whole_day" ? (
+                <div>
+                  <label className="mb-2 block text-sm text-neutral/70">Whole Day Variant</label>
+                  <select
+                    value={manualBookingForm.wholeDayVariant}
+                    onChange={(event) =>
+                      setManualBookingForm((current) => ({
+                        ...current,
+                        wholeDayVariant: event.target.value as ManualBookingForm["wholeDayVariant"],
+                      }))
+                    }
+                    className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                  >
+                    <option value="day_to_night">Day to Night</option>
+                    <option value="night_to_day">Night to Day</option>
+                  </select>
+                </div>
+              ) : null}
+
+              {manualBookingForm.bookingMode === "custom" ? (
+                <>
+                  <div>
+                    <label className="mb-2 block text-sm text-neutral/70">Custom Start Time</label>
+                    <input
+                      type="time"
+                      value={manualBookingForm.customStartTime}
+                      onChange={(event) =>
+                        setManualBookingForm((current) => ({ ...current, customStartTime: event.target.value }))
+                      }
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm text-neutral/70">Custom End Time</label>
+                    <input
+                      type="time"
+                      value={manualBookingForm.customEndTime}
+                      onChange={(event) =>
+                        setManualBookingForm((current) => ({ ...current, customEndTime: event.target.value }))
+                      }
+                      className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm text-neutral/70">Special Requests</label>
+                <textarea
+                  value={manualBookingForm.specialRequests}
+                  onChange={(event) =>
+                    setManualBookingForm((current) => ({ ...current, specialRequests: event.target.value }))
+                  }
+                  rows={4}
+                  className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm"
+                  placeholder="Optional notes for the reservation"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={isCreatingManualBooking}
+                onClick={() => {
+                  if (!isCreatingManualBooking) {
+                    setIsManualBookingDialogOpen(false);
+                  }
+                }}
+                className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isCreatingManualBooking}
+                onClick={() => {
+                  void handleCreateManualBooking();
+                }}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isCreatingManualBooking ? "Saving..." : "Create Reservation"}
               </button>
             </div>
           </div>
@@ -1996,10 +2385,10 @@ export default function AdminReservationsPage() {
                       Status: <span className="font-semibold text-neutral">{toTitleCase(reservationDetails.reservation.status)}</span>
                     </p>
                     <p>
-                      Check-in: <span className="font-semibold text-neutral">{formatDate(reservationDetails.reservation.check_in_date)}</span>
+                      Check-in: <span className="font-semibold text-neutral">{formatDate(reservationDetails.reservation.start_datetime)}</span>
                     </p>
                     <p>
-                      Check-out: <span className="font-semibold text-neutral">{formatDate(reservationDetails.reservation.check_out_date)}</span>
+                      Check-out: <span className="font-semibold text-neutral">{formatDate(reservationDetails.reservation.end_datetime)}</span>
                     </p>
                     <p>
                       Adults: <span className="font-semibold text-neutral">{reservationDetails.reservation.adult_count}</span>
@@ -2012,6 +2401,9 @@ export default function AdminReservationsPage() {
                     </p>
                     <p>
                       Booking Type: <span className="font-semibold text-neutral">{toTitleCase(reservationDetails.reservation.booking_type ?? "online")}</span>
+                    </p>
+                    <p>
+                      Booking Mode: <span className="font-semibold text-neutral">{toTitleCase(reservationDetails.reservation.booking_mode ?? "day")}</span>
                     </p>
                     <p>
                       Cancellation Reason: <span className="font-semibold text-neutral">{reservationDetails.reservation.cancellation_reason ?? "-"}</span>
