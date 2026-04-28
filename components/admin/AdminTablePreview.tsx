@@ -18,7 +18,15 @@ interface AdminTablePreviewProps {
   defaultSort?: AdminTableSort;
   sortable?: boolean;
   actions?: string[];
+  onAction?: (action: string) => void | Promise<void>;
+  isActionDisabled?: (action: string) => boolean;
   rowActions?: string[];
+  onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
+  isRowActionDisabled?: (action: string, row: AdminTableRow) => boolean;
+  selectableRows?: boolean;
+  singleSelect?: boolean;
+  selectedRowIds?: string[];
+  onSelectedRowIdsChange?: (rowIds: string[]) => void;
 }
 
 function compareValues(left: string, right: string) {
@@ -49,11 +57,47 @@ export default function AdminTablePreview({
   defaultSort,
   sortable = true,
   actions = [],
+  onAction,
+  isActionDisabled,
   rowActions = [],
+  onRowAction,
+  isRowActionDisabled,
+  selectableRows = false,
+  singleSelect = false,
+  selectedRowIds,
+  onSelectedRowIdsChange,
 }: AdminTablePreviewProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [sortState, setSortState] = useState<AdminTableSort | null>(defaultSort ?? null);
+  const [internalSelectedRowIds, setInternalSelectedRowIds] = useState<string[]>([]);
+
+  const resolvedSelectedRowIds = selectedRowIds ?? internalSelectedRowIds;
+
+  const updateSelectedRows = (nextRowIds: string[]) => {
+    if (onSelectedRowIdsChange) {
+      onSelectedRowIdsChange(nextRowIds);
+      return;
+    }
+
+    setInternalSelectedRowIds(nextRowIds);
+  };
+
+  const toggleRowSelection = (rowId: string) => {
+    const isAlreadySelected = resolvedSelectedRowIds.includes(rowId);
+
+    if (singleSelect) {
+      updateSelectedRows(isAlreadySelected ? [] : [rowId]);
+      return;
+    }
+
+    if (isAlreadySelected) {
+      updateSelectedRows(resolvedSelectedRowIds.filter((selectedId) => selectedId !== rowId));
+      return;
+    }
+
+    updateSelectedRows([...resolvedSelectedRowIds, rowId]);
+  };
 
   const filteredRows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -111,17 +155,19 @@ export default function AdminTablePreview({
   };
 
   return (
-    <section className="rounded-2xl border border-neutral/10 bg-white p-5">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <section className="rounded-2xl border border-neutral/10 bg-white p-4 sm:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <h3 className="text-lg font-semibold text-neutral">{title}</h3>
 
         {actions.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
             {actions.map((action) => (
               <button
                 key={action}
                 type="button"
-                className="rounded-lg border border-neutral/20 px-3 py-2 text-xs font-semibold text-neutral transition-colors hover:bg-base"
+                onClick={() => onAction?.(action)}
+                disabled={isActionDisabled?.(action)}
+                className="rounded-lg border border-neutral/20 px-3 py-2 text-xs font-semibold text-neutral transition-colors hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
               >
                 {action}
               </button>
@@ -131,18 +177,18 @@ export default function AdminTablePreview({
       </div>
 
       {(enableSearch || filters.length > 0) && (
-        <div className="mb-4 flex flex-wrap gap-3 rounded-xl bg-base p-3">
+        <div className="mb-4 flex flex-col gap-3 rounded-xl bg-base p-3 sm:flex-row sm:flex-wrap sm:items-center">
           {enableSearch ? (
             <input
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder={searchPlaceholder}
-              className="min-w-55 flex-1 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              className="w-full min-w-0 flex-1 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none sm:min-w-55"
             />
           ) : null}
 
           {filters.map((filter) => (
-            <label key={filter.key} className="flex items-center gap-2 text-xs text-neutral/70">
+            <label key={filter.key} className="flex w-full items-center justify-between gap-2 text-xs text-neutral/70 sm:w-auto sm:justify-start">
               <span>{filter.label}</span>
               <select
                 value={activeFilters[filter.key] ?? "all"}
@@ -152,7 +198,7 @@ export default function AdminTablePreview({
                     [filter.key]: event.target.value,
                   }))
                 }
-                className="rounded-lg border border-neutral/20 bg-white px-2 py-2 text-xs text-neutral"
+                className="w-40 rounded-lg border border-neutral/20 bg-white px-2 py-2 text-xs text-neutral sm:w-auto"
               >
                 <option value="all">All</option>
                 {filter.options.map((option) => (
@@ -167,9 +213,11 @@ export default function AdminTablePreview({
       )}
 
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
+        <table className="min-w-180 text-left text-sm sm:min-w-full">
           <thead className="border-b border-neutral/10 text-neutral/70">
             <tr>
+              {selectableRows ? <th className="px-3 py-2 font-medium" aria-label="Select" /> : null}
+
               {columns.map((column) => (
                 <th key={column.key} className="px-3 py-2 font-medium">
                   <button
@@ -194,6 +242,18 @@ export default function AdminTablePreview({
           <tbody>
             {sortedRows.map((row) => (
               <tr key={row.id} className="border-b border-neutral/10 last:border-none">
+                {selectableRows ? (
+                  <td className="px-3 py-3 text-neutral/90">
+                    <input
+                      type="checkbox"
+                      checked={resolvedSelectedRowIds.includes(row.id)}
+                      onChange={() => toggleRowSelection(row.id)}
+                      className="h-4 w-4 rounded border-neutral/30"
+                      aria-label={`Select row ${row.id}`}
+                    />
+                  </td>
+                ) : null}
+
                 {columns.map((column) => (
                   <td key={`${row.id}-${column.key}`} className="px-3 py-3 text-neutral/90">
                     {row[column.key] ?? "-"}
@@ -207,7 +267,9 @@ export default function AdminTablePreview({
                         <button
                           key={`${row.id}-${action}`}
                           type="button"
-                          className="rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base"
+                          onClick={() => onRowAction?.(action, row)}
+                          disabled={isRowActionDisabled?.(action, row)}
+                          className="whitespace-nowrap rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                         >
                           {action}
                         </button>
@@ -221,7 +283,7 @@ export default function AdminTablePreview({
             {sortedRows.length === 0 && (
               <tr>
                 <td
-                  colSpan={columns.length + (rowActions.length > 0 ? 1 : 0)}
+                  colSpan={columns.length + (rowActions.length > 0 ? 1 : 0) + (selectableRows ? 1 : 0)}
                   className="px-3 py-6 text-center text-sm text-neutral/60"
                 >
                   No records match the selected filters.

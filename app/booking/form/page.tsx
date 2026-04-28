@@ -1,68 +1,214 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import { createClient } from "@/lib/supabase/client";
+import { useBookingStore } from "@/lib/stores/booking-store";
+import { computeBookingPricing } from "@/lib/booking/pricing";
+
+interface UnitOption {
+  id: string;
+  name: string;
+  price: number;
+  description: string;
+}
+
+interface ServiceOption {
+  id: string;
+  name: string;
+  price: number;
+}
+
+interface GuestProfile {
+  first_name: string;
+  last_name: string;
+  phone_number: string;
+  address: string;
+}
+
+const parseDateTime = (value: string | null) => {
+  if (!value) return null;
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
 
 export default function BookingForm() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-base" />}>
+      <BookingFormContent />
+    </Suspense>
+  );
+}
+
+function BookingFormContent() {
+  const bookingDraft = useBookingStore((state) => state.bookingDraft);
+  const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    address: "",
-    guests: 2,
-    roomType: "deluxe",
-    specialRequests: "",
+    firstName: bookingDraft.firstName || "",
+    lastName: bookingDraft.lastName || "",
+    email: bookingDraft.email || "",
+    phone: bookingDraft.phone || "",
+    address: bookingDraft.address || "",
+    adultCount: bookingDraft.adultCount || 1,
+    childCount: bookingDraft.childCount || 0,
+    roomType: bookingDraft.unitId || "",
+    specialRequests: bookingDraft.specialRequests || "",
   });
 
-  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+  const [selectedAmenities, setSelectedAmenities] = useState<string[]>(bookingDraft.services.map((service) => service.id));
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [services, setServices] = useState<ServiceOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
-  const roomTypes = [
-    { id: "standard", name: "Standard Room", price: 16450, description: "Comfortable room with garden view" },
-    { id: "deluxe", name: "Deluxe Ocean View", price: 24700, description: "Spacious room with ocean view" },
-    { id: "suite", name: "Executive Suite", price: 38450, description: "Luxurious suite with private balcony" },
-    { id: "villa", name: "Beach Villa", price: 54950, description: "Private villa steps from the beach" },
-  ];
+  useEffect(() => {
+    const loadCatalog = async () => {
+      setCatalogLoading(true);
+      setCatalogError(null);
 
-  const amenities = [
-    { id: "breakfast", name: "Daily Breakfast", price: 1950 },
-    { id: "spa", name: "Spa Package", price: 8250 },
-    { id: "airport", name: "Airport Transfer", price: 4125 },
-    { id: "excursion", name: "Island Excursion", price: 6600 },
-    { id: "dining", name: "Fine Dining Package", price: 11000 },
-    { id: "activities", name: "Water Sports Package", price: 9900 },
-  ];
+      const supabase = createClient();
+
+      const [unitsResult, servicesResult, authResult] = await Promise.all([
+        supabase
+          .from("units")
+          .select("unit_id, name, description, base_price, is_active, archived_at")
+          .eq("is_active", true)
+          .is("archived_at", null)
+          .order("name", { ascending: true }),
+        supabase
+          .from("services")
+          .select("service_id, name, price, is_active")
+          .eq("is_active", true)
+          .order("name", { ascending: true }),
+        supabase.auth.getUser(),
+      ]);
+
+      if (unitsResult.error || servicesResult.error) {
+        setCatalogError(unitsResult.error?.message || servicesResult.error?.message || "Failed to load booking catalog");
+        setCatalogLoading(false);
+        return;
+      }
+
+      const mappedUnits: UnitOption[] = (unitsResult.data ?? []).map((unit) => ({
+        id: unit.unit_id,
+        name: unit.name,
+        price: Number(unit.base_price),
+        description: unit.description ?? "",
+      }));
+
+      const mappedServices: ServiceOption[] = (servicesResult.data ?? []).map((service) => ({
+        id: service.service_id,
+        name: service.name,
+        price: Number(service.price),
+      }));
+
+      const authUser = authResult.data.user;
+      let guestProfile: GuestProfile | null = null;
+
+      if (authUser) {
+        const { data } = await supabase
+          .from("guests")
+          .select("first_name, last_name, phone_number, address")
+          .eq("id", authUser.id)
+          .maybeSingle<GuestProfile>();
+
+        guestProfile = data ?? null;
+      }
+
+      setUnits(mappedUnits);
+      setServices(mappedServices);
+      setFormData((prev) => ({
+        ...prev,
+        roomType: prev.roomType || mappedUnits[0]?.id || "",
+        firstName: prev.firstName || guestProfile?.first_name || authUser?.user_metadata?.first_name || "",
+        lastName: prev.lastName || guestProfile?.last_name || authUser?.user_metadata?.last_name || "",
+        email: prev.email || authUser?.email || "",
+        phone: prev.phone || guestProfile?.phone_number || authUser?.user_metadata?.phone_number || "",
+        address: prev.address || guestProfile?.address || authUser?.user_metadata?.address || "",
+      }));
+      setCatalogLoading(false);
+    };
+
+    loadCatalog();
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value,
+      [e.target.name]: e.target.name === "adultCount" || e.target.name === "childCount" ? Number(e.target.value) : e.target.value,
     });
   };
 
   const toggleAmenity = (amenityId: string) => {
-    if (selectedAmenities.includes(amenityId)) {
-      setSelectedAmenities(selectedAmenities.filter((id) => id !== amenityId));
-    } else {
-      setSelectedAmenities([...selectedAmenities, amenityId]);
-    }
+    setSelectedAmenities((prev) =>
+      prev.includes(amenityId) ? prev.filter((id) => id !== amenityId) : [...prev, amenityId]
+    );
   };
 
-  // Calculate pricing
-  const nights = 3; // This would come from selected dates
-  const selectedRoom = roomTypes.find((room) => room.id === formData.roomType);
-  const roomTotal = (selectedRoom?.price || 0) * nights;
+  const fallbackStartDate = useMemo(() => new Date(), []);
+  const fallbackEndDate = useMemo(() => {
+    const date = new Date();
+    date.setHours(date.getHours() + 8);
+    return date;
+  }, []);
+
+  const effectiveStartDate = parseDateTime(bookingDraft.startDatetime || null) ?? fallbackStartDate;
+  const effectiveEndDate = parseDateTime(bookingDraft.endDatetime || null) ?? fallbackEndDate;
+
+  const durationHours = Math.max(1, (effectiveEndDate.getTime() - effectiveStartDate.getTime()) / (1000 * 60 * 60));
+  const selectedRoom = units.find((room) => room.id === formData.roomType);
   const amenitiesTotal = selectedAmenities.reduce((total, id) => {
-    const amenity = amenities.find((a) => a.id === id);
+    const amenity = services.find((a) => a.id === id);
     return total + (amenity?.price || 0);
   }, 0);
-  const subtotal = roomTotal + amenitiesTotal;
-  const tax = subtotal * 0.12; // 12% tax
-  const total = subtotal + tax;
-  const downPayment = total * 0.3; // 30% down payment
+  const selectedServiceItems = services.filter((service) => selectedAmenities.includes(service.id));
+  const pricing = computeBookingPricing({
+    bookingMode: bookingDraft.bookingMode,
+    startDatetime: effectiveStartDate.toISOString(),
+    endDatetime: effectiveEndDate.toISOString(),
+    adultCount: formData.adultCount,
+    childCount: formData.childCount,
+    servicesTotal: amenitiesTotal,
+  });
+  const subtotal = pricing.subtotal;
+  const tax = pricing.tax;
+  const total = pricing.total;
+  const downPayment = pricing.downPaymentMin;
+
+  const handleContinueToPayment = () => {
+    if (!selectedRoom || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0) {
+      return;
+    }
+
+    setBookingDraft({
+      checkIn: effectiveStartDate.toISOString().slice(0, 10),
+      checkOut: effectiveEndDate.toISOString().slice(0, 10),
+      startDatetime: effectiveStartDate.toISOString(),
+      endDatetime: effectiveEndDate.toISOString(),
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      phone: formData.phone,
+      address: formData.address,
+      adultCount: formData.adultCount,
+      childCount: formData.childCount,
+      unitId: selectedRoom.id,
+      roomName: selectedRoom.name,
+      roomPrice: pricing.packageRate,
+      nights: Math.max(1, Math.ceil(durationHours / 24)),
+      subtotal,
+      tax,
+      total,
+      downPayment,
+      services: selectedServiceItems,
+      specialRequests: formData.specialRequests,
+      reservationId: "",
+      reservationReference: "",
+    });
+  };
 
   return (
     <div className="min-h-screen bg-base">
@@ -84,6 +230,11 @@ export default function BookingForm() {
             <div className="w-12 h-0.5 bg-neutral/20"></div>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-neutral/20 text-neutral/50 flex items-center justify-center font-semibold">3</div>
+              <span className="text-sm font-medium text-neutral/50">Review & Save</span>
+            </div>
+            <div className="w-12 h-0.5 bg-neutral/20"></div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-neutral/20 text-neutral/50 flex items-center justify-center font-semibold">4</div>
               <span className="text-sm font-medium text-neutral/50">Payment</span>
             </div>
           </div>
@@ -163,33 +314,44 @@ export default function BookingForm() {
                 {/* Booking Details */}
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Booking Details</h3>
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Guests *</label>
-                      <select
-                        name="guests"
-                        value={formData.guests}
+                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Adults</label>
+                      <input
+                        type="number"
+                        name="adultCount"
+                        value={formData.adultCount}
                         onChange={handleInputChange}
+                        min="1"
+                        max="10"
                         className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                      >
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map((num) => (
-                          <option key={num} value={num}>
-                            {num} {num === 1 ? "Guest" : "Guests"}
-                          </option>
-                        ))}
-                      </select>
+                        required
+                      />
                     </div>
                     <div>
+                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Children</label>
+                      <input
+                        type="number"
+                        name="childCount"
+                        value={formData.childCount}
+                        onChange={handleInputChange}
+                        min="0"
+                        max="10"
+                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
+                      />
+                    </div>
+                    <div className="mt-4.5">
                       <label className="block text-sm font-medium text-neutral/70 mb-2">Room Type *</label>
                       <select
                         name="roomType"
                         value={formData.roomType}
                         onChange={handleInputChange}
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
+                        disabled={catalogLoading || units.length === 0}
+                        className="w-full px-0 py-3.5 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       >
-                        {roomTypes.map((room) => (
+                        {units.map((room) => (
                           <option key={room.id} value={room.id}>
-                            {room.name} - ₱{room.price.toLocaleString()}/night
+                            {room.name} - Unit selection
                           </option>
                         ))}
                       </select>
@@ -205,8 +367,16 @@ export default function BookingForm() {
                 {/* Additional Services */}
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Additional Services & Amenities</h3>
+                  {catalogError && (
+                    <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
+                      {catalogError}
+                    </div>
+                  )}
+                  {catalogLoading && (
+                    <p className="mb-4 text-sm text-neutral/70">Loading available units and services...</p>
+                  )}
                   <div className="grid md:grid-cols-2 gap-4">
-                    {amenities.map((amenity) => (
+                    {services.map((amenity) => (
                       <div
                         key={amenity.id}
                         onClick={() => toggleAmenity(amenity.id)}
@@ -219,7 +389,7 @@ export default function BookingForm() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-semibold text-neutral">{amenity.name}</p>
-                            <p className="text-sm text-primary">${amenity.price}</p>
+                            <p className="text-sm text-primary">₱{amenity.price.toLocaleString()}</p>
                           </div>
                           {selectedAmenities.includes(amenity.id) && (
                             <svg className="w-6 h-6 text-primary" fill="currentColor" viewBox="0 0 20 20">
@@ -251,9 +421,12 @@ export default function BookingForm() {
                       Back
                     </button>
                   </Link>
-                  <Link href="/booking/payment" className="flex-1">
-                    <button className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105">
-                      Continue to Payment
+                  <Link href="/booking/details" className="flex-1" onClick={handleContinueToPayment}>
+                    <button
+                      disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0}
+                      className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                    >
+                      Review Full Details
                     </button>
                   </Link>
                 </div>
@@ -268,23 +441,43 @@ export default function BookingForm() {
                 <div className="space-y-4 mb-6">
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
-                      <span className="text-neutral/70">Check-in</span>
-                      <span className="font-semibold text-neutral">Mar 10, 2026</span>
+                      <span className="text-neutral/70">Start</span>
+                      <span className="font-semibold text-neutral">{effectiveStartDate.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-neutral/70">Check-out</span>
-                      <span className="font-semibold text-neutral">Mar 13, 2026</span>
+                      <span className="text-neutral/70">End</span>
+                      <span className="font-semibold text-neutral">{effectiveEndDate.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                    </div>
+                    <div className="flex justify-between mt-2">
+                      <span className="text-neutral/70">Mode</span>
+                      <span className="font-semibold text-neutral">{bookingDraft.bookingMode === "whole_day" ? "Whole-Day" : bookingDraft.bookingMode.charAt(0).toUpperCase() + bookingDraft.bookingMode.slice(1)}</span>
                     </div>
                   </div>
 
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
-                      <span className="text-neutral/70">{selectedRoom?.name}</span>
-                      <span className="font-semibold text-neutral">₱{selectedRoom?.price.toLocaleString()}/night</span>
+                      <span className="text-neutral/70">Package ({pricing.rateTier})</span>
+                      <span className="font-semibold text-neutral">₱{pricing.packageRate.toLocaleString("en-PH")}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-neutral/70">{nights} nights</span>
-                      <span className="font-semibold text-neutral">₱{roomTotal.toLocaleString()}</span>
+                      <span className="text-neutral/70">Guests included</span>
+                      <span className="font-semibold text-neutral">{pricing.includedGuests} pax</span>
+                    </div>
+                  </div>
+
+                  <div className="pb-4 border-b border-neutral/10">
+                    <p className="text-sm font-semibold text-neutral mb-2">Guest Pricing</p>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-neutral/70">Total guests</span>
+                      <span className="text-neutral">{pricing.totalGuests}</span>
+                    </div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-neutral/70">Extra guests ({pricing.addOnPerHead.toLocaleString("en-PH")}/head)</span>
+                      <span className="text-neutral">{pricing.extraGuests}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-neutral/70">Extra guest total</span>
+                      <span className="text-neutral">₱{pricing.extraGuestTotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   </div>
 
@@ -292,7 +485,7 @@ export default function BookingForm() {
                     <div className="pb-4 border-b border-neutral/10">
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>
                       {selectedAmenities.map((id) => {
-                        const amenity = amenities.find((a) => a.id === id);
+                        const amenity = services.find((a) => a.id === id);
                         return (
                           <div key={id} className="flex justify-between text-sm mb-1">
                             <span className="text-neutral/70">{amenity?.name}</span>
@@ -309,7 +502,7 @@ export default function BookingForm() {
                       <span className="font-semibold text-neutral">₱{subtotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-neutral/70">Tax (12%)</span>
+                      <span className="text-neutral/70">Tax</span>
                       <span className="font-semibold text-neutral">₱{tax.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   </div>
@@ -321,7 +514,7 @@ export default function BookingForm() {
 
                   <div className="bg-accent/10 p-4 rounded-lg">
                     <div className="flex justify-between">
-                      <span className="text-sm font-semibold text-neutral">Down Payment (30%)</span>
+                      <span className="text-sm font-semibold text-neutral">Minimum Down Payment (20%)</span>
                       <span className="text-lg font-bold text-accent">₱{downPayment.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <p className="text-xs text-neutral/60 mt-2">Required to confirm reservation</p>

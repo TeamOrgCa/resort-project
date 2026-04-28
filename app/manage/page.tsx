@@ -1,84 +1,740 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
+import { createClient } from "@/lib/supabase/client";
+import { useBookingStore } from "@/lib/stores/booking-store";
 
 type ManageTab = "bookings" | "ocular";
-type RecordMode = "view" | "edit" | "reschedule" | "cancel" | null;
+type RecordMode = "view" | "edit" | "reschedule" | null;
 
 interface BookingRecord {
   id: string;
   reference: string;
+  startDatetime: string;
+  endDatetime: string;
   checkIn: string;
   checkOut: string;
   guests: number;
   totalAmount: number;
+  paidAmount: number;
+  remainingBalance: number;
   status: string;
   email: string;
   phone: string;
 }
 
+interface RescheduleFormState {
+  checkIn: string;
+  checkOut: string;
+}
+
+interface EditableReservationService {
+  serviceId: string;
+  name: string;
+  quantity: number;
+  minQuantity: number;
+  priceAtTime: number;
+}
+
 interface OcularRecord {
   id: string;
+  reference: string;
   scheduledDate: string;
   timeSlot: string;
   status: string;
   notes: string;
 }
 
+interface ReservationRow {
+  reservation_id: string;
+  reference_number: string;
+  start_datetime: string;
+  end_datetime: string;
+  booking_mode: "day" | "night" | "whole_day" | "custom" | null;
+  adult_count: number;
+  child_count: number;
+  status: string;
+}
+
+interface TransactionRow {
+  reservation_id: string;
+  total_amount: number;
+  paid_amount: number | null;
+  balance: number | null;
+}
+
+interface OcularVisitRow {
+  visit_id: string;
+  reference_number: string;
+  scheduled_date: string;
+  time_slot: string;
+  status: string;
+  created_at: string;
+}
+
+interface GuestRow {
+  email: string;
+  phone_number: string;
+}
+
+interface ReservationServiceRow {
+  reservation_id: string;
+  service_id: string;
+  quantity: number;
+  price_at_time: number;
+  services:
+    | {
+        name: string;
+      }
+    | Array<{
+        name: string;
+      }>
+    | null;
+}
+
+interface ServiceCatalogRow {
+  service_id: string;
+  name: string;
+  price: number;
+}
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    maximumFractionDigits: 2,
+  }).format(value);
+
+const formatDate = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const toTitleCase = (value: string) =>
+  value
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+
+const formatTimeSlot = (slot: string) => {
+  if (!slot.includes("-")) return slot;
+
+  const [start, end] = slot.split("-");
+
+  const toLabel = (time: string) => {
+    const [hourRaw, minute] = time.split(":");
+    const hour = Number(hourRaw);
+    if (Number.isNaN(hour) || !minute) return time;
+
+    const period = hour >= 12 ? "PM" : "AM";
+    const normalizedHour = hour % 12 === 0 ? 12 : hour % 12;
+    return `${normalizedHour}:${minute} ${period}`;
+  };
+
+  return `${toLabel(start)} - ${toLabel(end)}`;
+};
+
+const parseDateValue = (value: string) => {
+  const [year, month, day] = value.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return null;
+
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const toDateOnly = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  const year = parsed.getFullYear();
+  const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
+  const day = `${parsed.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const withOriginalTime = (nextDate: string, sourceDateTime: string) => {
+  const source = new Date(sourceDateTime);
+  if (Number.isNaN(source.getTime())) {
+    return `${nextDate}T08:00:00`;
+  }
+
+  const hours = `${source.getHours()}`.padStart(2, "0");
+  const minutes = `${source.getMinutes()}`.padStart(2, "0");
+  const seconds = `${source.getSeconds()}`.padStart(2, "0");
+  return `${nextDate}T${hours}:${minutes}:${seconds}`;
+};
+
+const isAtLeastTwoDaysAway = (checkInValue: string) => {
+  const checkInDate = parseDateValue(checkInValue);
+  if (!checkInDate) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const diffDays = (checkInDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000);
+  return diffDays >= 2;
+};
+
 export default function ManageBooking() {
+  const router = useRouter();
+  const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [activeTab, setActiveTab] = useState<ManageTab>("bookings");
   const [recordMode, setRecordMode] = useState<RecordMode>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [isCancellingBooking, setIsCancellingBooking] = useState(false);
+  const [pendingCancellation, setPendingCancellation] = useState<{ id: string; reference: string; checkIn: string } | null>(null);
 
-  const [bookings, setBookings] = useState<BookingRecord[]>([
-    {
-      id: "b1",
-      reference: "SR-ABC12345",
-      checkIn: "2026-03-10",
-      checkOut: "2026-03-13",
-      guests: 2,
-      totalAmount: 1799.1,
-      status: "Confirmed",
-      email: "john.doe@email.com",
-      phone: "+1-555-123-4567",
-    },
-    {
-      id: "b2",
-      reference: "SR-XYZ78210",
-      checkIn: "2026-04-06",
-      checkOut: "2026-04-08",
-      guests: 4,
-      totalAmount: 2450,
-      status: "Pending",
-      email: "john.doe@email.com",
-      phone: "+1-555-123-4567",
-    },
-  ]);
+  const [bookings, setBookings] = useState<BookingRecord[]>([]);
 
-  const [ocularBookings, setOcularBookings] = useState<OcularRecord[]>([
-    {
-      id: "o1",
-      scheduledDate: "2026-03-08",
-      timeSlot: "10:00 AM",
-      status: "Confirmed",
-      notes: "First ocular visit",
-    },
-    {
-      id: "o2",
-      scheduledDate: "2026-04-02",
-      timeSlot: "2:00 PM",
-      status: "Pending",
-      notes: "Requested by guest",
-    },
-  ]);
+  const [ocularBookings, setOcularBookings] = useState<OcularRecord[]>([]);
+  const [reservationServicesById, setReservationServicesById] = useState<Record<string, EditableReservationService[]>>({});
+  const [availableServices, setAvailableServices] = useState<ServiceCatalogRow[]>([]);
+  const [editableServices, setEditableServices] = useState<EditableReservationService[]>([]);
+  const [selectedAddServiceId, setSelectedAddServiceId] = useState("");
+  const [addServiceQuantity, setAddServiceQuantity] = useState("1");
+  const [serviceEditError, setServiceEditError] = useState<string | null>(null);
+  const [isSavingServices, setIsSavingServices] = useState(false);
+  const [rescheduleFormError, setRescheduleFormError] = useState<string | null>(null);
+  const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  const [rescheduleForm, setRescheduleForm] = useState<RescheduleFormState>({
+    checkIn: "",
+    checkOut: "",
+  });
+  const [remainingPaymentMethod, setRemainingPaymentMethod] = useState<"bank" | "ewallet">("bank");
+  const [remainingPaymentError, setRemainingPaymentError] = useState<string | null>(null);
+  const [remainingPaymentSuccess, setRemainingPaymentSuccess] = useState<string | null>(null);
+  const [isSubmittingRemainingPayment, setIsSubmittingRemainingPayment] = useState(false);
+
+  const [remainingBankDetails, setRemainingBankDetails] = useState({
+    accountName: "",
+    referenceNumber: "",
+    uploadProof: null as File | null,
+  });
+
+  const [remainingEwalletDetails, setRemainingEwalletDetails] = useState({
+    accountName: "",
+    accountNumber: "",
+    referenceNumber: "",
+    uploadProof: null as File | null,
+  });
 
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [selectedOcularId, setSelectedOcularId] = useState<string | null>(null);
 
   const selectedBooking = bookings.find((item) => item.id === selectedBookingId) ?? null;
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
+
+  const getDaysBeforeCheckIn = (checkInDate: string) => {
+    const checkIn = new Date(`${checkInDate}T00:00:00`);
+    if (Number.isNaN(checkIn.getTime())) return 0;
+
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    return (checkIn.getTime() - now.getTime()) / dayMs;
+  };
+
+  const openPaymentPortal = (booking: BookingRecord) => {
+    setBookingDraft({
+      bookingMode: "custom",
+      startDatetime: booking.startDatetime,
+      endDatetime: booking.endDatetime,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      adultCount: booking.guests,
+      childCount: 0,
+      roomName: "Remaining Balance Payment",
+      roomPrice: booking.remainingBalance,
+      nights: 1,
+      subtotal: booking.remainingBalance,
+      tax: 0,
+      total: booking.remainingBalance,
+      downPayment: booking.remainingBalance,
+      firstName: "",
+      lastName: "",
+      email: booking.email,
+      phone: booking.phone,
+      address: "",
+      unitId: "balance-payment",
+      services: [],
+      specialRequests: "",
+      reservationId: booking.id,
+      reservationReference: booking.reference,
+    });
+
+    router.push("/booking/payment");
+  };
+
+  const handleCancelReservation = async (reservationId: string) => {
+    const bookingToCancel = bookings.find((item) => item.id === reservationId);
+
+    if (!bookingToCancel) {
+      setCancelError("No booking selected for cancellation.");
+      return;
+    }
+
+    setCancelError(null);
+    setIsCancellingBooking(true);
+
+    try {
+      const response = await fetch("/api/reservations/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId,
+          acceptedNoRefundPolicy: true,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+
+      if (!response.ok || !result?.success) {
+        setCancelError(result?.message ?? "Failed to cancel booking.");
+        return;
+      }
+
+      setBookings((prev) =>
+        prev.map((item) =>
+          item.id === reservationId
+            ? {
+                ...item,
+                status: "Cancelled",
+              }
+            : item
+        )
+      );
+
+      setRecordMode("view");
+      setPendingCancellation(null);
+    } catch {
+      setCancelError("Failed to cancel booking.");
+    } finally {
+      setIsCancellingBooking(false);
+    }
+  };
+
+  const handleSaveServices = async () => {
+    if (!selectedBooking) {
+      setServiceEditError("Select a booking first.");
+      return;
+    }
+
+    if (editableServices.length === 0) {
+      setServiceEditError("At least one service is required.");
+      return;
+    }
+
+    setServiceEditError(null);
+    setIsSavingServices(true);
+
+    try {
+      const response = await fetch("/api/reservations/services", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId: selectedBooking.id,
+          services: editableServices.map((service) => ({
+            serviceId: service.serviceId,
+            quantity: Number(service.quantity),
+          })),
+        }),
+      });
+
+      let result: { success?: boolean; message?: string; errorCode?: string | null } | null = null;
+      let rawText = "";
+
+      try {
+        result = (await response.json()) as { success?: boolean; message?: string; errorCode?: string | null };
+      } catch {
+        rawText = await response.text().catch(() => "");
+      }
+
+      if (!response.ok || !result?.success) {
+        const statusLabel = `Save failed (${response.status})`;
+        const codeLabel = result?.errorCode ? ` [${result.errorCode}]` : "";
+        const rawLabel = rawText.trim() ? ` ${rawText.trim().slice(0, 200)}` : "";
+        setServiceEditError(`${statusLabel}: ${result?.message ?? "Failed to update services."}${codeLabel}${rawLabel}`);
+        return;
+      }
+
+      setReservationServicesById((current) => ({
+        ...current,
+        [selectedBooking.id]: editableServices,
+      }));
+
+      const supabase = createClient();
+      const { data: transactionRow } = await supabase
+        .from("transactions")
+        .select("total_amount")
+        .eq("reservation_id", selectedBooking.id)
+        .maybeSingle<{ total_amount: number }>();
+
+      if (transactionRow) {
+        setBookings((currentBookings) =>
+          currentBookings.map((booking) =>
+            booking.id === selectedBooking.id
+              ? {
+                  ...booking,
+                  totalAmount: Number(transactionRow.total_amount ?? booking.totalAmount),
+                  remainingBalance: Math.max(
+                    Number(transactionRow.total_amount ?? booking.totalAmount) - Number(booking.paidAmount ?? 0),
+                    0
+                  ),
+                }
+              : booking
+          )
+        );
+      }
+
+      setRecordMode("view");
+    } catch {
+      setServiceEditError("Failed to update services.");
+    } finally {
+      setIsSavingServices(false);
+    }
+  };
+
+  const handleSubmitReschedule = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!selectedBooking) {
+      setRescheduleFormError("Select a booking first.");
+      return;
+    }
+
+    if (selectedBooking.status.toLowerCase() === "cancelled" || selectedBooking.status.toLowerCase() === "completed") {
+      setRescheduleFormError("This reservation can no longer be rescheduled.");
+      return;
+    }
+
+    if (selectedBooking.status.toLowerCase() === "reschedule requested") {
+      setRescheduleFormError("A reschedule request is already pending for this reservation.");
+      return;
+    }
+
+    // if (!isAtLeastTwoDaysAway(selectedBooking.checkIn)) {
+    //   setRescheduleFormError("Reschedule requests must be submitted at least 2 days before check-in.");
+    //   return;
+    // }
+
+    const nextCheckIn = parseDateValue(rescheduleForm.checkIn);
+    const nextCheckOut = parseDateValue(rescheduleForm.checkOut);
+
+    if (!nextCheckIn || !nextCheckOut) {
+      setRescheduleFormError("Please choose valid reschedule dates.");
+      return;
+    }
+
+    if (nextCheckOut.getTime() <= nextCheckIn.getTime()) {
+      setRescheduleFormError("Check-out must be after check-in.");
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (nextCheckIn.getTime() < today.getTime()) {
+      setRescheduleFormError("Reschedule dates must be in the future.");
+      return;
+    }
+
+    if (nextCheckIn.getTime() === parseDateValue(selectedBooking.checkIn)?.getTime() && nextCheckOut.getTime() === parseDateValue(selectedBooking.checkOut)?.getTime()) {
+      setRescheduleFormError("Please choose different dates from the current reservation.");
+      return;
+    }
+
+    setRescheduleFormError(null);
+    setIsSubmittingReschedule(true);
+
+    try {
+      const response = await fetch("/api/reservations/reschedule", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservationId: selectedBooking.id,
+          newCheckInDate: rescheduleForm.checkIn,
+          newCheckOutDate: rescheduleForm.checkOut,
+          newStartDatetime: withOriginalTime(rescheduleForm.checkIn, selectedBooking.startDatetime),
+          newEndDatetime: withOriginalTime(rescheduleForm.checkOut, selectedBooking.endDatetime),
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+
+      if (!response.ok || !result?.success) {
+        setRescheduleFormError(result?.message ?? "Failed to submit reschedule request.");
+        return;
+      }
+
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) =>
+          booking.id === selectedBooking.id
+            ? {
+                ...booking,
+                status: "Reschedule Requested",
+              }
+            : booking
+        )
+      );
+
+      setRecordMode("view");
+      setRescheduleFormError(null);
+    } catch {
+      setRescheduleFormError("Failed to submit reschedule request.");
+    } finally {
+      setIsSubmittingReschedule(false);
+    }
+  };
+
+  const handleSubmitRemainingPayment = (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!selectedBooking || selectedBooking.remainingBalance <= 0) {
+      setRemainingPaymentError("Select a booking with an outstanding balance first.");
+      return;
+    }
+
+    if (selectedBooking.status.toLowerCase() === "cancelled" || selectedBooking.status.toLowerCase() === "completed") {
+      setRemainingPaymentError("Cannot continue payment for this booking status.");
+      return;
+    }
+
+    setRemainingPaymentError(null);
+    setRemainingPaymentSuccess(null);
+    openPaymentPortal(selectedBooking);
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchManageRecords = async () => {
+      try {
+        setIsLoading(true);
+        setFetchError(null);
+
+        const supabase = createClient();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          if (!isMounted) return;
+          setFetchError("Please log in to view your records.");
+          setBookings([]);
+          setOcularBookings([]);
+          setIsLoading(false);
+          return;
+        }
+
+        const [guestResult, reservationsResult, ocularResult] = await Promise.all([
+          supabase.from("guests").select("email, phone_number").eq("id", user.id).maybeSingle<GuestRow>(),
+          supabase
+            .from("reservations")
+            .select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status")
+            .eq("guest_id", user.id)
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("ocular_visits")
+            .select("visit_id, reference_number, scheduled_date, time_slot, status, created_at")
+            .eq("guest_id", user.id)
+            .order("created_at", { ascending: false }),
+        ]);
+
+        if (reservationsResult.error || ocularResult.error) {
+          throw reservationsResult.error || ocularResult.error;
+        }
+
+        const reservationRows = (reservationsResult.data as ReservationRow[] | null) ?? [];
+        const reservationIds = reservationRows.map((row) => row.reservation_id);
+
+        const [
+          { data: transactionRows, error: transactionsError },
+          { data: reservationServicesData, error: reservationServicesError },
+          { data: availableServicesData, error: availableServicesError },
+        ] = await Promise.all([
+          reservationIds.length
+            ? supabase
+                .from("transactions")
+                .select("reservation_id, total_amount, paid_amount, balance")
+                .in("reservation_id", reservationIds)
+            : Promise.resolve({ data: [], error: null }),
+          reservationIds.length
+            ? supabase
+                .from("reservation_services")
+                .select("reservation_id, service_id, quantity, price_at_time, services(name)")
+                .in("reservation_id", reservationIds)
+            : Promise.resolve({ data: [], error: null }),
+          supabase.from("services").select("service_id, name, price").eq("is_active", true).order("name", { ascending: true }),
+        ]);
+
+        if (transactionsError) {
+          throw transactionsError;
+        }
+
+        if (reservationServicesError || availableServicesError) {
+          throw reservationServicesError || availableServicesError;
+        }
+
+        if (!isMounted) return;
+
+        const guestData = guestResult.data;
+        const transactionByReservationId = ((transactionRows as TransactionRow[] | null) ?? []).reduce<
+          Record<string, { total: number; paid: number; balance: number }>
+        >((accumulator, transaction) => {
+          accumulator[transaction.reservation_id] = {
+            total: Number(transaction.total_amount ?? 0),
+            paid: Number(transaction.paid_amount ?? 0),
+            balance: Number(transaction.balance ?? 0),
+          };
+          return accumulator;
+        }, {});
+
+        const mappedBookings: BookingRecord[] = reservationRows.map((reservation) => ({
+          id: reservation.reservation_id,
+          reference: reservation.reference_number,
+          startDatetime: reservation.start_datetime,
+          endDatetime: reservation.end_datetime,
+          checkIn: toDateOnly(reservation.start_datetime),
+          checkOut: toDateOnly(reservation.end_datetime),
+          guests: Number(reservation.adult_count ?? 0) + Number(reservation.child_count ?? 0),
+          totalAmount: transactionByReservationId[reservation.reservation_id]?.total ?? 0,
+          paidAmount: transactionByReservationId[reservation.reservation_id]?.paid ?? 0,
+          remainingBalance: transactionByReservationId[reservation.reservation_id]?.balance ?? 0,
+          status: toTitleCase(reservation.status),
+          email: guestData?.email ?? user.email ?? "-",
+          phone: guestData?.phone_number ?? "-",
+        }));
+
+        const nextReservationServicesById = ((reservationServicesData as ReservationServiceRow[] | null) ?? []).reduce<
+          Record<string, EditableReservationService[]>
+        >((accumulator, serviceRow) => {
+          const name =
+            (Array.isArray(serviceRow.services) ? serviceRow.services[0]?.name : serviceRow.services?.name) ??
+            "Service";
+
+          const existing = accumulator[serviceRow.reservation_id] ?? [];
+          existing.push({
+            serviceId: serviceRow.service_id,
+            name,
+            quantity: Number(serviceRow.quantity ?? 1),
+            minQuantity: Number(serviceRow.quantity ?? 1),
+            priceAtTime: Number(serviceRow.price_at_time ?? 0),
+          });
+          accumulator[serviceRow.reservation_id] = existing;
+          return accumulator;
+        }, {});
+
+        const mappedOcularBookings: OcularRecord[] = ((ocularResult.data as OcularVisitRow[] | null) ?? []).map(
+          (visit) => ({
+            id: visit.visit_id,
+            reference: visit.reference_number,
+            scheduledDate: visit.scheduled_date,
+            timeSlot: visit.time_slot,
+            status: toTitleCase(visit.status),
+            notes: `Created ${formatDate(visit.created_at)}`,
+          })
+        );
+
+        setBookings(mappedBookings);
+        setOcularBookings(mappedOcularBookings);
+        setReservationServicesById(nextReservationServicesById);
+        setAvailableServices((availableServicesData as ServiceCatalogRow[] | null) ?? []);
+      } catch {
+        if (!isMounted) return;
+        setFetchError("Failed to load your booking records.");
+        setBookings([]);
+        setOcularBookings([]);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchManageRecords();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!bookings.length) {
+      return;
+    }
+
+    const reservationIds = bookings.map((booking) => booking.id);
+
+    const refreshTransactionSnapshots = async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("reservation_id, total_amount, paid_amount, balance")
+        .in("reservation_id", reservationIds);
+
+      if (error) {
+        return;
+      }
+
+      const nextByReservationId = ((data as TransactionRow[] | null) ?? []).reduce<
+        Record<string, { total: number; paid: number; balance: number }>
+      >((accumulator, transaction) => {
+        accumulator[transaction.reservation_id] = {
+          total: Number(transaction.total_amount ?? 0),
+          paid: Number(transaction.paid_amount ?? 0),
+          balance: Number(transaction.balance ?? 0),
+        };
+        return accumulator;
+      }, {});
+
+      setBookings((currentBookings) =>
+        currentBookings.map((booking) => {
+          const nextSnapshot = nextByReservationId[booking.id];
+
+          if (!nextSnapshot) {
+            return booking;
+          }
+
+          return {
+            ...booking,
+            totalAmount: nextSnapshot.total,
+            paidAmount: nextSnapshot.paid,
+            remainingBalance: nextSnapshot.balance,
+          };
+        })
+      );
+    };
+
+    const timer = window.setInterval(() => {
+      void refreshTransactionSnapshots();
+    }, 20000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [bookings]);
 
   return (
     <div className="min-h-screen bg-base">
@@ -102,6 +758,12 @@ export default function ManageBooking() {
       <section className="py-20 px-4">
         <div className="max-w-6xl mx-auto">
           <div className="bg-white rounded-3xl shadow-xl p-8">
+            {fetchError ? (
+              <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                {fetchError}
+              </p>
+            ) : null}
+
             <div className="mb-6 flex flex-wrap gap-2 border-b border-neutral/10 pb-4">
               <button
                 onClick={() => {
@@ -132,6 +794,12 @@ export default function ManageBooking() {
             {activeTab === "bookings" && (
               <>
                 <h2 className="text-2xl font-bold text-neutral mb-4">Your Booking Records</h2>
+                {cancelError ? (
+                  <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                    {cancelError}
+                  </p>
+                ) : null}
+                {isLoading ? <p className="mb-4 text-sm text-neutral/70">Loading booking records...</p> : null}
                 <div className="overflow-x-auto rounded-2xl border border-neutral/10">
                   <table className="min-w-full text-left text-sm">
                     <thead className="border-b border-neutral/10 bg-base text-neutral/70">
@@ -146,11 +814,18 @@ export default function ManageBooking() {
                       </tr>
                     </thead>
                     <tbody>
+                      {!isLoading && bookings.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-4 py-6 text-center text-neutral/60">
+                            No booking records found.
+                          </td>
+                        </tr>
+                      ) : null}
                       {bookings.map((record) => (
                         <tr key={record.id} className="border-b border-neutral/10 last:border-none">
                           <td className="px-4 py-3 font-semibold text-neutral">{record.reference}</td>
-                          <td className="px-4 py-3 text-neutral/80">{record.checkIn}</td>
-                          <td className="px-4 py-3 text-neutral/80">{record.checkOut}</td>
+                          <td className="px-4 py-3 text-neutral/80">{formatDate(record.checkIn)}</td>
+                          <td className="px-4 py-3 text-neutral/80">{formatDate(record.checkOut)}</td>
                           <td className="px-4 py-3 text-neutral/80">{record.guests}</td>
                           <td className="px-4 py-3 text-neutral/80">₱{record.totalAmount.toFixed(2)}</td>
                           <td className="px-4 py-3 text-neutral/80">{record.status}</td>
@@ -160,6 +835,11 @@ export default function ManageBooking() {
                                 onClick={() => {
                                   setSelectedBookingId(record.id);
                                   setRecordMode("view");
+                                  setRemainingPaymentError(null);
+                                  setRemainingPaymentSuccess(null);
+                                  setRemainingPaymentMethod("bank");
+                                  setRemainingBankDetails({ accountName: "", referenceNumber: "", uploadProof: null });
+                                  setRemainingEwalletDetails({ accountName: "", accountNumber: "", referenceNumber: "", uploadProof: null });
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
@@ -169,6 +849,14 @@ export default function ManageBooking() {
                                 onClick={() => {
                                   setSelectedBookingId(record.id);
                                   setRecordMode("edit");
+                                  setServiceEditError(null);
+                                  setSelectedAddServiceId("");
+                                  setAddServiceQuantity("1");
+                                  setEditableServices(
+                                    (reservationServicesById[record.id] ?? []).map((service) => ({
+                                      ...service,
+                                    }))
+                                  );
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
@@ -176,17 +864,74 @@ export default function ManageBooking() {
                               </button>
                               <button
                                 onClick={() => {
+                                  const normalizedStatus = record.status.toLowerCase();
+
+                                  if (
+                                    normalizedStatus === "cancelled" ||
+                                    normalizedStatus === "completed" ||
+                                    normalizedStatus === "reschedule requested"
+                                  ) {
+                                    setCancelError("This reservation can no longer be rescheduled.");
+                                    return;
+                                  }
+
                                   setSelectedBookingId(record.id);
                                   setRecordMode("reschedule");
+                                  setRescheduleFormError(null);
+                                  setRescheduleForm({
+                                    checkIn: record.checkIn,
+                                    checkOut: record.checkOut,
+                                  });
                                 }}
+                                disabled={
+                                  record.status.toLowerCase() === "cancelled" ||
+                                  record.status.toLowerCase() === "completed" ||
+                                  record.status.toLowerCase() === "reschedule requested"
+                                }
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
                                 Resched
                               </button>
                               <button
                                 onClick={() => {
-                                  setSelectedBookingId(record.id);
-                                  setRecordMode("cancel");
+                                  if (
+                                    record.remainingBalance <= 0 ||
+                                    record.status.toLowerCase() === "cancelled" ||
+                                    record.status.toLowerCase() === "completed"
+                                  ) {
+                                    return;
+                                  }
+
+                                  openPaymentPortal(record);
+                                }}
+                                disabled={
+                                  record.remainingBalance <= 0 ||
+                                  record.status.toLowerCase() === "cancelled" ||
+                                  record.status.toLowerCase() === "completed"
+                                }
+                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Pay Balance
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setCancelError(null);
+
+                                  if (record.status.toLowerCase() === "cancelled") {
+                                    setCancelError("This reservation is already cancelled.");
+                                    return;
+                                  }
+
+                                  if (getDaysBeforeCheckIn(record.checkIn) < 2) {
+                                    setCancelError("Cancellation is only allowed at least 2 days before check-in.");
+                                    return;
+                                  }
+
+                                  setPendingCancellation({
+                                    id: record.id,
+                                    reference: record.reference,
+                                    checkIn: record.checkIn,
+                                  });
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
@@ -211,10 +956,10 @@ export default function ManageBooking() {
                         Status: <span className="font-semibold text-neutral">{selectedBooking.status}</span>
                       </p>
                       <p>
-                        Check-in: <span className="font-semibold text-neutral">{selectedBooking.checkIn}</span>
+                        Check-in: <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkIn)}</span>
                       </p>
                       <p>
-                        Check-out: <span className="font-semibold text-neutral">{selectedBooking.checkOut}</span>
+                        Check-out: <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkOut)}</span>
                       </p>
                       <p>
                         Guests: <span className="font-semibold text-neutral">{selectedBooking.guests}</span>
@@ -222,7 +967,149 @@ export default function ManageBooking() {
                       <p>
                         Total Amount: <span className="font-semibold text-neutral">₱{selectedBooking.totalAmount.toFixed(2)}</span>
                       </p>
+                      <p>
+                        Paid Amount: <span className="font-semibold text-neutral">₱{selectedBooking.paidAmount.toFixed(2)}</span>
+                      </p>
+                      <p>
+                        Remaining Balance: <span className="font-semibold text-neutral">₱{selectedBooking.remainingBalance.toFixed(2)}</span>
+                      </p>
+                      <div className="md:col-span-2">
+                        <p className="font-medium text-neutral">Booked Services</p>
+                        {(reservationServicesById[selectedBooking.id] ?? []).length === 0 ? (
+                          <p className="mt-1">No services selected.</p>
+                        ) : (
+                          <div className="mt-2 space-y-1">
+                            {(reservationServicesById[selectedBooking.id] ?? []).map((service) => (
+                              <p key={service.serviceId}>
+                                {service.name} x {service.quantity} ({formatCurrency(service.priceAtTime)} each)
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
+
+                    {selectedBooking.remainingBalance > 0 &&
+                    selectedBooking.status.toLowerCase() !== "cancelled" &&
+                    selectedBooking.status.toLowerCase() !== "completed" ? (
+                      <form className="mt-5 rounded-xl border border-neutral/10 bg-white p-4" onSubmit={handleSubmitRemainingPayment}>
+                        <h4 className="font-semibold text-neutral">Pay Remaining Balance</h4>
+                        <p className="mt-1 text-sm text-neutral/70">
+                          Amount to pay now: <span className="font-semibold text-neutral">{formatCurrency(selectedBooking.remainingBalance)}</span>
+                        </p>
+
+                        {remainingPaymentError ? (
+                          <p className="mt-3 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                            {remainingPaymentError}
+                          </p>
+                        ) : null}
+
+                        {remainingPaymentSuccess ? (
+                          <p className="mt-3 rounded-lg border border-secondary/30 bg-secondary/10 px-3 py-2 text-sm text-neutral">
+                            {remainingPaymentSuccess}
+                          </p>
+                        ) : null}
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={() => setRemainingPaymentMethod("bank")}
+                            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                              remainingPaymentMethod === "bank"
+                                ? "border-primary bg-primary/5 text-neutral"
+                                : "border-neutral/20 bg-base text-neutral"
+                            }`}
+                          >
+                            Bank Transfer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRemainingPaymentMethod("ewallet")}
+                            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                              remainingPaymentMethod === "ewallet"
+                                ? "border-primary bg-primary/5 text-neutral"
+                                : "border-neutral/20 bg-base text-neutral"
+                            }`}
+                          >
+                            E-Wallet
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <input
+                            type="text"
+                            placeholder="Account Name"
+                            value={
+                              remainingPaymentMethod === "bank"
+                                ? remainingBankDetails.accountName
+                                : remainingEwalletDetails.accountName
+                            }
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              if (remainingPaymentMethod === "bank") {
+                                setRemainingBankDetails((prev) => ({ ...prev, accountName: next }));
+                              } else {
+                                setRemainingEwalletDetails((prev) => ({ ...prev, accountName: next }));
+                              }
+                            }}
+                            className="rounded-lg border border-neutral/20 px-3 py-2"
+                          />
+
+                          <input
+                            type="text"
+                            placeholder="Reference Number"
+                            value={
+                              remainingPaymentMethod === "bank"
+                                ? remainingBankDetails.referenceNumber
+                                : remainingEwalletDetails.referenceNumber
+                            }
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              if (remainingPaymentMethod === "bank") {
+                                setRemainingBankDetails((prev) => ({ ...prev, referenceNumber: next }));
+                              } else {
+                                setRemainingEwalletDetails((prev) => ({ ...prev, referenceNumber: next }));
+                              }
+                            }}
+                            className="rounded-lg border border-neutral/20 px-3 py-2"
+                          />
+
+                          {remainingPaymentMethod === "ewallet" ? (
+                            <input
+                              type="text"
+                              placeholder="Account Number"
+                              value={remainingEwalletDetails.accountNumber}
+                              onChange={(event) =>
+                                setRemainingEwalletDetails((prev) => ({ ...prev, accountNumber: event.target.value }))
+                              }
+                              className="rounded-lg border border-neutral/20 px-3 py-2"
+                            />
+                          ) : null}
+
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0] || null;
+                              if (remainingPaymentMethod === "bank") {
+                                setRemainingBankDetails((prev) => ({ ...prev, uploadProof: file }));
+                              } else {
+                                setRemainingEwalletDetails((prev) => ({ ...prev, uploadProof: file }));
+                              }
+                            }}
+                            className="rounded-lg border border-neutral/20 px-3 py-2"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingRemainingPayment}
+                          className="mt-4 rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSubmittingRemainingPayment ? "Submitting Payment..." : "Pay Remaining Balance"}
+                        </button>
+                      </form>
+                    ) : null}
                   </div>
                 )}
 
@@ -231,42 +1118,135 @@ export default function ManageBooking() {
                     className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      setRecordMode("view");
+                      void handleSaveServices();
                     }}
                   >
-                    <h3 className="text-lg font-semibold text-neutral">Edit Booking</h3>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div>
-                        <label className="mb-2 block text-sm text-neutral/70">Email</label>
+                    <h3 className="text-lg font-semibold text-neutral">Edit Booking Services</h3>
+                    <p className="text-sm text-neutral/70">
+                      You can add new services or increase quantities. Existing services cannot be reduced or removed.
+                    </p>
+
+                    {serviceEditError ? (
+                      <p className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                        {serviceEditError}
+                      </p>
+                    ) : null}
+
+                    <div className="space-y-3">
+                      {editableServices.length === 0 ? (
+                        <p className="text-sm text-neutral/70">No services yet. Add one below to continue.</p>
+                      ) : null}
+
+                      {editableServices.map((service) => (
+                        <div key={service.serviceId} className="grid gap-3 rounded-xl border border-neutral/10 bg-white p-3 md:grid-cols-3">
+                          <p className="text-sm text-neutral">
+                            <span className="font-semibold">{service.name}</span>
+                            <span className="block text-neutral/70">{formatCurrency(service.priceAtTime)} each</span>
+                          </p>
+                          <div>
+                            <label className="mb-1 block text-xs text-neutral/70">Quantity</label>
+                            <input
+                              type="number"
+                              min={service.minQuantity}
+                              step={1}
+                              value={service.quantity}
+                              onChange={(event) => {
+                                const parsedValue = Number.parseInt(event.target.value, 10);
+                                const nextQuantity = Number.isNaN(parsedValue)
+                                  ? service.minQuantity
+                                  : Math.max(service.minQuantity, parsedValue);
+
+                                setEditableServices((current) =>
+                                  current.map((currentService) =>
+                                    currentService.serviceId === service.serviceId
+                                      ? {
+                                          ...currentService,
+                                          quantity: nextQuantity,
+                                        }
+                                      : currentService
+                                  )
+                                );
+                              }}
+                              className="w-full rounded-lg border border-neutral/20 px-3 py-2"
+                            />
+                          </div>
+                          <p className="text-xs text-neutral/70 md:text-sm">Minimum allowed: {service.minQuantity}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="rounded-xl border border-neutral/10 bg-white p-3">
+                      <p className="mb-3 text-sm font-semibold text-neutral">Add New Service</p>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <select
+                          value={selectedAddServiceId}
+                          onChange={(event) => setSelectedAddServiceId(event.target.value)}
+                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
+                        >
+                          <option value="">Select a service</option>
+                          {availableServices
+                            .filter((service) => !editableServices.some((entry) => entry.serviceId === service.service_id))
+                            .map((service) => (
+                              <option key={service.service_id} value={service.service_id}>
+                                {service.name} ({formatCurrency(Number(service.price ?? 0))})
+                              </option>
+                            ))}
+                        </select>
                         <input
-                          value={selectedBooking.email}
-                          onChange={(event) =>
-                            setBookings((prev) =>
-                              prev.map((item) =>
-                                item.id === selectedBooking.id ? { ...item, email: event.target.value } : item
-                              )
-                            )
-                          }
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={addServiceQuantity}
+                          onChange={(event) => setAddServiceQuantity(event.target.value)}
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm text-neutral/70">Phone</label>
-                        <input
-                          value={selectedBooking.phone}
-                          onChange={(event) =>
-                            setBookings((prev) =>
-                              prev.map((item) =>
-                                item.id === selectedBooking.id ? { ...item, phone: event.target.value } : item
-                              )
-                            )
-                          }
-                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setServiceEditError(null);
+
+                            if (!selectedAddServiceId) {
+                              setServiceEditError("Select a service to add.");
+                              return;
+                            }
+
+                            const selectedService = availableServices.find(
+                              (service) => service.service_id === selectedAddServiceId
+                            );
+
+                            if (!selectedService) {
+                              setServiceEditError("Selected service is no longer available.");
+                              return;
+                            }
+
+                            const parsedQuantity = Number.parseInt(addServiceQuantity, 10);
+                            const nextQuantity = Number.isNaN(parsedQuantity) ? 1 : Math.max(1, parsedQuantity);
+
+                            setEditableServices((current) => [
+                              ...current,
+                              {
+                                serviceId: selectedService.service_id,
+                                name: selectedService.name,
+                                quantity: nextQuantity,
+                                minQuantity: 1,
+                                priceAtTime: Number(selectedService.price ?? 0),
+                              },
+                            ]);
+                            setSelectedAddServiceId("");
+                            setAddServiceQuantity("1");
+                          }}
+                          className="rounded-lg border border-neutral/20 px-3 py-2 text-sm font-medium text-neutral hover:bg-base"
+                        >
+                          Add Service
+                        </button>
                       </div>
                     </div>
-                    <button className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90">
-                      Save Changes
+
+                    <button
+                      disabled={isSavingServices}
+                      className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSavingServices ? "Saving..." : "Save Service Changes"}
                     </button>
                   </form>
                 )}
@@ -276,22 +1256,29 @@ export default function ManageBooking() {
                     className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      setRecordMode("view");
+                      void handleSubmitReschedule(event);
                     }}
                   >
                     <h3 className="text-lg font-semibold text-neutral">Reschedule Booking</h3>
+
+                    {rescheduleFormError ? (
+                      <p className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                        {rescheduleFormError}
+                      </p>
+                    ) : null}
+
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
                         <label className="mb-2 block text-sm text-neutral/70">Check-in</label>
                         <input
                           type="date"
-                          value={selectedBooking.checkIn}
+                          value={rescheduleForm.checkIn}
+                          min={selectedBooking.checkIn}
                           onChange={(event) =>
-                            setBookings((prev) =>
-                              prev.map((item) =>
-                                item.id === selectedBooking.id ? { ...item, checkIn: event.target.value } : item
-                              )
-                            )
+                            setRescheduleForm((current) => ({
+                              ...current,
+                              checkIn: event.target.value,
+                            }))
                           }
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         />
@@ -300,63 +1287,40 @@ export default function ManageBooking() {
                         <label className="mb-2 block text-sm text-neutral/70">Check-out</label>
                         <input
                           type="date"
-                          value={selectedBooking.checkOut}
+                          value={rescheduleForm.checkOut}
+                          min={rescheduleForm.checkIn || selectedBooking.checkOut}
                           onChange={(event) =>
-                            setBookings((prev) =>
-                              prev.map((item) =>
-                                item.id === selectedBooking.id ? { ...item, checkOut: event.target.value } : item
-                              )
-                            )
+                            setRescheduleForm((current) => ({
+                              ...current,
+                              checkOut: event.target.value,
+                            }))
                           }
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         />
                       </div>
                     </div>
-                    <button className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90">
-                      Save New Dates
+                    <button
+                      type="submit"
+                      disabled={isSubmittingReschedule}
+                      className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSubmittingReschedule ? "Submitting Request..." : "Submit Reschedule Request"}
                     </button>
                   </form>
                 )}
 
-                {recordMode === "cancel" && selectedBooking && (
-                  <div className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4">
-                    <h3 className="text-lg font-semibold text-neutral">Cancel Booking</h3>
-                    <p className="text-sm text-neutral/80">
-                      You are about to cancel booking <span className="font-semibold text-neutral">{selectedBooking.reference}</span>.
-                    </p>
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        onClick={() => setRecordMode("view")}
-                        className="rounded-full border border-neutral/20 px-6 py-3 font-semibold text-neutral hover:bg-neutral/5"
-                      >
-                        Keep Booking
-                      </button>
-                      <button
-                        onClick={() => {
-                          setBookings((prev) =>
-                            prev.map((item) =>
-                              item.id === selectedBooking.id ? { ...item, status: "Cancelled" } : item
-                            )
-                          );
-                          setRecordMode("view");
-                        }}
-                        className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90"
-                      >
-                        Confirm Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
               </>
             )}
 
             {activeTab === "ocular" && (
               <>
                 <h2 className="text-2xl font-bold text-neutral mb-4">Your Ocular Booking Records</h2>
+                {isLoading ? <p className="mb-4 text-sm text-neutral/70">Loading ocular visit records...</p> : null}
                 <div className="overflow-x-auto rounded-2xl border border-neutral/10">
                   <table className="min-w-full text-left text-sm">
                     <thead className="border-b border-neutral/10 bg-base text-neutral/70">
                       <tr>
+                        <th className="px-4 py-3 font-medium">Reference</th>
                         <th className="px-4 py-3 font-medium">Scheduled Date</th>
                         <th className="px-4 py-3 font-medium">Time Slot</th>
                         <th className="px-4 py-3 font-medium">Status</th>
@@ -365,10 +1329,18 @@ export default function ManageBooking() {
                       </tr>
                     </thead>
                     <tbody>
+                      {!isLoading && ocularBookings.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-6 text-center text-neutral/60">
+                            No ocular visit records found.
+                          </td>
+                        </tr>
+                      ) : null}
                       {ocularBookings.map((record) => (
                         <tr key={record.id} className="border-b border-neutral/10 last:border-none">
-                          <td className="px-4 py-3 text-neutral/80">{record.scheduledDate}</td>
-                          <td className="px-4 py-3 text-neutral/80">{record.timeSlot}</td>
+                          <td className="px-4 py-3 font-semibold text-neutral">{record.reference}</td>
+                          <td className="px-4 py-3 text-neutral/80">{formatDate(record.scheduledDate)}</td>
+                          <td className="px-4 py-3 text-neutral/80">{formatTimeSlot(record.timeSlot)}</td>
                           <td className="px-4 py-3 text-neutral/80">{record.status}</td>
                           <td className="px-4 py-3 text-neutral/80">{record.notes}</td>
                           <td className="px-4 py-3">
@@ -404,10 +1376,13 @@ export default function ManageBooking() {
                     <h3 className="text-lg font-semibold text-neutral mb-3">Ocular Visit Details</h3>
                     <div className="grid gap-3 md:grid-cols-2 text-sm text-neutral/80">
                       <p>
-                        Scheduled Date: <span className="font-semibold text-neutral">{selectedOcular.scheduledDate}</span>
+                        Reference: <span className="font-semibold text-neutral">{selectedOcular.reference}</span>
                       </p>
                       <p>
-                        Time Slot: <span className="font-semibold text-neutral">{selectedOcular.timeSlot}</span>
+                        Scheduled Date: <span className="font-semibold text-neutral">{formatDate(selectedOcular.scheduledDate)}</span>
+                      </p>
+                      <p>
+                        Time Slot: <span className="font-semibold text-neutral">{formatTimeSlot(selectedOcular.timeSlot)}</span>
                       </p>
                       <p>
                         Status: <span className="font-semibold text-neutral">{selectedOcular.status}</span>
@@ -458,10 +1433,11 @@ export default function ManageBooking() {
                           }
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         >
-                          <option>9:00 AM</option>
-                          <option>10:00 AM</option>
-                          <option>2:00 PM</option>
-                          <option>4:00 PM</option>
+                          <option value="08:00-09:00">{formatTimeSlot("08:00-09:00")}</option>
+                          <option value="09:00-10:00">{formatTimeSlot("09:00-10:00")}</option>
+                          <option value="10:00-11:00">{formatTimeSlot("10:00-11:00")}</option>
+                          <option value="13:00-14:00">{formatTimeSlot("13:00-14:00")}</option>
+                          <option value="14:00-15:00">{formatTimeSlot("14:00-15:00")}</option>
                         </select>
                       </div>
                     </div>
@@ -475,6 +1451,25 @@ export default function ManageBooking() {
           </div>
         </div>
       </section>
+
+      <ConfirmationDialog
+        isOpen={Boolean(pendingCancellation)}
+        title="Cancel Booking"
+        message={`Cancel booking ${pendingCancellation?.reference ?? ""}? This action follows the no-refund policy and can only be requested at least 2 days before check-in.`}
+        confirmText="Confirm Cancel"
+        cancelText="Keep Booking"
+        isConfirming={isCancellingBooking}
+        onCancel={() => {
+          if (!isCancellingBooking) {
+            setPendingCancellation(null);
+          }
+        }}
+        onConfirm={() => {
+          if (pendingCancellation) {
+            void handleCancelReservation(pendingCancellation.id);
+          }
+        }}
+      />
 
       <Footer />
     </div>
