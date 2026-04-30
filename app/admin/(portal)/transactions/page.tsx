@@ -71,8 +71,8 @@ interface InvoiceDetailReservationRow {
   reference_number: string;
   booking_type: "online" | "walk_in" | null;
   status: "pending" | "confirmed" | "cancelled" | "completed" | null;
-  check_in_date: string;
-  check_out_date: string;
+  start_datetime: string;
+  end_datetime: string;
 }
 
 interface InvoiceDetailTransactionRow {
@@ -192,12 +192,13 @@ interface ReceiptDetailPaymentRow {
 
 interface ReceiptDetailReservationRow {
   reservation_id: string;
-  guest_id: string;
+  guest_id: string | null;
+  walk_in_guest_id?: string | null;
   reference_number: string;
   booking_type: "online" | "walk_in" | null;
   status: "pending" | "confirmed" | "cancelled" | "completed" | null;
-  check_in_date: string;
-  check_out_date: string;
+  start_datetime: string;
+  end_datetime: string;
 }
 
 interface ReceiptDetailGuestRow {
@@ -552,7 +553,7 @@ export default function AdminTransactionsPage() {
       const [reservationResult, transactionResult, paymentsResult, reservationUnitsResult, reservationServicesResult] = await Promise.all([
         supabase
           .from("reservations")
-          .select("reference_number, booking_type, status, check_in_date, check_out_date")
+          .select("reference_number, booking_type, status, start_datetime, end_datetime")
           .eq("reservation_id", invoice.reservation_id)
           .maybeSingle<InvoiceDetailReservationRow>(),
         supabase
@@ -607,7 +608,7 @@ export default function AdminTransactionsPage() {
       const latestActiveReceipt = receiptRows.find((receipt) => receipt.is_active !== false && !receipt.archived_at) ?? null;
 
       const nights = reservationResult.data
-        ? calculateNights(reservationResult.data.check_in_date, reservationResult.data.check_out_date)
+        ? calculateNights(reservationResult.data.start_datetime, reservationResult.data.end_datetime)
         : 0;
 
       const unitRows = (reservationUnitsResult.data as InvoiceDetailReservationUnitRow[] | null) ?? [];
@@ -706,7 +707,9 @@ export default function AdminTransactionsPage() {
         await Promise.all([
           supabase
             .from("reservations")
-            .select("reservation_id, guest_id, reference_number, booking_type, status, check_in_date, check_out_date")
+            .select(
+              "reservation_id, guest_id, walk_in_guest_id, reference_number, booking_type, status, start_datetime, end_datetime"
+            )
             .eq("reservation_id", paymentRecord.reservation_id)
             .maybeSingle<ReceiptDetailReservationRow>(),
           supabase
@@ -721,11 +724,21 @@ export default function AdminTransactionsPage() {
         return;
       }
 
-      const { data: guestRecord } = await supabase
-        .from("guests")
-        .select("first_name, last_name, email")
-        .eq("id", reservationRecord.guest_id)
-        .maybeSingle<ReceiptDetailGuestRow>();
+      const guestLookup = reservationRecord.guest_id
+        ? supabase
+            .from("guests")
+            .select("first_name, last_name, email")
+            .eq("id", reservationRecord.guest_id)
+            .maybeSingle<ReceiptDetailGuestRow>()
+        : reservationRecord.walk_in_guest_id
+          ? supabase
+              .from("walk_in_guests")
+              .select("first_name, last_name, email")
+              .eq("walk_in_guest_id", reservationRecord.walk_in_guest_id)
+              .maybeSingle<ReceiptDetailGuestRow>()
+          : Promise.resolve({ data: null, error: null });
+
+      const { data: guestRecord } = await guestLookup;
 
       const receiptStatus =
         receiptRecord.is_active === false || receiptRecord.archived_at ? "Archived" : "Active";
@@ -744,8 +757,8 @@ export default function AdminTransactionsPage() {
           { label: "Guest Email", value: guestRecord?.email ?? "-" },
           { label: "Booking Type", value: toTitleCase(reservationRecord.booking_type ?? "online") },
           { label: "Reservation Status", value: toTitleCase(reservationRecord.status ?? "pending") },
-          { label: "Check-in", value: formatDate(reservationRecord.check_in_date) },
-          { label: "Check-out", value: formatDate(reservationRecord.check_out_date) },
+          { label: "Check-in", value: formatDate(reservationRecord.start_datetime) },
+          { label: "Check-out", value: formatDate(reservationRecord.end_datetime) },
           { label: "Payment Ref", value: paymentRecord.reference_number ?? "-" },
           { label: "Payment Amount", value: formatCurrency(Number(paymentRecord.amount ?? 0)) },
           { label: "Payment Method", value: toTitleCase(paymentRecord.payment_method ?? "") },
@@ -904,10 +917,10 @@ export default function AdminTransactionsPage() {
                       Reservation Status: <span className="font-semibold text-neutral">{toTitleCase(invoiceDetails.reservation?.status ?? "pending")}</span>
                     </p>
                     <p>
-                      Check-in: <span className="font-semibold text-neutral">{invoiceDetails.reservation ? formatDate(invoiceDetails.reservation.check_in_date) : "-"}</span>
+                      Check-in: <span className="font-semibold text-neutral">{invoiceDetails.reservation ? formatDate(invoiceDetails.reservation.start_datetime) : "-"}</span>
                     </p>
                     <p>
-                      Check-out: <span className="font-semibold text-neutral">{invoiceDetails.reservation ? formatDate(invoiceDetails.reservation.check_out_date) : "-"}</span>
+                      Check-out: <span className="font-semibold text-neutral">{invoiceDetails.reservation ? formatDate(invoiceDetails.reservation.end_datetime) : "-"}</span>
                     </p>
                   </div>
                 </section>

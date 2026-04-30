@@ -2,12 +2,25 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
+import { createClient } from "@/lib/supabase/client";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+
+interface ReservationAvailabilityRow {
+  start_datetime: string;
+  end_datetime: string;
+  status: "pending" | "confirmed" | "cancelled" | "completed";
+}
+
+interface OcularAvailabilityRow {
+  scheduled_date: string;
+  time_slot: string;
+  status: "pending" | "confirmed" | "cancelled";
+}
 
 export default function Booking() {
   const router = useRouter();
@@ -27,6 +40,8 @@ export default function Booking() {
   const [visitScheduled, setVisitScheduled] = useState(false);
   const [ocularSubmitting, setOcularSubmitting] = useState(false);
   const [ocularError, setOcularError] = useState<string | null>(null);
+  const [bookedStayDateKeys, setBookedStayDateKeys] = useState<string[]>([]);
+  const [bookedOcularSlotsByDate, setBookedOcularSlotsByDate] = useState<Record<string, string[]>>({});
 
   const formatDateForStore = (date: Date) => {
     const year = date.getFullYear();
@@ -47,6 +62,98 @@ export default function Booking() {
     const parsed = new Date(year, month - 1, day);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   };
+
+  const toDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, "0");
+    const day = `${date.getDate()}`.padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const parseDateKey = (value: string) => {
+    const parts = value.split("-");
+    if (parts.length !== 3) return null;
+
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+
+    if (!year || !month || !day) return null;
+
+    const parsed = new Date(year, month - 1, day);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAvailability = async () => {
+      const supabase = createClient();
+
+      const [reservationsResult, ocularResult] = await Promise.all([
+        supabase
+          .from("reservations")
+          .select("start_datetime, end_datetime, status")
+          .in("status", ["pending", "confirmed"]),
+        supabase
+          .from("ocular_visits")
+          .select("scheduled_date, time_slot, status")
+          .in("status", ["pending", "confirmed"]),
+      ]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!reservationsResult.error) {
+        const bookedKeys = new Set<string>();
+
+        for (const row of (reservationsResult.data as ReservationAvailabilityRow[] | null) ?? []) {
+          const start = new Date(row.start_datetime);
+          const end = new Date(row.end_datetime);
+          if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+            continue;
+          }
+
+          const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+          const inclusiveEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+
+          while (cursor <= inclusiveEnd) {
+            bookedKeys.add(toDateKey(cursor));
+            cursor.setDate(cursor.getDate() + 1);
+          }
+        }
+
+        setBookedStayDateKeys(Array.from(bookedKeys));
+      }
+
+      if (!ocularResult.error) {
+        const slotMap: Record<string, string[]> = {};
+
+        for (const row of (ocularResult.data as OcularAvailabilityRow[] | null) ?? []) {
+          const parsedDate = parseDateKey(row.scheduled_date);
+          if (!parsedDate) {
+            continue;
+          }
+
+          const key = toDateKey(parsedDate);
+          if (!slotMap[key]) {
+            slotMap[key] = [];
+          }
+
+          slotMap[key].push(row.time_slot);
+        }
+
+        setBookedOcularSlotsByDate(slotMap);
+      }
+    };
+
+    void loadAvailability();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleContinueToReservation = () => {
     if (!selectedStayDate) {
@@ -126,14 +233,7 @@ export default function Booking() {
     return `${toLabel(start)} - ${toLabel(end)}`;
   };
 
-  // Sample booked dates (in real app, fetch from backend)
-  const bookedDates = [
-    new Date(2026, 2, 5), // March 5
-    new Date(2026, 2, 6), // March 6
-    new Date(2026, 2, 15), // March 15
-    new Date(2026, 2, 16), // March 16
-    new Date(2026, 2, 20), // March 20
-  ];
+  const bookedStayDateSet = useMemo(() => new Set(bookedStayDateKeys), [bookedStayDateKeys]);
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
@@ -144,12 +244,7 @@ export default function Booking() {
   };
 
   const isDateBooked = (date: Date) => {
-    return bookedDates.some(
-      (bookedDate) =>
-        bookedDate.getDate() === date.getDate() &&
-        bookedDate.getMonth() === date.getMonth() &&
-        bookedDate.getFullYear() === date.getFullYear()
-    );
+    return bookedStayDateSet.has(toDateKey(date));
   };
 
   const isDateSelected = (date: Date) => {
@@ -162,6 +257,7 @@ export default function Booking() {
       const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
       if (!isPast) {
         setSelectedDate(date);
+        setSelectedTime("");
       }
     } else {
       if (isDateBooked(date)) return;
@@ -240,6 +336,10 @@ export default function Booking() {
 
   const { days, firstDay } = getDaysInMonth(currentMonth);
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const selectedOcularDateKey = selectedDate ? toDateKey(selectedDate) : "";
+  const bookedSlotsForSelectedDate = selectedOcularDateKey
+    ? bookedOcularSlotsByDate[selectedOcularDateKey] ?? []
+    : [];
 
   // Success screen for ocular visit
   if (visitScheduled) {
@@ -637,18 +737,31 @@ export default function Booking() {
                     <h3 className="text-xl font-semibold text-neutral mb-4">Available Times</h3>
                     <div className="grid grid-cols-4 gap-3">
                       {availableTimes.map((time) => (
+                        (() => {
+                          const isBookedSlot = bookedSlotsForSelectedDate.includes(time);
+                          return (
                         <button
                           key={time}
                           type="button"
                           onClick={() => setSelectedTime(time)}
+                          disabled={isBookedSlot}
                           className={`py-3 rounded-lg font-medium transition-all
-                            ${selectedTime === time ? "bg-accent text-base" : "bg-neutral/5 text-neutral hover:bg-accent/10"}
+                            ${isBookedSlot ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
+                            ${selectedTime === time && !isBookedSlot ? "bg-accent text-base" : ""}
+                            ${!isBookedSlot && selectedTime !== time ? "bg-neutral/5 text-neutral hover:bg-accent/10" : ""}
                           `}
                         >
                           {formatTimeSlot(time)}
                         </button>
+                          );
+                        })()
                       ))}
                     </div>
+                    {bookedSlotsForSelectedDate.length > 0 ? (
+                      <p className="mt-3 text-xs text-neutral/60">
+                        Unavailable slots are already reserved for this date.
+                      </p>
+                    ) : null}
                   </div>
                 )}
               </div>

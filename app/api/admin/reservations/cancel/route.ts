@@ -17,7 +17,8 @@ interface CancelReservationPayload {
 
 interface ReservationRow {
   reservation_id: string;
-  guest_id: string;
+  guest_id: string | null;
+  walk_in_guest_id?: string | null;
   reference_number: string;
   check_in_date: string;
   check_out_date: string;
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, check_in_date, check_out_date, status")
+      .select("reservation_id, guest_id, walk_in_guest_id, reference_number, check_in_date, check_out_date, status")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -169,11 +170,21 @@ export async function POST(request: Request) {
 
     let emailSent = false;
 
-    const { data: guest, error: guestLookupError } = await staffContext.supabase
-      .from("guests")
-      .select("email, first_name, last_name")
-      .eq("id", reservation.guest_id)
-      .maybeSingle<GuestEmailRow>();
+    const guestLookup = reservation.guest_id
+      ? staffContext.supabase
+          .from("guests")
+          .select("email, first_name, last_name")
+          .eq("id", reservation.guest_id)
+          .maybeSingle<GuestEmailRow>()
+      : reservation.walk_in_guest_id
+        ? staffContext.supabase
+            .from("walk_in_guests")
+            .select("email, first_name, last_name")
+            .eq("walk_in_guest_id", reservation.walk_in_guest_id)
+            .maybeSingle<GuestEmailRow>()
+        : Promise.resolve({ data: null, error: null });
+
+    const { data: guest, error: guestLookupError } = await guestLookup;
 
     if (guestLookupError) {
       console.error("Failed to read guest email for cancellation notice.", guestLookupError);

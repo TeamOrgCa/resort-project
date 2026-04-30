@@ -921,17 +921,24 @@ export default function ManageBooking() {
                                     setCancelError("This reservation is already cancelled.");
                                     return;
                                   }
-
-                                  if (getDaysBeforeCheckIn(record.checkIn) < 2) {
-                                    setCancelError("Cancellation is only allowed at least 2 days before check-in.");
-                                    return;
-                                  }
+                                  // i commented this
+                                  // if (getDaysBeforeCheckIn(record.checkIn) < 2) {
+                                  //   setCancelError("Cancellation is only allowed at least 2 days before check-in.");
+                                  //   return;
+                                  // }
 
                                   setPendingCancellation({
                                     id: record.id,
                                     reference: record.reference,
                                     checkIn: record.checkIn,
                                   });
+                                  
+                                  console.log("Pending cancellation set:", {
+                                    id: record.id,
+                                    reference: record.reference,
+                                    checkIn: record.checkIn,
+                                  });
+                                  
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
