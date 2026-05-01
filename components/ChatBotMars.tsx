@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 type ChatMessage = {
@@ -160,8 +161,14 @@ export default function ChatBotMars() {
         className="group flex items-center gap-3 rounded-full bg-linear-to-r from-primary via-secondary to-accent px-5 py-4 text-base shadow-[0_18px_40px_rgba(0,0,0,0.28)] transition-transform hover:scale-[1.03]"
         aria-label="Open ChatBot Mars"
       >
-        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-base/15 text-xl font-black text-base">
-          M
+        <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-base/20 bg-base/90">
+          <Image
+            src="/chatbot-icon/mars_chatbot.png"
+            alt="ChatBot Mars avatar"
+            width={44}
+            height={44}
+            className="h-full w-full object-cover"
+          />
         </span>
         <span className="text-left">
           <span className="block text-xs uppercase tracking-[0.22em] text-base/70">
