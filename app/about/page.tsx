@@ -99,8 +99,13 @@ export default function About() {
                 </div>
               </div>
             </div>
-            <div className="bg-neutral/10 rounded-2xl h-96 flex items-center justify-center">
-              <p className="text-neutral/50 text-center px-8">Map Integration Placeholder<br/>Google Maps or similar service</p>
+            <div className="bg-neutral/10 rounded-2xl h-96 overflow-hidden">
+              <iframe
+              src="https://www.google.com/maps?q=MarVille+Resort+Taytay+Rizal&output=embed"
+              title="MarVille Resort Location"
+              className="w-full h-full border-0"
+              loading="lazy"
+            ></iframe>
             </div>
           </div>
         </div>

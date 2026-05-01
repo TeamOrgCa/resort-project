@@ -825,7 +825,7 @@ export default function Booking() {
                     <div className="border-t border-neutral/10 pt-6 mb-6">
                       <h4 className="font-semibold text-neutral mb-3">Rate Information</h4>
                       <p className="text-sm text-neutral/70 mb-2">Starting from</p>
-                      <p className="text-3xl font-bold text-primary">₱16,450<span className="text-lg text-neutral/70">/night</span></p>
+                      <p className="text-3xl font-bold text-primary">₱7,500<span className="text-lg text-neutral/70">/night</span></p>
                       <p className="text-xs text-neutral/60 mt-2">*Final price may vary based on room type and amenities</p>
                     </div>
 

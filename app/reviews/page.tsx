@@ -2,20 +2,28 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+
+type ReviewItem = {
+  review_id: string;
+  guest_name: string;
+  overall_rating: number;
+  title: string;
+  review_text: string;
+  created_at: string;
+};
 
 export default function Reviews() {
   const [showForm, setShowForm] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [rating, setRating] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [hoverRating, setHoverRating] = useState(0);
+  const [existingReviews, setExistingReviews] = useState<ReviewItem[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
   const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    bookingRef: "",
-    stayDate: "",
     overallRating: 0,
     cleanlinessRating: 0,
     serviceRating: 0,
@@ -24,51 +32,108 @@ export default function Reviews() {
     title: "",
     review: "",
     wouldRecommend: true,
+    reservationId: "",
   });
 
-  // Mock existing reviews
-  const existingReviews = [
-    {
-      id: 1,
-      name: "Sarah Johnson",
-      rating: 5,
-      date: "February 15, 2026",
-      title: "Absolutely Paradise!",
-      review: "Our stay at MarVille Resort exceeded all expectations. The ocean view from our room was breathtaking, and the staff went above and beyond to make our anniversary special. The spa treatments were divine, and the beachfront dinners were unforgettable. We can't wait to return!",
-      verified: true,
-    },
-    {
-      id: 2,
-      name: "Michael Chen",
-      rating: 5,
-      date: "February 10, 2026",
-      title: "Perfect Family Vacation",
-      review: "We brought our kids here for spring break and it was the best decision ever. The resort has activities for all ages, the pools were pristine, and the kids' club was fantastic. The room was spacious and clean. Highly recommend for families!",
-      verified: true,
-    },
-    {
-      id: 3,
-      name: "Emma Rodriguez",
-      rating: 4,
-      date: "January 28, 2026",
-      title: "Beautiful Resort with Great Amenities",
-      review: "The resort is stunning and well-maintained. We particularly enjoyed the water sports and the evening entertainment. The only minor issue was the wait time at the main restaurant during peak hours, but it was worth it. Overall, a wonderful experience!",
-      verified: true,
-    },
-    {
-      id: 4,
-      name: "David Thompson",
-      rating: 5,
-      date: "January 20, 2026",
-      title: "Dream Honeymoon Destination",
-      review: "MarVille Resort made our honeymoon magical. From the moment we arrived, we felt pampered and special. The beach villa was luxurious, the sunset views were incredible, and the romantic dinners were perfectly arranged. Thank you for making our trip unforgettable!",
-      verified: true,
-    },
-  ];
+  // Fetch reviews on mount
+  useEffect(() => {
+    const fetchReviews = async () => {
+      try {
+        setReviewsLoading(true);
+        const response = await fetch("/api/reviews?limit=20&offset=0");
+        if (response.ok) {
+          const data = await response.json();
+          setExistingReviews(data.reviews || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch reviews:", err);
+      } finally {
+        setReviewsLoading(false);
+      }
+    };
 
-  const handleSubmit = (e: React.FormEvent) => {
+    fetchReviews();
+  }, []);
+
+  const ratingSummary = useMemo(() => {
+    const total = existingReviews.length;
+    const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+    if (total === 0) {
+      return {
+        average: 0,
+        total,
+        distribution: [5, 4, 3, 2, 1].map((stars) => ({
+          stars,
+          percentage: 0,
+        })),
+      };
+    }
+
+    let sum = 0;
+
+    for (const review of existingReviews) {
+      const normalized = Math.min(
+        5,
+        Math.max(1, Math.round(Number(review.overall_rating) || 0))
+      ) as 1 | 2 | 3 | 4 | 5;
+
+      counts[normalized] += 1;
+      sum += normalized;
+    }
+
+    return {
+      average: Math.round((sum / total) * 10) / 10,
+      total,
+      distribution: [5, 4, 3, 2, 1].map((stars) => ({
+        stars,
+        percentage: Math.round((counts[stars as 1 | 2 | 3 | 4 | 5] / total) * 1000) / 10,
+      })),
+    };
+  }, [existingReviews]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/reviews/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          overall_rating: formData.overallRating,
+          cleanliness_rating: formData.cleanlinessRating || null,
+          service_rating: formData.serviceRating || null,
+          amenities_rating: formData.amenitiesRating || null,
+          value_rating: formData.valueRating || null,
+          title: formData.title,
+          review_text: formData.review,
+          would_recommend: formData.wouldRecommend,
+          reservation_id: formData.reservationId || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.error || "Failed to submit review. Please try again."
+        );
+      }
+
+      setSubmitted(true);
+      setShowForm(false);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An error occurred. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const StarRating = ({ value, onChange, readonly = false }: { value: number; onChange?: (rating: number) => void; readonly?: boolean }) => {
@@ -153,21 +218,22 @@ export default function Reviews() {
         <div className="max-w-6xl mx-auto">
           <div className="grid md:grid-cols-3 gap-8 items-center">
             <div className="text-center">
-              <div className="text-6xl font-bold text-primary mb-2">4.9</div>
-              <div className="flex justify-center mb-2">
-                <StarRating value={5} readonly />
+              <div className="text-6xl font-bold text-primary mb-2">
+                {ratingSummary.average.toFixed(1)}
               </div>
-              <p className="text-neutral/70">Based on 156 reviews</p>
+              <div className="flex justify-center mb-2">
+                <StarRating
+                  value={Math.round(ratingSummary.average)}
+                  readonly
+                />
+              </div>
+              <p className="text-neutral/70">
+                Based on {ratingSummary.total} review{ratingSummary.total === 1 ? "" : "s"}
+              </p>
             </div>
             
             <div className="md:col-span-2 space-y-3">
-              {[
-                { stars: 5, percentage: 92 },
-                { stars: 4, percentage: 6 },
-                { stars: 3, percentage: 1 },
-                { stars: 2, percentage: 0.5 },
-                { stars: 1, percentage: 0.5 },
-              ].map((item) => (
+              {ratingSummary.distribution.map((item) => (
                 <div key={item.stars} className="flex items-center gap-4">
                   <span className="text-sm text-neutral/70 w-12">{item.stars} stars</span>
                   <div className="flex-1 bg-neutral/10 rounded-full h-3">
@@ -210,56 +276,14 @@ export default function Reviews() {
                 </button>
               </div>
 
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
+                  {error}
+                </div>
+              )}
+
               <form onSubmit={handleSubmit}>
                 <div className="space-y-6">
-                  {/* Personal Information */}
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Full Name *</label>
-                      <input
-                        type="text"
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Email Address *</label>
-                      <input
-                        type="email"
-                        value={formData.email}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Booking Reference *</label>
-                      <input
-                        type="text"
-                        value={formData.bookingRef}
-                        onChange={(e) => setFormData({ ...formData, bookingRef: e.target.value })}
-                        placeholder="SR-XXXXXXXX"
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Date of Stay *</label>
-                      <input
-                        type="date"
-                        value={formData.stayDate}
-                        onChange={(e) => setFormData({ ...formData, stayDate: e.target.value })}
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                        required
-                      />
-                    </div>
-                  </div>
-
                   {/* Overall Rating */}
                   <div>
                     <label className="block text-sm font-medium text-neutral/70 mb-3">Overall Rating *</label>
@@ -357,6 +381,18 @@ export default function Reviews() {
                     <p className="text-xs text-neutral/60 mt-2">Minimum 50 characters</p>
                   </div>
 
+                  {/* Optional Reservation ID */}
+                  <div>
+                    <label className="block text-sm font-medium text-neutral/70 mb-2">Reservation ID (Optional)</label>
+                    <input
+                      type="text"
+                      value={formData.reservationId}
+                      onChange={(e) => setFormData({ ...formData, reservationId: e.target.value })}
+                      placeholder="Link this review to a specific reservation"
+                      className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
+                    />
+                  </div>
+
                   {/* Would Recommend */}
                   <div>
                     <label className="flex items-center gap-3 cursor-pointer">
@@ -375,15 +411,17 @@ export default function Reviews() {
                   <button
                     type="button"
                     onClick={() => setShowForm(false)}
-                    className="flex-1 bg-neutral/10 text-neutral px-6 py-4 rounded-full font-semibold hover:bg-neutral/20 transition-colors"
+                    disabled={loading}
+                    className="flex-1 bg-neutral/10 text-neutral px-6 py-4 rounded-full font-semibold hover:bg-neutral/20 transition-colors disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105"
+                    disabled={loading}
+                    className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:scale-100"
                   >
-                    Submit Review
+                    {loading ? "Submitting..." : "Submit Review"}
                   </button>
                 </div>
               </form>
@@ -392,36 +430,44 @@ export default function Reviews() {
 
           {/* Existing Reviews */}
           <div className="space-y-6">
-            {existingReviews.map((review) => (
-              <div key={review.id} className="bg-white rounded-3xl shadow-lg p-8">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center font-bold text-primary">
-                        {review.name.charAt(0)}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-neutral">{review.name}</p>
-                        {review.verified && (
-                          <p className="text-xs text-secondary flex items-center gap-1">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            Verified Stay
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <StarRating value={review.rating} readonly />
-                    </div>
-                    <p className="text-sm text-neutral/60">{review.date}</p>
-                  </div>
-                </div>
-                <h3 className="text-xl font-bold text-neutral mb-3">{review.title}</h3>
-                <p className="text-neutral/80 leading-relaxed">{review.review}</p>
+            {reviewsLoading ? (
+              <div className="text-center py-12">
+                <p className="text-neutral/70">Loading reviews...</p>
               </div>
-            ))}
+            ) : existingReviews.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-neutral/70">No reviews yet. Be the first to share your experience!</p>
+              </div>
+            ) : (
+              existingReviews.map((review) => (
+                <div key={review.review_id} className="bg-white rounded-3xl shadow-lg p-8">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center font-bold text-primary">
+                          {(review.guest_name || "Verified Guest").charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-neutral">{review.guest_name || "Verified Guest"}</p>
+                          <div className="flex items-center gap-2">
+                            <StarRating value={review.overall_rating} readonly />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-sm text-neutral/60">
+                        {new Date(review.created_at).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <h3 className="text-xl font-bold text-neutral mb-3">{review.title}</h3>
+                  <p className="text-neutral/80 leading-relaxed">{review.review_text}</p>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </section>
