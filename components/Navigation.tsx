@@ -20,7 +20,7 @@ export default function Navigation() {
           </Link>
           
           {/* Desktop Navigation */}
-          <div className="hidden md:flex space-x-8">
+          <div className="hidden min-[821px]:flex space-x-8">
             <Link href="/about" className="text-neutral hover:text-primary transition-colors">About</Link>
             <Link href="/booking" className="text-neutral hover:text-primary transition-colors">Book Now</Link>
             <Link href="/manage" className="text-neutral hover:text-primary transition-colors">Manage Booking</Link>
@@ -28,14 +28,14 @@ export default function Navigation() {
           </div>
           
           {/* Desktop User Menu / Auth */}
-          <div className="hidden md:block">
+          <div className="hidden min-[821px]:block">
             <UserMenu />
           </div>
 
           {/* Mobile Hamburger Menu */}
           <button
             onClick={toggleMenu}
-            className="md:hidden text-neutral p-2 hover:bg-neutral/10 rounded-lg transition-colors"
+            className="min-[821px]:hidden text-neutral p-2 hover:bg-neutral/10 rounded-lg transition-colors"
             aria-label="Toggle menu"
           >
             {isMenuOpen ? (
@@ -54,7 +54,7 @@ export default function Navigation() {
 
         {/* Mobile Menu Dropdown */}
         {isMenuOpen && (
-          <div className="md:hidden pb-6 pt-2 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="min-[821px]:hidden pb-6 pt-2 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
             <Link 
               href="/about" 
               className="block text-neutral hover:text-primary hover:bg-primary/5 px-4 py-3 rounded-lg transition-colors"

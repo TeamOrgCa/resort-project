@@ -3,6 +3,7 @@ import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import ChatBotMars from "@/components/ChatBotMars";
+import HeroCarousel from "@/components/HeroCarousel";
 
 export default function Home() {
   return (
@@ -10,42 +11,7 @@ export default function Home() {
       <Navigation />
 
       {/* Hero Section */}
-      <section className="relative h-screen flex items-center justify-center overflow-hidden">
-        <Image 
-          src="/website_cover.jpg" 
-          alt="Resort Cover" 
-          fill 
-          className="object-cover" 
-          priority
-        />
-        <div className="absolute inset-0 bg-linear-to-b from-neutral/50 via-neutral/30 to-neutral/60"></div>
-        <div className="relative z-10 text-center px-4 max-w-5xl mx-auto">
-          
-          <h1 className="text-6xl md:text-8xl font-bold text-white mb-6 leading-tight">
-            Where the sun<br />never sets
-          </h1>
-          <p className="text-xl md:text-2xl text-white/80 mb-12 max-w-2xl mx-auto">
-            Experience endless luxury and breathtaking moments at our exclusive beachfront resort
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/booking">
-              <button className="bg-primary text-base px-8 py-4 rounded-full text-lg font-semibold hover:bg-primary/90 transition-all transform hover:scale-105">
-                Explore Our Rooms
-              </button>
-            </Link>
-            <Link href="/about">
-              <button className="bg-accent text-base px-8 py-4 rounded-full text-lg font-semibold hover:bg-accent/90 transition-all transform hover:scale-105">
-                Learn More
-              </button>
-            </Link>
-          </div>
-        </div>
-        <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 animate-bounce">
-          <svg className="w-6 h-6 text-neutral/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
-      </section>
+      <HeroCarousel />
 
       {/* About Section */}
       <section id="about" className="py-24 px-4 bg-base">
