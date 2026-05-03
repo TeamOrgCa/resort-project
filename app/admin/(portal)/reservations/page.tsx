@@ -13,6 +13,7 @@ import {
   type BookingMode,
   type WholeDayVariant,
 } from "@/lib/booking/policy";
+import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import {
   manualEntryColumns,
@@ -2499,7 +2500,7 @@ export default function AdminReservationsPage() {
                     <option value="day">Day</option>
                     <option value="night">Night</option>
                     <option value="whole_day">Whole Day</option>
-                    <option value="custom">Custom</option>
+                    {ENABLE_CUSTOM_BOOKING ? <option value="custom">Custom</option> : null}
                   </select>
                 </div>
 

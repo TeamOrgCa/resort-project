@@ -62,9 +62,6 @@ export default function Payment() {
 
 function PaymentContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
-  const [payOption, setPayOption] = useState<"downpayment" | "full">(
-    bookingDraft.reservationId ? "full" : "downpayment"
-  );
   const [paymentMethod, setPaymentMethod] = useState<"bank" | "ewallet">("bank");
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -179,7 +176,14 @@ function PaymentContent() {
   const unitId = bookingDraft.unitId || "";
   const reservationId = bookingDraft.reservationId || "";
   const reservationReferenceFromDraft = bookingDraft.reservationReference || "";
-  const isBalancePayment = Boolean(reservationId);
+  const isBalancePayment = Boolean(reservationId && unitId === "balance-payment");
+  const [payOption, setPayOption] = useState<"downpayment" | "full">("downpayment");
+
+  useEffect(() => {
+    if (isBalancePayment) {
+      setPayOption("full");
+    }
+  }, [isBalancePayment]);
 
   const roomName = bookingDraft.roomName || "Selected Room";
   const roomPrice = bookingDraft.roomPrice || 0;

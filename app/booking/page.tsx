@@ -9,6 +9,7 @@ import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { createClient } from "@/lib/supabase/client";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
 
 interface ReservationAvailabilityRow {
   start_datetime: string;
@@ -25,6 +26,7 @@ interface OcularAvailabilityRow {
 export default function Booking() {
   const router = useRouter();
   const setBookingWindow = useBookingStore((state) => state.setBookingWindow);
+  const clearReservationMetadata = useBookingStore((state) => state.clearReservationMetadata);
   const [bookingType, setBookingType] = useState<"stay" | "ocular">("stay");
   const [bookingMode, setBookingMode] = useState<BookingMode>("day");
   const [wholeDayVariant, setWholeDayVariant] = useState<WholeDayVariant>("day_to_night");
@@ -200,6 +202,7 @@ export default function Booking() {
     }
 
     setStayError(null);
+    clearReservationMetadata();
     setBookingWindow(bookingMode, generatedWindow.startDatetime, generatedWindow.endDatetime, {
       wholeDayVariant,
       customStartTime,
@@ -501,32 +504,39 @@ export default function Booking() {
             <div className="bg-primary/5 p-6 rounded-2xl mb-8">
               <h3 className="font-bold text-neutral mb-4">Select Booking Mode</h3>
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-                {[
-                  { value: "day", label: "Day", subtitle: "8:00 AM - 4:00 PM" },
-                  { value: "night", label: "Night", subtitle: "6:00 PM - 6:00 AM" },
-                  { value: "whole_day", label: "Whole-Day", subtitle: "22-hour package" },
-                  { value: "custom", label: "Custom", subtitle: "8:00 AM - 10:00 PM" },
-                ].map((mode) => (
-                  <button
-                    key={mode.value}
-                    type="button"
-                    onClick={() => {
-                      setBookingMode(mode.value as BookingMode);
-                      if (mode.value === "custom" && selectedStayDate && !customEndDate) {
-                        setCustomEndDate(formatDateForStore(selectedStayDate));
-                      }
-                      setStayError(null);
-                    }}
-                    className={`rounded-xl border px-4 py-3 text-left transition-colors ${
-                      bookingMode === mode.value
-                        ? "border-primary bg-white"
-                        : "border-neutral/20 bg-white/60 hover:border-primary/40"
-                    }`}
-                  >
-                    <p className="font-semibold text-neutral">{mode.label}</p>
-                    <p className="text-xs text-neutral/70">{mode.subtitle}</p>
-                  </button>
-                ))}
+                {(() => {
+                  const modes: { value: BookingMode; label: string; subtitle: string }[] = [
+                    { value: "day", label: "Day", subtitle: "8:00 AM - 4:00 PM" },
+                    { value: "night", label: "Night", subtitle: "6:00 PM - 6:00 AM" },
+                    { value: "whole_day", label: "Whole-Day", subtitle: "22-hour package" },
+                  ];
+
+                  if (ENABLE_CUSTOM_BOOKING) {
+                    modes.push({ value: "custom", label: "Custom", subtitle: "8:00 AM - 10:00 PM" });
+                  }
+
+                  return modes.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      onClick={() => {
+                        setBookingMode(mode.value as BookingMode);
+                        if (mode.value === "custom" && selectedStayDate && !customEndDate) {
+                          setCustomEndDate(formatDateForStore(selectedStayDate));
+                        }
+                        setStayError(null);
+                      }}
+                      className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                        bookingMode === mode.value
+                          ? "border-primary bg-white"
+                          : "border-neutral/20 bg-white/60 hover:border-primary/40"
+                      }`}
+                    >
+                      <p className="font-semibold text-neutral">{mode.label}</p>
+                      <p className="text-xs text-neutral/70">{mode.subtitle}</p>
+                    </button>
+                  ));
+                })()}
               </div>
 
               {bookingMode === "whole_day" && (

@@ -55,6 +55,7 @@ interface BookingStoreState {
     }
   ) => void;
   setBookingDraft: (draft: Partial<BookingDraft>) => void;
+  clearReservationMetadata: () => void;
   resetBookingDraft: () => void;
 }
 
@@ -123,6 +124,14 @@ export const useBookingStore = create<BookingStoreState>()(
           bookingDraft: {
             ...state.bookingDraft,
             ...draft,
+          },
+        })),
+      clearReservationMetadata: () =>
+        set((state) => ({
+          bookingDraft: {
+            ...state.bookingDraft,
+            reservationId: "",
+            reservationReference: "",
           },
         })),
       resetBookingDraft: () =>
