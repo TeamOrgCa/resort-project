@@ -20,8 +20,8 @@ interface ReservationRow {
   guest_id: string | null;
   walk_in_guest_id?: string | null;
   reference_number: string;
-  check_in_date: string;
-  check_out_date: string;
+  start_datetime: string;
+  end_datetime: string;
   status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
 }
 
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
-      .select("reservation_id, guest_id, walk_in_guest_id, reference_number, check_in_date, check_out_date, status")
+      .select("reservation_id, guest_id, walk_in_guest_id, reference_number, start_datetime, end_datetime, status")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -193,8 +193,8 @@ export async function POST(request: Request) {
         guestEmail: guest.email,
         guestName: `${guest.first_name ?? ""} ${guest.last_name ?? ""}`.replace(/\s+/g, " ").trim() || "Guest",
         reservationReference: reservation.reference_number,
-        checkInDate: reservation.check_in_date,
-        checkOutDate: reservation.check_out_date,
+        checkInDate: reservation.start_datetime,
+        checkOutDate: reservation.end_datetime,
         cancellationReason: payload.cancellationReason,
       });
     }

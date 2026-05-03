@@ -69,6 +69,8 @@ function PaymentContent() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [uploadedProofPath, setUploadedProofPath] = useState<string | null>(null);
   const [reservationReference, setReservationReference] = useState<string | null>(null);
+  const [hasPendingPayment, setHasPendingPayment] = useState(false);
+  const [isCheckingPendingPayment, setIsCheckingPendingPayment] = useState(false);
   const [submittedSummary, setSubmittedSummary] = useState<{
     guestName: string;
     adultCount: number;
@@ -178,12 +180,44 @@ function PaymentContent() {
   const reservationReferenceFromDraft = bookingDraft.reservationReference || "";
   const isBalancePayment = Boolean(reservationId && unitId === "balance-payment");
   const [payOption, setPayOption] = useState<"downpayment" | "full">("downpayment");
+  const paidAmount = bookingDraft.paidAmount || 0;
 
   useEffect(() => {
     if (isBalancePayment) {
       setPayOption("full");
     }
   }, [isBalancePayment]);
+
+  // Check for pending payments when component mounts or reservation changes
+  useEffect(() => {
+    if (!reservationId || !isBalancePayment) {
+      setHasPendingPayment(false);
+      return;
+    }
+
+    const checkPendingPayment = async () => {
+      setIsCheckingPendingPayment(true);
+      try {
+        const supabase = createClient();
+        const { data: pendingPayment } = await supabase
+          .from("payments")
+          .select("payment_id")
+          .eq("reservation_id", reservationId)
+          .eq("status", "pending")
+          .limit(1)
+          .maybeSingle();
+
+        setHasPendingPayment(Boolean(pendingPayment));
+      } catch (err) {
+        console.error("Failed to check pending payments:", err);
+        setHasPendingPayment(false);
+      } finally {
+        setIsCheckingPendingPayment(false);
+      }
+    };
+
+    checkPendingPayment();
+  }, [reservationId, isBalancePayment]);
 
   const roomName = bookingDraft.roomName || "Selected Room";
   const roomPrice = bookingDraft.roomPrice || 0;
@@ -214,6 +248,11 @@ function PaymentContent() {
 
     if (!acceptedTerms) {
       setSubmitError("Please agree to the Terms and Conditions before confirming payment.");
+      return;
+    }
+
+    if (hasPendingPayment) {
+      setSubmitError("You have a payment pending approval. Please wait for it to be reviewed before submitting another payment.");
       return;
     }
 
@@ -581,12 +620,49 @@ function PaymentContent() {
                 </div>
 
                 <form onSubmit={handlePaymentSubmit}>
+                  {hasPendingPayment && (
+                    <div className="mb-6 rounded-lg border border-highlight/40 bg-highlight/10 px-4 py-3 text-sm text-neutral">
+                      You have a payment pending approval. Please wait for it to be reviewed before submitting another payment.
+                    </div>
+                  )}
+
                   {isBalancePayment ? (
                     <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4">
                       <h3 className="text-lg font-semibold text-neutral mb-2">Remaining Balance Payment</h3>
                       <p className="text-sm text-neutral/70">
                         This portal is locked to the outstanding balance for your selected reservation.
                       </p>
+                      {paidAmount === 0 && !hasPendingPayment && (
+                        <div className="mt-3 rounded-lg border border-neutral/10 bg-white p-3">
+                          <p className="text-xs font-medium text-neutral/70 mb-2">Choose Amount To Pay</p>
+                          <div className="grid md:grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setPayOption("downpayment")}
+                              className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                                payOption === "downpayment"
+                                  ? "border-primary bg-primary/5"
+                                  : "border-neutral/20 bg-white hover:border-primary/50"
+                              }`}
+                            >
+                              <p className="font-semibold text-neutral">20% Down Payment</p>
+                              <p className="text-neutral/70">₱{(totalAmount * 0.2).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPayOption("full")}
+                              className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                                payOption === "full"
+                                  ? "border-primary bg-primary/5"
+                                  : "border-neutral/20 bg-white hover:border-primary/50"
+                              }`}
+                            >
+                              <p className="font-semibold text-neutral">Full Balance</p>
+                              <p className="text-neutral/70">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-4 flex items-center justify-between rounded-lg bg-white px-4 py-3">
                         <span className="font-semibold text-neutral">Amount due now</span>
                         <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>

@@ -41,6 +41,22 @@ const formatDateLabel = (value?: string | null) => {
   });
 };
 
+const formatDateTimeLabel = (value?: string | null) => {
+  if (!value) return "TBA";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("en-PH", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true, // set to false if you want 24-hour format
+  });
+};
+
 const createTransporter = () => {
   const user = process.env.EMAIL_USER;
   const pass = process.env.EMAIL_PASS;
@@ -109,8 +125,8 @@ export const sendReservationConfirmedEmail = async ({
 }: ReservationEmailBase) => {
   const safeName = escapeHtml(guestName || "Guest");
   const safeReference = escapeHtml(reservationReference);
-  const formattedCheckIn = formatDateLabel(checkInDate);
-  const formattedCheckOut = formatDateLabel(checkOutDate);
+  const formattedCheckIn = formatDateTimeLabel(checkInDate);
+  const formattedCheckOut = formatDateTimeLabel(checkOutDate);
   const safeCheckIn = escapeHtml(formattedCheckIn);
   const safeCheckOut = escapeHtml(formattedCheckOut);
 

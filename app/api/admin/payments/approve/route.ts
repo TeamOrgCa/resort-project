@@ -18,8 +18,8 @@ interface ReservationRow {
   guest_id: string | null;
   walk_in_guest_id?: string | null;
   reference_number: string;
-  check_in_date: string;
-  check_out_date: string;
+  start_datetime: string;
+  end_datetime: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
@@ -314,8 +314,8 @@ export async function POST(request: Request) {
         guestEmail: guest.email,
         guestName: `${guest.first_name ?? ""} ${guest.last_name ?? ""}`.replace(/\s+/g, " ").trim() || "Guest",
         reservationReference: reservation.reference_number,
-        checkInDate: reservation.check_in_date,
-        checkOutDate: reservation.check_out_date,
+        checkInDate: reservation.start_datetime,
+        checkOutDate: reservation.end_datetime,
       });
     }
 

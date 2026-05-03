@@ -23,8 +23,8 @@ interface ReservationRow {
   reference_number: string;
   guest_id: string | null;
   walk_in_guest_id?: string | null;
-  check_in_date: string;
-  check_out_date: string;
+  start_datetime: string;
+  end_datetime: string;
   status: string;
 }
 
@@ -39,6 +39,21 @@ interface WalkInGuestRow {
   first_name: string;
   last_name: string;
 }
+
+const formatDateTime = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return date.toLocaleString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
 
 const formatDate = (value: string) => {
   const date = new Date(value);
@@ -65,8 +80,8 @@ export default async function AdminDashboardPage() {
 
   const { data: reservationsData } = await supabase
     .from("reservations")
-    .select("reservation_id, reference_number, guest_id, walk_in_guest_id, check_in_date, check_out_date, status")
-    .order("check_in_date", { ascending: true })
+    .select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, status")
+    .order("start_datetime", { ascending: true })
     .limit(20);
 
   const reservations = (reservationsData as ReservationRow[] | null) ?? [];
@@ -119,8 +134,8 @@ export default async function AdminDashboardPage() {
       id: reservation.reservation_id,
       reference: reservation.reference_number,
       guest: guestName,
-      checkIn: formatDate(reservation.check_in_date),
-      checkOut: formatDate(reservation.check_out_date),
+      checkIn: formatDateTime(reservation.start_datetime),
+      checkOut: formatDateTime(reservation.end_datetime),
       status: toTitleCase(reservation.status),
     };
   });

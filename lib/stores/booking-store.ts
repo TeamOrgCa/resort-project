@@ -33,6 +33,7 @@ export interface BookingDraft {
   tax: number;
   total: number;
   downPayment: number;
+  paidAmount?: number;
   services: BookingServiceItem[];
   specialRequests: string;
   reservationId: string;

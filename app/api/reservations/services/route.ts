@@ -22,8 +22,8 @@ interface ReservationRow {
   reservation_id: string;
   guest_id: string;
   status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
-  check_in_date: string;
-  check_out_date: string;
+  start_datetime: string;
+  end_datetime: string;
   adult_count: number;
   child_count: number;
 }
@@ -135,7 +135,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, status, check_in_date, check_out_date, adult_count, child_count")
+      .select("reservation_id, guest_id, status, start_datetime, end_datetime, adult_count, child_count")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -268,7 +268,7 @@ export async function POST(request: Request) {
     const nights = Math.max(
       1,
       Math.ceil(
-        (new Date(reservation.check_out_date).getTime() - new Date(reservation.check_in_date).getTime()) / DAY_MS
+        (new Date(reservation.end_datetime).getTime() - new Date(reservation.start_datetime).getTime()) / DAY_MS
       )
     );
 

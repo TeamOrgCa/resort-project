@@ -10,7 +10,7 @@ interface ReservationCancelRow {
   reservation_id: string;
   guest_id: string;
   reference_number: string;
-  check_in_date: string;
+  start_datetime: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
       );
     }
     // i commented this
-    // if (!hasTwoDayLeadTime(reservation.check_in_date)) {
+    // if (!hasTwoDayLeadTime(reservation.start_datetime)) {
     //   return NextResponse.json(
     //     {
     //       success: false,
