@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { adminNavigation } from "@/components/admin/content";
+import { createClient } from "@/lib/supabase/client";
 
 export default function AdminSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.replace("/admin/login");
+  };
 
   return (
     <div className="rounded-2xl border border-neutral/10 bg-white p-3 sm:p-4">
@@ -36,6 +44,14 @@ export default function AdminSidebar() {
           );
         })}
       </nav>
+
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="mt-4 w-full rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm font-semibold text-neutral hover:bg-base"
+      >
+        Log out
+      </button>
 
       <div className="mt-4 rounded-xl bg-base p-3 text-xs text-neutral/80 sm:text-sm">
         Static prototype UI. Connect each module to live data when backend endpoints are ready.

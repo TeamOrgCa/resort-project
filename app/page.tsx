@@ -2,6 +2,8 @@ import Image from "next/image";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import ChatBotMars from "@/components/ChatBotMars";
+import HeroCarousel from "@/components/HeroCarousel";
 
 export default function Home() {
   return (
@@ -9,42 +11,7 @@ export default function Home() {
       <Navigation />
 
       {/* Hero Section */}
-      <section className="relative h-screen flex items-center justify-center overflow-hidden">
-        <Image 
-          src="/website_cover.jpg" 
-          alt="Resort Cover" 
-          fill 
-          className="object-cover" 
-          priority
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-neutral/50 via-neutral/30 to-neutral/60"></div>
-        <div className="relative z-10 text-center px-4 max-w-5xl mx-auto">
-          
-          <h1 className="text-6xl md:text-8xl font-bold text-white mb-6 leading-tight">
-            Where the sun<br />never sets
-          </h1>
-          <p className="text-xl md:text-2xl text-white/80 mb-12 max-w-2xl mx-auto">
-            Experience endless luxury and breathtaking moments at our exclusive beachfront resort
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/booking">
-              <button className="bg-primary text-base px-8 py-4 rounded-full text-lg font-semibold hover:bg-primary/90 transition-all transform hover:scale-105">
-                Explore Our Rooms
-              </button>
-            </Link>
-            <Link href="/about">
-              <button className="bg-accent text-base px-8 py-4 rounded-full text-lg font-semibold hover:bg-accent/90 transition-all transform hover:scale-105">
-                Learn More
-              </button>
-            </Link>
-          </div>
-        </div>
-        <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 animate-bounce">
-          <svg className="w-6 h-6 text-neutral/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
-      </section>
+      <HeroCarousel />
 
       {/* About Section */}
       <section id="about" className="py-24 px-4 bg-base">
@@ -166,30 +133,30 @@ export default function Home() {
             <p className="text-xl text-neutral/70">Create moments that last forever</p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="relative h-80 bg-gradient-to-br from-primary/30 to-highlight/30 rounded-3xl overflow-hidden group cursor-pointer">
+            <div className="relative h-80 bg-linear-to-br from-primary/30 to-highlight/30 rounded-3xl overflow-hidden group cursor-pointer">
               <div className="absolute inset-0 bg-neutral/20 group-hover:bg-neutral/10 transition-colors"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-neutral/90 to-transparent">
+              <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-neutral/90 to-transparent">
                 <h3 className="text-3xl font-bold text-base mb-2">Sunset Sailing</h3>
                 <p className="text-base/90">Private yacht tours along the coast</p>
               </div>
             </div>
-            <div className="relative h-80 bg-gradient-to-br from-secondary/30 to-accent/30 rounded-3xl overflow-hidden group cursor-pointer">
+            <div className="relative h-80 bg-linear-to-br from-secondary/30 to-accent/30 rounded-3xl overflow-hidden group cursor-pointer">
               <div className="absolute inset-0 bg-neutral/20 group-hover:bg-neutral/10 transition-colors"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-neutral/90 to-transparent">
+              <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-neutral/90 to-transparent">
                 <h3 className="text-3xl font-bold text-base mb-2">Culinary Journey</h3>
                 <p className="text-base/90">Chef-led cooking classes and tastings</p>
               </div>
             </div>
-            <div className="relative h-80 bg-gradient-to-br from-accent/30 to-secondary/30 rounded-3xl overflow-hidden group cursor-pointer">
+            <div className="relative h-80 bg-linear-to-br from-accent/30 to-secondary/30 rounded-3xl overflow-hidden group cursor-pointer">
               <div className="absolute inset-0 bg-neutral/20 group-hover:bg-neutral/10 transition-colors"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-neutral/90 to-transparent">
+              <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-neutral/90 to-transparent">
                 <h3 className="text-3xl font-bold text-base mb-2">Island Adventures</h3>
                 <p className="text-base/90">Guided tours and eco-experiences</p>
               </div>
             </div>
-            <div className="relative h-80 bg-gradient-to-br from-highlight/30 to-primary/30 rounded-3xl overflow-hidden group cursor-pointer">
+            <div className="relative h-80 bg-linear-to-br from-highlight/30 to-primary/30 rounded-3xl overflow-hidden group cursor-pointer">
               <div className="absolute inset-0 bg-neutral/20 group-hover:bg-neutral/10 transition-colors"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-neutral/90 to-transparent">
+              <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-neutral/90 to-transparent">
                 <h3 className="text-3xl font-bold text-base mb-2">Wellness Retreats</h3>
                 <p className="text-base/90">Yoga, meditation, and mindfulness</p>
               </div>
@@ -199,7 +166,7 @@ export default function Home() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-24 px-4 bg-gradient-to-r from-primary to-primary/80">
+      <section className="py-24 px-4 bg-linear-to-r from-primary to-primary/80">
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-5xl font-bold text-base mb-6">Ready for Your Escape?</h2>
           <p className="text-xl text-base/90 mb-10">Book your dream vacation today and experience paradise like never before</p>
@@ -217,6 +184,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <ChatBotMars />
 
       <Footer />
     </div>

@@ -19,6 +19,7 @@ interface BookingRecord {
   endDatetime: string;
   checkIn: string;
   checkOut: string;
+  bookingMode: "day" | "night" | "whole_day" | "custom" | null;
   guests: number;
   totalAmount: number;
   paidAmount: number;
@@ -30,7 +31,6 @@ interface BookingRecord {
 
 interface RescheduleFormState {
   checkIn: string;
-  checkOut: string;
 }
 
 interface EditableReservationService {
@@ -121,6 +121,22 @@ const formatDate = (value: string) => {
   });
 };
 
+const formatDateTime = (value: string) => {
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+};
+
 const toTitleCase = (value: string) =>
   value
     .replace(/_/g, " ")
@@ -164,6 +180,19 @@ const toDateOnly = (value: string) => {
   const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
   const day = `${parsed.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+};
+
+const toDateTimeLocal = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  const year = parsed.getFullYear();
+  const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
+  const day = `${parsed.getDate()}`.padStart(2, "0");
+  const hours = `${parsed.getHours()}`.padStart(2, "0");
+  const minutes = `${parsed.getMinutes()}`.padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
 const withOriginalTime = (nextDate: string, sourceDateTime: string) => {
@@ -214,7 +243,6 @@ export default function ManageBooking() {
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
   const [rescheduleForm, setRescheduleForm] = useState<RescheduleFormState>({
     checkIn: "",
-    checkOut: "",
   });
   const [remainingPaymentMethod, setRemainingPaymentMethod] = useState<"bank" | "ewallet">("bank");
   const [remainingPaymentError, setRemainingPaymentError] = useState<string | null>(null);
@@ -265,6 +293,7 @@ export default function ManageBooking() {
       tax: 0,
       total: booking.remainingBalance,
       downPayment: booking.remainingBalance,
+      paidAmount: booking.paidAmount,
       firstName: "",
       lastName: "",
       email: booking.email,
@@ -437,15 +466,9 @@ export default function ManageBooking() {
     // }
 
     const nextCheckIn = parseDateValue(rescheduleForm.checkIn);
-    const nextCheckOut = parseDateValue(rescheduleForm.checkOut);
 
-    if (!nextCheckIn || !nextCheckOut) {
-      setRescheduleFormError("Please choose valid reschedule dates.");
-      return;
-    }
-
-    if (nextCheckOut.getTime() <= nextCheckIn.getTime()) {
-      setRescheduleFormError("Check-out must be after check-in.");
+    if (!nextCheckIn) {
+      setRescheduleFormError("Please choose a valid reschedule date.");
       return;
     }
 
@@ -453,19 +476,50 @@ export default function ManageBooking() {
     today.setHours(0, 0, 0, 0);
 
     if (nextCheckIn.getTime() < today.getTime()) {
-      setRescheduleFormError("Reschedule dates must be in the future.");
+      setRescheduleFormError("Reschedule date must be in the future.");
       return;
     }
 
-    if (nextCheckIn.getTime() === parseDateValue(selectedBooking.checkIn)?.getTime() && nextCheckOut.getTime() === parseDateValue(selectedBooking.checkOut)?.getTime()) {
-      setRescheduleFormError("Please choose different dates from the current reservation.");
+    if (nextCheckIn.getTime() === parseDateValue(selectedBooking.checkIn)?.getTime()) {
+      setRescheduleFormError("Please choose a different date from the current reservation.");
       return;
     }
+
+    // Extract the original start and end times, then apply to new date
+    const originalStart = new Date(selectedBooking.startDatetime);
+    const originalEnd = new Date(selectedBooking.endDatetime);
+    
+    if (Number.isNaN(originalStart.getTime()) || Number.isNaN(originalEnd.getTime())) {
+      setRescheduleFormError("Unable to determine original booking times.");
+      return;
+    }
+
+    const originalStartHour = originalStart.getHours();
+    const originalStartMinute = originalStart.getMinutes();
+    const originalStartSecond = originalStart.getSeconds();
+    
+    const originalEndHour = originalEnd.getHours();
+    const originalEndMinute = originalEnd.getMinutes();
+    const originalEndSecond = originalEnd.getSeconds();
+
+    // Calculate new end date based on whether end time is on same day or next day
+    const durationMs = originalEnd.getTime() - originalStart.getTime();
+    const daysInDuration = Math.floor(durationMs / (24 * 60 * 60 * 1000));
+    
+    const newStart = new Date(nextCheckIn);
+    newStart.setHours(originalStartHour, originalStartMinute, originalStartSecond);
+    
+    const newEnd = new Date(newStart);
+    newEnd.setTime(newStart.getTime() + durationMs);
 
     setRescheduleFormError(null);
     setIsSubmittingReschedule(true);
 
     try {
+      // Format dates for API
+      const newCheckInStr = toDateOnly(newStart.toISOString());
+      const newCheckOutStr = toDateOnly(newEnd.toISOString());
+
       const response = await fetch("/api/reservations/reschedule", {
         method: "POST",
         headers: {
@@ -473,10 +527,10 @@ export default function ManageBooking() {
         },
         body: JSON.stringify({
           reservationId: selectedBooking.id,
-          newCheckInDate: rescheduleForm.checkIn,
-          newCheckOutDate: rescheduleForm.checkOut,
-          newStartDatetime: withOriginalTime(rescheduleForm.checkIn, selectedBooking.startDatetime),
-          newEndDatetime: withOriginalTime(rescheduleForm.checkOut, selectedBooking.endDatetime),
+          newCheckInDate: newCheckInStr,
+          newCheckOutDate: newCheckOutStr,
+          newStartDatetime: newStart.toISOString(),
+          newEndDatetime: newEnd.toISOString(),
         }),
       });
 
@@ -616,8 +670,9 @@ export default function ManageBooking() {
           reference: reservation.reference_number,
           startDatetime: reservation.start_datetime,
           endDatetime: reservation.end_datetime,
-          checkIn: toDateOnly(reservation.start_datetime),
-          checkOut: toDateOnly(reservation.end_datetime),
+          checkIn: toDateTimeLocal(reservation.start_datetime),
+          checkOut: toDateTimeLocal(reservation.end_datetime),
+          bookingMode: reservation.booking_mode,
           guests: Number(reservation.adult_count ?? 0) + Number(reservation.child_count ?? 0),
           totalAmount: transactionByReservationId[reservation.reservation_id]?.total ?? 0,
           paidAmount: transactionByReservationId[reservation.reservation_id]?.paid ?? 0,
@@ -824,8 +879,8 @@ export default function ManageBooking() {
                       {bookings.map((record) => (
                         <tr key={record.id} className="border-b border-neutral/10 last:border-none">
                           <td className="px-4 py-3 font-semibold text-neutral">{record.reference}</td>
-                          <td className="px-4 py-3 text-neutral/80">{formatDate(record.checkIn)}</td>
-                          <td className="px-4 py-3 text-neutral/80">{formatDate(record.checkOut)}</td>
+                          <td className="px-4 py-3 text-neutral/80">{formatDateTime(record.checkIn)}</td>
+                          <td className="px-4 py-3 text-neutral/80">{formatDateTime(record.checkOut)}</td>
                           <td className="px-4 py-3 text-neutral/80">{record.guests}</td>
                           <td className="px-4 py-3 text-neutral/80">₱{record.totalAmount.toFixed(2)}</td>
                           <td className="px-4 py-3 text-neutral/80">{record.status}</td>
@@ -880,7 +935,6 @@ export default function ManageBooking() {
                                   setRescheduleFormError(null);
                                   setRescheduleForm({
                                     checkIn: record.checkIn,
-                                    checkOut: record.checkOut,
                                   });
                                 }}
                                 disabled={
@@ -921,17 +975,24 @@ export default function ManageBooking() {
                                     setCancelError("This reservation is already cancelled.");
                                     return;
                                   }
-
-                                  if (getDaysBeforeCheckIn(record.checkIn) < 2) {
-                                    setCancelError("Cancellation is only allowed at least 2 days before check-in.");
-                                    return;
-                                  }
+                                  // i commented this
+                                  // if (getDaysBeforeCheckIn(record.checkIn) < 2) {
+                                  //   setCancelError("Cancellation is only allowed at least 2 days before check-in.");
+                                  //   return;
+                                  // }
 
                                   setPendingCancellation({
                                     id: record.id,
                                     reference: record.reference,
                                     checkIn: record.checkIn,
                                   });
+                                  
+                                  console.log("Pending cancellation set:", {
+                                    id: record.id,
+                                    reference: record.reference,
+                                    checkIn: record.checkIn,
+                                  });
+                                  
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
@@ -956,10 +1017,10 @@ export default function ManageBooking() {
                         Status: <span className="font-semibold text-neutral">{selectedBooking.status}</span>
                       </p>
                       <p>
-                        Check-in: <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkIn)}</span>
+                        Check-in: <span className="font-semibold text-neutral">{formatDateTime(selectedBooking.checkIn)}</span>
                       </p>
                       <p>
-                        Check-out: <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkOut)}</span>
+                        Check-out: <span className="font-semibold text-neutral">{formatDateTime(selectedBooking.checkOut)}</span>
                       </p>
                       <p>
                         Guests: <span className="font-semibold text-neutral">{selectedBooking.guests}</span>
@@ -1267,9 +1328,21 @@ export default function ManageBooking() {
                       </p>
                     ) : null}
 
-                    <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-lg bg-neutral/5 p-4 space-y-2 text-sm">
+                      <p><span className="text-neutral/70">Booking Mode:</span> <span className="font-semibold text-neutral capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Unknown"}</span></p>
+                      <p><span className="text-neutral/70">Current Check-in:</span> <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkIn)}</span></p>
+                      <p><span className="text-neutral/70">Current Check-out:</span> <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkOut)}</span></p>
+                      {selectedBooking.startDatetime && selectedBooking.endDatetime && (
+                        <>
+                          <p><span className="text-neutral/70">Start Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.startDatetime).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</span></p>
+                          <p><span className="text-neutral/70">End Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.endDatetime).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</span></p>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="grid gap-4">
                       <div>
-                        <label className="mb-2 block text-sm text-neutral/70">Check-in</label>
+                        <label className="mb-2 block text-sm text-neutral/70">New Check-in Date</label>
                         <input
                           type="date"
                           value={rescheduleForm.checkIn}
@@ -1282,21 +1355,7 @@ export default function ManageBooking() {
                           }
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm text-neutral/70">Check-out</label>
-                        <input
-                          type="date"
-                          value={rescheduleForm.checkOut}
-                          min={rescheduleForm.checkIn || selectedBooking.checkOut}
-                          onChange={(event) =>
-                            setRescheduleForm((current) => ({
-                              ...current,
-                              checkOut: event.target.value,
-                            }))
-                          }
-                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                        />
+                        <p className="mt-1 text-xs text-neutral/60">Check-out will be automatically calculated based on your booking mode and duration.</p>
                       </div>
                     </div>
                     <button

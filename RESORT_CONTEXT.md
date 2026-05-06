@@ -16,6 +16,8 @@ Facebook: @marvilleresort
 
 Instagram: @marvilleresort
 
+TikTok: @marvilleresort
+
 MARVILLE RESORT PRIVATE POOL RATES W/ 
 
 

@@ -10,7 +10,7 @@ interface ReservationCancelRow {
   reservation_id: string;
   guest_id: string;
   reference_number: string;
-  check_in_date: string;
+  start_datetime: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, check_in_date, status")
+      .select("reservation_id, guest_id, reference_number, start_datetime, status")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationCancelRow>();
 
@@ -131,16 +131,16 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    if (!hasTwoDayLeadTime(reservation.check_in_date)) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Cancellation is only allowed at least 2 days before check-in.",
-        },
-        { status: 400 }
-      );
-    }
+    // i commented this
+    // if (!hasTwoDayLeadTime(reservation.start_datetime)) {
+    //   return NextResponse.json(
+    //     {
+    //       success: false,
+    //       message: "Cancellation is only allowed at least 2 days before check-in.",
+    //     },
+    //     { status: 400 }
+    //   );
+    // }
 
     const { error: updateError } = await supabase
       .from("reservations")

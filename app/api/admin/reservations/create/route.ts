@@ -3,9 +3,27 @@ import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 
+type GuestType = "existing" | "walk_in";
+
+interface WalkInGuestPayload {
+  firstName: string;
+  lastName: string;
+  middleName?: string;
+  email: string;
+  phoneNumber: string;
+  address: string;
+}
+
+interface ServiceSelectionInput {
+  serviceId: string;
+  quantity?: number;
+}
+
 interface ManualReservationPayload {
+  guestType?: GuestType;
   guestEmail?: string;
   guestId?: string;
+  walkInGuest?: WalkInGuestPayload;
   bookingMode: BookingMode;
   startDatetime: string;
   endDatetime: string;
@@ -16,11 +34,16 @@ interface ManualReservationPayload {
   childCount: number;
   unitId: string;
   specialRequests?: string;
+  selectedServices?: ServiceSelectionInput[];
 }
 
 interface GuestRow {
   id: string;
   email: string;
+}
+
+interface WalkInGuestRow {
+  walk_in_guest_id: string;
 }
 
 interface UnitRow {
@@ -30,9 +53,41 @@ interface UnitRow {
   archived_at: string | null;
 }
 
+interface ServiceRow {
+  service_id: string;
+  price: number;
+  is_active: boolean;
+}
+
 const isValidDate = (value: string) => {
   const date = new Date(value);
   return !Number.isNaN(date.getTime());
+};
+
+const parseWalkInGuest = (value: unknown): WalkInGuestPayload | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Partial<WalkInGuestPayload>;
+  const firstName = typeof payload.firstName === "string" ? payload.firstName.trim() : "";
+  const lastName = typeof payload.lastName === "string" ? payload.lastName.trim() : "";
+  const email = typeof payload.email === "string" ? payload.email.trim() : "";
+  const phoneNumber = typeof payload.phoneNumber === "string" ? payload.phoneNumber.trim() : "";
+  const address = typeof payload.address === "string" ? payload.address.trim() : "";
+
+  if (!firstName || !lastName || !email || !phoneNumber || !address) {
+    return null;
+  }
+
+  return {
+    firstName,
+    lastName,
+    middleName: typeof payload.middleName === "string" ? payload.middleName.trim() : undefined,
+    email,
+    phoneNumber,
+    address,
+  };
 };
 
 const parsePayload = (value: unknown): ManualReservationPayload | null => {
@@ -53,7 +108,14 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     return null;
   }
 
-  if (!payload.guestEmail && !payload.guestId) {
+  const walkInGuest = parseWalkInGuest(payload.walkInGuest);
+  const guestType: GuestType = payload.guestType === "walk_in" || walkInGuest ? "walk_in" : "existing";
+
+  if (guestType === "existing" && !payload.guestEmail && !payload.guestId) {
+    return null;
+  }
+
+  if (guestType === "walk_in" && !walkInGuest) {
     return null;
   }
 
@@ -70,8 +132,10 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
   }
 
   return {
+    guestType,
     guestEmail: typeof payload.guestEmail === "string" ? payload.guestEmail.trim() : undefined,
     guestId: typeof payload.guestId === "string" ? payload.guestId.trim() : undefined,
+    walkInGuest: walkInGuest ?? undefined,
     bookingMode: payload.bookingMode,
     startDatetime: payload.startDatetime,
     endDatetime: payload.endDatetime,
@@ -85,6 +149,14 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     childCount: payload.childCount,
     unitId: payload.unitId.trim(),
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
+    selectedServices: Array.isArray(payload.selectedServices)
+      ? payload.selectedServices
+          .filter((item): item is ServiceSelectionInput => typeof item?.serviceId === "string")
+          .map((item) => ({
+            serviceId: item.serviceId,
+            quantity: Number.isInteger(item.quantity) && (item.quantity ?? 0) > 0 ? item.quantity : 1,
+          }))
+      : [],
   };
 };
 
@@ -142,16 +214,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const guestLookup = payload.guestId
-      ? staffContext.supabase.from("guests").select("id, email").eq("id", payload.guestId).maybeSingle<GuestRow>()
-      : staffContext.supabase
-          .from("guests")
-          .select("id, email")
-          .eq("email", payload.guestEmail ?? "")
-          .maybeSingle<GuestRow>();
-
-    const [{ data: guest, error: guestError }, { data: unit, error: unitError }, { data: overlappingReservation, error: overlapError }] = await Promise.all([
-      guestLookup,
+    const [{ data: unit, error: unitError }, { data: overlappingReservation, error: overlapError }] = await Promise.all([
       staffContext.supabase
         .from("units")
         .select("unit_id, base_price, is_active, archived_at")
@@ -166,16 +229,6 @@ export async function POST(request: Request) {
         .limit(1)
         .maybeSingle(),
     ]);
-
-    if (guestError || !guest) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Guest profile not found. Please register the guest before creating a manual reservation.",
-        },
-        { status: 404 }
-      );
-    }
 
     if (unitError || !unit || !unit.is_active || unit.archived_at) {
       return NextResponse.json({ success: false, message: "Selected unit is not available." }, { status: 400 });
@@ -195,6 +248,98 @@ export async function POST(request: Request) {
       );
     }
 
+    const uniqueServiceIds = [...new Set(payload.selectedServices?.map((item) => item.serviceId) ?? [])];
+
+    const { data: servicesData, error: servicesError } = uniqueServiceIds.length
+      ? await staffContext.supabase
+          .from("services")
+          .select("service_id, price, is_active")
+          .in("service_id", uniqueServiceIds)
+      : { data: [], error: null };
+
+    if (servicesError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unable to validate selected services.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const servicesById = new Map<string, ServiceRow>();
+    (servicesData ?? []).forEach((service) => {
+      servicesById.set(service.service_id, service as ServiceRow);
+    });
+
+    const selectedServices = payload.selectedServices ?? [];
+    const hasInvalidService = selectedServices.some((service) => {
+      const matched = servicesById.get(service.serviceId);
+      return !matched || !matched.is_active;
+    });
+
+    if (hasInvalidService) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "One or more selected services are not available.",
+        },
+        { status: 400 }
+      );
+    }
+
+    let guestId: string | null = null;
+    let walkInGuestId: string | null = null;
+
+    if (payload.guestType === "walk_in" && payload.walkInGuest) {
+      const { data: walkInGuest, error: walkInGuestError } = await staffContext.supabase
+        .from("walk_in_guests")
+        .insert({
+          first_name: payload.walkInGuest.firstName,
+          last_name: payload.walkInGuest.lastName,
+          middle_name: payload.walkInGuest.middleName || null,
+          email: payload.walkInGuest.email,
+          phone_number: payload.walkInGuest.phoneNumber,
+          address: payload.walkInGuest.address,
+        })
+        .select("walk_in_guest_id")
+        .single<WalkInGuestRow>();
+
+      if (walkInGuestError || !walkInGuest) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Failed to create walk-in guest profile.",
+          },
+          { status: 500 }
+        );
+      }
+
+      walkInGuestId = walkInGuest.walk_in_guest_id;
+    } else {
+      const guestLookup = payload.guestId
+        ? staffContext.supabase.from("guests").select("id, email").eq("id", payload.guestId).maybeSingle<GuestRow>()
+        : staffContext.supabase
+            .from("guests")
+            .select("id, email")
+            .eq("email", payload.guestEmail ?? "")
+            .maybeSingle<GuestRow>();
+
+      const { data: guest, error: guestError } = await guestLookup;
+
+      if (guestError || !guest) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Guest profile not found. Please register the guest before creating a manual reservation.",
+          },
+          { status: 404 }
+        );
+      }
+
+      guestId = guest.id;
+    }
+
     const reservationReference = await generateReferenceNumber(staffContext.supabase);
 
     if (!reservationReference) {
@@ -204,7 +349,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const servicesTotal = 0;
+    const servicesTotal = selectedServices.reduce((sum, service) => {
+      const matchedService = servicesById.get(service.serviceId);
+      if (!matchedService) return sum;
+      return sum + Number(matchedService.price) * (service.quantity ?? 1);
+    }, 0);
     const pricing = computeBookingPricing({
       bookingMode: payload.bookingMode,
       startDatetime: payload.startDatetime,
@@ -217,7 +366,8 @@ export async function POST(request: Request) {
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
       .insert({
-        guest_id: guest.id,
+        guest_id: guestId,
+        walk_in_guest_id: walkInGuestId,
         reference_number: reservationReference,
         booking_mode: payload.bookingMode,
         start_datetime: payload.startDatetime,
@@ -232,6 +382,9 @@ export async function POST(request: Request) {
       .single();
 
     if (reservationError || !reservation) {
+      if (walkInGuestId) {
+        await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
+      }
       return NextResponse.json(
         { success: false, message: "Failed to create manual reservation." },
         { status: 500 }
@@ -247,10 +400,40 @@ export async function POST(request: Request) {
 
     if (reservationUnitError) {
       await staffContext.supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
+      if (walkInGuestId) {
+        await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
+      }
       return NextResponse.json(
         { success: false, message: "Failed to attach selected unit." },
         { status: 500 }
       );
+    }
+
+    if (selectedServices.length > 0) {
+      const reservationServicesPayload = selectedServices.map((service) => {
+        const matchedService = servicesById.get(service.serviceId)!;
+        return {
+          reservation_id: reservation.reservation_id,
+          service_id: service.serviceId,
+          quantity: service.quantity ?? 1,
+          price_at_time: matchedService.price,
+        };
+      });
+
+      const { error: reservationServicesError } = await staffContext.supabase
+        .from("reservation_services")
+        .insert(reservationServicesPayload);
+
+      if (reservationServicesError) {
+        await staffContext.supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
+        if (walkInGuestId) {
+          await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
+        }
+        return NextResponse.json(
+          { success: false, message: "Failed to attach selected services." },
+          { status: 500 }
+        );
+      }
     }
 
     const { error: seedTransactionError } = await staffContext.supabase.from("transactions").upsert(
@@ -266,6 +449,9 @@ export async function POST(request: Request) {
 
     if (seedTransactionError) {
       await staffContext.supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
+      if (walkInGuestId) {
+        await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
+      }
       return NextResponse.json(
         { success: false, message: "Failed to initialize transaction total." },
         { status: 500 }

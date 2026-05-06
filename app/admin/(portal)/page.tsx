@@ -21,9 +21,10 @@ const upcomingReservationsColumns: AdminTableColumn[] = [
 interface ReservationRow {
   reservation_id: string;
   reference_number: string;
-  guest_id: string;
-  check_in_date: string;
-  check_out_date: string;
+  guest_id: string | null;
+  walk_in_guest_id?: string | null;
+  start_datetime: string;
+  end_datetime: string;
   status: string;
 }
 
@@ -32,6 +33,27 @@ interface GuestRow {
   first_name: string;
   last_name: string;
 }
+
+interface WalkInGuestRow {
+  walk_in_guest_id: string;
+  first_name: string;
+  last_name: string;
+}
+
+const formatDateTime = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return date.toLocaleString("en-PH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
 
 const formatDate = (value: string) => {
   const date = new Date(value);
@@ -58,16 +80,27 @@ export default async function AdminDashboardPage() {
 
   const { data: reservationsData } = await supabase
     .from("reservations")
-    .select("reservation_id, reference_number, guest_id, check_in_date, check_out_date, status")
-    .order("check_in_date", { ascending: true })
+    .select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, status")
+    .order("start_datetime", { ascending: true })
     .limit(20);
 
   const reservations = (reservationsData as ReservationRow[] | null) ?? [];
-  const guestIds = [...new Set(reservations.map((row) => row.guest_id).filter(Boolean))];
+  const guestIds = [...new Set(reservations.map((row) => row.guest_id).filter((id): id is string => Boolean(id)))];
+  const walkInGuestIds = [
+    ...new Set(reservations.map((row) => row.walk_in_guest_id).filter((id): id is string => Boolean(id))),
+  ];
 
-  const { data: guestsData } = guestIds.length
-    ? await supabase.from("guests").select("id, first_name, last_name").in("id", guestIds)
-    : { data: [] };
+  const [{ data: guestsData }, { data: walkInGuestsData }] = await Promise.all([
+    guestIds.length
+      ? supabase.from("guests").select("id, first_name, last_name").in("id", guestIds)
+      : Promise.resolve({ data: [] }),
+    walkInGuestIds.length
+      ? supabase
+          .from("walk_in_guests")
+          .select("walk_in_guest_id, first_name, last_name")
+          .in("walk_in_guest_id", walkInGuestIds)
+      : Promise.resolve({ data: [] }),
+  ]);
 
   const guestsById = ((guestsData as GuestRow[] | null) ?? []).reduce<Record<string, GuestRow>>(
     (accumulator, guest) => {
@@ -77,18 +110,32 @@ export default async function AdminDashboardPage() {
     {}
   );
 
+  const walkInGuestsById = ((walkInGuestsData as WalkInGuestRow[] | null) ?? []).reduce<
+    Record<string, WalkInGuestRow>
+  >((accumulator, guest) => {
+    accumulator[guest.walk_in_guest_id] = guest;
+    return accumulator;
+  }, {});
+
   const upcomingReservationsRows: AdminTableRow[] = reservations.map((reservation) => {
-    const guest = guestsById[reservation.guest_id];
-    const guestName = guest
-      ? `${guest.first_name} ${guest.last_name}`.replace(/\s+/g, " ").trim()
-      : `Guest ${reservation.guest_id.slice(0, 8)}`;
+    const guest = reservation.guest_id ? guestsById[reservation.guest_id] : null;
+    const walkInGuest = reservation.walk_in_guest_id
+      ? walkInGuestsById[reservation.walk_in_guest_id]
+      : null;
+    const displayGuest = guest ?? walkInGuest;
+    const fallbackId = reservation.guest_id ?? reservation.walk_in_guest_id ?? "";
+    const guestName = displayGuest
+      ? `${displayGuest.first_name} ${displayGuest.last_name}`.replace(/\s+/g, " ").trim()
+      : fallbackId
+        ? `Guest ${fallbackId.slice(0, 8)}`
+        : "Guest";
 
     return {
       id: reservation.reservation_id,
       reference: reservation.reference_number,
       guest: guestName,
-      checkIn: formatDate(reservation.check_in_date),
-      checkOut: formatDate(reservation.check_out_date),
+      checkIn: formatDateTime(reservation.start_datetime),
+      checkOut: formatDateTime(reservation.end_datetime),
       status: toTitleCase(reservation.status),
     };
   });

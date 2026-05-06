@@ -40,7 +40,10 @@ function BookingDetailsContent() {
   const totalGuests = Number(bookingDraft.adultCount || 0) + Number(bookingDraft.childCount || 0);
   const remainingBalance = Math.max(Number(bookingDraft.total || 0) - Number(bookingDraft.downPayment || 0), 0);
 
-  const isAlreadySaved = Boolean(bookingDraft.reservationId);
+   // FIXED ghost saved state
+  const isAlreadySaved =
+    typeof bookingDraft.reservationId === "string" &&
+    bookingDraft.reservationId.trim() !== "";
 
   const formattedSaveDate = useMemo(() => new Date().toLocaleDateString("en-PH"), []);
 
@@ -100,9 +103,12 @@ function BookingDetailsContent() {
         return;
       }
 
+     
+      // ✅ Save only after success
       setBookingDraft({
         reservationId: json.reservation.id,
-        reservationReference: json.reservation.referenceNumber || "",
+        reservationReference:
+          json.reservation.referenceNumber || "",
       });
       setSaveSuccess("Booking saved successfully. You can now continue to payment or go to manage booking.");
     } catch {

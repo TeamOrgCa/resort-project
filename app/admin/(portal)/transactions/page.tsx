@@ -3,8 +3,32 @@
 import { useEffect, useMemo, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminMetricCard from "@/components/admin/AdminMetricCard";
-import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
+import InvoiceDetailsModal from "@/components/admin/transactions/InvoiceDetailsModal";
+import KeyValueDetailsModal from "@/components/admin/transactions/KeyValueDetailsModal";
+import TransactionsTablePanel from "@/components/admin/transactions/TransactionsTablePanel";
+import type {
+  InvoiceDetailInvoiceRow,
+  InvoiceDetailPaymentRow,
+  InvoiceDetailReceiptRow,
+  InvoiceDetailReservationRow,
+  InvoiceDetailReservationServiceRow,
+  InvoiceDetailReservationUnitRow,
+  InvoiceDetailTransactionRow,
+  InvoiceRow,
+  InvoiceServiceBreakdownItem,
+  InvoiceUnitBreakdownItem,
+  InvoiceViewDetails,
+  PaymentRow,
+  ReceiptDetailGuestRow,
+  ReceiptDetailPaymentRow,
+  ReceiptDetailReceiptRow,
+  ReceiptDetailReservationRow,
+  ReceiptRow,
+  ReservationRow,
+  TransactionRow,
+  ViewDetailsState,
+} from "@/components/admin/transactions/types";
 import { createClient } from "@/lib/supabase/client";
 
 const transactionTabs = ["Transaction Ledger", "Generated Invoices", "Issued Receipts"] as const;
@@ -35,195 +59,6 @@ const receiptColumns: AdminTableColumn[] = [
   { key: "status", label: "Status" },
 ];
 
-interface TransactionRow {
-  transaction_id: string;
-  reservation_id: string;
-  total_amount: number;
-  paid_amount: number | null;
-  balance: number | null;
-  overpaid_amount: number | null;
-  status: "unpaid" | "partial" | "paid";
-  created_at: string;
-  updated_at: string;
-}
-
-interface ReservationRow {
-  reservation_id: string;
-  reference_number: string;
-  booking_type: "online" | "walk_in" | null;
-}
-
-interface InvoiceRow {
-  invoice_id: string;
-  reservation_id: string;
-  total_amount: number;
-  created_at: string;
-}
-
-interface InvoiceDetailInvoiceRow {
-  invoice_id: string;
-  reservation_id: string;
-  total_amount: number;
-  created_at: string;
-}
-
-interface InvoiceDetailReservationRow {
-  reference_number: string;
-  booking_type: "online" | "walk_in" | null;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | null;
-  check_in_date: string;
-  check_out_date: string;
-}
-
-interface InvoiceDetailTransactionRow {
-  total_amount: number;
-  paid_amount: number | null;
-  balance: number | null;
-  status: "unpaid" | "partial" | "paid";
-}
-
-interface InvoiceDetailPaymentRow {
-  payment_id: string;
-  reference_number: string;
-  amount: number;
-  status: "pending" | "verified";
-  paid_at: string | null;
-}
-
-interface InvoiceDetailReceiptRow {
-  payment_id: string;
-  receipt_number: string;
-  issued_at: string;
-  is_active: boolean | null;
-  archived_at: string | null;
-}
-
-interface InvoiceDetailReservationUnitRow {
-  quantity: number;
-  price_per_night: number;
-  units:
-    | {
-        name: string;
-      }
-    | Array<{
-        name: string;
-      }>
-    | null;
-}
-
-interface InvoiceDetailReservationServiceRow {
-  quantity: number;
-  price_at_time: number;
-  services:
-    | {
-        name: string;
-      }
-    | Array<{
-        name: string;
-      }>
-    | null;
-}
-
-interface InvoiceUnitBreakdownItem {
-  name: string;
-  quantity: number;
-  pricePerNight: number;
-  lineTotal: number;
-}
-
-interface InvoiceServiceBreakdownItem {
-  name: string;
-  quantity: number;
-  priceAtTime: number;
-  lineTotal: number;
-}
-
-interface InvoiceViewDetails {
-  invoice: InvoiceDetailInvoiceRow;
-  reservation: InvoiceDetailReservationRow | null;
-  transaction: InvoiceDetailTransactionRow | null;
-  verifiedPayments: InvoiceDetailPaymentRow[];
-  latestReceipt: InvoiceDetailReceiptRow | null;
-  nights: number;
-  unitBreakdown: InvoiceUnitBreakdownItem[];
-  serviceBreakdown: InvoiceServiceBreakdownItem[];
-  unitsSubtotal: number;
-  servicesSubtotal: number;
-  computedTotal: number;
-}
-
-interface ReceiptRow {
-  receipt_id: string;
-  payment_id: string;
-  receipt_number: string;
-  issued_at: string;
-  is_active: boolean | null;
-  archived_at: string | null;
-}
-
-interface PaymentRow {
-  payment_id: string;
-  reservation_id: string;
-  reference_number: string;
-}
-
-interface ReceiptDetailReceiptRow {
-  receipt_id: string;
-  payment_id: string;
-  receipt_number: string;
-  issued_at: string;
-  is_active: boolean | null;
-  archived_at: string | null;
-}
-
-interface ReceiptDetailPaymentRow {
-  payment_id: string;
-  reservation_id: string;
-  reference_number: string;
-  amount: number;
-  payment_method: "bank_transfer" | "e_wallet" | "cash";
-  payment_type: "downpayment" | "full" | "additional";
-  status: "pending" | "verified";
-  paid_at: string | null;
-  account_name: string;
-  account_number: string | null;
-  proof_path: string;
-}
-
-interface ReceiptDetailReservationRow {
-  reservation_id: string;
-  guest_id: string;
-  reference_number: string;
-  booking_type: "online" | "walk_in" | null;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | null;
-  check_in_date: string;
-  check_out_date: string;
-}
-
-interface ReceiptDetailGuestRow {
-  first_name: string | null;
-  last_name: string | null;
-  email: string;
-}
-
-interface ReceiptDetailTransactionRow {
-  total_amount: number;
-  paid_amount: number | null;
-  balance: number | null;
-  overpaid_amount: number | null;
-  status: "unpaid" | "partial" | "paid";
-}
-
-interface ViewField {
-  label: string;
-  value: string;
-}
-
-interface ViewDetailsState {
-  title: string;
-  fields: ViewField[];
-}
-
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-PH", {
     style: "currency",
@@ -245,19 +80,6 @@ const formatDateTime = (value: string) => {
     hour: "2-digit",
     minute: "2-digit",
   })}`;
-};
-
-const formatDate = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
-
-  return date.toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 };
 
 const toTitleCase = (value: string) =>
@@ -351,7 +173,7 @@ export default function AdminTransactionsPage() {
             reservationIds.length
               ? supabase.from("payments").select("payment_id, reservation_id, reference_number").in("reservation_id", reservationIds)
               : Promise.resolve({ data: [], error: null }),
-            supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at").order("issued_at", { ascending: false }).limit(200),
+            supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment").order("issued_at", { ascending: false }).limit(200),
           ]);
 
         if (reservationsError) throw reservationsError;
@@ -552,7 +374,7 @@ export default function AdminTransactionsPage() {
       const [reservationResult, transactionResult, paymentsResult, reservationUnitsResult, reservationServicesResult] = await Promise.all([
         supabase
           .from("reservations")
-          .select("reference_number, booking_type, status, check_in_date, check_out_date")
+          .select("reference_number, booking_type, status, start_datetime, end_datetime")
           .eq("reservation_id", invoice.reservation_id)
           .maybeSingle<InvoiceDetailReservationRow>(),
         supabase
@@ -593,7 +415,7 @@ export default function AdminTransactionsPage() {
       const receiptsResult = verifiedPaymentIds.length
         ? await supabase
             .from("receipts")
-            .select("payment_id, receipt_number, issued_at, is_active, archived_at")
+            .select("payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment")
             .in("payment_id", verifiedPaymentIds)
             .order("issued_at", { ascending: false })
         : { data: [], error: null };
@@ -607,7 +429,7 @@ export default function AdminTransactionsPage() {
       const latestActiveReceipt = receiptRows.find((receipt) => receipt.is_active !== false && !receipt.archived_at) ?? null;
 
       const nights = reservationResult.data
-        ? calculateNights(reservationResult.data.check_in_date, reservationResult.data.check_out_date)
+        ? calculateNights(reservationResult.data.start_datetime, reservationResult.data.end_datetime)
         : 0;
 
       const unitRows = (reservationUnitsResult.data as InvoiceDetailReservationUnitRow[] | null) ?? [];
@@ -680,7 +502,7 @@ export default function AdminTransactionsPage() {
 
       const { data: receiptRecord, error: receiptError } = await supabase
         .from("receipts")
-        .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at")
+        .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment")
         .eq("receipt_id", receiptId)
         .maybeSingle<ReceiptDetailReceiptRow>();
 
@@ -702,30 +524,34 @@ export default function AdminTransactionsPage() {
         return;
       }
 
-      const [{ data: reservationRecord, error: reservationError }, { data: transactionRecord, error: transactionError }] =
-        await Promise.all([
-          supabase
-            .from("reservations")
-            .select("reservation_id, guest_id, reference_number, booking_type, status, check_in_date, check_out_date")
-            .eq("reservation_id", paymentRecord.reservation_id)
-            .maybeSingle<ReceiptDetailReservationRow>(),
-          supabase
-            .from("transactions")
-            .select("total_amount, paid_amount, balance, overpaid_amount, status")
-            .eq("reservation_id", paymentRecord.reservation_id)
-            .maybeSingle<ReceiptDetailTransactionRow>(),
-        ]);
+      const { data: reservationRecord, error: reservationError } = await supabase
+        .from("reservations")
+        .select(
+          "reservation_id, guest_id, walk_in_guest_id, reference_number, booking_type, status, start_datetime, end_datetime"
+        )
+        .eq("reservation_id", paymentRecord.reservation_id)
+        .maybeSingle<ReceiptDetailReservationRow>();
 
-      if (reservationError || !reservationRecord || transactionError) {
+      if (reservationError || !reservationRecord) {
         setFetchError("Failed to load reservation billing details for this receipt.");
         return;
       }
 
-      const { data: guestRecord } = await supabase
-        .from("guests")
-        .select("first_name, last_name, email")
-        .eq("id", reservationRecord.guest_id)
-        .maybeSingle<ReceiptDetailGuestRow>();
+      const guestLookup = reservationRecord.guest_id
+        ? supabase
+            .from("guests")
+            .select("first_name, last_name, email")
+            .eq("id", reservationRecord.guest_id)
+            .maybeSingle<ReceiptDetailGuestRow>()
+        : reservationRecord.walk_in_guest_id
+          ? supabase
+              .from("walk_in_guests")
+              .select("first_name, last_name, email")
+              .eq("walk_in_guest_id", reservationRecord.walk_in_guest_id)
+              .maybeSingle<ReceiptDetailGuestRow>()
+          : Promise.resolve({ data: null, error: null });
+
+      const { data: guestRecord } = await guestLookup;
 
       const receiptStatus =
         receiptRecord.is_active === false || receiptRecord.archived_at ? "Archived" : "Active";
@@ -739,13 +565,16 @@ export default function AdminTransactionsPage() {
           { label: "Receipt No.", value: receiptRecord.receipt_number ?? "-" },
           { label: "Issued At", value: formatDateTime(receiptRecord.issued_at) },
           { label: "Receipt Status", value: receiptStatus },
+          { label: "Amount Paid", value: formatCurrency(Number(receiptRecord.amount_paid ?? 0)) },
+          { label: "Transaction Total at Time", value: formatCurrency(Number(receiptRecord.transaction_total_at_time ?? 0)) },
+          { label: "Balance After Payment", value: formatCurrency(Number(receiptRecord.balance_after_payment ?? 0)) },
           { label: "Reservation Ref", value: reservationRecord.reference_number ?? "-" },
           { label: "Guest", value: guestName || "-" },
           { label: "Guest Email", value: guestRecord?.email ?? "-" },
           { label: "Booking Type", value: toTitleCase(reservationRecord.booking_type ?? "online") },
           { label: "Reservation Status", value: toTitleCase(reservationRecord.status ?? "pending") },
-          { label: "Check-in", value: formatDate(reservationRecord.check_in_date) },
-          { label: "Check-out", value: formatDate(reservationRecord.check_out_date) },
+          { label: "Check-in", value: formatDateTime(reservationRecord.start_datetime) },
+          { label: "Check-out", value: formatDateTime(reservationRecord.end_datetime) },
           { label: "Payment Ref", value: paymentRecord.reference_number ?? "-" },
           { label: "Payment Amount", value: formatCurrency(Number(paymentRecord.amount ?? 0)) },
           { label: "Payment Method", value: toTitleCase(paymentRecord.payment_method ?? "") },
@@ -755,11 +584,6 @@ export default function AdminTransactionsPage() {
           { label: "Account Name", value: paymentRecord.account_name || "-" },
           { label: "Account Number", value: paymentRecord.account_number || "-" },
           { label: "Proof Path", value: paymentRecord.proof_path || "-" },
-          { label: "Transaction Total", value: formatCurrency(Number(transactionRecord?.total_amount ?? 0)) },
-          { label: "Transaction Paid", value: formatCurrency(Number(transactionRecord?.paid_amount ?? 0)) },
-          { label: "Transaction Balance", value: formatCurrency(Number(transactionRecord?.balance ?? 0)) },
-          { label: "Transaction Overpaid", value: formatCurrency(Number(transactionRecord?.overpaid_amount ?? 0)) },
-          { label: "Transaction Status", value: toTitleCase(transactionRecord?.status ?? "unpaid") },
         ],
       });
     } catch {
@@ -807,7 +631,7 @@ export default function AdminTransactionsPage() {
         </div>
 
         {activeTab === "Transaction Ledger" && (
-          <AdminTablePreview
+          <TransactionsTablePanel
             title={isLoading ? "Transaction Ledger (Loading...)" : "Transaction Ledger"}
             columns={transactionColumns}
             rows={transactionRows}
@@ -820,7 +644,7 @@ export default function AdminTransactionsPage() {
         )}
 
         {activeTab === "Generated Invoices" && (
-          <AdminTablePreview
+          <TransactionsTablePanel
             title={isLoading ? "Generated Invoices (Loading...)" : "Generated Invoices"}
             columns={invoiceColumns}
             rows={invoiceRows}
@@ -832,7 +656,7 @@ export default function AdminTransactionsPage() {
         )}
 
         {activeTab === "Issued Receipts" && (
-          <AdminTablePreview
+          <TransactionsTablePanel
             title={isLoading ? "Issued Receipts (Loading...)" : "Issued Receipts"}
             columns={receiptColumns}
             rows={receiptRows}
@@ -845,201 +669,19 @@ export default function AdminTransactionsPage() {
         )}
       </section>
 
-      {isInvoiceDetailsOpen ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-semibold text-neutral">Invoice Details</h3>
-                <p className="mt-1 text-sm text-neutral/70">Complete invoice, reservation, payment, and billing summary.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsInvoiceDetailsOpen(false);
-                  setInvoiceDetails(null);
-                  setInvoiceDetailsError(null);
-                }}
-                className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
-              >
-                Close
-              </button>
-            </div>
+      <InvoiceDetailsModal
+        isOpen={isInvoiceDetailsOpen}
+        isLoading={isInvoiceDetailsLoading}
+        error={invoiceDetailsError}
+        invoiceDetails={invoiceDetails}
+        onClose={() => {
+          setIsInvoiceDetailsOpen(false);
+          setInvoiceDetails(null);
+          setInvoiceDetailsError(null);
+        }}
+      />
 
-            {isInvoiceDetailsLoading ? <p className="mt-5 text-sm text-neutral/70">Loading invoice details...</p> : null}
-
-            {invoiceDetailsError ? (
-              <p className="mt-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                {invoiceDetailsError}
-              </p>
-            ) : null}
-
-            {!isInvoiceDetailsLoading && invoiceDetails ? (
-              <div className="mt-5 space-y-6">
-                <section className="rounded-xl border border-neutral/10 p-4">
-                  <h4 className="text-sm font-semibold text-neutral">Invoice</h4>
-                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
-                    <p>
-                      Invoice ID: <span className="font-semibold text-neutral">{invoiceDetails.invoice.invoice_id}</span>
-                    </p>
-                    <p>
-                      Created At: <span className="font-semibold text-neutral">{formatDateTime(invoiceDetails.invoice.created_at)}</span>
-                    </p>
-                    <p>
-                      Reservation Ref: <span className="font-semibold text-neutral">{invoiceDetails.reservation?.reference_number ?? "-"}</span>
-                    </p>
-                    <p>
-                      Invoice Amount: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.invoice.total_amount ?? 0))}</span>
-                    </p>
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-neutral/10 p-4">
-                  <h4 className="text-sm font-semibold text-neutral">Reservation Context</h4>
-                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
-                    <p>
-                      Booking Type: <span className="font-semibold text-neutral">{toTitleCase(invoiceDetails.reservation?.booking_type ?? "online")}</span>
-                    </p>
-                    <p>
-                      Reservation Status: <span className="font-semibold text-neutral">{toTitleCase(invoiceDetails.reservation?.status ?? "pending")}</span>
-                    </p>
-                    <p>
-                      Check-in: <span className="font-semibold text-neutral">{invoiceDetails.reservation ? formatDate(invoiceDetails.reservation.check_in_date) : "-"}</span>
-                    </p>
-                    <p>
-                      Check-out: <span className="font-semibold text-neutral">{invoiceDetails.reservation ? formatDate(invoiceDetails.reservation.check_out_date) : "-"}</span>
-                    </p>
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-neutral/10 p-4">
-                  <h4 className="text-sm font-semibold text-neutral">Transaction Summary</h4>
-                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
-                    <p>
-                      Total: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.total_amount ?? 0))}</span>
-                    </p>
-                    <p>
-                      Paid: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.paid_amount ?? 0))}</span>
-                    </p>
-                    <p>
-                      Balance: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.balance ?? 0))}</span>
-                    </p>
-                    <p>
-                      Status: <span className="font-semibold text-neutral">{toTitleCase(invoiceDetails.transaction?.status ?? "unpaid")}</span>
-                    </p>
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-neutral/10 p-4">
-                  <h4 className="text-sm font-semibold text-neutral">Cost Breakdown</h4>
-                  <p className="mt-2 text-sm text-neutral/70">
-                    Nights: <span className="font-semibold text-neutral">{invoiceDetails.nights}</span>
-                  </p>
-
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <p className="text-sm font-semibold text-neutral">Units</p>
-                      {invoiceDetails.unitBreakdown.length === 0 ? (
-                        <p className="mt-2 text-sm text-neutral/70">No unit charges found.</p>
-                      ) : (
-                        <div className="mt-2 space-y-2 text-sm text-neutral/80">
-                          {invoiceDetails.unitBreakdown.map((item, index) => (
-                            <p key={`${item.name}-${index}`}>
-                              <span className="font-semibold text-neutral">{item.name}</span> • Qty {item.quantity} • {formatCurrency(item.pricePerNight)}/night × {invoiceDetails.nights} night(s) = {formatCurrency(item.lineTotal)}
-                            </p>
-                          ))}
-                        </div>
-                      )}
-                      <p className="mt-2 text-sm text-neutral/80">
-                        Units Subtotal: <span className="font-semibold text-neutral">{formatCurrency(invoiceDetails.unitsSubtotal)}</span>
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-sm font-semibold text-neutral">Services</p>
-                      {invoiceDetails.serviceBreakdown.length === 0 ? (
-                        <p className="mt-2 text-sm text-neutral/70">No service charges found.</p>
-                      ) : (
-                        <div className="mt-2 space-y-2 text-sm text-neutral/80">
-                          {invoiceDetails.serviceBreakdown.map((item, index) => (
-                            <p key={`${item.name}-${index}`}>
-                              <span className="font-semibold text-neutral">{item.name}</span> • Qty {item.quantity} • {formatCurrency(item.priceAtTime)} = {formatCurrency(item.lineTotal)}
-                            </p>
-                          ))}
-                        </div>
-                      )}
-                      <p className="mt-2 text-sm text-neutral/80">
-                        Services Subtotal: <span className="font-semibold text-neutral">{formatCurrency(invoiceDetails.servicesSubtotal)}</span>
-                      </p>
-                    </div>
-
-                    <div className="rounded-lg bg-base px-3 py-2 text-sm text-neutral/80">
-                      Computed Total: <span className="font-semibold text-neutral">{formatCurrency(invoiceDetails.computedTotal)}</span>
-                      <span className="mx-2">•</span>
-                      Transaction Total: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.total_amount ?? 0))}</span>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="rounded-xl border border-neutral/10 p-4">
-                  <h4 className="text-sm font-semibold text-neutral">Verified Payments</h4>
-                  {invoiceDetails.verifiedPayments.length === 0 ? (
-                    <p className="mt-3 text-sm text-neutral/70">No verified payments found for this invoice yet.</p>
-                  ) : (
-                    <div className="mt-3 space-y-2 text-sm text-neutral/80">
-                      {invoiceDetails.verifiedPayments.map((payment) => (
-                        <p key={payment.payment_id}>
-                          <span className="font-semibold text-neutral">{payment.reference_number}</span> • {formatCurrency(Number(payment.amount ?? 0))} • {formatDateTime(payment.paid_at ?? "")}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                <section className="rounded-xl border border-neutral/10 p-4">
-                  <h4 className="text-sm font-semibold text-neutral">Latest Receipt</h4>
-                  <div className="mt-3 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
-                    <p>
-                      Receipt No.: <span className="font-semibold text-neutral">{invoiceDetails.latestReceipt?.receipt_number ?? "-"}</span>
-                    </p>
-                    <p>
-                      Issued At: <span className="font-semibold text-neutral">{invoiceDetails.latestReceipt ? formatDateTime(invoiceDetails.latestReceipt.issued_at) : "-"}</span>
-                    </p>
-                  </div>
-                </section>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {viewDetails ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-semibold text-neutral">{viewDetails.title}</h3>
-                <p className="mt-1 text-sm text-neutral/70">Detailed record view for this billing entry.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewDetails(null)}
-                className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-5 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
-              {viewDetails.fields.map((field) => (
-                <p key={field.label}>
-                  {field.label}: <span className="font-semibold text-neutral">{field.value || "-"}</span>
-                </p>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)} /> : null}
     </div>
   );
 }
