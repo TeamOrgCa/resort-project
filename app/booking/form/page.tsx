@@ -130,6 +130,22 @@ function BookingFormContent() {
         address: prev.address || guestProfile?.address || authUser?.user_metadata?.address || "",
       }));
       setCatalogLoading(false);
+
+      // If there is a previously saved reservation in the draft, clear the reservation
+      // metadata and any calculated billing so a fresh booking doesn't show old totals.
+      if (bookingDraft?.reservationId) {
+        setBookingDraft({
+          reservationId: "",
+          reservationReference: "",
+          subtotal: 0,
+          tax: 0,
+          total: 0,
+          downPayment: 0,
+          paidAmount: 0,
+          services: [],
+        });
+        setSelectedAmenities([]);
+      }
     };
 
     loadCatalog();
