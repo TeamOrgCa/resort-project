@@ -4,12 +4,14 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminNotifications from "@/components/admin/AdminNotifications";
+import type { StaffRole } from "@/lib/auth/staff-auth";
 
 interface AdminShellProps {
   children: ReactNode;
+  role: StaffRole;
 }
 
-export default function AdminShell({ children }: AdminShellProps) {
+export default function AdminShell({ children, role }: AdminShellProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export default function AdminShell({ children }: AdminShellProps) {
 
       <div className="md:grid md:gap-6 md:grid-cols-[280px_1fr]">
         <aside className="hidden md:block">
-          <AdminSidebar />
+          <AdminSidebar role={role} />
         </aside>
 
         <main>{children}</main>
@@ -81,7 +83,7 @@ export default function AdminShell({ children }: AdminShellProps) {
                 Close
               </button>
             </div>
-            <AdminSidebar />
+            <AdminSidebar role={role} />
           </aside>
         </div>
       ) : null}

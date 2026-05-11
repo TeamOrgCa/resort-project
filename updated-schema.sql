@@ -7,7 +7,7 @@ create table public.staff_users (
   full_name text not null,
   email text not null,
 
-  role text check (role in ('admin', 'staff')) not null default 'staff',
+  role text check (role in ('admin', 'staff', 'cashier')) not null default 'staff',
   is_active boolean default true,
 
   created_at timestamptz default timezone('utc', now()) not null,

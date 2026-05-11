@@ -27,7 +27,7 @@ export default async function AdminPortalLayout({ children }: { children: ReactN
 
   return (
     <div className="min-h-screen bg-base px-4 py-6 md:px-6">
-      <AdminShell>{children}</AdminShell>
+      <AdminShell role={staffUser.role}>{children}</AdminShell>
     </div>
   );
 }

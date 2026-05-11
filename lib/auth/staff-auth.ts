@@ -1,4 +1,4 @@
-export type StaffRole = "admin" | "staff";
+export type StaffRole = "admin" | "staff" | "cashier";
 
 export interface StaffLoginPayload {
   email: string;
