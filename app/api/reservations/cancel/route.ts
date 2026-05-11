@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { notifyGuestAndStaff } from "@/lib/notifications";
 
 interface CancelPayload {
   reservationId: string;
@@ -175,6 +176,21 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+      actorId: user.id,
+      guestId: reservation.guest_id,
+      title: "Reservation cancelled",
+      message: `Reservation ${reservation.reference_number} was cancelled.`,
+      entityType: "reservation",
+      entityId: reservation.reservation_id,
+      guestActionUrl: "/manage",
+      staffActionUrl: "/admin/reservations",
+    });
+
+    if (notificationError) {
+      console.warn("Failed to create cancellation notifications:", notificationError);
     }
 
     return NextResponse.json({

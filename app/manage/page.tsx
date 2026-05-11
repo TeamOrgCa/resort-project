@@ -195,6 +195,40 @@ const toDateTimeLocal = (value: string) => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+const getMinRescheduleDate = (booking: BookingRecord | null) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let earliest = new Date(today);
+
+  if (booking?.startDatetime) {
+    const originalStart = new Date(booking.startDatetime);
+    if (!Number.isNaN(originalStart.getTime())) {
+      const candidate = new Date();
+      candidate.setHours(
+        originalStart.getHours(),
+        originalStart.getMinutes(),
+        originalStart.getSeconds(),
+        0
+      );
+
+      if (candidate.getTime() <= Date.now()) {
+        earliest.setDate(earliest.getDate() + 1);
+      }
+    }
+  }
+
+  if (booking?.checkIn) {
+    const bookingDateValue = toDateOnly(booking.checkIn);
+    const bookingDate = parseDateValue(bookingDateValue);
+    if (bookingDate && bookingDate.getTime() > earliest.getTime()) {
+      earliest = bookingDate;
+    }
+  }
+
+  return toDateOnly(earliest.toISOString());
+};
+
 const withOriginalTime = (nextDate: string, sourceDateTime: string) => {
   const source = new Date(sourceDateTime);
   if (Number.isNaN(source.getTime())) {
@@ -267,6 +301,7 @@ export default function ManageBooking() {
 
   const selectedBooking = bookings.find((item) => item.id === selectedBookingId) ?? null;
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
+  const minRescheduleDate = getMinRescheduleDate(selectedBooking);
 
   const getDaysBeforeCheckIn = (checkInDate: string) => {
     const checkIn = new Date(`${checkInDate}T00:00:00`);
@@ -480,7 +515,8 @@ export default function ManageBooking() {
       return;
     }
 
-    if (nextCheckIn.getTime() === parseDateValue(selectedBooking.checkIn)?.getTime()) {
+    const currentBookingDate = parseDateValue(toDateOnly(selectedBooking.checkIn));
+    if (currentBookingDate && nextCheckIn.getTime() === currentBookingDate.getTime()) {
       setRescheduleFormError("Please choose a different date from the current reservation.");
       return;
     }
@@ -511,6 +547,11 @@ export default function ManageBooking() {
     
     const newEnd = new Date(newStart);
     newEnd.setTime(newStart.getTime() + durationMs);
+
+    if (newStart.getTime() <= Date.now()) {
+      setRescheduleFormError("Reschedule date/time must be in the future.");
+      return;
+    }
 
     setRescheduleFormError(null);
     setIsSubmittingReschedule(true);
@@ -934,7 +975,16 @@ export default function ManageBooking() {
                                   setRecordMode("reschedule");
                                   setRescheduleFormError(null);
                                   setRescheduleForm({
-                                    checkIn: record.checkIn,
+                                        checkIn: (() => {
+                                          const defaultDate = toDateOnly(record.checkIn);
+                                          const minDate = getMinRescheduleDate(record);
+                                          const defaultParsed = parseDateValue(defaultDate);
+                                          const minParsed = parseDateValue(minDate);
+                                          if (defaultParsed && minParsed && defaultParsed < minParsed) {
+                                            return minDate;
+                                          }
+                                          return defaultDate;
+                                        })(),
                                   });
                                 }}
                                 disabled={
@@ -1346,7 +1396,7 @@ export default function ManageBooking() {
                         <input
                           type="date"
                           value={rescheduleForm.checkIn}
-                          min={selectedBooking.checkIn}
+                          min={minRescheduleDate}
                           onChange={(event) =>
                             setRescheduleForm((current) => ({
                               ...current,

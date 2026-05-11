@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import { notifyGuestAndStaff } from "@/lib/notifications";
 
 type DbErrorLike = {
   message?: string;
@@ -386,6 +387,21 @@ export async function POST(request: Request) {
         buildDbFailurePayload(seedTransactionError, "Failed to initialize transaction total."),
         { status: 500 }
       );
+    }
+
+    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+      actorId: user.id,
+      guestId: user.id,
+      title: "Booking saved",
+      message: `Reservation ${reservation.reference_number} is pending payment.`,
+      entityType: "reservation",
+      entityId: reservation.reservation_id,
+      guestActionUrl: "/manage",
+      staffActionUrl: "/admin/reservations",
+    });
+
+    if (notificationError) {
+      console.warn("Failed to create booking notifications:", notificationError);
     }
 
     return NextResponse.json(

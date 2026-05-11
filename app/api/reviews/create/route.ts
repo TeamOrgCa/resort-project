@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { notifyGuestAndStaff } from "@/lib/notifications";
 
 export async function POST(request: NextRequest) {
   try {
@@ -154,6 +155,21 @@ export async function POST(request: NextRequest) {
         { error: "Failed to create review. Please try again." },
         { status: 500 }
       );
+    }
+
+    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+      actorId: user.id,
+      guestId: user.id,
+      title: "Review submitted",
+      message: "Thanks for sharing your experience.",
+      entityType: "review",
+      entityId: newReview.review_id,
+      guestActionUrl: "/reviews",
+      staffActionUrl: "/admin",
+    });
+
+    if (notificationError) {
+      console.warn("Failed to create review notifications:", notificationError);
     }
 
     return NextResponse.json(

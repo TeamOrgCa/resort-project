@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { notifyGuestAndStaff } from "@/lib/notifications";
 
 interface OcularVisitPayload {
   scheduledDate: string;
@@ -248,6 +249,21 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+      actorId: user.id,
+      guestId: user.id,
+      title: "Ocular visit scheduled",
+      message: `Ocular visit ${ocularVisit.reference_number} is pending confirmation.`,
+      entityType: "ocular_visit",
+      entityId: ocularVisit.visit_id,
+      guestActionUrl: "/ocular",
+      staffActionUrl: "/admin/reservations",
+    });
+
+    if (notificationError) {
+      console.warn("Failed to create ocular visit notifications:", notificationError);
     }
 
     return NextResponse.json(
