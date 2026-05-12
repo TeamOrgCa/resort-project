@@ -64,7 +64,6 @@ export default function AdminSidebar({ role }: AdminSidebarProps) {
 
       <div className="mt-4 rounded-xl bg-base p-3 text-xs text-neutral/80 sm:text-sm">
         <p className="mb-2 font-semibold text-neutral">Role: {role.toUpperCase()}</p>
-        Static prototype UI. Connect each module to live data when backend endpoints are ready.
       </div>
     </div>
   );

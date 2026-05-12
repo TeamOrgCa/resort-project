@@ -262,7 +262,18 @@ create table public.reservations (
   cancellation_reason text,
 
   status text check (
-    status in ('pending', 'confirmed', 'cancelled', 'completed', 'reschedule_requested')
+    status in(
+  'pending',
+  'confirmed',
+  'partially_paid',
+  'fully_paid',
+  'modification_pending',
+  'modified',
+  'checked_in',
+  'completed',
+  'cancelled',
+  'reschedule_requested'
+)
   ) default 'pending',
 
   booking_type text check (
@@ -288,7 +299,16 @@ add constraint no_overlapping_reservations
 exclude using gist (
   tstzrange(start_datetime, end_datetime) with && 
 )
-where (status in ('pending', 'confirmed'));
+where (
+  status in (
+    'pending',
+    'confirmed',
+    'partially_paid',
+    'fully_paid',
+    'modified',
+    'checked_in'
+  )
+);
 
 -- create extension if not exists btree_gist;
 
@@ -326,6 +346,95 @@ create table public.reservation_reschedules (
 
   created_at timestamptz default timezone('utc', now()) not null
 );
+
+-- Modification requests for changes other than rescheduling (like adding/removing services, changing guest count, etc). This allows us to track requested changes and their approval status without modifying the original reservation until approved.
+
+create table public.reservation_modification_requests (
+  modification_request_id uuid primary key default gen_random_uuid(),
+
+  reservation_id uuid not null
+    references public.reservations(reservation_id)
+    on delete cascade,
+
+  requested_by uuid
+    references public.guests(id)
+    on delete set null,
+
+  approved_by uuid
+    references public.staff_users(id)
+    on delete set null,
+
+  modification_type text check (
+    modification_type in (
+      'add_service',
+      'remove_service',
+      'add_unit',
+      'remove_unit',
+      'guest_count_change',
+      'datetime_change'
+    )
+  ) not null,
+
+  status text check (
+    status in (
+      'pending',
+      'approved',
+      'rejected',
+      'cancelled'
+    )
+  ) default 'pending',
+
+  reason text,
+
+  admin_notes text,
+
+  requested_at timestamptz
+    default timezone('utc', now()) not null,
+
+  processed_at timestamptz
+);
+
+-- Details of each modification item (linked to modification request). This allows us to track multiple changes in one request and their individual details (like which service/unit was added/removed, old vs new values, etc).
+
+create table public.reservation_modification_items (
+  modification_item_id uuid primary key default gen_random_uuid(),
+
+  modification_request_id uuid not null
+    references public.reservation_modification_requests(modification_request_id)
+    on delete cascade,
+
+  item_type text check (
+    item_type in (
+      'service',
+      'unit',
+      'guest_adjustment'
+    )
+  ) not null,
+
+  service_id uuid references public.services(service_id)
+    on delete set null,
+
+  unit_id uuid references public.units(unit_id)
+    on delete set null,
+
+  action text check (
+    action in (
+      'add',
+      'remove',
+      'update'
+    )
+  ) not null,
+
+  old_quantity int,
+  new_quantity int,
+
+  old_price numeric(10,2),
+  new_price numeric(10,2),
+
+  created_at timestamptz
+    default timezone('utc', now()) not null
+);
+
 
 
 
@@ -692,6 +801,40 @@ begin
   return new;
 end;
 $$ language plpgsql;
+
+-- Table for tracking adjustments to transactions (e.g., refunds, credits, price changes)
+
+create table public.transaction_adjustments (
+  adjustment_id uuid primary key default gen_random_uuid(),
+
+  reservation_id uuid not null
+    references public.reservations(reservation_id)
+    on delete cascade,
+
+  modification_request_id uuid
+    references public.reservation_modification_requests(modification_request_id)
+    on delete set null,
+
+  adjustment_type text check (
+    adjustment_type in (
+      'increase',
+      'decrease',
+      'refund',
+      'credit'
+    )
+  ) not null,
+
+  amount numeric(10,2) not null,
+
+  description text,
+
+  created_by uuid
+    references public.staff_users(id)
+    on delete set null,
+
+  created_at timestamptz
+    default timezone('utc', now()) not null
+);
 
 -- Trigger to update invoice total when reservation units or services change
 

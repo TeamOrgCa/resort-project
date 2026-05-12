@@ -47,6 +47,28 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  if (
+    user &&
+    !request.nextUrl.pathname.startsWith('/admin') &&
+    !request.nextUrl.pathname.startsWith('/api/admin')
+  ) {
+    try {
+      const { data: staffUser } = await supabase
+        .from('staff_users')
+        .select('role, is_active')
+        .eq('id', user.id)
+        .maybeSingle<{ role: StaffRole; is_active: boolean }>()
+
+      if (staffUser?.is_active) {
+        const url = request.nextUrl.clone()
+        url.pathname = getDefaultRouteForRole(staffUser.role)
+        return NextResponse.redirect(url)
+      }
+    } catch (error) {
+      // Ignore and allow guest homepage for non-staff users.
+    }
+  }
+
   // Protect admin routes with role-based access control
   if (request.nextUrl.pathname.startsWith('/admin/') || request.nextUrl.pathname === '/admin') {
     if (request.nextUrl.pathname === '/admin/login') {
