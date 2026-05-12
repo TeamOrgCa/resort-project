@@ -1038,3 +1038,30 @@ using (
     where id = auth.uid()
   )
 );
+
+create or replace function public.get_sales_report(
+  report_period text
+)
+returns table (
+  label text,
+  revenue numeric,
+  bookings bigint
+)
+language sql
+as $$
+  select
+    case
+      when report_period = 'daily'
+        then to_char(created_at, 'Dy')
+      when report_period = 'weekly'
+        then 'Week ' || extract(week from created_at)
+      else to_char(created_at, 'Mon')
+    end as label,
+
+    sum(total_amount) as revenue,
+    count(*) as bookings
+
+  from public.transactions
+  group by label
+  order by min(created_at);
+$$;
