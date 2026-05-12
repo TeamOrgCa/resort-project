@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { sendOcularVisitApprovedEmail } from "@/lib/email";
 
 interface ApproveOcularVisitPayload {
   visitId: string;
@@ -49,10 +50,38 @@ export async function POST(request: Request) {
     }
 
     const { data: visit, error: visitError } = await staffContext.supabase
-      .from("ocular_visits")
-      .select("visit_id, status")
-      .eq("visit_id", payload.visitId)
-      .maybeSingle<{ visit_id: string; status: string }>();
+  .from("ocular_visits")
+  .select(`
+    visit_id,
+    status,
+    reference_number,
+    scheduled_date,
+    time_slot,
+    guest_id,
+    guest:guest_id (
+      email,
+      first_name,
+      last_name
+    )
+  `)
+  .eq("visit_id", payload.visitId)
+  .maybeSingle<{
+    visit_id: string;
+    status: string;
+    reference_number: string;
+    scheduled_date: string;
+    time_slot: string;
+    guest_id: string;
+    guest: {
+      email: string | null;
+      first_name: string | null;
+      last_name: string | null;
+    } | null;
+  }>();
+
+      if (visitError) {
+      console.error(visitError);
+    }
 
     if (visitError || !visit) {
       return NextResponse.json(
@@ -75,21 +104,35 @@ export async function POST(request: Request) {
     }
 
     if (visit.status !== "confirmed") {
-      const { error: updateError } = await staffContext.supabase
-        .from("ocular_visits")
-        .update({ status: "confirmed" })
-        .eq("visit_id", payload.visitId);
+  const { error: updateError } = await staffContext.supabase
+    .from("ocular_visits")
+    .update({ status: "confirmed" })
+    .eq("visit_id", payload.visitId);
 
-      if (updateError) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Failed to approve ocular visit.",
-          },
-          { status: 500 }
-        );
-      }
-    }
+  if (updateError) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Failed to approve ocular visit.",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+if (visit.guest?.email) {
+  await sendOcularVisitApprovedEmail({
+    guestEmail: visit.guest.email,
+    guestName:
+  `${visit.guest.first_name ?? ""} ${visit.guest.last_name ?? ""}`.trim() ||
+  "Guest",
+    referenceNumber: visit.reference_number,
+    scheduledDate: visit.scheduled_date,
+    timeSlot: visit.time_slot,
+  });
+}
+
+    
 
     const auditSuccess = await createAuditLog(staffContext, {
       action: "Approved ocular visit",
