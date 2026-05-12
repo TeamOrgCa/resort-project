@@ -32,6 +32,9 @@ const roleAccessMap: Record<StaffRole, string[]> = {
  * Check if a role can access a specific route
  */
 export function canAccessRoute(role: StaffRole, route: string): boolean {
+  if (role === "admin") {
+    return true;
+  }
   const allowedRoutes = roleAccessMap[role];
   return allowedRoutes.some(
     (allowedRoute) =>
@@ -46,6 +49,9 @@ export function filterNavigationByRole(
   navigation: AdminNavItem[],
   role: StaffRole
 ): AdminNavItem[] {
+  if (role === "admin") {
+    return navigation;
+  }
   const allowedRoutes = roleAccessMap[role];
   return navigation.filter((item) =>
     allowedRoutes.some((route) => item.href === route)

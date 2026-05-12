@@ -105,7 +105,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        message: "Unexpected error while loading audit logs.",
+      message: "Unexpected error while loading audit logs.",
       },
       { status: 500 }
     );

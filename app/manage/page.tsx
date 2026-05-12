@@ -182,6 +182,13 @@ const toDateOnly = (value: string) => {
   return `${year}-${month}-${day}`;
 };
 
+const toLocalDateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const toDateTimeLocal = (value: string) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -226,7 +233,7 @@ const getMinRescheduleDate = (booking: BookingRecord | null) => {
     }
   }
 
-  return toDateOnly(earliest.toISOString());
+  return toLocalDateInputValue(earliest);
 };
 
 const withOriginalTime = (nextDate: string, sourceDateTime: string) => {
