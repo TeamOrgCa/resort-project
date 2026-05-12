@@ -12,6 +12,10 @@ interface ReservationCancelledEmailPayload extends ReservationEmailBase {
   cancellationReason: string;
 }
 
+interface OcularVisitCancelledEmailPayload extends OcularVisitEmailPayload {
+  cancellationReason: string;
+}
+
 interface OcularVisitEmailPayload {
   guestEmail: string;
   guestName: string;
@@ -418,6 +422,101 @@ export const sendOcularVisitApprovedEmail = async ({
 
       <p style="margin: 16px 0 0;">
         Please arrive a few minutes before your scheduled visit time.
+      </p>
+
+      <p style="margin: 16px 0 0;">
+        Thank you for choosing ${escapeHtml(appName)}.
+      </p>
+    </div>
+  `;
+
+  return sendMail({
+    to: guestEmail,
+    subject,
+    html,
+    text,
+  });
+};
+
+
+export const sendOcularVisitCancelledEmail = async ({
+  guestEmail,
+  guestName,
+  referenceNumber,
+  scheduledDate,
+  timeSlot,
+  cancellationReason,
+}: OcularVisitCancelledEmailPayload) => {
+  const safeName = escapeHtml(guestName || "Guest");
+  const safeReference = escapeHtml(referenceNumber);
+
+  const formattedDate = formatDateLabel(scheduledDate);
+  const formattedTimeSlot = formatTimeSlotLabel(timeSlot);
+
+  const safeReason = escapeHtml(cancellationReason);
+
+  const subject = `Ocular Visit Cancelled - ${referenceNumber}`;
+
+  const text = [
+    `Hi ${guestName || "Guest"},`,
+    "",
+    "Your ocular visit has been cancelled.",
+    "",
+    `Reference Number: ${referenceNumber}`,
+    `Visit Date: ${formattedDate}`,
+    `Time Slot: ${formattedTimeSlot}`,
+    `Reason: ${cancellationReason}`,
+    "",
+    "If this is unexpected, please contact support.",
+    "",
+    `Thank you for choosing ${appName}.`,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #1f2937; line-height: 1.6;">
+      <h2 style="margin: 0 0 12px; color: #991b1b;">
+        Ocular Visit Cancelled
+      </h2>
+
+      <p style="margin: 0 0 12px;">
+        Hi ${safeName},
+      </p>
+
+      <p style="margin: 0 0 16px;">
+        Your ocular visit has been cancelled.
+      </p>
+
+      <table style="border-collapse: collapse; width: 100%; max-width: 420px;">
+        <tr>
+          <td style="padding: 8px 0; font-weight: 600;">Reference</td>
+          <td style="padding: 8px 0;">${safeReference}</td>
+        </tr>
+
+        <tr>
+          <td style="padding: 8px 0; font-weight: 600;">Visit Date</td>
+          <td style="padding: 8px 0;">${escapeHtml(formattedDate)}</td>
+        </tr>
+
+        <tr>
+          <td style="padding: 8px 0; font-weight: 600;">Time Slot</td>
+          <td style="padding: 8px 0;">${escapeHtml(formattedTimeSlot)}</td>
+        </tr>
+
+        <tr>
+          <td style="padding: 8px 0; font-weight: 600;">Reason</td>
+          <td style="padding: 8px 0;">${safeReason}</td>
+        </tr>
+
+        <tr>
+          <td style="padding: 8px 0; font-weight: 600;">Status</td>
+          <td style="padding: 8px 0; color: #991b1b; font-weight: 600;">
+            Cancelled
+          </td>
+        </tr>
+      </table>
+
+      <p style="margin: 16px 0 0;">
+        If this cancellation is unexpected, please contact support for assistance.
       </p>
 
       <p style="margin: 16px 0 0;">

@@ -269,7 +269,14 @@ export default function ManageBooking() {
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [isCancellingBooking, setIsCancellingBooking] = useState(false);
   const [pendingCancellation, setPendingCancellation] = useState<{ id: string; reference: string; checkIn: string } | null>(null);
+  const [pendingOcularCancellation, setPendingOcularCancellation] = useState<{
+  id: string;
+  reference: string;
+} | null>(null);
 
+const [isCancellingOcular, setIsCancellingOcular] = useState(false);
+
+const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
 
   const [ocularBookings, setOcularBookings] = useState<OcularRecord[]>([]);
@@ -350,6 +357,55 @@ export default function ManageBooking() {
 
     router.push("/booking/payment");
   };
+
+
+  const handleCancelOcularVisit = async (visitId: string) => {
+    try {
+      setIsCancellingOcular(true);
+      setOcularCancelError(null);
+
+      const response = await fetch("/api/ocular-visits/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          visitId,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as {
+        success?: boolean;
+        message?: string;
+      } | null;
+
+      if (!response.ok || !result?.success) {
+        setOcularCancelError(
+          result?.message ?? "Failed to cancel ocular visit."
+        );
+        return;
+      }
+
+      setOcularBookings((current) =>
+        current.map((booking) =>
+          booking.id === visitId
+            ? {
+                ...booking,
+                status: "Cancelled",
+              }
+            : booking
+        )
+      );
+
+      setPendingOcularCancellation(null);
+    } catch {
+      setOcularCancelError("Failed to cancel ocular visit.");
+    } finally {
+      setIsCancellingOcular(false);
+    }
+  };
+
+
 
   const handleCancelReservation = async (reservationId: string) => {
     const bookingToCancel = bookings.find((item) => item.id === reservationId);
@@ -1431,6 +1487,12 @@ export default function ManageBooking() {
             {activeTab === "ocular" && (
               <>
                 <h2 className="text-2xl font-bold text-neutral mb-4">Your Ocular Booking Records</h2>
+                {ocularCancelError ? (
+                  <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                    {ocularCancelError}
+                  </p>
+                ) : null}
+
                 {isLoading ? <p className="mb-4 text-sm text-neutral/70">Loading ocular visit records...</p> : null}
                 <div className="overflow-x-auto rounded-2xl border border-neutral/10">
                   <table className="min-w-full text-left text-sm">
@@ -1479,6 +1541,25 @@ export default function ManageBooking() {
                               >
                                 Edit
                               </button>
+                                <button
+                                  onClick={() => {
+                                    if (record.status.toLowerCase() === "cancelled") {
+                                      setOcularCancelError("This ocular visit is already cancelled.");
+                                      return;
+                                    }
+
+                                    setPendingOcularCancellation({
+                                      id: record.id,
+                                      reference: record.reference,
+                                    });
+                                  }}
+                                  disabled={record.status.toLowerCase() === "cancelled"}
+                                  className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+
+
                             </div>
                           </td>
                         </tr>
@@ -1586,6 +1667,28 @@ export default function ManageBooking() {
           }
         }}
       />
+
+
+    <ConfirmationDialog
+      isOpen={Boolean(pendingOcularCancellation)}
+      title="Cancel Ocular Visit"
+      message={`Cancel ocular visit ${pendingOcularCancellation?.reference ?? ""}?`}
+      confirmText="Confirm Cancel"
+      cancelText="Keep Visit"
+      isConfirming={isCancellingOcular}
+      onCancel={() => {
+        if (!isCancellingOcular) {
+          setPendingOcularCancellation(null);
+        }
+      }}
+      onConfirm={() => {
+        if (pendingOcularCancellation) {
+          void handleCancelOcularVisit(pendingOcularCancellation.id);
+        }
+      }}
+    />
+
+
 
       <Footer />
     </div>
