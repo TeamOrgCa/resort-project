@@ -1065,3 +1065,44 @@ as $$
   group by label
   order by min(created_at);
 $$;
+
+-- latest
+
+-- create table public.ocular_visits (
+--   visit_id uuid not null default gen_random_uuid (),
+--   guest_id uuid not null,
+--   scheduled_date date not null,
+--   reference_number text not null,
+--   time_slot text not null,
+--   status text null default 'pending'::text,
+--   created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+--   cancelled_at timestamp with time zone null,
+--   cancellation_reason text null,
+--   constraint ocular_visits_pkey primary key (visit_id),
+--   constraint ocular_visits_reference_number_key unique (reference_number),
+--   constraint ocular_visits_guest_id_fkey foreign KEY (guest_id) references guests (id) on delete CASCADE,
+--   constraint ocular_visits_status_check check (
+--     (
+--       status = any (
+--         array[
+--           'pending'::text,
+--           'confirmed'::text,
+--           'cancelled'::text
+--         ]
+--       )
+--     )
+--   ),
+--   constraint ocular_visits_time_slot_check check (
+--     (
+--       time_slot = any (
+--         array[
+--           '08:00-09:00'::text,
+--           '09:00-10:00'::text,
+--           '10:00-11:00'::text,
+--           '13:00-14:00'::text,
+--           '14:00-15:00'::text
+--         ]
+--       )
+--     )
+--   )
+-- ) TABLESPACE pg_default;

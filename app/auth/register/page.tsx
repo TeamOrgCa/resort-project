@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { sanitizeName } from "@/lib/helper/validation";
+import { isValidName } from "@/lib/helper/validation";
 
 export default function Register() {
   const router = useRouter();
@@ -25,16 +27,38 @@ export default function Register() {
   const [success, setSuccess] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+
+    const { name } = e.target;
+    let value = e.target.value;
+
+    // Sanitize name fields
+    if (name === "firstName" || name === "lastName" || name === "middleName") {
+      value = sanitizeName(value);
+    }
+
+
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value,
+      [name]: value,
     });
+
+
+
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+
+      if (
+          !isValidName(formData.firstName) ||
+          !isValidName(formData.lastName) ||
+          !isValidName(formData.middleName)
+        ) {
+          alert("Please enter a valid first and last name.");
+          return;
+        }
 
     // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
