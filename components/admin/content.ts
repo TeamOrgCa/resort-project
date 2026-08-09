@@ -490,11 +490,12 @@ export const forecastRows: AdminTableRow[] = [
 ];
 
 export const usersColumns: AdminTableColumn[] = [
-  { key: "name", label: "Name" },
-  { key: "role", label: "Role" },
+  { key: "fullName", label: "Full Name" },
   { key: "email", label: "Email" },
-  { key: "lastLogin", label: "Last Login" },
+  { key: "role", label: "Role" },
   { key: "status", label: "Status" },
+  { key: "lastLogin", label: "Last Login" },
+  { key: "createdAt", label: "Created At" },
 ];
 
 export const usersRows: AdminTableRow[] = [

@@ -1,7 +1,26 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { canAccessRoute, getDefaultRouteForRole } from '@/lib/auth/role-access'
-import type { StaffRole } from '@/lib/auth/staff-auth'
+import { STAFF_SESSION_COOKIE, type StaffRole } from '@/lib/auth/staff-auth'
+import { getStaffSessionTokenFromCookieStore } from '@/lib/auth/staff-session'
+
+const STAFF_LOGIN_PATH = '/staff/login'
+
+function copyCookies(source: NextResponse, target: NextResponse) {
+  source.cookies.getAll().forEach((cookie) => target.cookies.set(cookie.name, cookie.value, cookie.options))
+}
+
+function redirectToStaffLogin(request: NextRequest, supabaseResponse: NextResponse) {
+  const url = request.nextUrl.clone()
+  url.pathname = STAFF_LOGIN_PATH
+  url.searchParams.delete('redirect')
+
+  const redirectResponse = NextResponse.redirect(url)
+  copyCookies(supabaseResponse, redirectResponse)
+  redirectResponse.cookies.delete(STAFF_SESSION_COOKIE)
+
+  return redirectResponse
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -50,11 +69,15 @@ export async function updateSession(request: NextRequest) {
   // Protect admin routes with role-based access control
   if (request.nextUrl.pathname.startsWith('/admin/') || request.nextUrl.pathname === '/admin') {
     if (request.nextUrl.pathname === '/admin/login') {
+      return NextResponse.redirect(new URL(STAFF_LOGIN_PATH, request.url))
+    }
+
+    if (request.nextUrl.pathname.startsWith('/staff/login')) {
       return supabaseResponse
     }
     if (!user) {
       const url = request.nextUrl.clone()
-      url.pathname = '/admin/login'
+      url.pathname = STAFF_LOGIN_PATH
       if (request.nextUrl.pathname !== '/admin/login') {
         url.searchParams.set('redirect', request.nextUrl.pathname)
       }
@@ -65,14 +88,20 @@ export async function updateSession(request: NextRequest) {
     try {
       const { data: staffUser } = await supabase
         .from('staff_users')
-        .select('role')
+        .select('role, is_active, active_session_id')
         .eq('id', user.id)
-        .maybeSingle<{ role: StaffRole }>()
+        .maybeSingle<{ role: StaffRole; is_active: boolean; active_session_id: string | null }>()
 
       if (!staffUser) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/admin/login'
-        return NextResponse.redirect(url)
+        await supabase.auth.signOut()
+        return redirectToStaffLogin(request, supabaseResponse)
+      }
+
+      const sessionToken = getStaffSessionTokenFromCookieStore(request.cookies)
+
+      if (!staffUser.is_active || !sessionToken || staffUser.active_session_id !== sessionToken) {
+        await supabase.auth.signOut()
+        return redirectToStaffLogin(request, supabaseResponse)
       }
 
       // Check if user can access this route

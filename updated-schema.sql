@@ -9,6 +9,9 @@ create table public.staff_users (
 
   role text check (role in ('admin', 'staff', 'cashier')) not null default 'staff',
   is_active boolean default true,
+  active_session_id uuid,
+  last_login_at timestamptz,
+  last_logout_at timestamptz,
 
   created_at timestamptz default timezone('utc', now()) not null,
   updated_at timestamptz default timezone('utc', now()) not null
@@ -24,7 +27,10 @@ create policy "Staff can update own profile"
 on public.staff_users for update
 using (auth.uid() = id);
 
+create unique index staff_users_email_unique_idx on public.staff_users(lower(email));
 create index staff_users_email_idx on public.staff_users(email);
+create index staff_users_active_session_idx on public.staff_users(active_session_id);
+create index staff_users_last_login_idx on public.staff_users(last_login_at desc);
 
 
 -- =========================

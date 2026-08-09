@@ -21,6 +21,7 @@ interface AdminTablePreviewProps {
   onAction?: (action: string) => void | Promise<void>;
   isActionDisabled?: (action: string) => boolean;
   rowActions?: string[];
+  getRowActionLabel?: (action: string, row: AdminTableRow) => string;
   onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
   isRowActionDisabled?: (action: string, row: AdminTableRow) => boolean;
   selectableRows?: boolean;
@@ -60,6 +61,7 @@ export default function AdminTablePreview({
   onAction,
   isActionDisabled,
   rowActions = [],
+  getRowActionLabel,
   onRowAction,
   isRowActionDisabled,
   selectableRows = false,
@@ -271,7 +273,7 @@ export default function AdminTablePreview({
                           disabled={isRowActionDisabled?.(action, row)}
                           className="whitespace-nowrap rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                         >
-                          {action}
+                          {getRowActionLabel?.(action, row) ?? action}
                         </button>
                       ))}
                     </div>

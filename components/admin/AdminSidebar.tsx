@@ -17,8 +17,9 @@ export default function AdminSidebar({ role }: AdminSidebarProps) {
 
   const handleLogout = async () => {
     const supabase = createClient();
+    await fetch("/api/admin/auth/logout", { method: "POST" });
     await supabase.auth.signOut();
-    router.replace("/admin/login");
+    router.replace("/staff/login");
   };
 
   // Filter navigation based on role

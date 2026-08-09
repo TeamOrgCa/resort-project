@@ -22,7 +22,6 @@ const roleAccessMap: Record<StaffRole, string[]> = {
     "/admin/transactions",
     "/admin/reports",
     "/admin/analytics",
-    "/admin/users",
     "/admin/audit",
   ],
   cashier: ["/admin/reservations", "/admin/transactions"],
