@@ -1259,6 +1259,12 @@ export default function AdminReservationsPage() {
     };
   }, [manualBookingPaymentForm.payOption, manualBookingPricing]);
 
+  const minManualBookingDate = toIsoLocalDay(new Date());
+  const minManualBookingEndDate =
+    manualBookingForm.bookingDate && manualBookingForm.bookingDate > minManualBookingDate
+      ? manualBookingForm.bookingDate
+      : minManualBookingDate;
+
   useEffect(() => {
     if (!manualBookingPricing) {
       return;
@@ -2525,6 +2531,7 @@ export default function AdminReservationsPage() {
                   <input
                     type="date"
                     value={manualBookingForm.bookingDate}
+                    min={minManualBookingDate}
                     onChange={(event) =>
                       setManualBookingForm((current) => ({ ...current, bookingDate: event.target.value }))
                     }
@@ -2558,7 +2565,7 @@ export default function AdminReservationsPage() {
                       <input
                         type="date"
                         value={manualBookingForm.customEndDate}
-                        min={manualBookingForm.bookingDate || undefined}
+                        min={minManualBookingEndDate}
                         onChange={(event) =>
                           setManualBookingForm((current) => ({ ...current, customEndDate: event.target.value }))
                         }

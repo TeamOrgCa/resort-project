@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { notifyGuestAndStaff } from "@/lib/notifications";
 
 interface ReschedulePayload {
   reservationId: string;
@@ -10,6 +11,7 @@ interface ReschedulePayload {
 interface ReservationRow {
   reservation_id: string;
   guest_id: string;
+  reference_number: string;
   start_datetime: string;
   end_datetime: string;
   status:
@@ -130,7 +132,7 @@ export async function POST(request: Request) {
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
       .select(
-        "reservation_id, guest_id, start_datetime, end_datetime, status"
+        "reservation_id, guest_id, reference_number, start_datetime, end_datetime, status"
       )
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
@@ -252,6 +254,21 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+      actorId: user.id,
+      guestId: reservation.guest_id,
+      title: "Reschedule requested",
+      message: `Reschedule request submitted for reservation ${reservation.reference_number}.`,
+      entityType: "reservation_reschedule",
+      entityId: reservation.reservation_id,
+      guestActionUrl: "/manage",
+      staffActionUrl: "/admin/reservations",
+    });
+
+    if (notificationError) {
+      console.warn("Failed to create reschedule notifications:", notificationError);
     }
 
     /* -----------------------------

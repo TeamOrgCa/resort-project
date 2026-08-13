@@ -26,7 +26,7 @@ interface OcularAvailabilityRow {
 export default function Booking() {
   const router = useRouter();
   const setBookingWindow = useBookingStore((state) => state.setBookingWindow);
-  const clearReservationMetadata = useBookingStore((state) => state.clearReservationMetadata);
+  const resetBookingDraft = useBookingStore((state) => state.resetBookingDraft);
   const [bookingType, setBookingType] = useState<"stay" | "ocular">("stay");
   const [bookingMode, setBookingMode] = useState<BookingMode>("day");
   const [wholeDayVariant, setWholeDayVariant] = useState<WholeDayVariant>("day_to_night");
@@ -202,7 +202,7 @@ export default function Booking() {
     }
 
     setStayError(null);
-    clearReservationMetadata();
+    resetBookingDraft();
     setBookingWindow(bookingMode, generatedWindow.startDatetime, generatedWindow.endDatetime, {
       wholeDayVariant,
       customStartTime,

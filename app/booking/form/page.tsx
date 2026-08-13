@@ -7,6 +7,7 @@ import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { isValidName, sanitizeName } from "@/lib/helper/validation";
 
 interface UnitOption {
   id: string;
@@ -130,17 +131,46 @@ function BookingFormContent() {
         address: prev.address || guestProfile?.address || authUser?.user_metadata?.address || "",
       }));
       setCatalogLoading(false);
+
+      // If there is a previously saved reservation in the draft, clear the reservation
+      // metadata and any calculated billing so a fresh booking doesn't show old totals.
+      if (bookingDraft?.reservationId) {
+        setBookingDraft({
+          reservationId: "",
+          reservationReference: "",
+          subtotal: 0,
+          tax: 0,
+          total: 0,
+          downPayment: 0,
+          paidAmount: 0,
+          services: [],
+        });
+        setSelectedAmenities([]);
+      }
     };
 
     loadCatalog();
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.name === "adultCount" || e.target.name === "childCount" ? Number(e.target.value) : e.target.value,
-    });
-  };
+ const handleInputChange = (
+  e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+) => {
+  const { name } = e.target;
+  let value: string | number = e.target.value;
+
+  if (name === "firstName" || name === "lastName") {
+    value = sanitizeName(String(value));
+  }
+
+  if (name === "adultCount" || name === "childCount") {
+    value = Number(value);
+  }
+
+  setFormData({
+    ...formData,
+    [name]: value,
+  });
+};
 
   const toggleAmenity = (amenityId: string) => {
     setSelectedAmenities((prev) =>
@@ -180,6 +210,14 @@ function BookingFormContent() {
 
   const handleContinueToPayment = () => {
     if (!selectedRoom || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0) {
+      return;
+    }
+
+      if (
+      !isValidName(formData.firstName) ||
+      !isValidName(formData.lastName)
+    ) {
+      alert("Please enter a valid first and last name.");
       return;
     }
 

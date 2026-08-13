@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-
+import { notifyGuestAndStaff } from "@/lib/notifications";
+import { sendOcularVisitScheduledEmail } from "@/lib/email";
 interface OcularVisitPayload {
   scheduledDate: string;
   timeSlot: string;
@@ -129,34 +130,34 @@ export async function POST(request: Request) {
     const slotStart = buildDateTime(body.scheduledDate, slotWindow.start);
     const slotEnd = buildDateTime(body.scheduledDate, slotWindow.end);
 
-    const { data: conflictingReservation, error: reservationConflictError } = await supabase
-      .from("reservations")
-      .select("reservation_id")
-      .eq("status", "confirmed")
-      .lt("start_datetime", slotEnd.toISOString())
-      .gt("end_datetime", slotStart.toISOString())
-      .limit(1)
-      .maybeSingle<ReservationRow>();
+    // const { data: conflictingReservation, error: reservationConflictError } = await supabase
+    //   .from("reservations")
+    //   .select("reservation_id")
+    //   .eq("status", "confirmed")
+    //   .lt("start_datetime", slotEnd.toISOString())
+    //   .gt("end_datetime", slotStart.toISOString())
+    //   .limit(1)
+    //   .maybeSingle<ReservationRow>();
 
-    if (reservationConflictError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unable to validate reservation conflicts.",
-        },
-        { status: 500 }
-      );
-    }
+    // if (reservationConflictError) {
+    //   return NextResponse.json(
+    //     {
+    //       success: false,
+    //       message: "Unable to validate reservation conflicts.",
+    //     },
+    //     { status: 500 }
+    //   );
+    // }
 
-    if (conflictingReservation) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Selected time slot overlaps with a confirmed reservation.",
-        },
-        { status: 409 }
-      );
-    }
+    // if (conflictingReservation) {
+    //   return NextResponse.json(
+    //     {
+    //       success: false,
+    //       message: "Selected time slot overlaps with a confirmed reservation.",
+    //     },
+    //     { status: 409 }
+    //   );
+    // }
 
     const { data: conflictingOcularVisit, error: ocularConflictError } = await supabase
       .from("ocular_visits")
@@ -249,6 +250,32 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+      actorId: user.id,
+      guestId: user.id,
+      title: "Ocular visit scheduled",
+      message: `Ocular visit ${ocularVisit.reference_number} is pending confirmation.`,
+      entityType: "ocular_visit",
+      entityId: ocularVisit.visit_id,
+      guestActionUrl: "/ocular",
+      staffActionUrl: "/admin/reservations",
+    });
+
+    if (notificationError) {
+      console.warn("Failed to create ocular visit notifications:", notificationError);
+    }
+
+    await sendOcularVisitScheduledEmail({
+    guestEmail: user.email ?? "",
+    guestName:
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      "Guest",
+    referenceNumber: ocularVisit.reference_number,
+    scheduledDate: ocularVisit.scheduled_date,
+    timeSlot: ocularVisit.time_slot,
+  });
 
     return NextResponse.json(
       {

@@ -3,12 +3,15 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import AdminNotifications from "@/components/admin/AdminNotifications";
+import type { StaffRole } from "@/lib/auth/staff-auth";
 
 interface AdminShellProps {
   children: ReactNode;
+  role: StaffRole;
 }
 
-export default function AdminShell({ children }: AdminShellProps) {
+export default function AdminShell({ children, role }: AdminShellProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -37,21 +40,26 @@ export default function AdminShell({ children }: AdminShellProps) {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <div className="mb-4 md:hidden">
-        <button
-          type="button"
-          onClick={() => setIsSidebarOpen(true)}
-          className="rounded-lg border border-neutral/20 bg-white px-4 py-2 text-sm font-semibold text-neutral hover:bg-base"
-          aria-label="Open admin navigation"
-          aria-expanded={isSidebarOpen}
-        >
-          Menu
-        </button>
+      <div className="mb-4 flex items-center gap-3">
+        <div className="md:hidden">
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            className="rounded-lg border border-neutral/20 bg-white px-4 py-2 text-sm font-semibold text-neutral hover:bg-base"
+            aria-label="Open admin navigation"
+            aria-expanded={isSidebarOpen}
+          >
+            Menu
+          </button>
+        </div>
+        <div className="ml-auto">
+          <AdminNotifications />
+        </div>
       </div>
 
       <div className="md:grid md:gap-6 md:grid-cols-[280px_1fr]">
         <aside className="hidden md:block">
-          <AdminSidebar />
+          <AdminSidebar role={role} />
         </aside>
 
         <main>{children}</main>
@@ -75,7 +83,7 @@ export default function AdminShell({ children }: AdminShellProps) {
                 Close
               </button>
             </div>
-            <AdminSidebar />
+            <AdminSidebar role={role} />
           </aside>
         </div>
       ) : null}

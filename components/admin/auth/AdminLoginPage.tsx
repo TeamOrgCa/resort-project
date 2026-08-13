@@ -7,11 +7,11 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-6xl">
         <section className="rounded-3xl border border-neutral/10 bg-white p-8 mx-auto max-w-md">
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">
-            Admin Portal
+            Staff Portal
           </p>
 
           <h1 className="mt-3 text-3xl font-bold text-neutral">
-            MarVille Management Login
+            MarVille Staff Login
           </h1>
 
           <p className="mt-3 text-sm text-neutral/70">

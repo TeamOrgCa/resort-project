@@ -84,7 +84,7 @@ export default function AdminLoginForm() {
         disabled={isSubmitting}
         className="w-full rounded-lg bg-primary px-4 py-3 font-semibold text-base transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
       >
-        {isSubmitting ? "Signing In..." : "Sign In to Admin"}
+        {isSubmitting ? "Signing In..." : "Sign In to Staff Portal"}
       </button>
     </form>
   );

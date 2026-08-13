@@ -25,7 +25,6 @@
 *.pem
 
 # sql
-*.sql
 
 # debug
 npm-debug.log*

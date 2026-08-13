@@ -8,7 +8,7 @@ type ChatMessage = {
   content: string;
 };
 
-const CHATBOT_ENABLED = false;
+const CHATBOT_ENABLED = true;
 
 export default function ChatBotMars() {
   if (!CHATBOT_ENABLED) {

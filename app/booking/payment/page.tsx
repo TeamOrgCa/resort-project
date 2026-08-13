@@ -612,7 +612,7 @@ function PaymentContent() {
                         </div>
                         <div className="text-left">
                           <p className="font-semibold text-neutral">E-Wallet</p>
-                          <p className="text-sm text-neutral/70">GCash, PayMaya, etc.</p>
+                          <p className="text-sm text-neutral/70">GCash</p>
                         </div>
                       </div>
                     </button>
@@ -799,9 +799,6 @@ function PaymentContent() {
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                           >
                             <option value="gcash">GCash</option>
-                            <option value="paymaya">PayMaya</option>
-                            <option value="grabpay">GrabPay</option>
-                            <option value="paypal">PayPal</option>
                           </select>
                         </div>
                       </div>

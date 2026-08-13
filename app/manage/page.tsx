@@ -182,6 +182,13 @@ const toDateOnly = (value: string) => {
   return `${year}-${month}-${day}`;
 };
 
+const toLocalDateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const toDateTimeLocal = (value: string) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -193,6 +200,40 @@ const toDateTimeLocal = (value: string) => {
   const hours = `${parsed.getHours()}`.padStart(2, "0");
   const minutes = `${parsed.getMinutes()}`.padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+const getMinRescheduleDate = (booking: BookingRecord | null) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let earliest = new Date(today);
+
+  if (booking?.startDatetime) {
+    const originalStart = new Date(booking.startDatetime);
+    if (!Number.isNaN(originalStart.getTime())) {
+      const candidate = new Date();
+      candidate.setHours(
+        originalStart.getHours(),
+        originalStart.getMinutes(),
+        originalStart.getSeconds(),
+        0
+      );
+
+      if (candidate.getTime() <= Date.now()) {
+        earliest.setDate(earliest.getDate() + 1);
+      }
+    }
+  }
+
+  if (booking?.checkIn) {
+    const bookingDateValue = toDateOnly(booking.checkIn);
+    const bookingDate = parseDateValue(bookingDateValue);
+    if (bookingDate && bookingDate.getTime() > earliest.getTime()) {
+      earliest = bookingDate;
+    }
+  }
+
+  return toLocalDateInputValue(earliest);
 };
 
 const withOriginalTime = (nextDate: string, sourceDateTime: string) => {
@@ -228,7 +269,14 @@ export default function ManageBooking() {
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [isCancellingBooking, setIsCancellingBooking] = useState(false);
   const [pendingCancellation, setPendingCancellation] = useState<{ id: string; reference: string; checkIn: string } | null>(null);
+  const [pendingOcularCancellation, setPendingOcularCancellation] = useState<{
+  id: string;
+  reference: string;
+} | null>(null);
 
+const [isCancellingOcular, setIsCancellingOcular] = useState(false);
+
+const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
 
   const [ocularBookings, setOcularBookings] = useState<OcularRecord[]>([]);
@@ -267,6 +315,7 @@ export default function ManageBooking() {
 
   const selectedBooking = bookings.find((item) => item.id === selectedBookingId) ?? null;
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
+  const minRescheduleDate = getMinRescheduleDate(selectedBooking);
 
   const getDaysBeforeCheckIn = (checkInDate: string) => {
     const checkIn = new Date(`${checkInDate}T00:00:00`);
@@ -308,6 +357,55 @@ export default function ManageBooking() {
 
     router.push("/booking/payment");
   };
+
+
+  const handleCancelOcularVisit = async (visitId: string) => {
+    try {
+      setIsCancellingOcular(true);
+      setOcularCancelError(null);
+
+      const response = await fetch("/api/ocular-visits/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          visitId,
+        }),
+      });
+
+      const result = (await response.json().catch(() => null)) as {
+        success?: boolean;
+        message?: string;
+      } | null;
+
+      if (!response.ok || !result?.success) {
+        setOcularCancelError(
+          result?.message ?? "Failed to cancel ocular visit."
+        );
+        return;
+      }
+
+      setOcularBookings((current) =>
+        current.map((booking) =>
+          booking.id === visitId
+            ? {
+                ...booking,
+                status: "Cancelled",
+              }
+            : booking
+        )
+      );
+
+      setPendingOcularCancellation(null);
+    } catch {
+      setOcularCancelError("Failed to cancel ocular visit.");
+    } finally {
+      setIsCancellingOcular(false);
+    }
+  };
+
+
 
   const handleCancelReservation = async (reservationId: string) => {
     const bookingToCancel = bookings.find((item) => item.id === reservationId);
@@ -480,7 +578,8 @@ export default function ManageBooking() {
       return;
     }
 
-    if (nextCheckIn.getTime() === parseDateValue(selectedBooking.checkIn)?.getTime()) {
+    const currentBookingDate = parseDateValue(toDateOnly(selectedBooking.checkIn));
+    if (currentBookingDate && nextCheckIn.getTime() === currentBookingDate.getTime()) {
       setRescheduleFormError("Please choose a different date from the current reservation.");
       return;
     }
@@ -511,6 +610,11 @@ export default function ManageBooking() {
     
     const newEnd = new Date(newStart);
     newEnd.setTime(newStart.getTime() + durationMs);
+
+    if (newStart.getTime() <= Date.now()) {
+      setRescheduleFormError("Reschedule date/time must be in the future.");
+      return;
+    }
 
     setRescheduleFormError(null);
     setIsSubmittingReschedule(true);
@@ -934,7 +1038,16 @@ export default function ManageBooking() {
                                   setRecordMode("reschedule");
                                   setRescheduleFormError(null);
                                   setRescheduleForm({
-                                    checkIn: record.checkIn,
+                                        checkIn: (() => {
+                                          const defaultDate = toDateOnly(record.checkIn);
+                                          const minDate = getMinRescheduleDate(record);
+                                          const defaultParsed = parseDateValue(defaultDate);
+                                          const minParsed = parseDateValue(minDate);
+                                          if (defaultParsed && minParsed && defaultParsed < minParsed) {
+                                            return minDate;
+                                          }
+                                          return defaultDate;
+                                        })(),
                                   });
                                 }}
                                 disabled={
@@ -1346,7 +1459,7 @@ export default function ManageBooking() {
                         <input
                           type="date"
                           value={rescheduleForm.checkIn}
-                          min={selectedBooking.checkIn}
+                          min={minRescheduleDate}
                           onChange={(event) =>
                             setRescheduleForm((current) => ({
                               ...current,
@@ -1374,6 +1487,12 @@ export default function ManageBooking() {
             {activeTab === "ocular" && (
               <>
                 <h2 className="text-2xl font-bold text-neutral mb-4">Your Ocular Booking Records</h2>
+                {ocularCancelError ? (
+                  <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                    {ocularCancelError}
+                  </p>
+                ) : null}
+
                 {isLoading ? <p className="mb-4 text-sm text-neutral/70">Loading ocular visit records...</p> : null}
                 <div className="overflow-x-auto rounded-2xl border border-neutral/10">
                   <table className="min-w-full text-left text-sm">
@@ -1422,6 +1541,25 @@ export default function ManageBooking() {
                               >
                                 Edit
                               </button>
+                                <button
+                                  onClick={() => {
+                                    if (record.status.toLowerCase() === "cancelled") {
+                                      setOcularCancelError("This ocular visit is already cancelled.");
+                                      return;
+                                    }
+
+                                    setPendingOcularCancellation({
+                                      id: record.id,
+                                      reference: record.reference,
+                                    });
+                                  }}
+                                  disabled={record.status.toLowerCase() === "cancelled"}
+                                  className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+
+
                             </div>
                           </td>
                         </tr>
@@ -1529,6 +1667,28 @@ export default function ManageBooking() {
           }
         }}
       />
+
+
+    <ConfirmationDialog
+      isOpen={Boolean(pendingOcularCancellation)}
+      title="Cancel Ocular Visit"
+      message={`Cancel ocular visit ${pendingOcularCancellation?.reference ?? ""}?`}
+      confirmText="Confirm Cancel"
+      cancelText="Keep Visit"
+      isConfirming={isCancellingOcular}
+      onCancel={() => {
+        if (!isCancellingOcular) {
+          setPendingOcularCancellation(null);
+        }
+      }}
+      onConfirm={() => {
+        if (pendingOcularCancellation) {
+          void handleCancelOcularVisit(pendingOcularCancellation.id);
+        }
+      }}
+    />
+
+
 
       <Footer />
     </div>

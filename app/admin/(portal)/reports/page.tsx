@@ -1,11 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
-import type { AdminTableColumn, AdminTableFilter, AdminTableRow, AdminTableSort } from "@/components/admin/types";
+import { createClient } from "@/lib/supabase/client";
 
-type ReportTab = "Sales Report" | "Financial Report" | "Guest Report" | "Staff Report";
+import type {
+  AdminTableColumn,
+  AdminTableFilter,
+  AdminTableRow,
+  AdminTableSort,
+} from "@/components/admin/types";
+
+type ReportTab =
+  | "Sales Report"
+  | "Financial Report"
+  | "Guest Report"
+  | "Staff Report";
+
 type PeriodFilter = "Daily" | "Weekly" | "Monthly";
 
 interface ReportVisualData {
@@ -20,67 +32,39 @@ interface ReportTableConfig {
   defaultSort: AdminTableSort;
 }
 
+interface SalesReportRow {
+  label: string;
+  revenue: number;
+  bookings: number;
+}
+
 const reportTabs: { title: ReportTab; description: string }[] = [
   {
     title: "Sales Report",
-    description: "Revenue by period and service category with booking volume context.",
+    description:
+      "Revenue by period and service category with booking volume context.",
   },
   {
     title: "Financial Report",
-    description: "Cash flow visibility for received payments, balances, and pending collections.",
+    description:
+      "Cash flow visibility for received payments, balances, and pending collections.",
   },
   {
     title: "Guest Report",
-    description: "Guest composition, visit behavior, and booking channel trends.",
+    description:
+      "Guest composition, visit behavior, and booking channel trends.",
   },
   {
     title: "Staff Report",
-    description: "Operational activity and accountability metrics per authorized personnel.",
+    description:
+      "Operational activity and accountability metrics per authorized personnel.",
   },
 ];
 
-const reportVisuals: Record<ReportTab, Record<PeriodFilter, ReportVisualData>> = {
-  "Sales Report": {
-    Daily: {
-      trend: [
-        { label: "Mon", value: 62 },
-        { label: "Tue", value: 58 },
-        { label: "Wed", value: 74 },
-        { label: "Thu", value: 69 },
-        { label: "Fri", value: 88 },
-      ],
-      split: [
-        { label: "Accommodation", value: 48 },
-        { label: "Amenities", value: 31 },
-        { label: "Public Access", value: 21 },
-      ],
-    },
-    Weekly: {
-      trend: [
-        { label: "W1", value: 71 },
-        { label: "W2", value: 77 },
-        { label: "W3", value: 74 },
-        { label: "W4", value: 86 },
-      ],
-      split: [
-        { label: "Accommodation", value: 51 },
-        { label: "Amenities", value: 28 },
-        { label: "Public Access", value: 21 },
-      ],
-    },
-    Monthly: {
-      trend: [
-        { label: "Jan", value: 66 },
-        { label: "Feb", value: 72 },
-        { label: "Mar", value: 84 },
-      ],
-      split: [
-        { label: "Accommodation", value: 54 },
-        { label: "Amenities", value: 27 },
-        { label: "Public Access", value: 19 },
-      ],
-    },
-  },
+const reportVisuals: Record<
+  Exclude<ReportTab, "Sales Report">,
+  Record<PeriodFilter, ReportVisualData>
+> = {
   "Financial Report": {
     Daily: {
       trend: [
@@ -122,6 +106,7 @@ const reportVisuals: Record<ReportTab, Record<PeriodFilter, ReportVisualData>> =
       ],
     },
   },
+
   "Guest Report": {
     Daily: {
       trend: [
@@ -160,6 +145,7 @@ const reportVisuals: Record<ReportTab, Record<PeriodFilter, ReportVisualData>> =
       ],
     },
   },
+
   "Staff Report": {
     Daily: {
       trend: [
@@ -206,28 +192,23 @@ const reportVisuals: Record<ReportTab, Record<PeriodFilter, ReportVisualData>> =
 const reportTables: Record<ReportTab, ReportTableConfig> = {
   "Sales Report": {
     columns: [
-      { key: "category", label: "Category" },
+      { key: "label", label: "Period" },
       { key: "revenue", label: "Revenue" },
       { key: "bookings", label: "Bookings" },
-      { key: "growth", label: "Growth" },
     ],
+
     rowsByPeriod: {
-      Daily: [
-        { id: "s-d-1", category: "Accommodation", revenue: "₱182,000", bookings: "24", growth: "+6%" },
-        { id: "s-d-2", category: "Amenities", revenue: "₱94,300", bookings: "41", growth: "+9%" },
-      ],
-      Weekly: [
-        { id: "s-w-1", category: "Accommodation", revenue: "₱1,041,000", bookings: "126", growth: "+8%" },
-        { id: "s-w-2", category: "Amenities", revenue: "₱566,000", bookings: "224", growth: "+7%" },
-      ],
-      Monthly: [
-        { id: "s-m-1", category: "Accommodation", revenue: "₱4,210,000", bookings: "512", growth: "+11%" },
-        { id: "s-m-2", category: "Amenities", revenue: "₱2,280,000", bookings: "891", growth: "+10%" },
-      ],
+      Daily: [],
+      Weekly: [],
+      Monthly: [],
     },
-    filters: [{ key: "category", label: "Category", options: ["Accommodation", "Amenities", "Public Access"] }],
-    defaultSort: { key: "revenue", direction: "desc" },
+
+    defaultSort: {
+      key: "revenue",
+      direction: "desc",
+    },
   },
+
   "Financial Report": {
     columns: [
       { key: "item", label: "Item" },
@@ -235,104 +216,182 @@ const reportTables: Record<ReportTab, ReportTableConfig> = {
       { key: "outstanding", label: "Outstanding" },
       { key: "status", label: "Status" },
     ],
+
     rowsByPeriod: {
-      Daily: [
-        { id: "f-d-1", item: "Reservation Payments", received: "₱128,400", outstanding: "₱46,200", status: "Tracked" },
-        { id: "f-d-2", item: "Additional Charges", received: "₱22,800", outstanding: "₱8,400", status: "Tracked" },
-      ],
-      Weekly: [
-        { id: "f-w-1", item: "Reservation Payments", received: "₱821,700", outstanding: "₱192,000", status: "Tracked" },
-        { id: "f-w-2", item: "Additional Charges", received: "₱141,600", outstanding: "₱39,200", status: "Tracked" },
-      ],
-      Monthly: [
-        { id: "f-m-1", item: "Reservation Payments", received: "₱3,281,500", outstanding: "₱604,900", status: "Tracked" },
-        { id: "f-m-2", item: "Additional Charges", received: "₱612,300", outstanding: "₱173,100", status: "Tracked" },
-      ],
+      Daily: [],
+      Weekly: [],
+      Monthly: [],
     },
-    filters: [{ key: "status", label: "Status", options: ["Tracked"] }],
-    defaultSort: { key: "received", direction: "desc" },
+
+    defaultSort: {
+      key: "received",
+      direction: "desc",
+    },
   },
+
   "Guest Report": {
     columns: [
       { key: "segment", label: "Segment" },
       { key: "count", label: "Count" },
-      { key: "averageStay", label: "Avg Stay" },
-      { key: "trend", label: "Trend" },
     ],
+
     rowsByPeriod: {
-      Daily: [
-        { id: "g-d-1", segment: "First-time", count: "39", averageStay: "2.2 nights", trend: "+5%" },
-        { id: "g-d-2", segment: "Returning", count: "27", averageStay: "3.1 nights", trend: "+3%" },
-      ],
-      Weekly: [
-        { id: "g-w-1", segment: "First-time", count: "238", averageStay: "2.4 nights", trend: "+6%" },
-        { id: "g-w-2", segment: "Returning", count: "189", averageStay: "3.0 nights", trend: "+4%" },
-      ],
-      Monthly: [
-        { id: "g-m-1", segment: "First-time", count: "981", averageStay: "2.5 nights", trend: "+8%" },
-        { id: "g-m-2", segment: "Returning", count: "842", averageStay: "3.2 nights", trend: "+6%" },
-      ],
+      Daily: [],
+      Weekly: [],
+      Monthly: [],
     },
-    filters: [{ key: "segment", label: "Segment", options: ["First-time", "Returning"] }],
-    defaultSort: { key: "count", direction: "desc" },
+
+    defaultSort: {
+      key: "count",
+      direction: "desc",
+    },
   },
+
   "Staff Report": {
     columns: [
       { key: "staff", label: "Staff" },
-      { key: "actions", label: "Logged Actions" },
-      { key: "shift", label: "Shift" },
-      { key: "attendance", label: "Attendance" },
+      { key: "actions", label: "Actions" },
     ],
+
     rowsByPeriod: {
-      Daily: [
-        { id: "st-d-1", staff: "Alex Mendoza", actions: "34", shift: "Morning", attendance: "Present" },
-        { id: "st-d-2", staff: "Bea Navarro", actions: "29", shift: "Afternoon", attendance: "Present" },
-      ],
-      Weekly: [
-        { id: "st-w-1", staff: "Alex Mendoza", actions: "201", shift: "Morning", attendance: "6/6" },
-        { id: "st-w-2", staff: "Bea Navarro", actions: "184", shift: "Afternoon", attendance: "6/6" },
-      ],
-      Monthly: [
-        { id: "st-m-1", staff: "Alex Mendoza", actions: "823", shift: "Morning", attendance: "24/24" },
-        { id: "st-m-2", staff: "Bea Navarro", actions: "756", shift: "Afternoon", attendance: "23/24" },
-      ],
+      Daily: [],
+      Weekly: [],
+      Monthly: [],
     },
-    filters: [{ key: "shift", label: "Shift", options: ["Morning", "Afternoon", "Night"] }],
-    defaultSort: { key: "actions", direction: "desc" },
+
+    defaultSort: {
+      key: "actions",
+      direction: "desc",
+    },
   },
 };
 
 export default function AdminReportsPage() {
-  const [activeTab, setActiveTab] = useState<ReportTab>("Sales Report");
-  const [period, setPeriod] = useState<PeriodFilter>("Daily");
+  const supabase = createClient();
 
-  const visualData = reportVisuals[activeTab][period];
-  const tableConfig = reportTables[activeTab];
+  const [activeTab, setActiveTab] =
+    useState<ReportTab>("Sales Report");
+
+  const [period, setPeriod] =
+    useState<PeriodFilter>("Daily");
+
+  const [salesTrend, setSalesTrend] = useState<
+    SalesReportRow[]
+  >([]);
+
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    async function fetchSalesReport() {
+      if (activeTab !== "Sales Report") return;
+
+      setLoading(true);
+
+      const { data, error } = await supabase.rpc(
+        "get_sales_report",
+        {
+          report_period: period.toLowerCase(),
+        }
+      );
+
+      if (error) {
+        console.error(error);
+        setLoading(false);
+        return;
+      }
+
+      setSalesTrend(data || []);
+      setLoading(false);
+    }
+
+    fetchSalesReport();
+  }, [activeTab, period, supabase]);
+
+  const visualData: ReportVisualData =
+    activeTab === "Sales Report"
+      ? {
+          trend: salesTrend.map((item) => ({
+            label: item.label,
+            value: Number(item.revenue),
+          })),
+
+          split: [
+            {
+              label: "Revenue",
+              value: salesTrend.reduce(
+                (sum, item) => sum + Number(item.revenue),
+                0
+              ),
+            },
+          ],
+        }
+      : reportVisuals[activeTab][period];
 
   const splitTotal = useMemo(
-    () => visualData.split.reduce((total, item) => total + item.value, 0),
+    () =>
+      visualData.split.reduce(
+        (total, item) => total + item.value,
+        0
+      ),
     [visualData.split]
   );
 
+  const maxTrendValue = Math.max(
+    ...visualData.trend.map((point) => point.value),
+    1
+  );
+
   const pieStops = useMemo(() => {
-    const colors = ["var(--color-secondary)", "var(--color-highlight)", "var(--color-primary)", "var(--color-accent)"];
+    const colors = [
+      "var(--color-secondary)",
+      "var(--color-highlight)",
+      "var(--color-primary)",
+      "var(--color-accent)",
+    ];
 
     const gradientState = visualData.split.reduce(
       (state, item, index) => {
-        const segment = (item.value / splitTotal) * 100;
+        const segment =
+          (item.value / splitTotal) * 100;
+
         const start = state.offset;
         const end = state.offset + segment;
 
         return {
           offset: end,
-          stops: [...state.stops, `${colors[index % colors.length]} ${start}% ${end}%`],
+
+          stops: [
+            ...state.stops,
+            `${colors[index % colors.length]} ${start}% ${end}%`,
+          ],
         };
       },
-      { offset: 0, stops: [] as string[] }
+
+      {
+        offset: 0,
+        stops: [] as string[],
+      }
     );
 
     return gradientState.stops.join(", ");
   }, [splitTotal, visualData.split]);
+
+  const salesRows: AdminTableRow[] = salesTrend.map(
+    (item, index) => ({
+      id: `${item.label}-${index}`,
+
+      label: item.label,
+
+      revenue: `₱${Number(item.revenue).toLocaleString()}`,
+
+      bookings: item.bookings.toString(),
+    })
+  );
+
+  const tableRows =
+    activeTab === "Sales Report"
+      ? salesRows
+      : reportTables[activeTab].rowsByPeriod[period];
 
   return (
     <div>
@@ -345,15 +404,20 @@ export default function AdminReportsPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-neutral/10 pb-4">
           <div className="flex flex-wrap gap-2">
             {reportTabs.map((tab) => {
-              const isActive = tab.title === activeTab;
+              const isActive =
+                tab.title === activeTab;
 
               return (
                 <button
                   key={tab.title}
                   type="button"
-                  onClick={() => setActiveTab(tab.title)}
+                  onClick={() =>
+                    setActiveTab(tab.title)
+                  }
                   className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                    isActive ? "bg-primary text-base" : "bg-base text-neutral hover:bg-neutral/10"
+                    isActive
+                      ? "bg-primary text-base"
+                      : "bg-base text-neutral hover:bg-neutral/10"
                   }`}
                 >
                   {tab.title}
@@ -364,9 +428,14 @@ export default function AdminReportsPage() {
 
           <label className="flex items-center gap-2 text-sm text-neutral/70">
             <span>Period</span>
+
             <select
               value={period}
-              onChange={(event) => setPeriod(event.target.value as PeriodFilter)}
+              onChange={(event) =>
+                setPeriod(
+                  event.target.value as PeriodFilter
+                )
+              }
               className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral"
             >
               <option value="Daily">Daily</option>
@@ -377,31 +446,79 @@ export default function AdminReportsPage() {
         </div>
 
         <p className="mb-4 text-sm text-neutral/70">
-          {reportTabs.find((tab) => tab.title === activeTab)?.description}
+          {
+            reportTabs.find(
+              (tab) => tab.title === activeTab
+            )?.description
+          }
         </p>
 
         <div className="grid gap-4 lg:grid-cols-3">
           <article className="rounded-2xl border border-neutral/10 bg-base p-4 lg:col-span-2">
-            <h3 className="text-sm font-semibold text-neutral">{activeTab} Trend ({period})</h3>
-            <div className="mt-3 grid grid-cols-5 gap-2">
-              {visualData.trend.map((point) => (
-                <div key={point.label} className="flex flex-col items-center gap-2">
-                  <div className="flex h-32 w-full items-end rounded-lg bg-white px-2 py-2">
-                    <div className="w-full rounded-md bg-primary" style={{ height: `${point.value}%` }} />
+            <h3 className="text-sm font-semibold text-neutral">
+              {activeTab} Trend ({period})
+            </h3>
+
+            {loading ? (
+              <div className="mt-6 text-sm text-neutral/60">
+                Loading report...
+              </div>
+            ) : (
+              <div className="mt-3 grid grid-cols-5 gap-2">
+                {visualData.trend.map((point) => (
+                  <div
+                    key={point.label}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div className="flex h-32 w-full items-end rounded-lg bg-white px-2 py-2">
+                      <div
+                        className="w-full rounded-md bg-primary"
+                        style={{
+                          height: `${
+                            (point.value /
+                              maxTrendValue) *
+                            100
+                          }%`,
+                        }}
+                      />
+                    </div>
+
+                    <div className="text-center">
+                      <p className="text-[10px] font-semibold text-neutral">
+                        ₱
+                        {point.value.toLocaleString()}
+                      </p>
+
+                      <span className="text-xs text-neutral/70">
+                        {point.label}
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-xs text-neutral/70">{point.label}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </article>
 
           <article className="rounded-2xl border border-neutral/10 bg-base p-4">
-            <h3 className="text-sm font-semibold text-neutral">Category Split</h3>
-            <div className="mx-auto mt-3 h-36 w-36 rounded-full" style={{ background: `conic-gradient(${pieStops})` }} />
+            <h3 className="text-sm font-semibold text-neutral">
+              Category Split
+            </h3>
+
+            <div
+              className="mx-auto mt-3 h-36 w-36 rounded-full"
+              style={{
+                background: `conic-gradient(${pieStops})`,
+              }}
+            />
+
             <ul className="mt-3 space-y-1 text-xs text-neutral/80">
               {visualData.split.map((item) => (
                 <li key={item.label}>
-                  {item.label}: {Math.round((item.value / splitTotal) * 100)}%
+                  {item.label}:{" "}
+                  {Math.round(
+                    (item.value / splitTotal) * 100
+                  )}
+                  %
                 </li>
               ))}
             </ul>
@@ -411,11 +528,18 @@ export default function AdminReportsPage() {
         <div className="mt-6">
           <AdminTablePreview
             title={`${activeTab} Snapshot (${period})`}
-            columns={tableConfig.columns}
-            rows={tableConfig.rowsByPeriod[period]}
-            filters={tableConfig.filters}
-            defaultSort={tableConfig.defaultSort}
-            actions={["Generate Report", "Export CSV"]}
+            columns={reportTables[activeTab].columns}
+            rows={tableRows}
+            filters={
+              reportTables[activeTab].filters
+            }
+            defaultSort={
+              reportTables[activeTab].defaultSort
+            }
+            actions={[
+              "Generate Report",
+              "Export CSV",
+            ]}
             rowActions={["Open"]}
           />
         </div>

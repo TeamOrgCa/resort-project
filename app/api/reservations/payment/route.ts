@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { notifyGuestAndStaff } from "@/lib/notifications";
 
 type PaymentMethod = "bank_transfer" | "e_wallet";
 type PaymentType = "downpayment" | "full" | "additional";
@@ -20,6 +21,7 @@ interface ReservationPaymentPayload {
 interface ReservationRow {
   reservation_id: string;
   guest_id: string;
+  reference_number: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
@@ -110,7 +112,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, status")
+      .select("reservation_id, guest_id, reference_number, status")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -273,6 +275,21 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+      actorId: user.id,
+      guestId: reservation.guest_id,
+      title: "Payment submitted",
+      message: `Payment for reservation ${reservation.reference_number} is pending review.`,
+      entityType: "payment",
+      entityId: payment.payment_id,
+      guestActionUrl: "/manage",
+      staffActionUrl: "/admin/reservations",
+    });
+
+    if (notificationError) {
+      console.warn("Failed to create payment notifications:", notificationError);
     }
 
     return NextResponse.json(

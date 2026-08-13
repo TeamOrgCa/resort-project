@@ -1,4 +1,4 @@
-export type StaffRole = "admin" | "staff";
+export type StaffRole = "admin" | "staff" | "cashier";
 
 export interface StaffLoginPayload {
   email: string;
@@ -11,6 +11,14 @@ export interface StaffUserProfile {
   email: string;
   role: StaffRole;
   is_active: boolean;
+  active_session_id: string | null;
+  last_login_at: string | null;
+  last_logout_at: string | null;
+}
+
+export interface StaffUserListItem extends StaffUserProfile {
+  created_at: string;
+  updated_at: string;
 }
 
 export interface StaffAuthSuccessResponse {
@@ -22,6 +30,11 @@ export interface StaffAuthSuccessResponse {
     email: string;
     role: StaffRole;
   };
+}
+
+export interface StaffManagementResponse {
+  success: true;
+  message: string;
 }
 
 export interface StaffAuthErrorResponse {
@@ -49,4 +62,10 @@ export function parseStaffLoginPayload(payload: unknown): StaffLoginPayload | nu
   }
 
   return { email, password };
+}
+
+export const STAFF_SESSION_COOKIE = "staff_session_id";
+
+export function isStaffRole(role: string): role is StaffRole {
+  return role === "admin" || role === "staff" || role === "cashier";
 }

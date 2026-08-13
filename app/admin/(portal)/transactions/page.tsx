@@ -19,7 +19,6 @@ import type {
   InvoiceServiceBreakdownItem,
   InvoiceUnitBreakdownItem,
   InvoiceViewDetails,
-  PaymentRow,
   ReceiptDetailGuestRow,
   ReceiptDetailPaymentRow,
   ReceiptDetailReceiptRow,
@@ -30,6 +29,13 @@ import type {
   ViewDetailsState,
 } from "@/components/admin/transactions/types";
 import { createClient } from "@/lib/supabase/client";
+
+interface PaymentSnapshotRow {
+  payment_id: string;
+  reservation_id: string;
+  reference_number: string;
+  status: "pending" | "verified";
+}
 
 const transactionTabs = ["Transaction Ledger", "Generated Invoices", "Issued Receipts"] as const;
 
@@ -130,6 +136,7 @@ export default function AdminTransactionsPage() {
   const [bookingTypesById, setBookingTypesById] = useState<Record<string, string>>({});
   const [paymentReferencesById, setPaymentReferencesById] = useState<Record<string, string>>({});
   const [paymentReservationById, setPaymentReservationById] = useState<Record<string, string>>({});
+  const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
   const [viewDetails, setViewDetails] = useState<ViewDetailsState | null>(null);
   const [isInvoiceDetailsOpen, setIsInvoiceDetailsOpen] = useState(false);
   const [isInvoiceDetailsLoading, setIsInvoiceDetailsLoading] = useState(false);
@@ -171,7 +178,10 @@ export default function AdminTransactionsPage() {
               ? supabase.from("invoices").select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", reservationIds)
               : Promise.resolve({ data: [], error: null }),
             reservationIds.length
-              ? supabase.from("payments").select("payment_id, reservation_id, reference_number").in("reservation_id", reservationIds)
+              ? supabase
+                  .from("payments")
+                  .select("payment_id, reservation_id, reference_number, status")
+                  .in("reservation_id", reservationIds)
               : Promise.resolve({ data: [], error: null }),
             supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment").order("issued_at", { ascending: false }).limit(200),
           ]);
@@ -199,21 +209,16 @@ export default function AdminTransactionsPage() {
           {}
         );
 
-        const nextPaymentReferencesById = ((paymentsData as PaymentRow[] | null) ?? []).reduce<Record<string, string>>(
-          (accumulator, payment) => {
-            accumulator[payment.reservation_id] = payment.reference_number;
-            return accumulator;
-          },
-          {}
-        );
+        const paymentRows = (paymentsData as PaymentSnapshotRow[] | null) ?? [];
+        const nextPaymentReferencesById = paymentRows.reduce<Record<string, string>>((accumulator, payment) => {
+          accumulator[payment.reservation_id] = payment.reference_number;
+          return accumulator;
+        }, {});
 
-        const nextPaymentReservationById = ((paymentsData as PaymentRow[] | null) ?? []).reduce<Record<string, string>>(
-          (accumulator, payment) => {
-            accumulator[payment.payment_id] = payment.reservation_id;
-            return accumulator;
-          },
-          {}
-        );
+        const nextPaymentReservationById = paymentRows.reduce<Record<string, string>>((accumulator, payment) => {
+          accumulator[payment.payment_id] = payment.reservation_id;
+          return accumulator;
+        }, {});
 
         setTransactions(transactionList);
         setInvoices((invoicesData as InvoiceRow[] | null) ?? []);
@@ -222,6 +227,7 @@ export default function AdminTransactionsPage() {
         setBookingTypesById(nextBookingTypesById);
         setPaymentReferencesById(nextPaymentReferencesById);
         setPaymentReservationById(nextPaymentReservationById);
+        setPendingPaymentCount(paymentRows.filter((payment) => payment.status === "pending").length);
       } catch {
         if (!isMounted) return;
         setFetchError("Failed to load transaction records.");
@@ -304,10 +310,7 @@ export default function AdminTransactionsPage() {
     () => transactions.reduce((sum, item) => sum + Number(item.overpaid_amount ?? 0), 0),
     [transactions]
   );
-  const pendingVerifications = useMemo(
-    () => receipts.filter((receipt) => receipt.is_active !== false && !receipt.archived_at).length,
-    [receipts]
-  );
+  const pendingVerifications = pendingPaymentCount;
 
   const liveTransactionMetrics = useMemo(
     () => [
