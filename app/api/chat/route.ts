@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-const CHATBOT_ENABLED = false;
+const CHATBOT_ENABLED = true;
 
 export async function POST(req: NextRequest) {
   try {
