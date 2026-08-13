@@ -332,7 +332,7 @@ export default function AdminUsersPage() {
             onAction={() => setIsCreateOpen(true)}
             rowActions={["Edit", "Toggle Status", "Reset Password"]}
             getRowActionLabel={(action, row) => (action === "Toggle Status" ? (row.status === "Active" ? "Disable" : "Enable") : action)}
-            onRowAction={handleRowAction}
+            onRowAction={(action: string, row) => handleRowAction(action, row as StaffUserTableRow)}
             sortable
           />
         )}

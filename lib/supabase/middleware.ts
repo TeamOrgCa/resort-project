@@ -7,7 +7,9 @@ import { getStaffSessionTokenFromCookieStore } from '@/lib/auth/staff-session'
 const STAFF_LOGIN_PATH = '/staff/login'
 
 function copyCookies(source: NextResponse, target: NextResponse) {
-  source.cookies.getAll().forEach((cookie) => target.cookies.set(cookie.name, cookie.value, cookie.options))
+  source.cookies.getAll().forEach(({ name, value, path, domain, maxAge, httpOnly, secure, sameSite }) => 
+    target.cookies.set(name, value, { path, domain, maxAge, httpOnly, secure, sameSite })
+  )
 }
 
 function redirectToStaffLogin(request: NextRequest, supabaseResponse: NextResponse) {

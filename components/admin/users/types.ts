@@ -21,6 +21,7 @@ export interface StaffUserTableRow {
   status: string;
   lastLogin: string;
   createdAt: string;
+  [key: string]: string | StaffRole;
 }
 
 export interface StaffUserFormValues {
