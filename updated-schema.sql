@@ -276,6 +276,9 @@ create table public.reservations (
   ) default 'online',
 
   special_requests text,
+
+  adult_rate_at_booking numeric(10,2),
+  child_rate_at_booking numeric(10,2),
   
   created_at timestamptz default timezone('utc', now()) not null,
   updated_at timestamptz default timezone('utc', now()) not null,
@@ -289,14 +292,14 @@ create table public.reservations (
 );
 
 -- Prevent overlapping reservations for the same time period (only for pending and confirmed)
+create extension if not exists btree_gist;
+
 alter table public.reservations
 add constraint no_overlapping_reservations
 exclude using gist (
   tstzrange(start_datetime, end_datetime) with && 
 )
 where (status in ('pending', 'confirmed'));
-
--- create extension if not exists btree_gist;
 
 -- Reservation rescheduling table for audit/history of reschedule requests.
 
@@ -333,6 +336,93 @@ create table public.reservation_reschedules (
   created_at timestamptz default timezone('utc', now()) not null
 );
 
+-- BUSINESS SETTINGS -- 
+
+create table public.business_settings (
+    setting_key text primary key,
+    setting_value jsonb not null,
+    description text,
+    updated_at timestamptz default now()
+);
+
+alter table public.business_settings enable row level security;
+
+create policy "Admins can read business settings"
+on public.business_settings for select
+to authenticated
+using (
+  exists (
+    select 1 from public.staff_users
+    where staff_users.id = auth.uid()
+      and staff_users.role = 'admin'
+      and staff_users.is_active = true
+  )
+);
+
+create policy "Admins can manage business settings"
+on public.business_settings for all
+to authenticated
+using (
+  exists (
+    select 1 from public.staff_users
+    where staff_users.id = auth.uid()
+      and staff_users.role = 'admin'
+      and staff_users.is_active = true
+  )
+)
+with check (
+  exists (
+    select 1 from public.staff_users
+    where staff_users.id = auth.uid()
+      and staff_users.role = 'admin'
+      and staff_users.is_active = true
+  )
+);
+
+create index business_settings_updated_at_idx on public.business_settings(updated_at desc);
+
+
+-- guest_rates table to store rates for adults and children, with effective dates and active status.
+
+create table public.guest_rates (
+    rate_id uuid primary key default gen_random_uuid(),
+    adult_rate numeric(10,2) not null,
+    child_rate numeric(10,2) not null,
+    effective_from date not null,
+    effective_to date,
+    is_active boolean default true,
+    created_at timestamptz default now()
+);
+
+
+create or replace function public.set_guest_rates_at_booking()
+returns trigger as $$
+begin
+
+    if new.adult_rate_at_booking is null
+       or new.child_rate_at_booking is null then
+
+        select
+            adult_rate,
+            child_rate
+        into
+            new.adult_rate_at_booking,
+            new.child_rate_at_booking
+        from public.guest_rates
+        where is_active = true
+        order by effective_from desc
+        limit 1;
+
+    end if;
+
+    return new;
+end;
+$$ language plpgsql;
+
+create trigger trigger_set_guest_rates_at_booking
+before insert on public.reservations
+for each row
+execute procedure public.set_guest_rates_at_booking();
 
 
 create index reservations_dates_idx
@@ -363,6 +453,25 @@ create table public.units (
 create trigger on_units_updated
 before update on public.units
 for each row execute procedure public.handle_updated_at();
+
+-- UNIT RATES table to store rates for each unit, with effective dates and active status.--
+
+create table unit_rates (
+    unit_rate_id uuid primary key default gen_random_uuid(),
+
+    unit_id uuid not null
+        references units(unit_id)
+        on delete cascade,
+
+    price numeric(10,2) not null,
+
+    effective_from date not null,
+    effective_to date,
+
+    is_active boolean default true,
+
+    created_at timestamptz default now()
+);
 
 
 -- =========================
@@ -515,7 +624,7 @@ create table public.payments (
  
   amount numeric(10,2) not null,
 
-  payment_method text check (payment_method in ('bank_transfer', 'e_wallet', 'cash')) not null,
+  payment_method_id uuid,
   payment_type text check (payment_type in ('downpayment', 'full', 'additional')) not null,
 
   status text check (status in ('pending', 'verified')) default 'pending',
@@ -527,9 +636,109 @@ create table public.payments (
   reference_number text unique not null,
   account_name text not null,
   account_number text,
+  verified_by uuid references public.staff_users(id) on delete set null,
+  verified_at timestamptz,
   proof_path text not null,
   check (amount > 0)
 );
+
+-- trigger to update transaction totals when reservation units or services are added, updated, or deleted --
+
+create or replace function public.handle_payment_verification()
+returns trigger as $$
+begin
+
+    if new.status = 'verified'
+       and old.status <> 'verified' then
+
+        new.verified_at := now();
+
+        if auth.uid() is not null then
+            new.verified_by := auth.uid();
+        end if;
+
+    end if;
+
+    return new;
+
+end;
+$$ language plpgsql;
+
+create trigger trigger_handle_payment_verification
+before update on public.payments
+for each row
+execute procedure public.handle_payment_verification();
+
+
+-- payment_methods table to store available payment methods, with active status. --
+
+create table public.payment_methods (
+    payment_method_id uuid primary key default gen_random_uuid(),
+
+    name text not null,
+    type text not null,
+
+    is_active boolean default true,
+
+    created_at timestamptz default now()
+);
+
+-- payment_accounts table to store payment accounts linked to payment methods, with active status. --
+
+create table public.payment_accounts (
+    account_id uuid primary key default gen_random_uuid(),
+
+    payment_method_id uuid
+        references public.payment_methods(payment_method_id),
+
+    account_name text not null,
+
+    account_number text,
+
+    qr_image text,
+
+    instructions text,
+
+    is_active boolean default true,
+
+    created_at timestamptz default now()
+);
+
+alter table public.payments
+add constraint payments_payment_method_id_fkey
+foreign key (payment_method_id)
+references public.payment_methods(payment_method_id)
+on delete set null;
+
+-- reservation_policies table to store reservation policies, with active status. --
+
+create table public.reservation_policies (
+    policy_id uuid primary key default gen_random_uuid(),
+
+    title text not null,
+
+    content text not null,
+
+    display_order int default 0,
+
+    is_active boolean default true,
+
+    updated_at timestamptz default now()
+);
+
+-- ocular_time_slots table to store available time slots for ocular visits, with active status. --
+
+create table public.ocular_time_slots (
+    slot_id uuid primary key default gen_random_uuid(),
+
+    start_time time not null,
+    end_time time not null,
+
+    max_capacity int default 1,
+
+    is_active boolean default true
+);
+
 
 -- =====================p====
 -- RECEIPTS
@@ -558,37 +767,80 @@ create table public.receipts (
 create or replace function public.create_receipt_on_payment()
 returns trigger as $$
 declare
-  txn_total numeric;
-  txn_paid numeric;
+    txn_total numeric;
+    txn_paid numeric;
 begin
-  if new.status = 'verified' then
 
-    -- get current transaction totals
-    select total_amount, paid_amount
-    into txn_total, txn_paid
-    from public.transactions
-    where reservation_id = new.reservation_id;
+    if new.status = 'verified' then
 
-    insert into public.receipts (
-      payment_id,
-      receipt_number,
-      amount_paid,
-      transaction_total_at_time,
-      balance_after_payment
-    )
-    values (
-      new.payment_id,
-      'RCPT-' || to_char(now(), 'YYYYMMDD') || '-' || substr(new.payment_id::text, 1, 6),
-      new.amount,
-      txn_total,
-      greatest(txn_total - (coalesce(txn_paid, 0) + new.amount), 0)
-    );
+        select
+            total_amount,
+            paid_amount
+        into
+            txn_total,
+            txn_paid
+        from public.transactions
+        where reservation_id = new.reservation_id;
 
-  end if;
+        insert into public.receipts (
+            payment_id,
+            receipt_number,
+            amount_paid,
+            transaction_total_at_time,
+            balance_after_payment
+        )
+        values (
+            new.payment_id,
+            'RCPT-' ||
+            to_char(now(), 'YYYYMMDD') ||
+            '-' ||
+            substr(new.payment_id::text, 1, 6),
+            new.amount,
+            txn_total,
+            greatest(
+                txn_total - coalesce(txn_paid, 0),
+                0
+            )
+        )
+        on conflict (payment_id) do nothing;
 
-  return new;
+    end if;
+
+    return new;
 end;
 $$ language plpgsql;
+
+
+-- prevent multiple active guest rates at the same time (only one can be active) -- 
+
+create unique index guest_rates_one_active_idx
+on public.guest_rates (is_active)
+where is_active = true;
+
+-- trigger to deactivate other guest rates when a new rate is activated --
+
+create or replace function public.handle_guest_rate_activation()
+returns trigger as $$
+begin
+
+    if new.is_active = true then
+
+        update public.guest_rates
+        set is_active = false
+        where rate_id <> new.rate_id;
+
+    end if;
+
+    return new;
+
+end;
+$$ language plpgsql;
+
+create trigger trigger_guest_rate_activation
+before insert or update
+on public.guest_rates
+for each row
+execute procedure public.handle_guest_rate_activation();
 
 create trigger trigger_create_receipt
 after update on public.payments
@@ -603,6 +855,56 @@ create trigger on_payments_updated
 before update on public.payments
 for each row execute procedure public.handle_updated_at();
 
+create table public.reservation_status_logs (
+
+    status_log_id uuid
+    primary key default gen_random_uuid(),
+
+    reservation_id uuid not null
+    references public.reservations(reservation_id)
+    on delete cascade,
+
+    old_status text,
+
+    new_status text not null,
+
+    changed_by uuid
+    references public.staff_users(id)
+    on delete set null,
+
+    created_at timestamptz
+    default now()
+);
+
+create or replace function public.log_reservation_status_change()
+returns trigger as $$
+begin
+
+    if old.status is distinct from new.status then
+
+        insert into public.reservation_status_logs (
+            reservation_id,
+            old_status,
+            new_status,
+            changed_by
+        )
+        values (
+            new.reservation_id,
+            old.status,
+            new.status,
+            auth.uid()
+        );
+
+    end if;
+
+    return new;
+end;
+$$ language plpgsql;
+
+create trigger trigger_log_reservation_status
+after update on public.reservations
+for each row
+execute procedure public.log_reservation_status_change();
 
 -- =========================
 -- UPDATE TRANSACTION ON PAYMENT
@@ -730,59 +1032,163 @@ for each row
 when (new.status = 'confirmed' and old.status <> 'confirmed')
 execute procedure public.create_invoice_on_confirmation();
 
-create or replace function public.update_transaction_total()
+create or replace function public.update_invoice_total()
 returns trigger as $$
 declare
   res_id uuid;
-  total_units numeric := 0;
-  total_services numeric := 0;
-  total_guests numeric := 0;
-  subtotal numeric := 0;
-  total_due numeric := 0;
-  nights int;
+  new_total numeric;
 begin
   res_id := coalesce(new.reservation_id, old.reservation_id);
 
-  -- Calculate billable days for unit pricing from reservation datetime window.
-  select greatest(1, ceil(extract(epoch from (r.end_datetime - r.start_datetime)) / 86400.0))::int
-  into nights
-  from public.reservations r
-  where r.reservation_id = res_id;
-
-  select coalesce(sum(quantity * price_per_night * nights), 0)
-  into total_units
-  from public.reservation_units
+  -- get updated total from transaction
+  select total_amount into new_total
+  from public.transactions
   where reservation_id = res_id;
 
-  select coalesce(sum(quantity * price_at_time), 0)
-  into total_services
-  from public.reservation_services
-  where reservation_id = res_id;
-
-  select
-    coalesce(adult_count, 0) * 150 * nights +
-    coalesce(child_count, 0) * 120 * nights
-  into total_guests
-  from public.reservations
-  where reservation_id = res_id;
-
-  subtotal := total_units + total_services + coalesce(total_guests, 0);
-  total_due := round(subtotal::numeric, 2);
-
-  update public.transactions
-  set
-    total_amount = total_due,
-    status = case
-      when paid_amount >= total_due
-        and total_due > 0 then 'paid'
-      when paid_amount > 0 then 'partial'
-      else 'unpaid'
-    end
+  -- update invoice
+  update public.invoices
+  set 
+    total_amount = coalesce(new_total, 0)
   where reservation_id = res_id;
 
   return null;
 end;
 $$ language plpgsql;
+
+create trigger trigger_create_invoice
+after update on public.reservations
+for each row
+when (new.status = 'confirmed' and old.status <> 'confirmed')
+execute procedure public.create_invoice_on_confirmation();
+
+create or replace function public.update_transaction_total()
+returns trigger as $$
+declare
+    res_id uuid;
+
+    v_total_units numeric := 0;
+    v_total_services numeric := 0;
+    v_total_guests numeric := 0;
+
+    v_subtotal numeric := 0;
+    v_total_due numeric := 0;
+
+    v_nights int := 1;
+
+    v_adult_rate numeric := 0;
+    v_child_rate numeric := 0;
+
+    v_adult_count int := 0;
+    v_child_count int := 0;
+begin
+
+    res_id := coalesce(
+        new.reservation_id,
+        old.reservation_id
+    );
+
+    -- Get stay duration
+    select
+        greatest(
+            1,
+            ceil(
+                extract(
+                    epoch from (
+                        r.end_datetime - r.start_datetime
+                    )
+                ) / 86400.0
+            )
+        )::int
+    into v_nights
+    from public.reservations r
+    where r.reservation_id = res_id;
+
+    -- Get guest counts and snapshot rates
+    select
+        coalesce(r.adult_rate_at_booking, 0),
+        coalesce(r.child_rate_at_booking, 0),
+        coalesce(r.adult_count, 0),
+        coalesce(r.child_count, 0)
+    into
+        v_adult_rate,
+        v_child_rate,
+        v_adult_count,
+        v_child_count
+    from public.reservations r
+    where r.reservation_id = res_id;
+
+    -- Unit charges
+    select
+        coalesce(
+            sum(
+                ru.quantity *
+                ru.price_per_night *
+                v_nights
+            ),
+            0
+        )
+    into v_total_units
+    from public.reservation_units ru
+    where ru.reservation_id = res_id;
+
+    -- Service charges
+    select
+        coalesce(
+            sum(
+                rs.quantity *
+                rs.price_at_time
+            ),
+            0
+        )
+    into v_total_services
+    from public.reservation_services rs
+    where rs.reservation_id = res_id;
+
+    -- Guest entrance fees
+    v_total_guests :=
+        (v_adult_count * v_adult_rate * v_nights)
+        +
+        (v_child_count * v_child_rate * v_nights);
+
+    v_subtotal :=
+        v_total_units
+        + v_total_services
+        + v_total_guests;
+
+    v_total_due :=
+        round(v_subtotal::numeric, 2);
+
+    update public.transactions t
+    set
+        total_amount = v_total_due,
+        status =
+            case
+                when t.paid_amount >= v_total_due
+                     and v_total_due > 0
+                then 'paid'
+
+                when t.paid_amount > 0
+                then 'partial'
+
+                else 'unpaid'
+            end
+    where t.reservation_id = res_id;
+
+    return null;
+end;
+$$ language plpgsql;
+
+create trigger trigger_update_transaction_on_reservation
+after update of
+  adult_count,
+  child_count,
+  start_datetime,
+  end_datetime,
+  adult_rate_at_booking,
+  child_rate_at_booking
+on public.reservations
+for each row
+execute procedure public.update_transaction_total();
 
 -- Also update invoice total when reservation units change, since that affects total amount.
 
@@ -829,7 +1235,8 @@ create table public.ocular_visits (
   scheduled_date date not null,
   reference_number text unique not null,
 
-  time_slot text check (time_slot in ('08:00-09:00','09:00-10:00','10:00-11:00', '13:00-14:00', '14:00-15:00')) not null,
+  time_slot_id uuid
+    references public.ocular_time_slots(slot_id) on delete set null,
 
   status text check (status in ('pending', 'confirmed', 'cancelled'))
     default 'pending',
@@ -852,6 +1259,11 @@ create index ocular_visits_guest_idx on public.ocular_visits(guest_id);
 -- =========================
 -- Assumes a private bucket named `payment-proofs` already exists.
 -- Files are stored under: {auth.uid()}/{filename}
+
+-- Create this private bucket before using the admin QR upload module.
+insert into storage.buckets (id, name, public)
+values ('payment-qr-codes', 'payment-qr-codes', false)
+on conflict (id) do nothing;
 
 create policy "Users can upload own payment proofs"
 on storage.objects for insert
@@ -1112,3 +1524,20 @@ $$;
 --     )
 --   )
 -- ) TABLESPACE pg_default;
+
+alter table public.ocular_visits
+add column cancelled_at timestamptz,
+add column cancellation_reason text;
+
+create index ocular_visits_date_idx
+on public.ocular_visits(scheduled_date);
+
+create index ocular_visits_slot_idx
+on public.ocular_visits(time_slot_id);
+
+create index ocular_visits_status_idx
+on public.ocular_visits(status);
+
+alter table public.ocular_time_slots
+add constraint ocular_time_slots_time_check
+check (end_time > start_time);

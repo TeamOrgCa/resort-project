@@ -115,7 +115,7 @@ interface PaymentRow {
   payment_id: string;
   reservation_id: string;
   amount: number;
-  payment_method: "bank_transfer" | "e_wallet" | "cash";
+  payment_method_id: string | null;
   payment_type: "downpayment" | "full" | "additional";
   status: "pending" | "verified";
   paid_at: string | null;
@@ -143,7 +143,7 @@ interface OcularVisitRow {
   reference_number: string;
   guest_id: string;
   scheduled_date: string;
-  time_slot: string;
+  time_slot_id: string | null;
   status: "pending" | "confirmed" | "cancelled";
   created_at: string;
 }
@@ -228,6 +228,18 @@ interface PaymentDetails {
   status: string;
   paidAt: string;
   proofPath: string;
+}
+
+interface PaymentMethodRow {
+  payment_method_id: string;
+  name: string;
+  type: string;
+}
+
+interface OcularTimeSlotRow {
+  slot_id: string;
+  start_time: string;
+  end_time: string;
 }
 
 interface OcularVisitDetails {
@@ -489,6 +501,8 @@ export default function AdminReservationsPage() {
   const [overpaidAmountByReservationId, setOverpaidAmountByReservationId] = useState<Record<string, number>>({});
   const [guestsById, setGuestsById] = useState<Record<string, GuestRow>>({});
   const [reservationReferenceById, setReservationReferenceById] = useState<Record<string, string>>({});
+  const [paymentMethodsById, setPaymentMethodsById] = useState<Record<string, PaymentMethodRow>>({});
+  const [ocularSlotsById, setOcularSlotsById] = useState<Record<string, OcularTimeSlotRow>>({});
 
   useEffect(() => {
     if (!toastMessage) {
@@ -528,7 +542,7 @@ export default function AdminReservationsPage() {
 
         const { data: ocularVisitsData, error: ocularVisitsError } = await supabase
           .from("ocular_visits")
-          .select("visit_id, reference_number, guest_id, scheduled_date, time_slot, status, created_at")
+          .select("visit_id, reference_number, guest_id, scheduled_date, time_slot_id, status, created_at")
           .order("created_at", { ascending: false })
           .limit(200);
 
@@ -556,6 +570,8 @@ export default function AdminReservationsPage() {
           { data: reschedulesData, error: reschedulesError },
           { data: unitsData, error: unitsError },
           { data: servicesData, error: servicesError },
+          { data: paymentMethodsData, error: paymentMethodsError },
+          { data: ocularSlotsData, error: ocularSlotsError },
           { data: walkInGuestsData, error: walkInGuestsError },
           { data: guestDirectoryData, error: guestDirectoryError },
         ] =
@@ -567,7 +583,7 @@ export default function AdminReservationsPage() {
               ? supabase
                   .from("payments")
                   .select(
-                    "payment_id, reservation_id, amount, payment_method, payment_type, status, paid_at, reference_number, proof_path"
+                    "payment_id, reservation_id, amount, payment_method_id, payment_type, status, paid_at, reference_number, proof_path"
                   )
                   .in("reservation_id", reservationIdList)
                   .order("paid_at", { ascending: false })
@@ -592,6 +608,8 @@ export default function AdminReservationsPage() {
               .select("service_id, name, price, is_active")
               .eq("is_active", true)
               .order("name", { ascending: true }),
+            supabase.from("payment_methods").select("payment_method_id, name, type").order("name", { ascending: true }),
+            supabase.from("ocular_time_slots").select("slot_id, start_time, end_time").order("start_time", { ascending: true }),
             walkInGuestIds.length
               ? supabase
                   .from("walk_in_guests")
@@ -628,6 +646,9 @@ export default function AdminReservationsPage() {
         if (servicesError) {
           throw servicesError;
         }
+
+        if (paymentMethodsError) throw paymentMethodsError;
+        if (ocularSlotsError) throw ocularSlotsError;
 
         if (walkInGuestsError) {
           throw walkInGuestsError;
@@ -679,6 +700,18 @@ export default function AdminReservationsPage() {
         setRescheduleRequests((reschedulesData as RescheduleRequestRow[] | null) ?? []);
         setAvailableUnits((unitsData as UnitRow[] | null) ?? []);
         setAvailableServices((servicesData as ServiceRow[] | null) ?? []);
+        setPaymentMethodsById(
+          ((paymentMethodsData as PaymentMethodRow[] | null) ?? []).reduce<Record<string, PaymentMethodRow>>((map, method) => {
+            map[method.payment_method_id] = method;
+            return map;
+          }, {})
+        );
+        setOcularSlotsById(
+          ((ocularSlotsData as OcularTimeSlotRow[] | null) ?? []).reduce<Record<string, OcularTimeSlotRow>>((map, slot) => {
+            map[slot.slot_id] = slot;
+            return map;
+          }, {})
+        );
         setGuestsById(nextGuestsById);
         setWalkInGuestsById(nextWalkInGuestsById);
         setReservationReferenceById(nextReservationReferenceById);
@@ -760,12 +793,7 @@ export default function AdminReservationsPage() {
         reservationId: payment.reservation_id,
         reservationReference: reservationReferenceById[payment.reservation_id] ?? "-",
         paymentReference: payment.reference_number,
-        method:
-          payment.payment_method === "bank_transfer"
-            ? "Bank Transfer"
-            : payment.payment_method === "e_wallet"
-              ? "E-wallet"
-              : "Cash",
+        method: payment.payment_method_id ? paymentMethodsById[payment.payment_method_id]?.name ?? "Unknown method" : "-",
         type: toTitleCase(payment.payment_type),
         amount: formatCurrency(Number(payment.amount ?? 0)),
         remainingBalance: formatCurrency(Number(remainingBalanceByReservationId[payment.reservation_id] ?? 0)),
@@ -774,7 +802,7 @@ export default function AdminReservationsPage() {
         paidAt: formatDateTime(payment.paid_at),
         proofPath: payment.proof_path,
       })),
-    [payments, reservationReferenceById, remainingBalanceByReservationId, overpaidAmountByReservationId]
+    [payments, paymentMethodsById, reservationReferenceById, remainingBalanceByReservationId, overpaidAmountByReservationId]
   );
 
   const manualBookingRows: AdminTableRow[] = useMemo(
@@ -1966,12 +1994,14 @@ export default function AdminReservationsPage() {
           reference: visit.reference_number,
           guest: guestName,
           scheduledDate: formatDate(visit.scheduled_date),
-          timeSlot: formatTimeSlotLabel(visit.time_slot),
+          timeSlot: visit.time_slot_id && ocularSlotsById[visit.time_slot_id]
+            ? formatTimeSlotLabel(`${ocularSlotsById[visit.time_slot_id].start_time}-${ocularSlotsById[visit.time_slot_id].end_time}`)
+            : "-",
           status: toTitleCase(visit.status),
           createdAt: formatDateTime(visit.created_at),
         };
       }),
-    [guestsById, ocularVisits]
+    [guestsById, ocularSlotsById, ocularVisits]
   );
 
   const approveOcularVisit = async (visitId: string) => {

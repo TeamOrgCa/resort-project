@@ -147,7 +147,7 @@ export interface ReceiptDetailPaymentRow {
   reservation_id: string;
   reference_number: string;
   amount: number;
-  payment_method: "bank_transfer" | "e_wallet" | "cash";
+  payment_method_id: string | null;
   payment_type: "downpayment" | "full" | "additional";
   status: "pending" | "verified";
   paid_at: string | null;

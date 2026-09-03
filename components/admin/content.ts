@@ -14,6 +14,8 @@ export const adminNavigation: AdminNavItem[] = [
   { label: "Reports", href: "/admin/reports", description: "Sales and operations reports" },
   { label: "Analytics", href: "/admin/analytics", description: "Forecasting insights" },
   { label: "Users", href: "/admin/users", description: "Roles and permissions" },
+  { label: "Configuration", href: "/admin/configuration", description: "Business rules and preferences" },
+  { label: "Business Catalog", href: "/admin/catalog", description: "Services, units, rates, and schedules" },
   { label: "Audit Log", href: "/admin/audit", description: "Staff activity tracking" },
 ];
 

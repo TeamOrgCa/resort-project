@@ -30,7 +30,7 @@ interface CreatedPaymentRow {
   payment_id: string;
   reservation_id: string;
   amount: number;
-  payment_method: "bank_transfer" | "e_wallet" | "cash";
+  payment_method_id: string | null;
   payment_type: "downpayment" | "full" | "additional";
   status: "pending" | "verified";
   paid_at: string | null;
@@ -109,6 +109,21 @@ export async function POST(request: Request) {
       }
     }
 
+    const { data: paymentMethod, error: paymentMethodError } = await staffContext.supabase
+      .from("payment_methods")
+      .select("payment_method_id, name, type, is_active")
+      .or(`type.eq.${payload.paymentMethod},name.ilike.${payload.paymentMethod}`)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle<{ payment_method_id: string; name: string; type: string; is_active: boolean }>();
+
+    if (paymentMethodError || !paymentMethod) {
+      return NextResponse.json(
+        { success: false, message: "No active payment method is configured for this entry." },
+        { status: 400 }
+      );
+    }
+
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
       .select("reservation_id, status")
@@ -168,7 +183,7 @@ export async function POST(request: Request) {
       .insert({
         reservation_id: reservation.reservation_id,
         amount: payload.amount,
-        payment_method: payload.paymentMethod,
+        payment_method_id: paymentMethod.payment_method_id,
         payment_type: "additional",
         status: "pending",
         reference_number: payload.paymentReference,
@@ -177,7 +192,7 @@ export async function POST(request: Request) {
         proof_path: payload.paymentMethod === "cash" ? "" : payload.proofPath,
       })
       .select(
-        "payment_id, reservation_id, amount, payment_method, payment_type, status, paid_at, reference_number, proof_path"
+        "payment_id, reservation_id, amount, payment_method_id, payment_type, status, paid_at, reference_number, proof_path"
       )
       .single<CreatedPaymentRow>();
 
@@ -282,7 +297,7 @@ export async function POST(request: Request) {
     const { data: createdPayment, error: paymentReloadError } = await staffContext.supabase
       .from("payments")
       .select(
-        "payment_id, reservation_id, amount, payment_method, payment_type, status, paid_at, reference_number, proof_path"
+              "payment_id, reservation_id, amount, payment_method_id, payment_type, status, paid_at, reference_number, proof_path"
       )
       .eq("payment_id", insertedPayment.payment_id)
       .maybeSingle<CreatedPaymentRow>();

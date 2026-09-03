@@ -13,7 +13,8 @@ interface OcularVisitRow {
   guest_id: string | null;
   reference_number: string;
   scheduled_date: string;
-  time_slot: string;
+  time_slot_id: string | null;
+  ocular_time_slots: { start_time: string; end_time: string } | { start_time: string; end_time: string }[] | null;
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
@@ -30,6 +31,11 @@ const parsePayload = (value: unknown): CancelPayload | null => {
     visitId,
     referenceNumber: referenceNumber || undefined,
   };
+};
+
+const getSlotLabel = (slot: OcularVisitRow["ocular_time_slots"]) => {
+  const value = Array.isArray(slot) ? slot[0] : slot;
+  return value ? `${value.start_time}-${value.end_time}` : "-";
 };
 
 export async function POST(request: Request) {
@@ -61,7 +67,7 @@ export async function POST(request: Request) {
 
     let ocularQuery = supabase
       .from("ocular_visits")
-      .select("visit_id, guest_id, reference_number, scheduled_date, time_slot, status");
+      .select("visit_id, guest_id, reference_number, scheduled_date, time_slot_id, status, ocular_time_slots(start_time, end_time)");
 
     if (payload.visitId) {
       ocularQuery = ocularQuery.eq("visit_id", payload.visitId);
@@ -121,7 +127,7 @@ export async function POST(request: Request) {
         guestName: user.user_metadata?.full_name || user.user_metadata?.name || "Guest",
         referenceNumber: ocularVisit.reference_number,
         scheduledDate: ocularVisit.scheduled_date,
-        timeSlot: ocularVisit.time_slot,
+        timeSlot: getSlotLabel(ocularVisit.ocular_time_slots),
         cancellationReason: "Guest requested for cancellation",
       });
     } catch (e) {

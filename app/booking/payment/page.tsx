@@ -52,6 +52,23 @@ const hasMatchingAmount = (candidates: number[], expected: number) => {
   return candidates.some((candidate) => Math.abs(candidate - expectedRounded) <= 0.05);
 };
 
+interface PaymentMethodOption {
+  payment_method_id: string;
+  name: string;
+  type: string;
+  is_active: boolean;
+}
+
+interface PaymentAccountOption {
+  account_id: string;
+  payment_method_id: string | null;
+  account_name: string;
+  account_number: string | null;
+  qr_image: string | null;
+  instructions: string | null;
+  is_active: boolean;
+}
+
 export default function Payment() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-base" />}>
@@ -63,6 +80,10 @@ export default function Payment() {
 function PaymentContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
   const [paymentMethod, setPaymentMethod] = useState<"bank" | "ewallet">("bank");
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([]);
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState("");
+  const [paymentCatalogLoading, setPaymentCatalogLoading] = useState(true);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -84,6 +105,33 @@ function PaymentContent() {
   } | null>(null);
   const bankFileInputRef = useRef<HTMLInputElement | null>(null);
   const ewalletFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadPaymentCatalog = async () => {
+      try {
+        const response = await fetch("/api/catalog", { cache: "no-store" });
+        const result = (await response.json()) as {
+          catalog?: { paymentMethods?: PaymentMethodOption[]; paymentAccounts?: PaymentAccountOption[] };
+        };
+        if (!isMounted) return;
+        const methods = result.catalog?.paymentMethods ?? [];
+        setPaymentMethods(methods);
+        setPaymentAccounts(result.catalog?.paymentAccounts ?? []);
+        const firstMethod = methods[0];
+        if (firstMethod) {
+          setSelectedPaymentMethodId(firstMethod.payment_method_id);
+          setPaymentMethod(firstMethod.type.toLowerCase().includes("bank") ? "bank" : "ewallet");
+        }
+      } catch {
+        if (isMounted) setSubmitError("Unable to load payment methods. Please try again.");
+      } finally {
+        if (isMounted) setPaymentCatalogLoading(false);
+      }
+    };
+    void loadPaymentCatalog();
+    return () => { isMounted = false; };
+  }, []);
 
   const bookingReference = useMemo(
     () => "SR-" + Math.random().toString(36).substring(2, 10).toUpperCase(),
@@ -228,6 +276,9 @@ function PaymentContent() {
   const totalAmount = bookingDraft.total || 0;
   const downPayment = bookingDraft.downPayment || totalAmount * 0.2;
   const selectedServices = bookingDraft.services || [];
+  const selectedPaymentMethod = paymentMethods.find((method) => method.payment_method_id === selectedPaymentMethodId);
+  const selectedPaymentAccount = paymentAccounts.find((account) => account.payment_method_id === selectedPaymentMethodId);
+  const downpaymentPercentage = totalAmount > 0 ? Math.round((downPayment / totalAmount) * 100) : 20;
 
   const backToFormHref = isBalancePayment ? "/manage" : "/booking/details";
   const successStartDateTime = parseDateTimeString(submittedSummary?.startDatetime ?? null) ?? startDateTime;
@@ -253,6 +304,11 @@ function PaymentContent() {
 
     if (hasPendingPayment) {
       setSubmitError("You have a payment pending approval. Please wait for it to be reviewed before submitting another payment.");
+      return;
+    }
+
+    if (!selectedPaymentMethodId || !selectedPaymentMethod) {
+      setSubmitError("Please select an available payment method.");
       return;
     }
 
@@ -334,7 +390,7 @@ function PaymentContent() {
         body: JSON.stringify({
           reservationId,
           payment: {
-            method: paymentMethod === "bank" ? "bank_transfer" : "e_wallet",
+            paymentMethodId: selectedPaymentMethodId,
             type: payOption,
             amount: payableNow,
             referenceNumber:
@@ -572,51 +628,14 @@ function PaymentContent() {
 
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Select Payment Method</h3>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod("bank")}
-                      className={`p-6 rounded-xl border-2 transition-all ${
-                        paymentMethod === "bank"
-                          ? "border-primary bg-primary/5"
-                          : "border-neutral/20 hover:border-primary/50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-primary/20 rounded-full flex items-center justify-center">
-                          <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                          </svg>
-                        </div>
-                        <div className="text-left">
-                          <p className="font-semibold text-neutral">Bank Transfer</p>
-                          <p className="text-sm text-neutral/70">Direct bank deposit</p>
-                        </div>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod("ewallet")}
-                      className={`p-6 rounded-xl border-2 transition-all ${
-                        paymentMethod === "ewallet"
-                          ? "border-primary bg-primary/5"
-                          : "border-neutral/20 hover:border-primary/50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-secondary/20 rounded-full flex items-center justify-center">
-                          <svg className="w-6 h-6 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                          </svg>
-                        </div>
-                        <div className="text-left">
-                          <p className="font-semibold text-neutral">E-Wallet</p>
-                          <p className="text-sm text-neutral/70">GCash</p>
-                        </div>
-                      </div>
-                    </button>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {paymentMethods.map((method) => {
+                      const isSelected = method.payment_method_id === selectedPaymentMethodId;
+                      return <button key={method.payment_method_id} type="button" onClick={() => { setSelectedPaymentMethodId(method.payment_method_id); setPaymentMethod(method.type.toLowerCase().includes("bank") ? "bank" : "ewallet"); }} className={`p-6 rounded-xl border-2 text-left transition-all ${isSelected ? "border-primary bg-primary/5" : "border-neutral/20 hover:border-primary/50"}`}><p className="font-semibold text-neutral">{method.name}</p><p className="text-sm text-neutral/70">{method.type}</p></button>;
+                    })}
                   </div>
+                  {paymentCatalogLoading ? <p className="mt-3 text-sm text-neutral/60">Loading payment methods...</p> : null}
+                  {!paymentCatalogLoading && paymentMethods.length === 0 ? <p className="mt-3 text-sm text-neutral">No active payment methods are available.</p> : null}
                 </div>
 
                 <form onSubmit={handlePaymentSubmit}>
@@ -645,8 +664,8 @@ function PaymentContent() {
                                   : "border-neutral/20 bg-white hover:border-primary/50"
                               }`}
                             >
-                              <p className="font-semibold text-neutral">20% Down Payment</p>
-                              <p className="text-neutral/70">₱{(totalAmount * 0.2).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                              <p className="font-semibold text-neutral">{downpaymentPercentage}% Down Payment</p>
+                              <p className="text-neutral/70">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                             </button>
                             <button
                               type="button"
@@ -681,7 +700,7 @@ function PaymentContent() {
                               : "border-neutral/20 bg-white hover:border-primary/50"
                           }`}
                         >
-                          <p className="font-semibold text-neutral">Minimum 20% Down Payment</p>
+                          <p className="font-semibold text-neutral">Minimum {downpaymentPercentage}% Down Payment</p>
                           <p className="text-sm text-neutral/70">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                         </button>
                         <button
@@ -713,10 +732,11 @@ function PaymentContent() {
                       <div className="bg-neutral/5 p-6 rounded-xl mb-6">
                         <h4 className="font-semibold text-neutral mb-3">Transfer to:</h4>
                         <div className="space-y-2 text-sm">
-                          <p><span className="text-neutral/70">Bank:</span> <span className="font-semibold">Paradise National Bank</span></p>
-                          <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">MarVille Resort Complex</span></p>
-                          <p><span className="text-neutral/70">Account Number:</span> <span className="font-semibold">1234-5678-9012</span></p>
-                          <p><span className="text-neutral/70">Swift Code:</span> <span className="font-semibold">PNBXPHM1</span></p>
+                          <p><span className="text-neutral/70">Method:</span> <span className="font-semibold">{selectedPaymentMethod?.name ?? "-"}</span></p>
+                          <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">{selectedPaymentAccount?.account_name ?? "-"}</span></p>
+                          <p><span className="text-neutral/70">Account Number:</span> <span className="font-semibold">{selectedPaymentAccount?.account_number ?? "-"}</span></p>
+                          {selectedPaymentAccount?.instructions ? <p className="text-neutral/70">{selectedPaymentAccount.instructions}</p> : null}
+                          {selectedPaymentAccount?.qr_image ? <Image src={selectedPaymentAccount.qr_image} alt={`${selectedPaymentMethod?.name ?? "Payment"} QR code`} width={192} height={192} unoptimized className="mt-4 h-48 w-48 rounded-lg border border-neutral/10 object-contain" /> : null}
                         </div>
                       </div>
 
@@ -794,11 +814,15 @@ function PaymentContent() {
                         <div>
                           <label className="block text-sm font-medium text-neutral/70 mb-2">Select Provider *</label>
                           <select
-                            value={ewalletDetails.provider}
-                            onChange={(e) => setEwalletDetails({ ...ewalletDetails, provider: e.target.value })}
+                            value={selectedPaymentMethodId}
+                            onChange={(e) => {
+                              const method = paymentMethods.find((item) => item.payment_method_id === e.target.value);
+                              setSelectedPaymentMethodId(e.target.value);
+                              setEwalletDetails((current) => ({ ...current, provider: method?.name ?? "" }));
+                            }}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                           >
-                            <option value="gcash">GCash</option>
+                            {paymentMethods.filter((method) => !method.type.toLowerCase().includes("bank")).map((method) => <option key={method.payment_method_id} value={method.payment_method_id}>{method.name}</option>)}
                           </select>
                         </div>
                       </div>
@@ -806,8 +830,9 @@ function PaymentContent() {
                       <div className="bg-neutral/5 p-6 rounded-xl mb-6">
                         <h4 className="font-semibold text-neutral mb-3">Send payment to:</h4>
                         <div className="space-y-2 text-sm">
-                          <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">MarVille Resort</span></p>
-                          <p><span className="text-neutral/70">Number:</span> <span className="font-semibold">0917-123-4567</span></p>
+                          <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">{selectedPaymentAccount?.account_name ?? "-"}</span></p>
+                          <p><span className="text-neutral/70">Number:</span> <span className="font-semibold">{selectedPaymentAccount?.account_number ?? "-"}</span></p>
+                          {selectedPaymentAccount?.qr_image ? <Image src={selectedPaymentAccount.qr_image} alt={`${selectedPaymentMethod?.name ?? "Payment"} QR code`} width={192} height={192} unoptimized className="mt-4 h-48 w-48 rounded-lg border border-neutral/10 object-contain" /> : null}
                         </div>
                       </div>
 
@@ -909,7 +934,7 @@ function PaymentContent() {
                     </Link>
                     <button
                       type="submit"
-                      disabled={isSubmitting || !acceptedTerms || !reservationId}
+                      disabled={isSubmitting || isCheckingPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentMethodId}
                       className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {isSubmitting ? "Processing..." : "Confirm Payment"}
@@ -990,7 +1015,7 @@ function PaymentContent() {
                   <div className="bg-primary/5 p-4 rounded-lg">
                     <div className="flex justify-between mb-2">
                       <span className="font-semibold text-neutral">
-                        {payOption === "full" ? "Paying Now (Full)" : "Down Payment (20% minimum)"}
+                        {payOption === "full" ? "Paying Now (Full)" : `Down Payment (${downpaymentPercentage}% minimum)`}
                       </span>
                       <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>

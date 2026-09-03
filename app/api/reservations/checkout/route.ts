@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 
-type PaymentMethod = "bank_transfer" | "e_wallet";
 type PaymentType = "downpayment" | "full" | "additional";
 
 interface ServiceSelectionInput {
@@ -24,7 +23,7 @@ interface CheckoutPayload {
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
   payment: {
-    method: PaymentMethod;
+    paymentMethodId: string;
     type?: PaymentType;
     amount: number;
     referenceNumber: string;
@@ -128,7 +127,8 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
   const payment = payload.payment as CheckoutPayload["payment"];
 
   if (
-    (payment.method !== "bank_transfer" && payment.method !== "e_wallet") ||
+    typeof payment.paymentMethodId !== "string" ||
+    !payment.paymentMethodId.trim() ||
     typeof payment.amount !== "number" ||
     payment.amount <= 0 ||
     typeof payment.referenceNumber !== "string" ||
@@ -173,7 +173,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
           }))
       : [],
     payment: {
-      method: payment.method,
+      paymentMethodId: payment.paymentMethodId,
       type:
         payment.type === "full" || payment.type === "additional" || payment.type === "downpayment"
           ? payment.type
@@ -517,7 +517,7 @@ export async function POST(request: Request) {
       .insert({
         reservation_id: reservation.reservation_id,
         amount: payload.payment.amount,
-        payment_method: payload.payment.method,
+        payment_method_id: payload.payment.paymentMethodId,
         payment_type: payload.payment.type,
         status: "pending",
         reference_number: payload.payment.referenceNumber,

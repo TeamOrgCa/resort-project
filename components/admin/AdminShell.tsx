@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminNotifications from "@/components/admin/AdminNotifications";
+import { SettingsProvider } from "@/components/settings/SettingsProvider";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 
 interface AdminShellProps {
@@ -39,7 +40,8 @@ export default function AdminShell({ children, role }: AdminShellProps) {
   }, [isSidebarOpen]);
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <SettingsProvider>
+      <div className="mx-auto max-w-7xl">
       <div className="mb-4 flex items-center gap-3">
         <div className="md:hidden">
           <button
@@ -87,6 +89,7 @@ export default function AdminShell({ children, role }: AdminShellProps) {
           </aside>
         </div>
       ) : null}
-    </div>
+      </div>
+    </SettingsProvider>
   );
 }

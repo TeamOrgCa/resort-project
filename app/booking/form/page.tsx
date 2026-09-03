@@ -72,35 +72,33 @@ function BookingFormContent() {
 
       const supabase = createClient();
 
-      const [unitsResult, servicesResult, authResult] = await Promise.all([
-        supabase
-          .from("units")
-          .select("unit_id, name, description, base_price, is_active, archived_at")
-          .eq("is_active", true)
-          .is("archived_at", null)
-          .order("name", { ascending: true }),
-        supabase
-          .from("services")
-          .select("service_id, name, price, is_active")
-          .eq("is_active", true)
-          .order("name", { ascending: true }),
+      const [catalogResponse, authResult] = await Promise.all([
+        fetch("/api/catalog", { cache: "no-store" }),
         supabase.auth.getUser(),
       ]);
+      const catalogResult = (await catalogResponse.json()) as {
+        success?: boolean;
+        message?: string;
+        catalog?: {
+          units: Array<{ unit_id: string; name: string; description: string | null; base_price: number }>;
+          services: Array<{ service_id: string; name: string; price: number }>;
+        };
+      };
 
-      if (unitsResult.error || servicesResult.error) {
-        setCatalogError(unitsResult.error?.message || servicesResult.error?.message || "Failed to load booking catalog");
+      if (!catalogResponse.ok || !catalogResult.success || !catalogResult.catalog) {
+        setCatalogError(catalogResult.message || "Failed to load booking catalog");
         setCatalogLoading(false);
         return;
       }
 
-      const mappedUnits: UnitOption[] = (unitsResult.data ?? []).map((unit) => ({
+      const mappedUnits: UnitOption[] = catalogResult.catalog.units.map((unit) => ({
         id: unit.unit_id,
         name: unit.name,
         price: Number(unit.base_price),
         description: unit.description ?? "",
       }));
 
-      const mappedServices: ServiceOption[] = (servicesResult.data ?? []).map((service) => ({
+      const mappedServices: ServiceOption[] = catalogResult.catalog.services.map((service) => ({
         id: service.service_id,
         name: service.name,
         price: Number(service.price),

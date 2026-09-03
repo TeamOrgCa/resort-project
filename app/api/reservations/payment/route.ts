@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { notifyGuestAndStaff } from "@/lib/notifications";
+import { getAllSettings } from "@/lib/settings/settingsService";
 
-type PaymentMethod = "bank_transfer" | "e_wallet";
 type PaymentType = "downpayment" | "full" | "additional";
 
 interface ReservationPaymentPayload {
   reservationId: string;
   payment: {
-    method: PaymentMethod;
+    paymentMethodId: string;
     type?: PaymentType;
     amount: number;
     referenceNumber: string;
@@ -31,8 +31,6 @@ interface TransactionRow {
   balance: number | null;
 }
 
-const MIN_DOWNPAYMENT_RATE = 0.2;
-
 const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
   if (!value || typeof value !== "object") return null;
 
@@ -49,7 +47,8 @@ const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
   const payment = payload.payment as ReservationPaymentPayload["payment"];
 
   if (
-    (payment.method !== "bank_transfer" && payment.method !== "e_wallet") ||
+    typeof payment.paymentMethodId !== "string" ||
+    !payment.paymentMethodId.trim() ||
     typeof payment.amount !== "number" ||
     payment.amount <= 0 ||
     typeof payment.referenceNumber !== "string" ||
@@ -65,7 +64,7 @@ const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
   return {
     reservationId: payload.reservationId.trim(),
     payment: {
-      method: payment.method,
+      paymentMethodId: payment.paymentMethodId.trim(),
       type:
         payment.type === "full" || payment.type === "additional" || payment.type === "downpayment"
           ? payment.type
@@ -95,6 +94,19 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createClient();
+    const [{ data: paymentMethod, error: paymentMethodError }, settings] = await Promise.all([
+      supabase
+        .from("payment_methods")
+        .select("payment_method_id, is_active")
+        .eq("payment_method_id", payload.payment.paymentMethodId)
+        .maybeSingle<{ payment_method_id: string; is_active: boolean }>(),
+      getAllSettings(supabase),
+    ]);
+
+    if (paymentMethodError || !paymentMethod?.is_active) {
+      return NextResponse.json({ success: false, message: "Selected payment method is not available." }, { status: 400 });
+    }
+
     const {
       data: { user },
       error: authError,
@@ -206,12 +218,13 @@ export async function POST(request: Request) {
     const effectiveAmount = payload.payment.type === "full" ? remainingBalance : requestedAmount;
 
     if (payload.payment.type === "downpayment") {
-      const minimumDownpayment = Number(transaction.total_amount ?? 0) * MIN_DOWNPAYMENT_RATE;
+      const configuredRate = Number(settings["reservation.downpayment_percentage"] ?? 20) / 100;
+      const minimumDownpayment = Number(transaction.total_amount ?? 0) * configuredRate;
       if (requestedAmount + 0.0001 < minimumDownpayment) {
         return NextResponse.json(
           {
             success: false,
-            message: `Downpayment must be at least 20% of total (₱${minimumDownpayment.toLocaleString("en-PH", {
+            message: `Downpayment must be at least ${configuredRate * 100}% of total (₱${minimumDownpayment.toLocaleString("en-PH", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}).`,
@@ -246,7 +259,7 @@ export async function POST(request: Request) {
       .insert({
         reservation_id: reservation.reservation_id,
         amount: effectiveAmount,
-        payment_method: payload.payment.method,
+        payment_method_id: payload.payment.paymentMethodId,
         payment_type: payload.payment.type,
         status: "pending",
         reference_number: payload.payment.referenceNumber,

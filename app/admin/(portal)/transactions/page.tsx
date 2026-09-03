@@ -517,7 +517,7 @@ export default function AdminTransactionsPage() {
       const { data: paymentRecord, error: paymentError } = await supabase
         .from("payments")
         .select(
-          "payment_id, reservation_id, reference_number, amount, payment_method, payment_type, status, paid_at, account_name, account_number, proof_path"
+          "payment_id, reservation_id, reference_number, amount, payment_method_id, payment_type, status, paid_at, account_name, account_number, proof_path"
         )
         .eq("payment_id", receiptRecord.payment_id)
         .maybeSingle<ReceiptDetailPaymentRow>();
@@ -580,7 +580,7 @@ export default function AdminTransactionsPage() {
           { label: "Check-out", value: formatDateTime(reservationRecord.end_datetime) },
           { label: "Payment Ref", value: paymentRecord.reference_number ?? "-" },
           { label: "Payment Amount", value: formatCurrency(Number(paymentRecord.amount ?? 0)) },
-          { label: "Payment Method", value: toTitleCase(paymentRecord.payment_method ?? "") },
+          { label: "Payment Method", value: paymentRecord.payment_method_id ?? "-" },
           { label: "Payment Type", value: toTitleCase(paymentRecord.payment_type ?? "") },
           { label: "Payment Status", value: toTitleCase(paymentRecord.status ?? "") },
           { label: "Paid At", value: paymentRecord.paid_at ? formatDateTime(paymentRecord.paid_at) : "-" },
