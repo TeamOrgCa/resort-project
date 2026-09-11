@@ -176,6 +176,37 @@ export async function POST(request: Request) {
       );
     }
 
+    if (payload.payment.type === "downpayment") {
+      const { data: verifiedDownpayment, error: verifiedDownpaymentError } = await supabase
+        .from("payments")
+        .select("payment_id")
+        .eq("reservation_id", reservation.reservation_id)
+        .eq("payment_type", "downpayment")
+        .eq("status", "verified")
+        .limit(1)
+        .maybeSingle();
+
+      if (verifiedDownpaymentError) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Unable to validate existing downpayments.",
+          },
+          { status: 500 }
+        );
+      }
+
+      if (verifiedDownpayment) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "This reservation already has a verified downpayment. Only the remaining balance can be paid.",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     if (reservation.status === "cancelled" || reservation.status === "completed") {
       return NextResponse.json(
         {

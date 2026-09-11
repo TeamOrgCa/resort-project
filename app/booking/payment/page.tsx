@@ -92,6 +92,8 @@ function PaymentContent() {
   const [reservationReference, setReservationReference] = useState<string | null>(null);
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
   const [isCheckingPendingPayment, setIsCheckingPendingPayment] = useState(false);
+  const [hasVerifiedDownpayment, setHasVerifiedDownpayment] = useState(false);
+  const [isCheckingVerifiedDownpayment, setIsCheckingVerifiedDownpayment] = useState(false);
   const [submittedSummary, setSubmittedSummary] = useState<{
     guestName: string;
     adultCount: number;
@@ -267,6 +269,42 @@ function PaymentContent() {
     checkPendingPayment();
   }, [reservationId, isBalancePayment]);
 
+  useEffect(() => {
+    if (!reservationId) {
+      setHasVerifiedDownpayment(false);
+      return;
+    }
+
+    const checkVerifiedDownpayment = async () => {
+      setIsCheckingVerifiedDownpayment(true);
+      try {
+        const supabase = createClient();
+        const { data: verifiedDownpayment, error } = await supabase
+          .from("payments")
+          .select("payment_id")
+          .eq("reservation_id", reservationId)
+          .eq("payment_type", "downpayment")
+          .eq("status", "verified")
+          .limit(1)
+          .maybeSingle();
+
+        if (error) throw error;
+        setHasVerifiedDownpayment(Boolean(verifiedDownpayment));
+      } catch (error) {
+        console.error("Failed to check verified downpayment:", error);
+        setHasVerifiedDownpayment(false);
+      } finally {
+        setIsCheckingVerifiedDownpayment(false);
+      }
+    };
+
+    void checkVerifiedDownpayment();
+  }, [reservationId]);
+
+  useEffect(() => {
+    if (hasVerifiedDownpayment) setPayOption("full");
+  }, [hasVerifiedDownpayment]);
+
   const roomName = bookingDraft.roomName || "Selected Room";
   const roomPrice = bookingDraft.roomPrice || 0;
   const nights = bookingDraft.nights || 1;
@@ -290,7 +328,14 @@ function PaymentContent() {
   const successTotalAmount = submittedSummary?.totalAmount ?? totalAmount;
   const successPaidAmount = submittedSummary?.paidAmount ?? downPayment;
   const successPayOption = submittedSummary?.payOption ?? payOption;
-  const payableNow = isBalancePayment ? totalAmount : payOption === "full" ? totalAmount : downPayment;
+  const remainingBalance = Math.max(totalAmount - paidAmount, 0);
+  const payableNow = isBalancePayment
+    ? hasVerifiedDownpayment
+      ? remainingBalance
+      : payOption === "full"
+        ? totalAmount
+        : downPayment
+    : payOption === "full" ? totalAmount : downPayment;
   const remainingAfterThisPayment = Math.max(totalAmount - payableNow, 0);
 
   const handlePaymentSubmit = async (event: React.FormEvent) => {
@@ -304,6 +349,11 @@ function PaymentContent() {
 
     if (hasPendingPayment) {
       setSubmitError("You have a payment pending approval. Please wait for it to be reviewed before submitting another payment.");
+      return;
+    }
+
+    if (hasVerifiedDownpayment && payOption === "downpayment") {
+      setSubmitError("A verified downpayment already exists. Only the remaining balance can be paid.");
       return;
     }
 
@@ -651,7 +701,7 @@ function PaymentContent() {
                       <p className="text-sm text-neutral/70">
                         This portal is locked to the outstanding balance for your selected reservation.
                       </p>
-                      {paidAmount === 0 && !hasPendingPayment && (
+                      {!isCheckingVerifiedDownpayment && !hasVerifiedDownpayment && !hasPendingPayment && (
                         <div className="mt-3 rounded-lg border border-neutral/10 bg-white p-3">
                           <p className="text-xs font-medium text-neutral/70 mb-2">Choose Amount To Pay</p>
                           <div className="grid md:grid-cols-2 gap-2">

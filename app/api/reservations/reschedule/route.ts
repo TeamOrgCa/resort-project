@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyGuestAndStaff } from "@/lib/notifications";
 
 interface ReschedulePayload {
@@ -154,6 +155,8 @@ export async function POST(request: Request) {
       );
     }
 
+    const adminSupabase = createAdminClient();
+
     /* -----------------------------
        STATUS CHECK
     ------------------------------*/
@@ -180,7 +183,7 @@ export async function POST(request: Request) {
     /* -----------------------------
        CHECK EXISTING PENDING REQUEST
     ------------------------------*/
-    const { data: pendingRequest, error: pendingError } = await supabase
+    const { data: pendingRequest, error: pendingError } = await adminSupabase
       .from("reservation_reschedules")
       .select("reschedule_id")
       .eq("reservation_id", reservation.reservation_id)
@@ -210,7 +213,7 @@ export async function POST(request: Request) {
     /* -----------------------------
        INSERT RESCHEDULE REQUEST
     ------------------------------*/
-    const { error: insertError } = await supabase
+    const { data: insertedRequest, error: insertError } = await adminSupabase
       .from("reservation_reschedules")
       .insert({
         reservation_id: reservation.reservation_id,
@@ -225,7 +228,9 @@ export async function POST(request: Request) {
         reschedule_fee: calculateRescheduleFee(reservation.start_datetime),
 
         status: "pending",
-      });
+      })
+      .select("reschedule_id")
+      .single<{ reschedule_id: string }>();
 
     if (insertError) {
       return NextResponse.json(
@@ -240,12 +245,19 @@ export async function POST(request: Request) {
     /* -----------------------------
        UPDATE RESERVATION STATUS
     ------------------------------*/
-    const { error: updateError } = await supabase
+    const { error: updateError } = await adminSupabase
       .from("reservations")
       .update({ status: "reschedule_requested" })
       .eq("reservation_id", reservation.reservation_id);
 
     if (updateError) {
+      if (insertedRequest) {
+        await adminSupabase
+          .from("reservation_reschedules")
+          .delete()
+          .eq("reschedule_id", insertedRequest.reschedule_id);
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -256,7 +268,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+    const { error: notificationError } = await notifyGuestAndStaff(adminSupabase, {
       actorId: user.id,
       guestId: reservation.guest_id,
       title: "Reschedule requested",
