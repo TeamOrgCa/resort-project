@@ -41,7 +41,7 @@ export default function AdminShell({ children, role }: AdminShellProps) {
 
   return (
     <SettingsProvider>
-      <div className="mx-auto max-w-7xl">
+      <div className="w-full">
       <div className="mb-4 flex items-center gap-3">
         <div className="md:hidden">
           <button
@@ -64,7 +64,7 @@ export default function AdminShell({ children, role }: AdminShellProps) {
           <AdminSidebar role={role} />
         </aside>
 
-        <main>{children}</main>
+        <main className="min-w-0">{children}</main>
       </div>
 
       {isSidebarOpen ? (
