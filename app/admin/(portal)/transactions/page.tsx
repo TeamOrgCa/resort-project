@@ -7,6 +7,7 @@ import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
 import InvoiceDetailsModal from "@/components/admin/transactions/InvoiceDetailsModal";
 import KeyValueDetailsModal from "@/components/admin/transactions/KeyValueDetailsModal";
 import TransactionsTablePanel from "@/components/admin/transactions/TransactionsTablePanel";
+import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import type {
   InvoiceDetailInvoiceRow,
   InvoiceDetailPaymentRow,
@@ -34,10 +35,13 @@ interface PaymentSnapshotRow {
   payment_id: string;
   reservation_id: string;
   reference_number: string;
+  amount: number;
+  paid_at: string | null;
+  proof_path: string;
   status: "pending" | "verified";
 }
 
-const transactionTabs = ["Transaction Ledger", "Generated Invoices", "Issued Receipts"] as const;
+const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Generated Invoices", "Issued Receipts"] as const;
 
 const transactionColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reservation Ref" },
@@ -63,6 +67,14 @@ const receiptColumns: AdminTableColumn[] = [
   { key: "paymentReference", label: "Payment Ref" },
   { key: "issuedAt", label: "Issued At" },
   { key: "status", label: "Status" },
+];
+
+const paymentVerificationColumns: AdminTableColumn[] = [
+  { key: "reference", label: "Reservation Ref" },
+  { key: "paymentReference", label: "Payment Ref" },
+  { key: "amount", label: "Amount" },
+  { key: "status", label: "Status" },
+  { key: "paidAt", label: "Paid At" },
 ];
 
 const formatCurrency = (value: number) =>
@@ -137,6 +149,9 @@ export default function AdminTransactionsPage() {
   const [paymentReferencesById, setPaymentReferencesById] = useState<Record<string, string>>({});
   const [paymentReservationById, setPaymentReservationById] = useState<Record<string, string>>({});
   const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
+  const [payments, setPayments] = useState<PaymentSnapshotRow[]>([]);
+  const [pendingPaymentApproval, setPendingPaymentApproval] = useState<PaymentSnapshotRow | null>(null);
+  const [isApprovingPayment, setIsApprovingPayment] = useState(false);
   const [viewDetails, setViewDetails] = useState<ViewDetailsState | null>(null);
   const [isInvoiceDetailsOpen, setIsInvoiceDetailsOpen] = useState(false);
   const [isInvoiceDetailsLoading, setIsInvoiceDetailsLoading] = useState(false);
@@ -180,7 +195,7 @@ export default function AdminTransactionsPage() {
             reservationIds.length
               ? supabase
                   .from("payments")
-                  .select("payment_id, reservation_id, reference_number, status")
+                  .select("payment_id, reservation_id, reference_number, amount, paid_at, proof_path, status")
                   .in("reservation_id", reservationIds)
               : Promise.resolve({ data: [], error: null }),
             supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment").order("issued_at", { ascending: false }).limit(200),
@@ -227,6 +242,7 @@ export default function AdminTransactionsPage() {
         setBookingTypesById(nextBookingTypesById);
         setPaymentReferencesById(nextPaymentReferencesById);
         setPaymentReservationById(nextPaymentReservationById);
+        setPayments(paymentRows);
         setPendingPaymentCount(paymentRows.filter((payment) => payment.status === "pending").length);
       } catch {
         if (!isMounted) return;
@@ -292,6 +308,21 @@ export default function AdminTransactionsPage() {
     [paymentReferencesById, paymentReservationById, receipts, reservationReferencesById]
   );
 
+  const paymentVerificationRows: AdminTableRow[] = useMemo(
+    () =>
+      payments.map((payment) => ({
+        id: payment.payment_id,
+        reservationId: payment.reservation_id,
+        reference: reservationReferencesById[payment.reservation_id] ?? "-",
+        paymentReference: payment.reference_number,
+        amount: formatCurrency(Number(payment.amount ?? 0)),
+        status: toTitleCase(payment.status),
+        paidAt: payment.paid_at ? formatDateTime(payment.paid_at) : "-",
+        proofPath: payment.proof_path,
+      })),
+    [payments, reservationReferencesById]
+  );
+
   const totalDue = useMemo(
     () => transactions.reduce((sum, item) => sum + Number(item.total_amount ?? 0), 0),
     [transactions]
@@ -341,6 +372,75 @@ export default function AdminTransactionsPage() {
         { label: "Updated", value: row.updatedAt ?? "-" },
       ],
     });
+  };
+
+  const handlePaymentRowAction = async (action: string, row: AdminTableRow) => {
+    const payment = payments.find((item) => item.payment_id === row.id);
+    if (!payment) {
+      setFetchError("Payment record was not found.");
+      return;
+    }
+
+    if (action === "View") {
+      setViewDetails({
+        title: "Payment Verification Details",
+        fields: [
+          { label: "Reservation Ref", value: reservationReferencesById[payment.reservation_id] ?? "-" },
+          { label: "Payment Ref", value: payment.reference_number },
+          { label: "Amount", value: formatCurrency(Number(payment.amount ?? 0)) },
+          { label: "Status", value: toTitleCase(payment.status) },
+          { label: "Paid At", value: payment.paid_at ? formatDateTime(payment.paid_at) : "-" },
+        ],
+      });
+      return;
+    }
+
+    if (action === "Review") {
+      if (!payment.proof_path) {
+        setFetchError("This payment has no uploaded proof file.");
+        return;
+      }
+
+      const supabase = createClient();
+      const { data, error } = await supabase.storage.from("payment-proofs").createSignedUrl(payment.proof_path, 120);
+      if (error || !data?.signedUrl) {
+        setFetchError("Unable to open payment proof image.");
+        return;
+      }
+      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (action === "Approve" && payment.status !== "verified") {
+      setPendingPaymentApproval(payment);
+    }
+  };
+
+  const approvePayment = async () => {
+    if (!pendingPaymentApproval) return;
+    setIsApprovingPayment(true);
+    setFetchError(null);
+
+    try {
+      const response = await fetch("/api/admin/payments/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentId: pendingPaymentApproval.payment_id }),
+      });
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+      if (!response.ok || !result?.success) {
+        setFetchError(result?.message ?? "Failed to approve payment.");
+        return;
+      }
+
+      setPayments((current) => current.map((payment) => payment.payment_id === pendingPaymentApproval.payment_id ? { ...payment, status: "verified" } : payment));
+      setPendingPaymentCount((current) => Math.max(current - 1, 0));
+      setPendingPaymentApproval(null);
+    } catch {
+      setFetchError("Failed to approve payment.");
+    } finally {
+      setIsApprovingPayment(false);
+    }
   };
 
   const handleInvoiceRowAction = async (action: string, row: AdminTableRow) => {
@@ -658,6 +758,18 @@ export default function AdminTransactionsPage() {
           />
         )}
 
+        {activeTab === "Payment Verification Queue" && (
+          <TransactionsTablePanel
+            title={isLoading ? "Payment Verification Queue (Loading...)" : "Payment Verification Queue"}
+            columns={paymentVerificationColumns}
+            rows={paymentVerificationRows}
+            defaultSort={{ key: "paidAt", direction: "desc" }}
+            filters={[{ key: "status", label: "Status", options: ["Pending", "Verified"] }]}
+            rowActions={["View", "Review", "Approve"]}
+            onRowAction={handlePaymentRowAction}
+          />
+        )}
+
         {activeTab === "Issued Receipts" && (
           <TransactionsTablePanel
             title={isLoading ? "Issued Receipts (Loading...)" : "Issued Receipts"}
@@ -685,6 +797,21 @@ export default function AdminTransactionsPage() {
       />
 
       {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)} /> : null}
+
+      <ConfirmationDialog
+        isOpen={Boolean(pendingPaymentApproval)}
+        title="Approve Payment"
+        message={`Approve payment ${pendingPaymentApproval?.reference_number ?? ""}? This verifies the payment, confirms the reservation, and generates the receipt.`}
+        confirmText="Approve"
+        cancelText="Cancel"
+        isConfirming={isApprovingPayment}
+        onCancel={() => {
+          if (!isApprovingPayment) setPendingPaymentApproval(null);
+        }}
+        onConfirm={() => {
+          void approvePayment();
+        }}
+      />
     </div>
   );
 }

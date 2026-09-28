@@ -8,8 +8,8 @@ import type {
 
 export const adminNavigation: AdminNavItem[] = [
   { label: "Dashboard", href: "/admin", description: "Operational overview" },
-  { label: "Reservations", href: "/admin/reservations", description: "Booking and approvals" },
-  { label: "Schedules", href: "/admin/schedules", description: "Date blocks and events" },
+  { label: "Reservations", href: "/admin/reservations", description: "Calendar and guest details" },
+  { label: "Records", href: "/admin/records", description: "Reservations, reschedules, ocular visits" },
   { label: "Transactions", href: "/admin/transactions", description: "Billing and invoicing" },
   { label: "Reports", href: "/admin/reports", description: "Sales and operations reports" },
   { label: "Analytics", href: "/admin/analytics", description: "Forecasting insights" },
@@ -66,9 +66,9 @@ export const dashboardModules: AdminFeatureCard[] = [
     href: "/admin/reservations",
   },
   {
-    title: "Schedule Management",
-    summary: "Block dates for maintenance and private events to avoid booking overlaps.",
-    href: "/admin/schedules",
+    title: "Reservation Records",
+    summary: "Review reservation records, reschedule requests, and ocular visit records.",
+    href: "/admin/records",
   },
   {
     title: "Transaction and Billing",
