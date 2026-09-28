@@ -41,54 +41,54 @@ export default function AdminShell({ children, role }: AdminShellProps) {
 
   return (
     <SettingsProvider>
-      <div className="w-full">
-      <div className="mb-4 flex items-center gap-3">
-        <div className="md:hidden">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(true)}
-            className="rounded-lg border border-neutral/20 bg-white px-4 py-2 text-sm font-semibold text-neutral hover:bg-base"
-            aria-label="Open admin navigation"
-            aria-expanded={isSidebarOpen}
-          >
-            Menu
-          </button>
-        </div>
-        <div className="ml-auto">
-          <AdminNotifications />
-        </div>
-      </div>
-
-      <div className="md:grid md:gap-6 md:grid-cols-[280px_1fr]">
-        <aside className="hidden md:block">
+      <div className="admin-shell-grid">
+        <aside className="admin-shell-sidebar hidden md:block">
           <AdminSidebar role={role} />
         </aside>
 
-        <main className="min-w-0">{children}</main>
-      </div>
-
-      {isSidebarOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Admin navigation">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(false)}
-            className="absolute inset-0 bg-neutral/40"
-            aria-label="Close admin navigation"
-          />
-          <aside className="relative h-full w-[86%] max-w-xs overflow-y-auto bg-white p-3 shadow-xl">
-            <div className="mb-3 flex items-center justify-end">
+        <main className="min-w-0">
+          <div className="flex items-center gap-3 border-b border-neutral/10 px-4 py-3 md:px-8">
+            <div className="md:hidden">
               <button
                 type="button"
-                onClick={() => setIsSidebarOpen(false)}
-                className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
+                onClick={() => setIsSidebarOpen(true)}
+                className="rounded-lg border border-neutral/20 bg-white px-4 py-2 text-sm font-semibold text-neutral hover:bg-base"
+                aria-label="Open admin navigation"
+                aria-expanded={isSidebarOpen}
               >
-                Close
+                Menu
               </button>
             </div>
-            <AdminSidebar role={role} />
-          </aside>
-        </div>
-      ) : null}
+            <div className="ml-auto">
+              <AdminNotifications />
+            </div>
+          </div>
+
+          <div className="px-4 py-6 md:px-8 md:py-8">{children}</div>
+        </main>
+
+        {isSidebarOpen ? (
+          <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Admin navigation">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(false)}
+              className="absolute inset-0 bg-neutral/40"
+              aria-label="Close admin navigation"
+            />
+            <aside className="relative h-full w-[min(86vw,320px)] border-r border-neutral/10 bg-[#2B1B12]">
+              <div className="absolute right-4 top-4 z-10">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+              <AdminSidebar role={role} />
+            </aside>
+          </div>
+        ) : null}
       </div>
     </SettingsProvider>
   );

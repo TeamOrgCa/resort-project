@@ -28,3 +28,25 @@ body {
   color: var(--foreground);
   font-family: var(--font-montserrat), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+
+.admin-shell-grid {
+  min-height: 100vh;
+  width: 100%;
+}
+
+.admin-shell-sidebar {
+  height: 100vh;
+  width: 260px;
+}
+
+@media (min-width: 768px) {
+  .admin-shell-grid {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .admin-shell-sidebar {
+    position: sticky;
+    top: 0;
+  }
+}

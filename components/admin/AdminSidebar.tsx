@@ -26,45 +26,46 @@ export default function AdminSidebar({ role }: AdminSidebarProps) {
   const filteredNavigation = filterNavigationByRole(adminNavigation, role);
 
   return (
-    <div className="rounded-2xl border border-neutral/10 bg-white p-3 sm:p-4">
-      <div className="mb-4 border-b border-neutral/10 pb-4">
-        <p className="text-sm font-semibold text-primary">MarVille Admin</p>
-        <h2 className="text-xl font-bold text-neutral">Management System</h2>
-      </div>
+    <div className="h-full border-r border-white/10 text-white" style={{ backgroundColor: "#2D1B12" }}>
+      <div className="flex h-full flex-col px-4 py-4">
+        <div className="mb-4 border-b border-white/10 pb-3">
+          <p className="text-sm font-semibold text-primary">MarVille Admin</p>
+        </div>
 
-      <nav className="-mx-1 flex gap-2 overflow-x-auto pb-1 sm:mx-0 sm:block sm:space-y-2 sm:overflow-visible sm:pb-0">
-        {filteredNavigation.map((item) => {
-          const isActive =
-            pathname === item.href ||
-            (item.href !== "/admin" && pathname.startsWith(item.href));
+        <nav className="flex-1 space-y-0.5">
+          {filteredNavigation.map((item) => {
+            const isActive =
+              pathname === item.href ||
+              (item.href !== "/admin" && pathname.startsWith(item.href));
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`block min-w-56 rounded-xl border px-3 py-3 transition-colors sm:min-w-0 ${
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`block rounded-xl px-4 py-2 transition-all duration-200 ${
                 isActive
-                  ? "border-primary/30 bg-primary/10"
-                  : "border-transparent bg-base hover:border-neutral/20"
+                  ? "bg-primary text-white shadow-sm"
+                  : "text-white/70 hover:bg-white/5 hover:text-white"
               }`}
-            >
-              <p className="font-semibold text-neutral">{item.label}</p>
-              <p className="text-xs text-neutral/70">{item.description}</p>
-            </Link>
-          );
-        })}
-      </nav>
+              >
+                <p className="font-semibold">{item.label}</p>
+                <p className="text-[11px] text-white/50">{item.description}</p>
+              </Link>
+            );
+          })}
+        </nav>
 
-      <button
-        type="button"
-        onClick={handleLogout}
-        className="mt-4 w-full rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm font-semibold text-neutral hover:bg-base"
-      >
-        Log out
-      </button>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="mt-5 w-full border border-white/15 px-3 py-2 text-left text-sm font-semibold text-white/80 hover:bg-white/10 hover:text-white"
+        >
+          Log out
+        </button>
 
-      <div className="mt-4 rounded-xl bg-base p-3 text-xs text-neutral/80 sm:text-sm">
-        <p className="mb-2 font-semibold text-neutral">Role: {role.toUpperCase()}</p>
+        <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/60 sm:text-sm">
+          <p className="font-semibold text-white/80">Role: {role.toUpperCase()}</p>
+        </div>
       </div>
     </div>
   );
