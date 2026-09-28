@@ -11,10 +11,6 @@ type ChatMessage = {
 const CHATBOT_ENABLED = true;
 
 export default function ChatBotMars() {
-  if (!CHATBOT_ENABLED) {
-    return null;
-  }
-
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,6 +26,10 @@ export default function ChatBotMars() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, open]);
+
+  if (!CHATBOT_ENABLED) {
+    return null;
+  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -139,6 +139,7 @@ export default function ChatBotMars() {
               <input
                 type="text"
                 value={input}
+                maxLength={1000}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Ask about rooms, rates, or booking..."
                 className="min-w-0 flex-1 rounded-full border border-white/10 bg-white/10 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none transition focus:border-accent"

@@ -38,6 +38,7 @@ export default function EditStaffDialog({
   const [role, setRole] = useState<StaffRole>("staff");
   const [isActive, setIsActive] = useState(true);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!isOpen || !staffUser) {
       return;
@@ -47,6 +48,7 @@ export default function EditStaffDialog({
     setRole(staffUser.role);
     setIsActive(staffUser.is_active);
   }, [isOpen, staffUser]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!staffUser) {
     return null;

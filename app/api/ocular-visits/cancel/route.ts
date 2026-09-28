@@ -136,7 +136,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, visitId: ocularVisit.visit_id, status: "cancelled" }, { status: 200 });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ success: false, message: "Unexpected error while cancelling ocular visit." }, { status: 500 });
   }
 }

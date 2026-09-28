@@ -33,7 +33,7 @@ export default function Profile() {
         return;
       }
 
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('guests')
         .select('*')
         .eq('id', user.id)

@@ -242,29 +242,6 @@ const getMinRescheduleDate = (booking: BookingRecord | null) => {
   return toLocalDateInputValue(earliest);
 };
 
-const withOriginalTime = (nextDate: string, sourceDateTime: string) => {
-  const source = new Date(sourceDateTime);
-  if (Number.isNaN(source.getTime())) {
-    return `${nextDate}T08:00:00`;
-  }
-
-  const hours = `${source.getHours()}`.padStart(2, "0");
-  const minutes = `${source.getMinutes()}`.padStart(2, "0");
-  const seconds = `${source.getSeconds()}`.padStart(2, "0");
-  return `${nextDate}T${hours}:${minutes}:${seconds}`;
-};
-
-const isAtLeastTwoDaysAway = (checkInValue: string) => {
-  const checkInDate = parseDateValue(checkInValue);
-  if (!checkInDate) return false;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const diffDays = (checkInDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000);
-  return diffDays >= 2;
-};
-
 export default function ManageBooking() {
   const router = useRouter();
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
@@ -302,7 +279,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [remainingPaymentMethod, setRemainingPaymentMethod] = useState<"bank" | "ewallet">("bank");
   const [remainingPaymentError, setRemainingPaymentError] = useState<string | null>(null);
   const [remainingPaymentSuccess, setRemainingPaymentSuccess] = useState<string | null>(null);
-  const [isSubmittingRemainingPayment, setIsSubmittingRemainingPayment] = useState(false);
+  const [isSubmittingRemainingPayment] = useState(false);
 
   const [remainingBankDetails, setRemainingBankDetails] = useState({
     accountName: "",
@@ -323,15 +300,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const selectedBooking = bookings.find((item) => item.id === selectedBookingId) ?? null;
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
   const minRescheduleDate = getMinRescheduleDate(selectedBooking);
-
-  const getDaysBeforeCheckIn = (checkInDate: string) => {
-    const checkIn = new Date(`${checkInDate}T00:00:00`);
-    if (Number.isNaN(checkIn.getTime())) return 0;
-
-    const now = new Date();
-    const dayMs = 24 * 60 * 60 * 1000;
-    return (checkIn.getTime() - now.getTime()) / dayMs;
-  };
 
   const openPaymentPortal = (booking: BookingRecord) => {
     setBookingDraft({
@@ -604,13 +572,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     const originalStartMinute = originalStart.getMinutes();
     const originalStartSecond = originalStart.getSeconds();
     
-    const originalEndHour = originalEnd.getHours();
-    const originalEndMinute = originalEnd.getMinutes();
-    const originalEndSecond = originalEnd.getSeconds();
-
-    // Calculate new end date based on whether end time is on same day or next day
     const durationMs = originalEnd.getTime() - originalStart.getTime();
-    const daysInDuration = Math.floor(durationMs / (24 * 60 * 60 * 1000));
     
     const newStart = new Date(nextCheckIn);
     newStart.setHours(originalStartHour, originalStartMinute, originalStartSecond);

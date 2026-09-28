@@ -1,6 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
+interface ReviewRow {
+  review_id: string;
+  public_display_name: string | null;
+  overall_rating: number;
+  cleanliness_rating: number | null;
+  service_rating: number | null;
+  amenities_rating: number | null;
+  value_rating: number | null;
+  title: string;
+  review_text: string;
+  would_recommend: boolean | null;
+  created_at: string;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -60,7 +74,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Format response
-    const formattedReviews = reviews?.map((review: any) => ({
+    const formattedReviews = (reviews as ReviewRow[] | null)?.map((review) => ({
       review_id: review.review_id,
       guest_name: review.public_display_name || "Verified Guest",
       overall_rating: review.overall_rating,

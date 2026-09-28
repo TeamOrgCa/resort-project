@@ -148,7 +148,7 @@ function BookingFormContent() {
     };
 
     loadCatalog();
-  }, []);
+  }, [bookingDraft?.reservationId, setBookingDraft]);
 
  const handleInputChange = (
   e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>

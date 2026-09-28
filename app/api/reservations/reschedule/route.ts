@@ -296,7 +296,7 @@ export async function POST(request: Request) {
       },
       { status: 201 }
     );
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       {
         success: false,

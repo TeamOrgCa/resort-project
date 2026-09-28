@@ -55,19 +55,6 @@ const formatDateTime = (value: string) => {
   });
 };
 
-const formatDate = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
-
-  return date.toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
-
 const toTitleCase = (value: string) =>
   value
     .replace(/_/g, " ")
