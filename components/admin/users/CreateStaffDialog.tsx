@@ -23,6 +23,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
   const [password, setPassword] = useState("");
   const [isActive, setIsActive] = useState(true);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!isOpen) {
       return;
@@ -34,6 +35,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
     setPassword("");
     setIsActive(true);
   }, [isOpen]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

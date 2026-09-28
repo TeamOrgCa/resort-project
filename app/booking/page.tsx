@@ -19,7 +19,7 @@ interface ReservationAvailabilityRow {
 
 interface OcularAvailabilityRow {
   scheduled_date: string;
-  time_slot: string;
+  time_slot_id: string;
   status: "pending" | "confirmed" | "cancelled";
 }
 
@@ -44,6 +44,7 @@ export default function Booking() {
   const [ocularError, setOcularError] = useState<string | null>(null);
   const [bookedStayDateKeys, setBookedStayDateKeys] = useState<string[]>([]);
   const [bookedOcularSlotsByDate, setBookedOcularSlotsByDate] = useState<Record<string, string[]>>({});
+  const [availableTimes, setAvailableTimes] = useState<string[]>([]);
 
   const formatDateForStore = (date: Date) => {
     const year = date.getFullYear();
@@ -92,19 +93,28 @@ export default function Booking() {
     const loadAvailability = async () => {
       const supabase = createClient();
 
-      const [reservationsResult, ocularResult] = await Promise.all([
+      const [reservationsResult, ocularResult, slotsResponse] = await Promise.all([
         supabase
           .from("reservations")
           .select("start_datetime, end_datetime, status")
           .in("status", ["pending", "confirmed"]),
         supabase
           .from("ocular_visits")
-          .select("scheduled_date, time_slot, status")
+          .select("scheduled_date, time_slot_id, status")
           .in("status", ["pending", "confirmed"]),
+        fetch("/api/ocular-time-slots", { cache: "no-store" }),
       ]);
 
       if (!isMounted) {
         return;
+      }
+
+      let slotLabelsById: Record<string, string> = {};
+      if (slotsResponse.ok) {
+        const slotsResult = (await slotsResponse.json()) as { slots?: Array<{ slot_id: string; start_time: string; end_time: string }> };
+        const slotLabels = Object.fromEntries((slotsResult.slots ?? []).map((slot) => [slot.slot_id, `${slot.start_time.slice(0, 5)}-${slot.end_time.slice(0, 5)}`]));
+        slotLabelsById = slotLabels;
+        setAvailableTimes(Object.values(slotLabels));
       }
 
       if (!reservationsResult.error) {
@@ -143,7 +153,8 @@ export default function Booking() {
             slotMap[key] = [];
           }
 
-          slotMap[key].push(row.time_slot);
+          const label = slotLabelsById[row.time_slot_id];
+          if (label) slotMap[key].push(label);
         }
 
         setBookedOcularSlotsByDate(slotMap);
@@ -215,8 +226,6 @@ export default function Booking() {
     });
     router.push("/booking/form");
   };
-
-  const availableTimes = ["08:00-09:00", "09:00-10:00", "10:00-11:00", "13:00-14:00", "14:00-15:00"];
 
   const formatTimeSlot = (slot: string) => {
     if (!slot.includes("-")) return slot;

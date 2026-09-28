@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { notifyGuestAndStaff } from "@/lib/notifications";
 import { sendOcularVisitScheduledEmail } from "@/lib/email";
+import { getActiveOcularSlots, type OcularSlotRecord } from "@/repositories/catalogRepository";
 interface OcularVisitPayload {
   scheduledDate: string;
   timeSlot: string;
@@ -11,35 +12,17 @@ interface OcularVisitInsertRow {
   visit_id: string;
   reference_number: string;
   scheduled_date: string;
-  time_slot: string;
+  time_slot_id: string;
   status: string;
   created_at: string;
 }
-
-interface ReservationRow {
-  reservation_id: string;
-  guest_id: string;
-  start_datetime: string;
-  end_datetime: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
-}
-
-const TIME_SLOT_MAP: Record<string, { start: string; end: string }> = {
-  "08:00-09:00": { start: "08:00:00", end: "09:00:00" },
-  "09:00-10:00": { start: "09:00:00", end: "10:00:00" },
-  "10:00-11:00": { start: "10:00:00", end: "11:00:00" },
-  "13:00-14:00": { start: "13:00:00", end: "14:00:00" },
-  "14:00-15:00": { start: "14:00:00", end: "15:00:00" },
-};
-
-const ALLOWED_TIME_SLOTS = ["08:00-09:00", "09:00-10:00", "10:00-11:00", "13:00-14:00", "14:00-15:00"];
 
 const isValidDate = (value: string) => {
   const parsed = new Date(value);
   return !Number.isNaN(parsed.getTime());
 };
 
-const buildDateTime = (dateValue: string, timeValue: string) => new Date(`${dateValue}T${timeValue}`);
+const slotLabel = (slot: OcularSlotRecord) => `${slot.start_time.slice(0, 5)}-${slot.end_time.slice(0, 5)}`;
 
 const generateOcularReferenceNumber = async (supabase: Awaited<ReturnType<typeof createClient>>) => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -73,7 +56,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!body.timeSlot || typeof body.timeSlot !== "string" || !ALLOWED_TIME_SLOTS.includes(body.timeSlot)) {
+    if (!body.timeSlot || typeof body.timeSlot !== "string") {
       return NextResponse.json(
         {
           success: false,
@@ -100,6 +83,13 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createClient();
+    const ocularSlots = await getActiveOcularSlots(supabase);
+    const slot = ocularSlots.find((candidate) => slotLabel(candidate) === body.timeSlot);
+
+    if (!slot) {
+      return NextResponse.json({ success: false, message: "Selected time slot is not available." }, { status: 400 });
+    }
+
     const {
       data: { user },
       error: authError,
@@ -115,58 +105,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const slotWindow = TIME_SLOT_MAP[body.timeSlot];
-
-    if (!slotWindow) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid time slot.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const slotStart = buildDateTime(body.scheduledDate, slotWindow.start);
-    const slotEnd = buildDateTime(body.scheduledDate, slotWindow.end);
-
-    // const { data: conflictingReservation, error: reservationConflictError } = await supabase
-    //   .from("reservations")
-    //   .select("reservation_id")
-    //   .eq("status", "confirmed")
-    //   .lt("start_datetime", slotEnd.toISOString())
-    //   .gt("end_datetime", slotStart.toISOString())
-    //   .limit(1)
-    //   .maybeSingle<ReservationRow>();
-
-    // if (reservationConflictError) {
-    //   return NextResponse.json(
-    //     {
-    //       success: false,
-    //       message: "Unable to validate reservation conflicts.",
-    //     },
-    //     { status: 500 }
-    //   );
-    // }
-
-    // if (conflictingReservation) {
-    //   return NextResponse.json(
-    //     {
-    //       success: false,
-    //       message: "Selected time slot overlaps with a confirmed reservation.",
-    //     },
-    //     { status: 409 }
-    //   );
-    // }
-
     const { data: conflictingOcularVisit, error: ocularConflictError } = await supabase
       .from("ocular_visits")
       .select("visit_id")
       .eq("scheduled_date", body.scheduledDate)
-      .eq("time_slot", body.timeSlot)
-      .eq("status", "confirmed")
-      .limit(1)
-      .maybeSingle();
+      .eq("time_slot_id", slot.slot_id)
+      .in("status", ["pending", "confirmed"]);
 
     if (ocularConflictError) {
       return NextResponse.json(
@@ -178,7 +122,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (conflictingOcularVisit) {
+    if ((conflictingOcularVisit ?? []).length >= slot.max_capacity) {
       return NextResponse.json(
         {
           success: false,
@@ -235,10 +179,10 @@ export async function POST(request: Request) {
         guest_id: user.id,
         reference_number: referenceNumber,
         scheduled_date: body.scheduledDate,
-        time_slot: body.timeSlot,
+        time_slot_id: slot.slot_id,
         status: "pending",
       })
-      .select("visit_id, reference_number, scheduled_date, time_slot, status, created_at")
+      .select("visit_id, reference_number, scheduled_date, time_slot_id, status, created_at")
       .single<OcularVisitInsertRow>();
 
     if (insertError || !ocularVisit) {
@@ -274,7 +218,7 @@ export async function POST(request: Request) {
       "Guest",
     referenceNumber: ocularVisit.reference_number,
     scheduledDate: ocularVisit.scheduled_date,
-    timeSlot: ocularVisit.time_slot,
+    timeSlot: body.timeSlot,
   });
 
     return NextResponse.json(
@@ -284,7 +228,7 @@ export async function POST(request: Request) {
           id: ocularVisit.visit_id,
           reference: ocularVisit.reference_number,
           scheduledDate: ocularVisit.scheduled_date,
-          timeSlot: ocularVisit.time_slot,
+          timeSlot: body.timeSlot,
           status: ocularVisit.status,
           createdAt: ocularVisit.created_at,
         },

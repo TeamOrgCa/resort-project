@@ -41,7 +41,7 @@ export default function About() {
                 amenities, and genuine warmth.
               </p>
               <p className="text-lg text-neutral/80">
-                Over three decades, we've maintained our commitment to excellence while expanding our offerings to include 
+                Over three decades, we&apos;ve maintained our commitment to excellence while expanding our offerings to include 
                 luxury accommodations, fine dining experiences, rejuvenating spa services, and countless memorable activities.
               </p>
             </div>

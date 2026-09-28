@@ -72,7 +72,7 @@ interface OcularVisitRow {
   visit_id: string;
   reference_number: string;
   scheduled_date: string;
-  time_slot: string;
+  time_slot_id: string | null;
   status: string;
   created_at: string;
 }
@@ -101,6 +101,12 @@ interface ServiceCatalogRow {
   service_id: string;
   name: string;
   price: number;
+}
+
+interface OcularTimeSlotRow {
+  slot_id: string;
+  start_time: string;
+  end_time: string;
 }
 
 const formatCurrency = (value: number) =>
@@ -236,29 +242,6 @@ const getMinRescheduleDate = (booking: BookingRecord | null) => {
   return toLocalDateInputValue(earliest);
 };
 
-const withOriginalTime = (nextDate: string, sourceDateTime: string) => {
-  const source = new Date(sourceDateTime);
-  if (Number.isNaN(source.getTime())) {
-    return `${nextDate}T08:00:00`;
-  }
-
-  const hours = `${source.getHours()}`.padStart(2, "0");
-  const minutes = `${source.getMinutes()}`.padStart(2, "0");
-  const seconds = `${source.getSeconds()}`.padStart(2, "0");
-  return `${nextDate}T${hours}:${minutes}:${seconds}`;
-};
-
-const isAtLeastTwoDaysAway = (checkInValue: string) => {
-  const checkInDate = parseDateValue(checkInValue);
-  if (!checkInDate) return false;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const diffDays = (checkInDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000);
-  return diffDays >= 2;
-};
-
 export default function ManageBooking() {
   const router = useRouter();
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
@@ -282,6 +265,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [ocularBookings, setOcularBookings] = useState<OcularRecord[]>([]);
   const [reservationServicesById, setReservationServicesById] = useState<Record<string, EditableReservationService[]>>({});
   const [availableServices, setAvailableServices] = useState<ServiceCatalogRow[]>([]);
+  const [ocularSlotsById, setOcularSlotsById] = useState<Record<string, OcularTimeSlotRow>>({});
   const [editableServices, setEditableServices] = useState<EditableReservationService[]>([]);
   const [selectedAddServiceId, setSelectedAddServiceId] = useState("");
   const [addServiceQuantity, setAddServiceQuantity] = useState("1");
@@ -295,7 +279,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [remainingPaymentMethod, setRemainingPaymentMethod] = useState<"bank" | "ewallet">("bank");
   const [remainingPaymentError, setRemainingPaymentError] = useState<string | null>(null);
   const [remainingPaymentSuccess, setRemainingPaymentSuccess] = useState<string | null>(null);
-  const [isSubmittingRemainingPayment, setIsSubmittingRemainingPayment] = useState(false);
+  const [isSubmittingRemainingPayment] = useState(false);
 
   const [remainingBankDetails, setRemainingBankDetails] = useState({
     accountName: "",
@@ -317,15 +301,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
   const minRescheduleDate = getMinRescheduleDate(selectedBooking);
 
-  const getDaysBeforeCheckIn = (checkInDate: string) => {
-    const checkIn = new Date(`${checkInDate}T00:00:00`);
-    if (Number.isNaN(checkIn.getTime())) return 0;
-
-    const now = new Date();
-    const dayMs = 24 * 60 * 60 * 1000;
-    return (checkIn.getTime() - now.getTime()) / dayMs;
-  };
-
   const openPaymentPortal = (booking: BookingRecord) => {
     setBookingDraft({
       bookingMode: "custom",
@@ -340,8 +315,8 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       nights: 1,
       subtotal: booking.remainingBalance,
       tax: 0,
-      total: booking.remainingBalance,
-      downPayment: booking.remainingBalance,
+      total: booking.totalAmount,
+      downPayment: booking.totalAmount * 0.2,
       paidAmount: booking.paidAmount,
       firstName: "",
       lastName: "",
@@ -597,13 +572,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     const originalStartMinute = originalStart.getMinutes();
     const originalStartSecond = originalStart.getSeconds();
     
-    const originalEndHour = originalEnd.getHours();
-    const originalEndMinute = originalEnd.getMinutes();
-    const originalEndSecond = originalEnd.getSeconds();
-
-    // Calculate new end date based on whether end time is on same day or next day
     const durationMs = originalEnd.getTime() - originalStart.getTime();
-    const daysInDuration = Math.floor(durationMs / (24 * 60 * 60 * 1000));
     
     const newStart = new Date(nextCheckIn);
     newStart.setHours(originalStartHour, originalStartMinute, originalStartSecond);
@@ -706,7 +675,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           return;
         }
 
-        const [guestResult, reservationsResult, ocularResult] = await Promise.all([
+        const [guestResult, reservationsResult, ocularResult, ocularSlotsResult] = await Promise.all([
           supabase.from("guests").select("email, phone_number").eq("id", user.id).maybeSingle<GuestRow>(),
           supabase
             .from("reservations")
@@ -715,13 +684,14 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             .order("created_at", { ascending: false }),
           supabase
             .from("ocular_visits")
-            .select("visit_id, reference_number, scheduled_date, time_slot, status, created_at")
+            .select("visit_id, reference_number, scheduled_date, time_slot_id, status, created_at")
             .eq("guest_id", user.id)
             .order("created_at", { ascending: false }),
+          supabase.from("ocular_time_slots").select("slot_id, start_time, end_time").eq("is_active", true).order("start_time"),
         ]);
 
-        if (reservationsResult.error || ocularResult.error) {
-          throw reservationsResult.error || ocularResult.error;
+        if (reservationsResult.error || ocularResult.error || ocularSlotsResult.error) {
+          throw reservationsResult.error || ocularResult.error || ocularSlotsResult.error;
         }
 
         const reservationRows = (reservationsResult.data as ReservationRow[] | null) ?? [];
@@ -805,12 +775,19 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           return accumulator;
         }, {});
 
+        const ocularSlotMap = ((ocularSlotsResult.data as OcularTimeSlotRow[] | null) ?? []).reduce<Record<string, OcularTimeSlotRow>>((map, slot) => {
+          map[slot.slot_id] = slot;
+          return map;
+        }, {});
+
         const mappedOcularBookings: OcularRecord[] = ((ocularResult.data as OcularVisitRow[] | null) ?? []).map(
           (visit) => ({
             id: visit.visit_id,
             reference: visit.reference_number,
             scheduledDate: visit.scheduled_date,
-            timeSlot: visit.time_slot,
+            timeSlot: visit.time_slot_id && ocularSlotMap[visit.time_slot_id]
+              ? formatTimeSlot(`${ocularSlotMap[visit.time_slot_id].start_time}-${ocularSlotMap[visit.time_slot_id].end_time}`)
+              : "-",
             status: toTitleCase(visit.status),
             notes: `Created ${formatDate(visit.created_at)}`,
           })
@@ -820,6 +797,9 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         setOcularBookings(mappedOcularBookings);
         setReservationServicesById(nextReservationServicesById);
         setAvailableServices((availableServicesData as ServiceCatalogRow[] | null) ?? []);
+        setOcularSlotsById(
+          ocularSlotMap
+        );
       } catch {
         if (!isMounted) return;
         setFetchError("Failed to load your booking records.");
@@ -1630,11 +1610,10 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                           }
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         >
-                          <option value="08:00-09:00">{formatTimeSlot("08:00-09:00")}</option>
-                          <option value="09:00-10:00">{formatTimeSlot("09:00-10:00")}</option>
-                          <option value="10:00-11:00">{formatTimeSlot("10:00-11:00")}</option>
-                          <option value="13:00-14:00">{formatTimeSlot("13:00-14:00")}</option>
-                          <option value="14:00-15:00">{formatTimeSlot("14:00-15:00")}</option>
+                          {Object.values(ocularSlotsById).map((slot) => {
+                            const slotValue = `${slot.start_time}-${slot.end_time}`;
+                            return <option key={slot.slot_id} value={slotValue}>{formatTimeSlot(slotValue)}</option>;
+                          })}
                         </select>
                       </div>
                     </div>

@@ -23,11 +23,13 @@ export default function ResetPasswordDialog({
 }: ResetPasswordDialogProps) {
   const [password, setPassword] = useState("");
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (isOpen) {
       setPassword("");
     }
   }, [isOpen]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

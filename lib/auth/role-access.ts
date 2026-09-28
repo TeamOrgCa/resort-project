@@ -8,23 +8,27 @@ const roleAccessMap: Record<StaffRole, string[]> = {
   admin: [
     "/admin",
     "/admin/reservations",
-    "/admin/schedules",
+    "/admin/manual-booking",
+    "/admin/records",
     "/admin/transactions",
     "/admin/reports",
     "/admin/analytics",
     "/admin/users",
+    "/admin/configuration",
+    "/admin/catalog",
     "/admin/audit",
   ],
   staff: [
     "/admin",
     "/admin/reservations",
-    "/admin/schedules",
+    "/admin/manual-booking",
+    "/admin/records",
     "/admin/transactions",
     "/admin/reports",
     "/admin/analytics",
     "/admin/audit",
   ],
-  cashier: ["/admin/reservations", "/admin/transactions"],
+  cashier: ["/admin/reservations", "/admin/manual-booking", "/admin/transactions"],
 };
 
 /**

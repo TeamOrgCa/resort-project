@@ -8,12 +8,14 @@ import type {
 
 export const adminNavigation: AdminNavItem[] = [
   { label: "Dashboard", href: "/admin", description: "Operational overview" },
-  { label: "Reservations", href: "/admin/reservations", description: "Booking and approvals" },
-  { label: "Schedules", href: "/admin/schedules", description: "Date blocks and events" },
+  { label: "Reservations", href: "/admin/reservations", description: "Calendar and guest details" },
+  { label: "Records", href: "/admin/records", description: "Reservations, reschedules, ocular visits" },
   { label: "Transactions", href: "/admin/transactions", description: "Billing and invoicing" },
   { label: "Reports", href: "/admin/reports", description: "Sales and operations reports" },
   { label: "Analytics", href: "/admin/analytics", description: "Forecasting insights" },
   { label: "Users", href: "/admin/users", description: "Roles and permissions" },
+  { label: "Configuration", href: "/admin/configuration", description: "Business rules and preferences" },
+  { label: "Business Catalog", href: "/admin/catalog", description: "Services, units, rates, and schedules" },
   { label: "Audit Log", href: "/admin/audit", description: "Staff activity tracking" },
 ];
 
@@ -64,9 +66,9 @@ export const dashboardModules: AdminFeatureCard[] = [
     href: "/admin/reservations",
   },
   {
-    title: "Schedule Management",
-    summary: "Block dates for maintenance and private events to avoid booking overlaps.",
-    href: "/admin/schedules",
+    title: "Reservation Records",
+    summary: "Review reservation records, reschedule requests, and ocular visit records.",
+    href: "/admin/records",
   },
   {
     title: "Transaction and Billing",

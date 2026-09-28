@@ -15,9 +15,6 @@ interface ReservationCancelRow {
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
-const MIN_CANCELLATION_DAYS = 2;
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 const parsePayload = (value: unknown): CancelPayload | null => {
   if (!value || typeof value !== "object") {
     return null;
@@ -33,17 +30,6 @@ const parsePayload = (value: unknown): CancelPayload | null => {
     reservationId: payload.reservationId,
     acceptedNoRefundPolicy: payload.acceptedNoRefundPolicy,
   };
-};
-
-const hasTwoDayLeadTime = (checkInDate: string) => {
-  const checkIn = new Date(`${checkInDate}T00:00:00`);
-  if (Number.isNaN(checkIn.getTime())) {
-    return false;
-  }
-
-  const now = new Date();
-  const diffDays = (checkIn.getTime() - now.getTime()) / DAY_MS;
-  return diffDays >= MIN_CANCELLATION_DAYS;
 };
 
 export async function POST(request: Request) {
