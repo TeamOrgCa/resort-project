@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { notifyGuestAndStaff } from "@/lib/notifications";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { getAllSettings } from "@/lib/settings/settingsService";
 
 type PaymentType = "downpayment" | "full" | "additional";
@@ -321,15 +321,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+    const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: reservation.guest_id,
+      staffRoles: NOTIFICATION_AUDIENCES.payment,
       title: "Payment submitted",
       message: `Payment for reservation ${reservation.reference_number} is pending review.`,
       entityType: "payment",
       entityId: payment.payment_id,
       guestActionUrl: "/manage",
-      staffActionUrl: "/admin/reservations",
+      staffActionUrl: "/admin/transactions",
     });
 
     if (notificationError) {

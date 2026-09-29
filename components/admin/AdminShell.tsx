@@ -60,7 +60,7 @@ export default function AdminShell({ children, role }: AdminShellProps) {
               </button>
             </div>
             <div className="ml-auto">
-              <AdminNotifications />
+              <AdminNotifications role={role} />
             </div>
           </div>
 

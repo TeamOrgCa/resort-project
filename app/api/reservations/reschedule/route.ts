@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { notifyGuestAndStaff } from "@/lib/notifications";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 
 interface ReschedulePayload {
   reservationId: string;
@@ -268,9 +268,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(adminSupabase, {
+    const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: reservation.guest_id,
+      staffRoles: NOTIFICATION_AUDIENCES.reservation,
       title: "Reschedule requested",
       message: `Reschedule request submitted for reservation ${reservation.reference_number}.`,
       entityType: "reservation_reschedule",

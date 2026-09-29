@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { sendReservationConfirmedEmail } from "@/lib/email";
+import { createNotifications } from "@/lib/notifications";
 
 interface ApprovePaymentPayload {
   paymentId: string;
@@ -317,6 +318,19 @@ export async function POST(request: Request) {
         checkInDate: reservation.start_datetime,
         checkOutDate: reservation.end_datetime,
       });
+    }
+
+    if (payment.status !== "verified" && reservation.guest_id) {
+      const { error: notificationError } = await createNotifications({
+        actorId: staffContext.staffUser.id,
+        guestId: reservation.guest_id,
+        title: "Payment approved",
+        message: `Payment for reservation ${reservation.reference_number} was approved.`,
+        entityType: "payment",
+        entityId: payment.payment_id,
+        guestActionUrl: "/manage",
+      });
+      if (notificationError) console.warn("Failed to notify guest of payment approval:", notificationError);
     }
 
     return NextResponse.json(

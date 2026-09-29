@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import AdminNotifications from "@/components/admin/AdminNotifications";
 import ManualBookingDialog from "@/components/admin/ManualBookingDialog";
 import { scheduleBlocksRows } from "@/components/admin/content";
 import { createClient } from "@/lib/supabase/client";
@@ -200,7 +199,6 @@ export default function ReservationCalendar() {
           <button type="button" onClick={() => setIsSearchOpen((current) => !current)} className="rounded-full border border-neutral/20 bg-white p-2 text-neutral hover:bg-base" aria-label="Search reservations" title="Search reservations">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" strokeWidth="2" /><path strokeLinecap="round" strokeWidth="2" d="m16 16 4 4" /></svg>
           </button>
-          <AdminNotifications />
           <button type="button" onClick={() => setIsManualBookingOpen(true)} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-base shadow-sm hover:bg-primary/90">+ New Reservation</button>
         </div>
       </header>

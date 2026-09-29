@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { notifyGuestAndStaff } from "@/lib/notifications";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { sendOcularVisitScheduledEmail } from "@/lib/email";
 import { getActiveOcularSlots, type OcularSlotRecord } from "@/repositories/catalogRepository";
 interface OcularVisitPayload {
@@ -195,9 +195,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+    const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: user.id,
+      staffRoles: NOTIFICATION_AUDIENCES.reservation,
       title: "Ocular visit scheduled",
       message: `Ocular visit ${ocularVisit.reference_number} is pending confirmation.`,
       entityType: "ocular_visit",

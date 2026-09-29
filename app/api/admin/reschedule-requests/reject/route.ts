@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { createNotifications } from "@/lib/notifications";
 
 interface RejectReschedulePayload {
   rescheduleId: string;
@@ -14,6 +15,7 @@ interface RescheduleRequestRow {
 
 interface ReservationRow {
   reservation_id: string;
+  guest_id: string | null;
   status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
 }
 
@@ -79,7 +81,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
-      .select("reservation_id, status")
+      .select("reservation_id, guest_id, status")
       .eq("reservation_id", requestRow.reservation_id)
       .maybeSingle<ReservationRow>();
 
@@ -139,6 +141,19 @@ export async function POST(request: Request) {
         { success: false, message: "Reschedule rejected but audit logging failed." },
         { status: 500 }
       );
+    }
+
+    if (reservation.guest_id) {
+      const { error: notificationError } = await createNotifications({
+        actorId: staffContext.staffUser.id,
+        guestId: reservation.guest_id,
+        title: "Reschedule declined",
+        message: `Your reservation reschedule request was declined: ${payload.rejectionReason}`,
+        entityType: "reservation_reschedule",
+        entityId: requestRow.reschedule_id,
+        guestActionUrl: "/manage",
+      });
+      if (notificationError) console.warn("Failed to notify guest of reschedule rejection:", notificationError);
     }
 
     return NextResponse.json(

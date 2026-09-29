@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { sendOcularVisitApprovedEmail } from "@/lib/email";
+import { createNotifications } from "@/lib/notifications";
 
 interface ApproveOcularVisitPayload {
   visitId: string;
@@ -148,6 +149,19 @@ if (visit.guest?.email) {
         },
         { status: 500 }
       );
+    }
+
+    if (visit.status !== "confirmed" && visit.guest_id) {
+      const { error: notificationError } = await createNotifications({
+        actorId: staffContext.staffUser.id,
+        guestId: visit.guest_id,
+        title: "Ocular visit confirmed",
+        message: `Ocular visit ${visit.reference_number} was confirmed.`,
+        entityType: "ocular_visit",
+        entityId: visit.visit_id,
+        guestActionUrl: "/ocular",
+      });
+      if (notificationError) console.warn("Failed to notify guest of ocular approval:", notificationError);
     }
 
     return NextResponse.json({ success: true, message: "Ocular visit approved." }, { status: 200 });

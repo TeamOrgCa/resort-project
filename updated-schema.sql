@@ -44,8 +44,81 @@ create table public.audit_logs (
   entity_type text,
   entity_id uuid,
 
+  attempted_email text,
+  auth_user_id uuid,
+  device_id uuid,
+
   created_at timestamptz default timezone('utc', now()) not null
 );
+
+alter table public.audit_logs enable row level security;
+create policy "Staff can read audit logs" on public.audit_logs for select to authenticated
+using (exists (select 1 from public.staff_users where id = auth.uid() and is_active));
+create policy "Staff can record own audit logs" on public.audit_logs for insert to authenticated
+with check (user_id = auth.uid());
+
+-- Failed sign-ins are counted per email across the guest and staff portals.
+create table public.login_lock_state (
+  email text primary key,
+  failed_attempts integer not null default 0,
+  locked_until timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.login_lock_state enable row level security;
+
+create or replace function public.check_login_lock(p_email text)
+returns timestamptz
+language sql security definer set search_path = public
+as $$
+  select locked_until from public.login_lock_state where email = lower(trim(p_email));
+$$;
+
+create or replace function public.record_login_attempt(
+  p_email text, p_device_id uuid, p_kind text, p_result text, p_user_id uuid default null
+)
+returns timestamptz
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_email text := lower(trim(p_email));
+  v_locked_until timestamptz;
+begin
+  if p_kind not in ('guest', 'staff') or p_result not in ('success', 'failed', 'blocked', 'device_conflict', 'denied', 'logout') then
+    raise exception 'Invalid login audit event';
+  end if;
+
+  if p_result = 'failed' then
+    insert into public.login_lock_state(email, failed_attempts, updated_at)
+    values (v_email, 0, now()) on conflict (email) do nothing;
+
+    update public.login_lock_state
+    set failed_attempts = case when locked_until is not null and locked_until <= now() then 1 else failed_attempts + 1 end,
+        locked_until = case
+          when (case when locked_until is not null and locked_until <= now() then 1 else failed_attempts + 1 end) >= 5
+          then now() + interval '1 minute' else null end,
+        updated_at = now()
+    where email = v_email
+    returning locked_until into v_locked_until;
+  elsif p_result = 'success' then
+    delete from public.login_lock_state where email = v_email;
+  end if;
+
+  insert into public.audit_logs(action, entity_type, attempted_email, auth_user_id, device_id)
+  values (
+    case when p_result = 'logout' then 'Logout'
+         when p_result = 'failed' and v_locked_until is not null then 'Login locked'
+         else 'Login ' || replace(p_result, '_', ' ') end,
+    p_kind || '_session', v_email, p_user_id, p_device_id
+  );
+  return v_locked_until;
+end;
+$$;
+
+revoke all on function public.check_login_lock(text) from public, anon, authenticated;
+revoke all on function public.record_login_attempt(text, uuid, text, text, uuid) from public, anon, authenticated;
+grant execute on function public.check_login_lock(text) to service_role;
+grant execute on function public.record_login_attempt(text, uuid, text, text, uuid) to service_role;
 
 create or replace function public.log_service_change()
 returns trigger as $$
@@ -78,7 +151,7 @@ begin
 
   return null;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer set search_path = public;
 
 do $$
 begin
@@ -1287,8 +1360,8 @@ using (
 create table public.notifications (
   notification_id uuid primary key default gen_random_uuid(),
 
-  recipient_role text check (recipient_role in ('guest', 'staff')) not null,
-  recipient_id uuid,
+  recipient_role text check (recipient_role in ('guest', 'staff', 'cashier', 'admin')) not null,
+  recipient_id uuid not null,
   actor_id uuid,
 
   title text not null,
@@ -1307,70 +1380,44 @@ create index notifications_recipient_idx on public.notifications(recipient_role,
 create index notifications_read_idx on public.notifications(is_read);
 create index notifications_created_idx on public.notifications(created_at);
 
-create policy "Guests can view own notifications"
-on public.notifications for select
+create policy "Recipients can view own notifications"
+on public.notifications for select to authenticated
 using (
-  recipient_role = 'guest'
-  and recipient_id = auth.uid()
-);
-
-create policy "Guests can update own notifications"
-on public.notifications for update
-using (
-  recipient_role = 'guest'
-  and recipient_id = auth.uid()
-);
-
-create policy "Guests can insert own notifications"
-on public.notifications for insert
-with check (
-  recipient_role = 'guest'
-  and recipient_id = auth.uid()
-  and actor_id = auth.uid()
-);
-
-create policy "Staff can view notifications"
-on public.notifications for select
-to authenticated
-using (
-  recipient_role = 'staff'
+  recipient_id = auth.uid()
   and (
-    recipient_id is null
-    or recipient_id = auth.uid()
-  )
-  and exists (
-    select 1
-    from public.staff_users
-    where staff_users.id = auth.uid()
-      and staff_users.is_active = true
+    recipient_role = 'guest'
+    or exists (
+      select 1 from public.staff_users
+      where id = auth.uid() and is_active = true and role = recipient_role
+    )
   )
 );
 
-create policy "Staff can update notifications"
-on public.notifications for update
-to authenticated
+create policy "Recipients can mark own notifications read"
+on public.notifications for update to authenticated
 using (
-  recipient_role = 'staff'
+  recipient_id = auth.uid()
   and (
-    recipient_id is null
-    or recipient_id = auth.uid()
+    recipient_role = 'guest'
+    or exists (
+      select 1 from public.staff_users
+      where id = auth.uid() and is_active = true and role = recipient_role
+    )
   )
-  and exists (
-    select 1
-    from public.staff_users
-    where staff_users.id = auth.uid()
-      and staff_users.is_active = true
+)
+with check (
+  recipient_id = auth.uid()
+  and (
+    recipient_role = 'guest'
+    or exists (
+      select 1 from public.staff_users
+      where id = auth.uid() and is_active = true and role = recipient_role
+    )
   )
 );
 
-create policy "Authenticated users can create staff notifications"
-on public.notifications for insert
-to authenticated
-with check (
-  recipient_role = 'staff'
-  and recipient_id is null
-  and actor_id = auth.uid()
-);
+revoke update on public.notifications from authenticated;
+grant update (is_read) on public.notifications to authenticated;
 
 
 -- ============= REVIEWS =======================

@@ -76,6 +76,13 @@ export default function Register() {
 
     const supabase = createClient();
 
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (currentUser) {
+      setError("Sign out of the current account before creating another.");
+      setLoading(false);
+      return;
+    }
+
     // Sign up the user
     const { data, error: signUpError } = await supabase.auth.signUp({
       email: formData.email,

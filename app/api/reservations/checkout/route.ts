@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
@@ -536,6 +537,19 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    const { error: notificationError } = await createNotifications({
+      actorId: user.id,
+      guestId: user.id,
+      staffRoles: NOTIFICATION_AUDIENCES.checkout,
+      title: "Reservation checkout submitted",
+      message: `Reservation ${reservation.reference_number} and payment were submitted for review.`,
+      entityType: "payment",
+      entityId: payment.payment_id,
+      guestActionUrl: "/manage",
+      staffActionUrl: "/admin/transactions",
+    });
+    if (notificationError) console.warn("Failed to create checkout notifications:", notificationError);
 
     return NextResponse.json(
       {

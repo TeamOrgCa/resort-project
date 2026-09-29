@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { createNotifications } from "@/lib/notifications";
 
 type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
 
@@ -15,6 +16,7 @@ interface ManualPaymentPayload {
 
 interface ReservationRow {
   reservation_id: string;
+  guest_id: string | null;
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
@@ -126,7 +128,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
-      .select("reservation_id, status")
+      .select("reservation_id, guest_id, status")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -405,6 +407,19 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    if (reservation.guest_id) {
+      const { error: notificationError } = await createNotifications({
+        actorId: staffContext.staffUser.id,
+        guestId: reservation.guest_id,
+        title: "Payment recorded",
+        message: "A payment was recorded for your reservation.",
+        entityType: "payment",
+        entityId: createdPayment.payment_id,
+        guestActionUrl: "/manage",
+      });
+      if (notificationError) console.warn("Failed to notify guest of manual payment:", notificationError);
     }
 
     return NextResponse.json(

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { createNotifications } from "@/lib/notifications";
 import { sendReservationCancelledEmail } from "@/lib/email";
 
 const cancellationReasons = [
@@ -197,6 +198,19 @@ export async function POST(request: Request) {
         checkOutDate: reservation.end_datetime,
         cancellationReason: payload.cancellationReason,
       });
+    }
+
+    if (reservation.guest_id) {
+      const { error: notificationError } = await createNotifications({
+        actorId: staffContext.staffUser.id,
+        guestId: reservation.guest_id,
+        title: "Reservation cancelled",
+        message: `Reservation ${reservation.reference_number} was cancelled.`,
+        entityType: "reservation",
+        entityId: reservation.reservation_id,
+        guestActionUrl: "/manage",
+      });
+      if (notificationError) console.warn("Failed to notify guest of reservation cancellation:", notificationError);
     }
 
     return NextResponse.json(

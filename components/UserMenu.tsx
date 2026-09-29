@@ -86,7 +86,8 @@ export default function UserMenu() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    const response = await fetch('/api/auth/logout', { method: 'POST' });
+    if (!response.ok) return;
     setIsOpen(false);
     router.push('/');
     router.refresh();

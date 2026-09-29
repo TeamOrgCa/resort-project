@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
-import { notifyGuestAndStaff } from "@/lib/notifications";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 
 type DbErrorLike = {
   message?: string;
@@ -389,9 +389,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+    const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: user.id,
+      staffRoles: NOTIFICATION_AUDIENCES.reservation,
       title: "Booking saved",
       message: `Reservation ${reservation.reference_number} is pending payment.`,
       entityType: "reservation",
