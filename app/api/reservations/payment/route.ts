@@ -1,9 +1,13 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
-import { getAllSettings } from "@/lib/settings/settingsService";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
+import { inspectGcashProof } from "@/lib/server/gcash-ocr";
 
-type PaymentType = "downpayment" | "full" | "additional";
+export const runtime = "nodejs";
+
+type PaymentType = "downpayment" | "full";
 
 interface ReservationPaymentPayload {
   reservationId: string;
@@ -49,8 +53,9 @@ const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
   if (
     typeof payment.paymentMethodId !== "string" ||
     !payment.paymentMethodId.trim() ||
+    (payment.type !== "downpayment" && payment.type !== "full") ||
     typeof payment.amount !== "number" ||
-    payment.amount <= 0 ||
+    !Number.isFinite(payment.amount) || payment.amount <= 0 ||
     typeof payment.referenceNumber !== "string" ||
     !payment.referenceNumber.trim() ||
     typeof payment.accountName !== "string" ||
@@ -65,10 +70,7 @@ const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
     reservationId: payload.reservationId.trim(),
     payment: {
       paymentMethodId: payment.paymentMethodId.trim(),
-      type:
-        payment.type === "full" || payment.type === "additional" || payment.type === "downpayment"
-          ? payment.type
-          : "downpayment",
+      type: payment.type,
       amount: payment.amount,
       referenceNumber: payment.referenceNumber.trim(),
       accountName: payment.accountName.trim(),
@@ -94,14 +96,11 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createClient();
-    const [{ data: paymentMethod, error: paymentMethodError }, settings] = await Promise.all([
-      supabase
-        .from("payment_methods")
-        .select("payment_method_id, is_active")
-        .eq("payment_method_id", payload.payment.paymentMethodId)
-        .maybeSingle<{ payment_method_id: string; is_active: boolean }>(),
-      getAllSettings(supabase),
-    ]);
+    const { data: paymentMethod, error: paymentMethodError } = await supabase
+      .from("payment_methods")
+      .select("payment_method_id, name, type, is_active")
+      .eq("payment_method_id", payload.payment.paymentMethodId)
+      .maybeSingle<{ payment_method_id: string; name: string; type: string; is_active: boolean }>();
 
     if (paymentMethodError || !paymentMethod?.is_active) {
       return NextResponse.json({ success: false, message: "Selected payment method is not available." }, { status: 400 });
@@ -245,47 +244,48 @@ export async function POST(request: Request) {
       );
     }
 
-    const requestedAmount = Number(payload.payment.amount ?? 0);
-    const effectiveAmount = payload.payment.type === "full" ? remainingBalance : requestedAmount;
-
-    if (payload.payment.type === "downpayment") {
-      const configuredRate = Number(settings["reservation.downpayment_percentage"] ?? 20) / 100;
-      const minimumDownpayment = Number(transaction.total_amount ?? 0) * configuredRate;
-      if (requestedAmount + 0.0001 < minimumDownpayment) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Downpayment must be at least ${configuredRate * 100}% of total (₱${minimumDownpayment.toLocaleString("en-PH", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}).`,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    if (payload.payment.type !== "full" && requestedAmount > remainingBalance) {
+    const alreadyPaid = Number(transaction.paid_amount ?? 0);
+    if (payload.payment.type === "downpayment" && alreadyPaid > 0) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Payment amount cannot exceed remaining balance.",
-        },
-        { status: 400 }
+        { success: false, message: "A payment has already been verified. Please pay the outstanding balance." },
+        { status: 409 }
       );
     }
 
-    if (effectiveAmount <= 0) {
+    if (!payload.payment.proofPath.startsWith(`${user.id}/`) || payload.payment.proofPath.includes("..")) {
+      return NextResponse.json({ success: false, message: "Invalid payment proof path." }, { status: 400 });
+    }
+
+    const effectiveAmount = payload.payment.type === "full"
+      ? remainingBalance
+      : downPaymentAmount(Number(transaction.total_amount));
+    if (!moneyMatches(payload.payment.amount, effectiveAmount) || effectiveAmount > remainingBalance) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "This reservation has no remaining balance.",
-        },
+        { success: false, message: `Payment amount does not match the selected ${DOWN_PAYMENT_PERCENT}% down payment or full balance. Refresh the booking and try again.` },
         { status: 400 }
       );
     }
+    const { data: receivingAccount } = await supabase.from("payment_accounts")
+      .select("account_name, account_number")
+      .eq("payment_method_id", payload.payment.paymentMethodId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle<{ account_name: string; account_number: string | null }>();
+    const ocr = await inspectGcashProof(supabase, {
+      userId: user.id,
+      proofPath: payload.payment.proofPath,
+      methodName: paymentMethod.name,
+      methodType: paymentMethod.type,
+      amount: effectiveAmount,
+      reference: payload.payment.referenceNumber,
+      recipientName: receivingAccount?.account_name,
+      recipientNumber: receivingAccount?.account_number,
+    });
+    if (!ocr) {
+      return NextResponse.json({ success: false, message: "Payment proof is missing or is not a supported image under 8 MB." }, { status: 400 });
+    }
 
-    const { data: payment, error: paymentError } = await supabase
+    const { data: payment, error: paymentError } = await createAdminClient()
       .from("payments")
       .insert({
         reservation_id: reservation.reservation_id,
@@ -297,8 +297,11 @@ export async function POST(request: Request) {
         account_name: payload.payment.accountName,
         account_number: payload.payment.accountNumber,
         proof_path: payload.payment.proofPath,
+        ocr_status: ocr.status,
+        ocr_notes: ocr.notes,
+        ocr_checked_at: ocr.status === "not_applicable" ? null : new Date().toISOString(),
       })
-      .select("payment_id, status")
+      .select("payment_id, status, ocr_status")
       .single();
 
     if (paymentError || !payment) {
@@ -345,8 +348,10 @@ export async function POST(request: Request) {
           status: payment.status,
           amount: effectiveAmount,
           proofPath: payload.payment.proofPath,
+          ocrStatus: payment.ocr_status,
         },
         reservation: {
+          referenceNumber: reservation.reference_number,
           totalAmount: Number(transaction.total_amount ?? 0),
           paidAmount: Number(transaction.paid_amount ?? 0),
           remainingBalance,

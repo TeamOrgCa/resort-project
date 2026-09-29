@@ -102,6 +102,8 @@ export const useBookingStore = create<BookingStoreState>()(
             ...state.bookingDraft,
             checkIn,
             checkOut,
+            reservationId: "",
+            reservationReference: "",
           },
         })),
       setBookingWindow: (bookingMode, startDatetime, endDatetime, options) =>
@@ -118,15 +120,24 @@ export const useBookingStore = create<BookingStoreState>()(
             customDurationHours: options?.customDurationHours ?? state.bookingDraft.customDurationHours,
             checkIn: startDatetime ? startDatetime.slice(0, 10) : state.bookingDraft.checkIn,
             checkOut: endDatetime ? endDatetime.slice(0, 10) : state.bookingDraft.checkOut,
+            reservationId: "",
+            reservationReference: "",
           },
         })),
       setBookingDraft: (draft) =>
-        set((state) => ({
-          bookingDraft: {
-            ...state.bookingDraft,
-            ...draft,
-          },
-        })),
+        set((state) => {
+          const changesReservation = ["bookingMode", "startDatetime", "endDatetime", "unitId", "adultCount", "childCount", "services"]
+            .some((key) => key in draft);
+          return {
+            bookingDraft: {
+              ...state.bookingDraft,
+              ...(changesReservation && draft.reservationId === undefined
+                ? { reservationId: "", reservationReference: "" }
+                : {}),
+              ...draft,
+            },
+          };
+        }),
       clearReservationMetadata: () =>
         set((state) => ({
           bookingDraft: {

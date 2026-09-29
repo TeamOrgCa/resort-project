@@ -2,7 +2,7 @@
 
 ## Recommendation
 
-Use **Option A: one row per setting**. Each key is stable and namespaced, for example `reservation.downpayment_percentage` or `payments.receipt_settings`. The JSONB value supports strings, numbers, booleans, arrays, and small structured objects without requiring a migration for every business change.
+Use **Option A: one row per setting**. Each key is stable and namespaced, for example `reservation.reschedule_fee` or `payments.receipt_settings`. The JSONB value supports strings, numbers, booleans, arrays, and small structured objects without requiring a migration for every business change.
 
 Grouped JSON would reduce row count, but makes partial updates, auditing, concurrent edits, validation, and future permissions harder. One row per setting also supports indexed lookups and a single batch query. Keep values small; large templates or media belong in dedicated tables/storage.
 
@@ -21,7 +21,7 @@ Business-rule consumers should receive settings as an input rather than importin
 `GET /api/admin/settings` returns one object containing all persisted settings plus catalog defaults for keys not yet seeded:
 
 ```json
-{ "success": true, "settings": { "reservation.downpayment_percentage": 20 } }
+{ "success": true, "settings": { "reservation.reschedule_fee": 500 } }
 ```
 
 `PATCH /api/admin/settings` accepts a batch and returns the complete post-save map:
@@ -29,7 +29,7 @@ Business-rule consumers should receive settings as an input rather than importin
 ```json
 {
   "updates": [
-    { "key": "reservation.downpayment_percentage", "value": 25 },
+    { "key": "reservation.reschedule_fee", "value": 500 },
     { "key": "payments.accepted_methods", "value": ["GCash"] }
   ]
 }

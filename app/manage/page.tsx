@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
 
 type ManageTab = "bookings" | "ocular";
 type RecordMode = "view" | "edit" | "reschedule" | null;
@@ -276,24 +277,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [rescheduleForm, setRescheduleForm] = useState<RescheduleFormState>({
     checkIn: "",
   });
-  const [remainingPaymentMethod, setRemainingPaymentMethod] = useState<"bank" | "ewallet">("bank");
-  const [remainingPaymentError, setRemainingPaymentError] = useState<string | null>(null);
-  const [remainingPaymentSuccess, setRemainingPaymentSuccess] = useState<string | null>(null);
-  const [isSubmittingRemainingPayment] = useState(false);
-
-  const [remainingBankDetails, setRemainingBankDetails] = useState({
-    accountName: "",
-    referenceNumber: "",
-    uploadProof: null as File | null,
-  });
-
-  const [remainingEwalletDetails, setRemainingEwalletDetails] = useState({
-    accountName: "",
-    accountNumber: "",
-    referenceNumber: "",
-    uploadProof: null as File | null,
-  });
-
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [selectedOcularId, setSelectedOcularId] = useState<string | null>(null);
 
@@ -316,7 +299,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       subtotal: booking.remainingBalance,
       tax: 0,
       total: booking.totalAmount,
-      downPayment: booking.totalAmount * 0.2,
+      downPayment: downPaymentAmount(booking.totalAmount),
       paidAmount: booking.paidAmount,
       firstName: "",
       lastName: "",
@@ -632,24 +615,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     } finally {
       setIsSubmittingReschedule(false);
     }
-  };
-
-  const handleSubmitRemainingPayment = (event: React.FormEvent) => {
-    event.preventDefault();
-
-    if (!selectedBooking || selectedBooking.remainingBalance <= 0) {
-      setRemainingPaymentError("Select a booking with an outstanding balance first.");
-      return;
-    }
-
-    if (selectedBooking.status.toLowerCase() === "cancelled" || selectedBooking.status.toLowerCase() === "completed") {
-      setRemainingPaymentError("Cannot continue payment for this booking status.");
-      return;
-    }
-
-    setRemainingPaymentError(null);
-    setRemainingPaymentSuccess(null);
-    openPaymentPortal(selectedBooking);
   };
 
   useEffect(() => {
@@ -974,11 +939,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                                 onClick={() => {
                                   setSelectedBookingId(record.id);
                                   setRecordMode("view");
-                                  setRemainingPaymentError(null);
-                                  setRemainingPaymentSuccess(null);
-                                  setRemainingPaymentMethod("bank");
-                                  setRemainingBankDetails({ accountName: "", referenceNumber: "", uploadProof: null });
-                                  setRemainingEwalletDetails({ accountName: "", accountNumber: "", referenceNumber: "", uploadProof: null });
                                 }}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
@@ -1146,123 +1106,20 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     {selectedBooking.remainingBalance > 0 &&
                     selectedBooking.status.toLowerCase() !== "cancelled" &&
                     selectedBooking.status.toLowerCase() !== "completed" ? (
-                      <form className="mt-5 rounded-xl border border-neutral/10 bg-white p-4" onSubmit={handleSubmitRemainingPayment}>
-                        <h4 className="font-semibold text-neutral">Pay Remaining Balance</h4>
+                      <div className="mt-5 rounded-xl border border-neutral/10 bg-white p-4">
+                        <h4 className="font-semibold text-neutral">Continue Payment</h4>
                         <p className="mt-1 text-sm text-neutral/70">
-                          Amount to pay now: <span className="font-semibold text-neutral">{formatCurrency(selectedBooking.remainingBalance)}</span>
+                          Outstanding balance: <span className="font-semibold text-neutral">{formatCurrency(selectedBooking.remainingBalance)}</span>.
+                          Choose a {DOWN_PAYMENT_PERCENT}% down payment or full payment on the next page.
                         </p>
-
-                        {remainingPaymentError ? (
-                          <p className="mt-3 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                            {remainingPaymentError}
-                          </p>
-                        ) : null}
-
-                        {remainingPaymentSuccess ? (
-                          <p className="mt-3 rounded-lg border border-secondary/30 bg-secondary/10 px-3 py-2 text-sm text-neutral">
-                            {remainingPaymentSuccess}
-                          </p>
-                        ) : null}
-
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <button
-                            type="button"
-                            onClick={() => setRemainingPaymentMethod("bank")}
-                            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                              remainingPaymentMethod === "bank"
-                                ? "border-primary bg-primary/5 text-neutral"
-                                : "border-neutral/20 bg-base text-neutral"
-                            }`}
-                          >
-                            Bank Transfer
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setRemainingPaymentMethod("ewallet")}
-                            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                              remainingPaymentMethod === "ewallet"
-                                ? "border-primary bg-primary/5 text-neutral"
-                                : "border-neutral/20 bg-base text-neutral"
-                            }`}
-                          >
-                            E-Wallet
-                          </button>
-                        </div>
-
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <input
-                            type="text"
-                            placeholder="Account Name"
-                            value={
-                              remainingPaymentMethod === "bank"
-                                ? remainingBankDetails.accountName
-                                : remainingEwalletDetails.accountName
-                            }
-                            onChange={(event) => {
-                              const next = event.target.value;
-                              if (remainingPaymentMethod === "bank") {
-                                setRemainingBankDetails((prev) => ({ ...prev, accountName: next }));
-                              } else {
-                                setRemainingEwalletDetails((prev) => ({ ...prev, accountName: next }));
-                              }
-                            }}
-                            className="rounded-lg border border-neutral/20 px-3 py-2"
-                          />
-
-                          <input
-                            type="text"
-                            placeholder="Reference Number"
-                            value={
-                              remainingPaymentMethod === "bank"
-                                ? remainingBankDetails.referenceNumber
-                                : remainingEwalletDetails.referenceNumber
-                            }
-                            onChange={(event) => {
-                              const next = event.target.value;
-                              if (remainingPaymentMethod === "bank") {
-                                setRemainingBankDetails((prev) => ({ ...prev, referenceNumber: next }));
-                              } else {
-                                setRemainingEwalletDetails((prev) => ({ ...prev, referenceNumber: next }));
-                              }
-                            }}
-                            className="rounded-lg border border-neutral/20 px-3 py-2"
-                          />
-
-                          {remainingPaymentMethod === "ewallet" ? (
-                            <input
-                              type="text"
-                              placeholder="Account Number"
-                              value={remainingEwalletDetails.accountNumber}
-                              onChange={(event) =>
-                                setRemainingEwalletDetails((prev) => ({ ...prev, accountNumber: event.target.value }))
-                              }
-                              className="rounded-lg border border-neutral/20 px-3 py-2"
-                            />
-                          ) : null}
-
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0] || null;
-                              if (remainingPaymentMethod === "bank") {
-                                setRemainingBankDetails((prev) => ({ ...prev, uploadProof: file }));
-                              } else {
-                                setRemainingEwalletDetails((prev) => ({ ...prev, uploadProof: file }));
-                              }
-                            }}
-                            className="rounded-lg border border-neutral/20 px-3 py-2"
-                          />
-                        </div>
-
                         <button
-                          type="submit"
-                          disabled={isSubmittingRemainingPayment}
-                          className="mt-4 rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                          type="button"
+                          onClick={() => openPaymentPortal(selectedBooking)}
+                          className="mt-4 rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90"
                         >
-                          {isSubmittingRemainingPayment ? "Submitting Payment..." : "Pay Remaining Balance"}
+                          Choose Payment Amount
                         </button>
-                      </form>
+                      </div>
                     ) : null}
                   </div>
                 )}

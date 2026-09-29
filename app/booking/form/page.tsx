@@ -7,6 +7,7 @@ import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { DOWN_PAYMENT_PERCENT } from "@/lib/booking/payment-policy";
 import { isValidName, sanitizeName } from "@/lib/helper/validation";
 
 interface UnitOption {
@@ -550,7 +551,7 @@ function BookingFormContent() {
 
                   <div className="bg-accent/10 p-4 rounded-lg">
                     <div className="flex justify-between">
-                      <span className="text-sm font-semibold text-neutral">Minimum Down Payment (20%)</span>
+                      <span className="text-sm font-semibold text-neutral">Down Payment ({DOWN_PAYMENT_PERCENT}%)</span>
                       <span className="text-lg font-bold text-accent">₱{downPayment.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <p className="text-xs text-neutral/60 mt-2">Required to confirm reservation</p>

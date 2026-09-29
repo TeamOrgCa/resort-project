@@ -5,6 +5,7 @@ import { Suspense, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -38,7 +39,8 @@ function BookingDetailsContent() {
     bookingDraft.adultCount > 0;
 
   const totalGuests = Number(bookingDraft.adultCount || 0) + Number(bookingDraft.childCount || 0);
-  const remainingBalance = Math.max(Number(bookingDraft.total || 0) - Number(bookingDraft.downPayment || 0), 0);
+  const downPayment = downPaymentAmount(Number(bookingDraft.total || 0));
+  const remainingBalance = Math.max(Number(bookingDraft.total || 0) - downPayment, 0);
 
    // FIXED ghost saved state
   const isAlreadySaved =
@@ -93,6 +95,7 @@ function BookingDetailsContent() {
             reservation?: {
               id?: string;
               referenceNumber?: string;
+              totalAmount?: number;
             };
           }
         | null;
@@ -109,6 +112,9 @@ function BookingDetailsContent() {
         reservationId: json.reservation.id,
         reservationReference:
           json.reservation.referenceNumber || "",
+        ...(Number.isFinite(json.reservation.totalAmount)
+          ? { total: Number(json.reservation.totalAmount), downPayment: downPaymentAmount(Number(json.reservation.totalAmount)) }
+          : {}),
       });
       setSaveSuccess("Booking saved successfully. You can now continue to payment or go to manage booking.");
     } catch {
@@ -181,7 +187,7 @@ function BookingDetailsContent() {
                     <h3 className="text-lg font-semibold text-neutral mb-3">To Pay First</h3>
                     <div className="grid sm:grid-cols-2 gap-2 text-sm">
                       <p>
-                        Down Payment: <span className="font-semibold text-primary">₱{Number(bookingDraft.downPayment || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        {DOWN_PAYMENT_PERCENT}% Down Payment: <span className="font-semibold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </p>
                       <p>
                         Remaining Balance: <span className="font-semibold text-neutral">₱{remainingBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -295,12 +301,12 @@ function BookingDetailsContent() {
                 <h3 className="text-2xl font-bold text-neutral mb-4">Quick Summary</h3>
                 <div className="space-y-3 text-sm text-neutral/80">
                   <div className="flex justify-between"><span>Total</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                  <div className="flex justify-between"><span>Pay Now</span><span className="font-semibold text-primary">₱{Number(bookingDraft.downPayment || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                  <div className="flex justify-between"><span>{DOWN_PAYMENT_PERCENT}% Down Payment Option</span><span className="font-semibold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                   <div className="flex justify-between"><span>Balance</span><span className="font-semibold text-neutral">₱{remainingBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                 </div>
 
                 <div className="mt-6 rounded-lg bg-highlight/10 p-4 text-sm text-neutral/80">
-                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. Downpayment minimum is 20% and cancellation downpayments are non-refundable.
+                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. At payment, choose half or the full total. Payments remain subject to verification and the no-refund policy.
                 </div>
               </div>
             </div>

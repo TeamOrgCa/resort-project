@@ -55,7 +55,7 @@ SWIMMING INCLUSIONS
 
 REMINDERS 
 
--at least 20% downpayment for reservation 
+-Guests choose a 20% down payment or the full outstanding balance; proof stays pending until staff verifies the actual transaction.
 
 - remaining balance must be paid upon arrival before swimming 
 

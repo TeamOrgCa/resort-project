@@ -1,55 +1,19 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import Image from "next/image";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
-
-const ENABLE_OCR = false;
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
+import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const normalizeMoneyValue = (value: string) => {
-  const cleaned = value.replace(/[^\d.,]/g, "").trim();
-  if (!cleaned) return Number.NaN;
-
-  const hasComma = cleaned.includes(",");
-  const hasDot = cleaned.includes(".");
-
-  if (hasComma && hasDot) {
-    return Number.parseFloat(cleaned.replace(/,/g, ""));
-  }
-
-  if (hasComma && !hasDot) {
-    const commaParts = cleaned.split(",");
-    const last = commaParts[commaParts.length - 1] || "";
-    if (last.length === 2) {
-      return Number.parseFloat(cleaned.replace(/,/g, "."));
-    }
-    return Number.parseFloat(cleaned.replace(/,/g, ""));
-  }
-
-  return Number.parseFloat(cleaned);
-};
-
-const extractAmountCandidates = (text: string) => {
-  const matches = text.match(/(?:total\s+amount\s+sent|amount\s+sent|total\s+sent|sent\s+amount)?\s*[:\-]??\s*\d[\d,]*(?:\.\d{1,2})?/gi) ?? [];
-
-  return matches
-    .map((item) => normalizeMoneyValue(item))
-    .filter((value) => Number.isFinite(value));
-};
-
-const hasMatchingAmount = (candidates: number[], expected: number) => {
-  const expectedRounded = Math.round(expected * 100) / 100;
-  return candidates.some((candidate) => Math.abs(candidate - expectedRounded) <= 0.05);
 };
 
 interface PaymentMethodOption {
@@ -90,6 +54,7 @@ function PaymentContent() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [uploadedProofPath, setUploadedProofPath] = useState<string | null>(null);
   const [reservationReference, setReservationReference] = useState<string | null>(null);
+  const [receiptScreen, setReceiptScreen] = useState<string | null>(null);
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
   const [isCheckingPendingPayment, setIsCheckingPendingPayment] = useState(false);
   const [hasVerifiedDownpayment, setHasVerifiedDownpayment] = useState(false);
@@ -103,6 +68,7 @@ function PaymentContent() {
     endDatetime: string;
     totalAmount: number;
     paidAmount: number;
+    previousPaidAmount: number;
     payOption: "downpayment" | "full";
   } | null>(null);
   const bankFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -134,11 +100,6 @@ function PaymentContent() {
     void loadPaymentCatalog();
     return () => { isMounted = false; };
   }, []);
-
-  const bookingReference = useMemo(
-    () => "SR-" + Math.random().toString(36).substring(2, 10).toUpperCase(),
-    []
-  );
 
   const [bankDetails, setBankDetails] = useState({
     accountName: "",
@@ -240,7 +201,7 @@ function PaymentContent() {
 
   // Check for pending payments when component mounts or reservation changes
   useEffect(() => {
-    if (!reservationId || !isBalancePayment) {
+    if (!reservationId) {
       setHasPendingPayment(false);
       return;
     }
@@ -267,7 +228,7 @@ function PaymentContent() {
     };
 
     checkPendingPayment();
-  }, [reservationId, isBalancePayment]);
+  }, [reservationId]);
 
   useEffect(() => {
     if (!reservationId) {
@@ -302,8 +263,8 @@ function PaymentContent() {
   }, [reservationId]);
 
   useEffect(() => {
-    if (hasVerifiedDownpayment) setPayOption("full");
-  }, [hasVerifiedDownpayment]);
+    if (hasVerifiedDownpayment || paidAmount > 0) setPayOption("full");
+  }, [hasVerifiedDownpayment, paidAmount]);
 
   const roomName = bookingDraft.roomName || "Selected Room";
   const roomPrice = bookingDraft.roomPrice || 0;
@@ -312,11 +273,11 @@ function PaymentContent() {
   const subtotal = bookingDraft.subtotal || 0;
   const tax = bookingDraft.tax || 0;
   const totalAmount = bookingDraft.total || 0;
-  const downPayment = bookingDraft.downPayment || totalAmount * 0.2;
+  const downPayment = downPaymentAmount(totalAmount);
   const selectedServices = bookingDraft.services || [];
   const selectedPaymentMethod = paymentMethods.find((method) => method.payment_method_id === selectedPaymentMethodId);
   const selectedPaymentAccount = paymentAccounts.find((account) => account.payment_method_id === selectedPaymentMethodId);
-  const downpaymentPercentage = totalAmount > 0 ? Math.round((downPayment / totalAmount) * 100) : 20;
+  const downpaymentPercentage = DOWN_PAYMENT_PERCENT;
 
   const backToFormHref = isBalancePayment ? "/manage" : "/booking/details";
   const successStartDateTime = parseDateTimeString(submittedSummary?.startDatetime ?? null) ?? startDateTime;
@@ -330,13 +291,13 @@ function PaymentContent() {
   const successPayOption = submittedSummary?.payOption ?? payOption;
   const remainingBalance = Math.max(totalAmount - paidAmount, 0);
   const payableNow = isBalancePayment
-    ? hasVerifiedDownpayment
+    ? hasVerifiedDownpayment || paidAmount > 0
       ? remainingBalance
       : payOption === "full"
-        ? totalAmount
+        ? remainingBalance
         : downPayment
     : payOption === "full" ? totalAmount : downPayment;
-  const remainingAfterThisPayment = Math.max(totalAmount - payableNow, 0);
+  const remainingAfterThisPayment = Math.max(remainingBalance - payableNow, 0);
 
   const handlePaymentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -352,7 +313,12 @@ function PaymentContent() {
       return;
     }
 
-    if (hasVerifiedDownpayment && payOption === "downpayment") {
+    if (isCheckingPendingPayment || isCheckingVerifiedDownpayment) {
+      setSubmitError("Checking your reservation payments. Please wait a moment.");
+      return;
+    }
+
+    if ((hasVerifiedDownpayment || paidAmount > 0) && payOption === "downpayment") {
       setSubmitError("A verified downpayment already exists. Only the remaining balance can be paid.");
       return;
     }
@@ -374,50 +340,27 @@ function PaymentContent() {
       return;
     }
 
-    if (!selectedProof.type.startsWith("image/")) {
-      setSubmitError("Please upload an image proof so we can verify your selected payment amount automatically.");
+    if (!["image/png", "image/jpeg", "image/webp"].includes(selectedProof.type) || selectedProof.size > MAX_PAYMENT_PROOF_BYTES) {
+      setSubmitError("Upload a PNG, JPEG, or WebP receipt smaller than 8 MB.");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      // OCR validation (can be disabled via ENABLE_OCR env var)
-      if (ENABLE_OCR) {
-        const tesseract = await import("tesseract.js");
-        const {
-          data: { text: extractedText },
-        } = await tesseract.recognize(selectedProof, "eng");
-
-        console.log("[Payment OCR] Extracted text:", extractedText);
-
-        const amountCandidates = extractAmountCandidates(extractedText);
-        console.log("[Payment OCR] Amount candidates:", amountCandidates);
-
-        if (!hasMatchingAmount(amountCandidates, payableNow)) {
-          setSubmitError(
-            `The uploaded receipt does not show a sent amount matching ₱${payableNow.toLocaleString("en-PH", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}.`
-          );
-          setIsSubmitting(false);
-          return;
-        }
-      } else {
-        console.log("[Payment] OCR validation disabled");
-      }
-
       const supabase = createClient();
       const { data: authData } = await supabase.auth.getUser();
-      const userId = authData.user?.id ?? "guest";
+      const userId = authData.user?.id;
+      if (!userId) {
+        setSubmitError("Please sign in again before submitting payment.");
+        return;
+      }
 
       const safeFileName = selectedProof.name.replace(/[^a-zA-Z0-9.-]/g, "_");
       const uploadPath = `${userId}/${Date.now()}-${safeFileName}`;
-      const bucketName = process.env.NEXT_PUBLIC_SUPABASE_PAYMENT_PROOF_BUCKET!;
 
       const { error: uploadError } = await supabase.storage
-        .from(bucketName)
+        .from(PAYMENT_PROOF_BUCKET)
         .upload(uploadPath, selectedProof, {
           cacheControl: "3600",
           upsert: false,
@@ -464,7 +407,8 @@ function PaymentContent() {
         success?: boolean;
         message?: string;
         errorCode?: string | null;
-        payment?: { id?: string; status?: string };
+        payment?: { id?: string; status?: string; ocrStatus?: string };
+        reservation?: { referenceNumber?: string };
       } | null = null;
       let checkoutRaw = "";
 
@@ -473,7 +417,8 @@ function PaymentContent() {
           success?: boolean;
           message?: string;
           errorCode?: string | null;
-          payment?: { id?: string; status?: string };
+          payment?: { id?: string; status?: string; ocrStatus?: string };
+          reservation?: { referenceNumber?: string };
         };
       } catch {
         checkoutRaw = await checkoutResponse.text().catch(() => "");
@@ -499,9 +444,11 @@ function PaymentContent() {
         endDatetime: bookingDraft.endDatetime,
         totalAmount,
         paidAmount: payableNow,
+        previousPaidAmount: paidAmount,
         payOption,
       });
-      setReservationReference(reservationReferenceFromDraft || null);
+      setReservationReference(checkoutJson.reservation?.referenceNumber || reservationReferenceFromDraft || null);
+      setReceiptScreen(checkoutJson.payment?.ocrStatus ?? null);
       setPaymentComplete(true);
     } catch {
       setSubmitError("Unable to process payment right now. Please try again.");
@@ -521,13 +468,18 @@ function PaymentContent() {
           </div>
           <h1 className="text-4xl font-bold text-neutral mb-4">Payment Submitted!</h1>
           <p className="text-xl text-neutral/70 mb-8">Your reservation is pending admin approval</p>
+          {receiptScreen === "mismatch" || receiptScreen === "unreadable" ? (
+            <p className="mb-6 rounded-lg border border-highlight/40 bg-highlight/10 px-4 py-3 text-sm text-neutral">
+              The receipt needs manual review. Please keep your GCash transaction record available for staff.
+            </p>
+          ) : null}
 
           <div className="bg-base p-8 rounded-2xl mb-8">
             <h2 className="text-2xl font-bold text-neutral mb-6">Reservation Summary</h2>
             <div className="space-y-4 text-left">
               <div className="flex justify-between pb-3 border-b border-neutral/10">
                 <span className="text-neutral/70">Booking Reference</span>
-                <span className="font-bold text-primary text-xl">{reservationReference || bookingReference}</span>
+                <span className="font-bold text-primary text-xl">{reservationReference || "-"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Guest Name</span>
@@ -563,13 +515,13 @@ function PaymentContent() {
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">
-                  Paid ({successPayOption === "full" ? "Full Payment" : "Down Payment"})
+                  Submitted for review ({successPayOption === "full" ? "Full Payment" : "Down Payment"})
                 </span>
                 <span className="font-semibold text-secondary">₱{successPaidAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral/70">Balance Due at Checkout</span>
-                <span className="font-bold text-primary text-lg">₱{Math.max(successTotalAmount - successPaidAmount, 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="text-neutral/70">Expected balance after approval</span>
+                <span className="font-bold text-primary text-lg">₱{Math.max(successTotalAmount - (submittedSummary?.previousPaidAmount ?? 0) - successPaidAmount, 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               {uploadedProofPath && (
                 <div className="flex justify-between">
@@ -599,7 +551,7 @@ function PaymentContent() {
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                You will receive a confirmation email once payment is approved
+                Check Manage Booking for the payment review result
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -697,11 +649,11 @@ function PaymentContent() {
 
                   {isBalancePayment ? (
                     <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                      <h3 className="text-lg font-semibold text-neutral mb-2">Remaining Balance Payment</h3>
+                      <h3 className="text-lg font-semibold text-neutral mb-2">Pay for This Reservation</h3>
                       <p className="text-sm text-neutral/70">
-                        This portal is locked to the outstanding balance for your selected reservation.
+                        {paidAmount > 0 ? "Pay the outstanding balance for your selected reservation." : `Choose a ${downpaymentPercentage}% down payment or full payment for your selected reservation.`}
                       </p>
-                      {!isCheckingVerifiedDownpayment && !hasVerifiedDownpayment && !hasPendingPayment && (
+                      {!isCheckingVerifiedDownpayment && !hasVerifiedDownpayment && paidAmount <= 0 && !hasPendingPayment && (
                         <div className="mt-3 rounded-lg border border-neutral/10 bg-white p-3">
                           <p className="text-xs font-medium text-neutral/70 mb-2">Choose Amount To Pay</p>
                           <div className="grid md:grid-cols-2 gap-2">
@@ -727,7 +679,7 @@ function PaymentContent() {
                               }`}
                             >
                               <p className="font-semibold text-neutral">Full Balance</p>
-                              <p className="text-neutral/70">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                              <p className="text-neutral/70">₱{remainingBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                             </button>
                           </div>
                         </div>
@@ -750,7 +702,7 @@ function PaymentContent() {
                               : "border-neutral/20 bg-white hover:border-primary/50"
                           }`}
                         >
-                          <p className="font-semibold text-neutral">Minimum {downpaymentPercentage}% Down Payment</p>
+                          <p className="font-semibold text-neutral">Down Payment ({downpaymentPercentage}%)</p>
                           <p className="text-sm text-neutral/70">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                         </button>
                         <button
@@ -816,7 +768,7 @@ function PaymentContent() {
                           <input
                             ref={bankFileInputRef}
                             type="file"
-                            accept="image/*,.pdf"
+                            accept="image/png,image/jpeg,image/webp"
                             onChange={handleBankProofChange}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
@@ -832,12 +784,6 @@ function PaymentContent() {
                                   height={400}
                                   unoptimized
                                   className="h-72 w-full rounded-md object-contain bg-neutral/5"
-                                />
-                              ) : bankDetails.uploadProof.type === "application/pdf" && bankProofPreviewUrl ? (
-                                <iframe
-                                  src={bankProofPreviewUrl}
-                                  title="Bank proof preview"
-                                  className="h-72 w-full rounded-md border border-neutral/10 bg-white"
                                 />
                               ) : (
                                 <p className="text-sm text-neutral/80">Preview unavailable for this file type. File is ready for upload.</p>
@@ -922,7 +868,7 @@ function PaymentContent() {
                           <input
                             ref={ewalletFileInputRef}
                             type="file"
-                            accept="image/*,.pdf"
+                            accept="image/png,image/jpeg,image/webp"
                             onChange={handleEwalletProofChange}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
@@ -938,12 +884,6 @@ function PaymentContent() {
                                   height={400}
                                   unoptimized
                                   className="h-72 w-full rounded-md object-contain bg-neutral/5"
-                                />
-                              ) : ewalletDetails.uploadProof.type === "application/pdf" && ewalletProofPreviewUrl ? (
-                                <iframe
-                                  src={ewalletProofPreviewUrl}
-                                  title="E-wallet proof preview"
-                                  className="h-72 w-full rounded-md border border-neutral/10 bg-white"
                                 />
                               ) : (
                                 <p className="text-sm text-neutral/80">Preview unavailable for this file type. File is ready for upload.</p>
@@ -971,7 +911,7 @@ function PaymentContent() {
                         className="mt-1 h-4 w-4 rounded border-neutral/30"
                       />
                       <span>
-                        I agree to the Terms and Conditions, including the 20% minimum downpayment, no-refund cancellation policy, and reschedule-only guidance.
+                        I agree to the Terms and Conditions, including the {downpaymentPercentage}% down payment or full payment choice, no-refund cancellation policy, and reschedule-only guidance.
                       </span>
                     </label>
                   </div>
@@ -984,7 +924,7 @@ function PaymentContent() {
                     </Link>
                     <button
                       type="submit"
-                      disabled={isSubmitting || isCheckingPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentMethodId}
+                      disabled={isSubmitting || isCheckingPendingPayment || isCheckingVerifiedDownpayment || hasPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentMethodId}
                       className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {isSubmitting ? "Processing..." : "Confirm Payment"}
@@ -1001,7 +941,7 @@ function PaymentContent() {
                 <div className="space-y-4 mb-6">
                   <div className="pb-4 border-b border-neutral/10">
                     <p className="text-sm text-neutral/70 mb-1">Booking Reference</p>
-                    <p className="font-mono font-bold text-neutral">{reservationReferenceFromDraft || bookingReference}</p>
+                    <p className="font-mono font-bold text-neutral">{reservationReferenceFromDraft || "Save booking first"}</p>
                   </div>
 
                   <div className="pb-4 border-b border-neutral/10">
@@ -1065,7 +1005,7 @@ function PaymentContent() {
                   <div className="bg-primary/5 p-4 rounded-lg">
                     <div className="flex justify-between mb-2">
                       <span className="font-semibold text-neutral">
-                        {payOption === "full" ? "Paying Now (Full)" : `Down Payment (${downpaymentPercentage}% minimum)`}
+                        {payOption === "full" ? "Paying Now (Full)" : `Down Payment (${downpaymentPercentage}%)`}
                       </span>
                       <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
@@ -1077,7 +1017,7 @@ function PaymentContent() {
                     <span className="font-semibold text-neutral">₱{remainingAfterThisPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
 
-                  <p className="text-xs text-neutral/60">Balance payable upon checkout</p>
+                  <p className="text-xs text-neutral/60">You can pay the remaining balance through Manage Booking after this payment is approved.</p>
                 </div>
 
                 <div className="bg-accent/10 p-4 rounded-lg mb-6">

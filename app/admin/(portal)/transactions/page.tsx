@@ -30,6 +30,7 @@ import type {
   ViewDetailsState,
 } from "@/components/admin/transactions/types";
 import { createClient } from "@/lib/supabase/client";
+import { PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 
 interface PaymentSnapshotRow {
   payment_id: string;
@@ -39,6 +40,8 @@ interface PaymentSnapshotRow {
   paid_at: string | null;
   proof_path: string;
   status: "pending" | "verified";
+  ocr_status: "not_applicable" | "consistent" | "mismatch" | "unreadable";
+  ocr_notes: string | null;
 }
 
 const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Generated Invoices", "Issued Receipts"] as const;
@@ -74,6 +77,7 @@ const paymentVerificationColumns: AdminTableColumn[] = [
   { key: "paymentReference", label: "Payment Ref" },
   { key: "amount", label: "Amount" },
   { key: "status", label: "Status" },
+  { key: "ocrReview", label: "OCR Screen" },
   { key: "paidAt", label: "Paid At" },
 ];
 
@@ -195,7 +199,7 @@ export default function AdminTransactionsPage() {
             reservationIds.length
               ? supabase
                   .from("payments")
-                  .select("payment_id, reservation_id, reference_number, amount, paid_at, proof_path, status")
+                  .select("payment_id, reservation_id, reference_number, amount, paid_at, proof_path, status, ocr_status, ocr_notes")
                   .in("reservation_id", reservationIds)
               : Promise.resolve({ data: [], error: null }),
             supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment").order("issued_at", { ascending: false }).limit(200),
@@ -317,6 +321,7 @@ export default function AdminTransactionsPage() {
         paymentReference: payment.reference_number,
         amount: formatCurrency(Number(payment.amount ?? 0)),
         status: toTitleCase(payment.status),
+        ocrReview: toTitleCase(payment.ocr_status.replaceAll("_", " ")),
         paidAt: payment.paid_at ? formatDateTime(payment.paid_at) : "-",
         proofPath: payment.proof_path,
       })),
@@ -389,6 +394,8 @@ export default function AdminTransactionsPage() {
           { label: "Payment Ref", value: payment.reference_number },
           { label: "Amount", value: formatCurrency(Number(payment.amount ?? 0)) },
           { label: "Status", value: toTitleCase(payment.status) },
+          { label: "OCR screen", value: toTitleCase(payment.ocr_status.replaceAll("_", " ")) },
+          { label: "OCR notes", value: payment.ocr_notes ?? "-" },
           { label: "Paid At", value: payment.paid_at ? formatDateTime(payment.paid_at) : "-" },
         ],
       });
@@ -402,7 +409,7 @@ export default function AdminTransactionsPage() {
       }
 
       const supabase = createClient();
-      const { data, error } = await supabase.storage.from("payment-proofs").createSignedUrl(payment.proof_path, 120);
+      const { data, error } = await supabase.storage.from(PAYMENT_PROOF_BUCKET).createSignedUrl(payment.proof_path, 120);
       if (error || !data?.signedUrl) {
         setFetchError("Unable to open payment proof image.");
         return;
@@ -801,7 +808,7 @@ export default function AdminTransactionsPage() {
       <ConfirmationDialog
         isOpen={Boolean(pendingPaymentApproval)}
         title="Approve Payment"
-        message={`Approve payment ${pendingPaymentApproval?.reference_number ?? ""}? This verifies the payment, confirms the reservation, and generates the receipt.`}
+        message={`Approve payment ${pendingPaymentApproval?.reference_number ?? ""}? OCR screen: ${pendingPaymentApproval?.ocr_status.replaceAll("_", " ") ?? "unknown"}. Check the actual merchant transaction record before approving. This confirms the reservation and generates the receipt.`}
         confirmText="Approve"
         cancelText="Cancel"
         isConfirming={isApprovingPayment}

@@ -155,3 +155,44 @@ with check (
 
 revoke update on public.notifications from authenticated;
 grant update (is_read) on public.notifications to authenticated;
+
+-- OCR screens GCash screenshots before a cashier reconciles the transaction.
+alter table public.payments add column if not exists ocr_status text not null default 'not_applicable';
+alter table public.payments add column if not exists ocr_notes text;
+alter table public.payments add column if not exists ocr_checked_at timestamptz;
+alter table public.payments drop constraint if exists payments_ocr_status_check;
+alter table public.payments add constraint payments_ocr_status_check
+check (ocr_status in ('not_applicable', 'consistent', 'mismatch', 'unreadable'));
+
+alter table public.payments enable row level security;
+drop policy if exists "Guests can read own payments" on public.payments;
+drop policy if exists "Staff can read payments" on public.payments;
+drop policy if exists "Staff can add pending payments" on public.payments;
+drop policy if exists "Staff can verify payments" on public.payments;
+create policy "Guests can read own payments" on public.payments for select to authenticated
+using (exists (select 1 from public.reservations where reservation_id = payments.reservation_id and guest_id = auth.uid()));
+create policy "Staff can read payments" on public.payments for select to authenticated
+using (exists (select 1 from public.staff_users where id = auth.uid() and is_active = true));
+create policy "Staff can add pending payments" on public.payments for insert to authenticated
+with check (status = 'pending' and exists (select 1 from public.staff_users where id = auth.uid() and is_active = true));
+create policy "Staff can verify payments" on public.payments for update to authenticated
+using (exists (select 1 from public.staff_users where id = auth.uid() and is_active = true))
+with check (exists (select 1 from public.staff_users where id = auth.uid() and is_active = true));
+revoke update on public.payments from authenticated;
+grant update (status) on public.payments to authenticated;
+
+insert into storage.buckets (id, name, public)
+values ('payment-proofs', 'payment-proofs', false)
+on conflict (id) do nothing;
+
+drop policy if exists "Users can upload own payment proofs" on storage.objects;
+drop policy if exists "Users can view own payment proofs" on storage.objects;
+drop policy if exists "Active staff can view payment proofs" on storage.objects;
+create policy "Users can upload own payment proofs" on storage.objects for insert to authenticated
+with check (bucket_id = 'payment-proofs' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "Users can view own payment proofs" on storage.objects for select to authenticated
+using (bucket_id = 'payment-proofs' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "Active staff can view payment proofs" on storage.objects for select to authenticated
+using (bucket_id = 'payment-proofs' and exists (
+  select 1 from public.staff_users where id = auth.uid() and is_active = true
+));
