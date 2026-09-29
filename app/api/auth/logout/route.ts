@@ -7,14 +7,24 @@ import { DEVICE_COOKIE, isDeviceId, recordAttempt } from "@/lib/server/login-acc
 export async function POST() {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    const deviceId = (await cookies()).get(DEVICE_COOKIE)?.value;
-    if (user?.email && isDeviceId(deviceId)) {
-      await recordAttempt(createAdminClient(), user.email.toLowerCase(), deviceId, "guest", "logout", user.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const deviceId = (await cookies()).get(DEVICE_COOKIE)?.value;
+      if (user?.email && isDeviceId(deviceId)) {
+        await recordAttempt(createAdminClient(), user.email.toLowerCase(), deviceId, "guest", "logout", user.id);
+      }
+    } catch (auditError) {
+      console.warn("[guest logout] Could not record logout audit event", auditError);
     }
-    await supabase.auth.signOut();
+
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("[guest logout] Supabase sign-out failed", error);
+      return NextResponse.json({ success: false, message: "Unable to sign out." }, { status: 500 });
+    }
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (error) {
+    console.error("[guest logout] Unexpected sign-out failure", error);
     return NextResponse.json({ success: false, message: "Unable to sign out." }, { status: 500 });
   }
 }

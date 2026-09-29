@@ -1,8 +1,8 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { useBookingStore } from "@/lib/stores/booking-store";
 import { User } from "@supabase/supabase-js";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type NotificationItem = {
@@ -25,7 +25,8 @@ export default function UserMenu() {
   const [profile, setProfile] = useState<GuestProfile | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
-  const router = useRouter();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
@@ -86,11 +87,32 @@ export default function UserMenu() {
   };
 
   const handleLogout = async () => {
-    const response = await fetch('/api/auth/logout', { method: 'POST' });
-    if (!response.ok) return;
-    setIsOpen(false);
-    router.push('/');
-    router.refresh();
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    setLogoutError(null);
+
+    let serverSignedOut = false;
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' });
+      serverSignedOut = response.ok;
+    } catch (error) {
+      console.warn("Guest logout request failed", error);
+    }
+
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "local" });
+      if (error && !serverSignedOut) throw error;
+      useBookingStore.getState().resetBookingDraft();
+      setUser(null);
+      setProfile(null);
+      setNotifications([]);
+      setIsOpen(false);
+      window.location.replace('/');
+    } catch (error) {
+      console.error("Guest logout failed", error);
+      setLogoutError("Could not sign out. Please try again.");
+      setIsLoggingOut(false);
+    }
   };
 
   const unreadCount = useMemo(
@@ -260,10 +282,12 @@ export default function UserMenu() {
             <div className="border-t border-neutral/10 mt-2 pt-2">
               <button
                 onClick={handleLogout}
-                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                disabled={isLoggingOut}
+                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
               >
-                Sign Out
+                {isLoggingOut ? "Signing out..." : "Sign Out"}
               </button>
+              {logoutError ? <p role="alert" className="px-4 py-2 text-xs text-red-600">{logoutError}</p> : null}
             </div>
           </div>
         </>
