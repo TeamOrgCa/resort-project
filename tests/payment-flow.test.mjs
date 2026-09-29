@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { downPaymentAmount, moneyMatches } from "../lib/booking/payment-policy.ts";
-import { assessGcashText } from "../lib/booking/gcash-receipt.ts";
+import { assessGcashText, screenReceiptText } from "../lib/booking/gcash-receipt.ts";
 
 const receipt = `GCash\nPayment sent successfully\nAmount Sent\nPHP 5,000.00\nReference No. 1234567890123\nSent to MarVille Resort\n0917***1234`;
 const expected = {
@@ -32,4 +32,16 @@ test("GCash receipt recognizes a peso amount and rejects a failed status", () =>
 
 test("GCash receipt with unreadable fields remains for manual review", () => {
   assert.equal(assessGcashText("GCash\nPayment sent successfully", expected).status, "unreadable");
+});
+
+test("unrelated images and failed transactions are rejected before payment submission", () => {
+  assert.equal(screenReceiptText("MarVille Resort\nPoolside rooms and events", true).plausible, false);
+  assert.equal(screenReceiptText("GCash\nPayment failed\nPHP 5,000.00\nReference No. 1234567890123", true).plausible, false);
+  assert.equal(screenReceiptText("A lovely sunset at the beach", false).plausible, false);
+});
+
+test("partial receipts remain eligible for manual review", () => {
+  assert.equal(screenReceiptText("GCash\nPayment sent successfully", true).plausible, true);
+  assert.equal(screenReceiptText("Bank transfer successful\nAmount PHP 5,000.00", false).plausible, true);
+  assert.equal(screenReceiptText(`${receipt}\nIf a transfer failed, contact support.`, true).plausible, true);
 });

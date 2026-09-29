@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
-import { inspectGcashProof } from "@/lib/server/gcash-ocr";
+import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
 
 export const runtime = "nodejs";
 
@@ -271,7 +271,7 @@ export async function POST(request: Request) {
       .eq("is_active", true)
       .limit(1)
       .maybeSingle<{ account_name: string; account_number: string | null }>();
-    const ocr = await inspectGcashProof(supabase, {
+    const ocr = await inspectPaymentProof(supabase, {
       userId: user.id,
       proofPath: payload.payment.proofPath,
       methodName: paymentMethod.name,
@@ -283,6 +283,12 @@ export async function POST(request: Request) {
     });
     if (!ocr) {
       return NextResponse.json({ success: false, message: "Payment proof is missing or is not a supported image under 8 MB." }, { status: 400 });
+    }
+    if (ocr.status === "rejected") {
+      return NextResponse.json({ success: false, code: "INVALID_PAYMENT_PROOF", message: ocr.notes }, { status: 422 });
+    }
+    if (ocr.status === "screening_unavailable") {
+      return NextResponse.json({ success: false, code: "PROOF_SCREENING_UNAVAILABLE", message: ocr.notes }, { status: 503 });
     }
 
     const { data: payment, error: paymentError } = await createAdminClient()
@@ -315,6 +321,21 @@ export async function POST(request: Request) {
         );
       }
 
+      console.error("[payment] Failed to save payment", paymentError);
+      if (
+        (paymentError?.code === "42703" || paymentError?.code === "PGRST204") &&
+        /ocr_(status|notes|checked_at)/i.test(`${paymentError.message} ${paymentError.details ?? ""}`)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "PAYMENT_SCHEMA_MIGRATION_REQUIRED",
+            message: "Payment processing is being updated. Please ask an administrator to apply docs/account-access-migration.sql, then try again.",
+          },
+          { status: 503 }
+        );
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -324,19 +345,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await createNotifications({
-      actorId: user.id,
-      guestId: reservation.guest_id,
-      staffRoles: NOTIFICATION_AUDIENCES.payment,
-      title: "Payment submitted",
-      message: `Payment for reservation ${reservation.reference_number} is pending review.`,
-      entityType: "payment",
-      entityId: payment.payment_id,
-      guestActionUrl: "/manage",
-      staffActionUrl: "/admin/transactions",
-    });
-
-    if (notificationError) {
+    try {
+      const { error: notificationError } = await createNotifications({
+        actorId: user.id,
+        guestId: reservation.guest_id,
+        staffRoles: NOTIFICATION_AUDIENCES.payment,
+        title: "Payment submitted",
+        message: `Payment for reservation ${reservation.reference_number} is pending review.`,
+        entityType: "payment",
+        entityId: payment.payment_id,
+        guestActionUrl: "/manage",
+        staffActionUrl: "/admin/transactions",
+      });
+      if (notificationError) console.warn("Failed to create payment notifications:", notificationError);
+    } catch (notificationError) {
       console.warn("Failed to create payment notifications:", notificationError);
     }
 
@@ -360,13 +382,11 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    console.error("[payment] Unexpected error while submitting payment", error);
     return NextResponse.json(
       {
         success: false,
-        message:
-          error instanceof Error
-            ? `Unexpected error while submitting payment. ${error.message}`
-            : "Unexpected error while submitting payment.",
+        message: "Unexpected error while submitting payment. Please try again or contact support.",
       },
       { status: 500 }
     );

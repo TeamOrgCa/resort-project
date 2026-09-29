@@ -1,6 +1,32 @@
 ﻿export type OcrStatus = "not_applicable" | "consistent" | "mismatch" | "unreadable";
 export type OcrAssessment = { status: OcrStatus; notes: string };
 
+const hasFailedTransactionStatus = (text: string) =>
+  /\b(?:payment|transaction|transfer|send money)\s+(?:was\s+)?(?:failed|unsuccessful|cancelled|canceled|reversed)\b|\b(?:failed|unsuccessful|cancelled|canceled|reversed)\s+(?:payment|transaction|transfer)\b|^\s*(?:failed|unsuccessful|cancelled|canceled|reversed)\s*$/im.test(text)
+  && !/\b(successful|success|completed|confirmed|sent successfully)\b/i.test(text);
+
+/** Reject only clear non-receipts; partial receipt text still goes to staff review. */
+export function screenReceiptText(text: string, isGcash: boolean): { plausible: boolean; reason?: string } {
+  const hasGcash = /g\s*cash/i.test(text);
+  const hasPaymentAction = /\b(payment|paid|transaction|receipt|transfer(?:red)?|sent|received|deposit(?:ed)?)\b/i.test(text);
+  const hasOutcome = /\b(successful|success|completed|confirmed|sent|received|transferred)\b/i.test(text);
+  const hasAmount = /(?:PHP|₱|P)\s*[\d,]+(?:\.\d{1,2})?/i.test(text);
+  const hasReference = /\b(reference|ref(?:erence)?\s*(?:no|number)?|transaction\s*(?:id|no|number)|trace\s*(?:no|number))\b/i.test(text);
+
+  if (hasFailedTransactionStatus(text)) {
+    return { plausible: false, reason: "The uploaded image shows a failed or reversed transaction. Upload proof of a successful payment." };
+  }
+
+  const plausible = isGcash
+    ? (hasGcash && hasPaymentAction && (hasOutcome || hasAmount || hasReference))
+      || (hasPaymentAction && hasOutcome && hasAmount && hasReference)
+    : hasPaymentAction && (hasAmount || hasReference) && (hasOutcome || hasReference);
+
+  return plausible
+    ? { plausible: true }
+    : { plausible: false, reason: "The uploaded image does not show enough receipt or transaction details. Upload a clear payment receipt." };
+}
+
 const normalize = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export function assessGcashText(
@@ -13,7 +39,7 @@ export function assessGcashText(
   let mismatch = false;
 
   if (!/g\s*cash/i.test(text)) findings.push("GCash label could not be read");
-  if (/\b(failed|unsuccessful|cancelled|canceled|reversed)\b/i.test(text)) {
+  if (hasFailedTransactionStatus(text)) {
     mismatch = true;
     findings.push("receipt shows a failed or reversed status");
   } else if (!/\b(successful|success|completed|payment sent|you sent|sent successfully)\b/i.test(text)) {
@@ -50,4 +76,3 @@ export function assessGcashText(
     notes: findings.length ? findings.join("; ") : "GCash label, status, amount, reference, and recipient match the uploaded image. Confirm funds in the merchant transaction record.",
   };
 }
-

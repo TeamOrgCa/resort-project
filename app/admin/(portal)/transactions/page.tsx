@@ -44,6 +44,18 @@ interface PaymentSnapshotRow {
   ocr_notes: string | null;
 }
 
+const paymentReviewLane = (status: PaymentSnapshotRow["ocr_status"]) => {
+  if (status === "consistent") return "Ready to reconcile";
+  if (status === "mismatch" || status === "unreadable") return "Investigate";
+  return "Other method";
+};
+
+const paymentApprovalGuidance = (status: PaymentSnapshotRow["ocr_status"]) => {
+  if (status === "consistent") return "OCR matched the receipt fields. Reconcile the reference and amount against the merchant transaction record";
+  if (status === "mismatch" || status === "unreadable") return "Investigate the OCR issue and reconcile the actual transaction in the merchant record";
+  return "Reconcile this payment against the receiving account's transaction record";
+};
+
 const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Generated Invoices", "Issued Receipts"] as const;
 
 const transactionColumns: AdminTableColumn[] = [
@@ -78,6 +90,7 @@ const paymentVerificationColumns: AdminTableColumn[] = [
   { key: "amount", label: "Amount" },
   { key: "status", label: "Status" },
   { key: "ocrReview", label: "OCR Screen" },
+  { key: "reviewLane", label: "Review Lane" },
   { key: "paidAt", label: "Paid At" },
 ];
 
@@ -322,6 +335,7 @@ export default function AdminTransactionsPage() {
         amount: formatCurrency(Number(payment.amount ?? 0)),
         status: toTitleCase(payment.status),
         ocrReview: toTitleCase(payment.ocr_status.replaceAll("_", " ")),
+        reviewLane: paymentReviewLane(payment.ocr_status),
         paidAt: payment.paid_at ? formatDateTime(payment.paid_at) : "-",
         proofPath: payment.proof_path,
       })),
@@ -395,6 +409,7 @@ export default function AdminTransactionsPage() {
           { label: "Amount", value: formatCurrency(Number(payment.amount ?? 0)) },
           { label: "Status", value: toTitleCase(payment.status) },
           { label: "OCR screen", value: toTitleCase(payment.ocr_status.replaceAll("_", " ")) },
+          { label: "Review lane", value: paymentReviewLane(payment.ocr_status) },
           { label: "OCR notes", value: payment.ocr_notes ?? "-" },
           { label: "Paid At", value: payment.paid_at ? formatDateTime(payment.paid_at) : "-" },
         ],
@@ -766,15 +781,23 @@ export default function AdminTransactionsPage() {
         )}
 
         {activeTab === "Payment Verification Queue" && (
-          <TransactionsTablePanel
-            title={isLoading ? "Payment Verification Queue (Loading...)" : "Payment Verification Queue"}
-            columns={paymentVerificationColumns}
-            rows={paymentVerificationRows}
-            defaultSort={{ key: "paidAt", direction: "desc" }}
-            filters={[{ key: "status", label: "Status", options: ["Pending", "Verified"] }]}
-            rowActions={["View", "Review", "Approve"]}
-            onRowAction={handlePaymentRowAction}
-          />
+          <div className="space-y-3">
+            <p className="text-sm text-neutral/70">
+              OCR sends clear matching GCash receipts to quick reconciliation and flags unclear or conflicting receipts for investigation. Confirm the transaction in the merchant record before approval.
+            </p>
+            <TransactionsTablePanel
+              title={isLoading ? "Payment Verification Queue (Loading...)" : "Payment Verification Queue"}
+              columns={paymentVerificationColumns}
+              rows={paymentVerificationRows}
+              defaultSort={{ key: "paidAt", direction: "desc" }}
+              filters={[
+                { key: "status", label: "Status", options: ["Pending", "Verified"] },
+                { key: "reviewLane", label: "Review Lane", options: ["Ready to reconcile", "Investigate", "Other method"] },
+              ]}
+              rowActions={["View", "Review", "Approve"]}
+              onRowAction={handlePaymentRowAction}
+            />
+          </div>
         )}
 
         {activeTab === "Issued Receipts" && (
@@ -808,7 +831,7 @@ export default function AdminTransactionsPage() {
       <ConfirmationDialog
         isOpen={Boolean(pendingPaymentApproval)}
         title="Approve Payment"
-        message={`Approve payment ${pendingPaymentApproval?.reference_number ?? ""}? OCR screen: ${pendingPaymentApproval?.ocr_status.replaceAll("_", " ") ?? "unknown"}. Check the actual merchant transaction record before approving. This confirms the reservation and generates the receipt.`}
+        message={`Approve payment ${pendingPaymentApproval?.reference_number ?? ""}? ${paymentApprovalGuidance(pendingPaymentApproval?.ocr_status ?? "not_applicable")} before approving. This confirms the reservation and generates the receipt.`}
         confirmText="Approve"
         cancelText="Cancel"
         isConfirming={isApprovingPayment}

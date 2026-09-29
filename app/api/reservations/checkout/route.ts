@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
-import { inspectGcashProof } from "@/lib/server/gcash-ocr";
+import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
 
 export const runtime = "nodejs";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
@@ -389,7 +389,7 @@ export async function POST(request: Request) {
       .eq("is_active", true)
       .limit(1)
       .maybeSingle<{ account_name: string; account_number: string | null }>();
-    const ocr = await inspectGcashProof(supabase, {
+    const ocr = await inspectPaymentProof(supabase, {
       userId: user.id,
       proofPath: payload.payment.proofPath,
       methodName: paymentMethod.name,
@@ -401,6 +401,12 @@ export async function POST(request: Request) {
     });
     if (!ocr) {
       return NextResponse.json({ success: false, message: "Payment proof is missing or is not a supported image under 8 MB." }, { status: 400 });
+    }
+    if (ocr.status === "rejected") {
+      return NextResponse.json({ success: false, code: "INVALID_PAYMENT_PROOF", message: ocr.notes }, { status: 422 });
+    }
+    if (ocr.status === "screening_unavailable") {
+      return NextResponse.json({ success: false, code: "PROOF_SCREENING_UNAVAILABLE", message: ocr.notes }, { status: 503 });
     }
 
     const reservationReference = await generateReferenceNumber(supabase);
