@@ -292,7 +292,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          message: "The selected schedule overlaps with an existing reservation.",
+          message: "This booking date has already been reserved. Please choose another date.",
         },
         { status: 409 }
       );
@@ -437,7 +437,7 @@ export async function POST(request: Request) {
 
     if (reservationError || !reservation) {
       if (reservationError?.code === "23P01") {
-        return NextResponse.json({ success: false, code: "DUPLICATE_RESERVATION", message: "You already have an active reservation on that date." }, { status: 409 });
+        return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
       }
       console.error("[checkout] Failed to create reservation", reservationError);
       return NextResponse.json(

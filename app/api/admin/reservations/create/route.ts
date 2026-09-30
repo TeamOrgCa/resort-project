@@ -318,16 +318,14 @@ export async function POST(request: Request) {
       guestId = guest.id;
     }
 
-    if (guestId) {
-      const { conflict, error: overlapError } = await checkReservationOverlap(
-        payload.startDatetime, payload.endDatetime, guestId
-      );
-      if (overlapError) {
-        return NextResponse.json({ success: false, message: "Unable to validate reservation overlaps." }, { status: 500 });
-      }
-      if (conflict) {
-        return NextResponse.json({ success: false, message: "This guest already has an active reservation on that date." }, { status: 409 });
-      }
+    const { conflict, error: overlapError } = await checkReservationOverlap(
+      payload.startDatetime, payload.endDatetime, guestId
+    );
+    if (overlapError) {
+      return NextResponse.json({ success: false, message: "Unable to validate reservation overlaps." }, { status: 500 });
+    }
+    if (conflict) {
+      return NextResponse.json({ success: false, message: "This booking date has already been reserved." }, { status: 409 });
     }
 
     const reservationReference = await generateReferenceNumber(staffContext.supabase);
@@ -373,7 +371,7 @@ export async function POST(request: Request) {
 
     if (reservationError || !reservation) {
       if (reservationError?.code === "23P01") {
-        return NextResponse.json({ success: false, code: "DUPLICATE_RESERVATION", message: "This guest already has an active reservation on that date." }, { status: 409 });
+        return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved." }, { status: 409 });
       }
       if (walkInGuestId) {
         await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);

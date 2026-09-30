@@ -4,6 +4,7 @@ import { requireActiveStaff } from "@/lib/server/admin-audit";
 interface AuditLogRow {
   log_id: string;
   user_id: string | null;
+  auth_user_id: string | null;
   action: string;
   entity_type: string | null;
   entity_id: string | null;
@@ -14,6 +15,12 @@ interface AuditLogRow {
 interface StaffRow {
   id: string;
   full_name: string;
+}
+
+interface GuestRow {
+  id: string;
+  first_name: string;
+  last_name: string;
 }
 
 export async function GET() {
@@ -32,7 +39,7 @@ export async function GET() {
 
     const { data: logsData, error: logsError } = await staffContext.supabase
       .from("audit_logs")
-      .select("log_id, user_id, action, entity_type, entity_id, attempted_email, created_at")
+      .select("log_id, user_id, auth_user_id, action, entity_type, entity_id, attempted_email, created_at")
       .order("created_at", { ascending: false })
       .limit(300);
 
@@ -48,29 +55,44 @@ export async function GET() {
 
     const logs = (logsData as AuditLogRow[] | null) ?? [];
     const staffIds = [...new Set(logs.map((log) => log.user_id).filter((value): value is string => Boolean(value)))];
+    const guestIds = [...new Set(logs.map((log) => log.auth_user_id)
+      .filter((value): value is string => value !== null && !staffIds.includes(value)))];
 
-    const { data: staffData, error: staffError } = staffIds.length
-      ? await staffContext.supabase.from("staff_users").select("id, full_name").in("id", staffIds)
-      : { data: [], error: null };
+    const [staffResult, guestResult] = await Promise.all([
+      staffIds.length
+        ? staffContext.supabase.from("staff_users").select("id, full_name").in("id", staffIds)
+        : Promise.resolve({ data: [], error: null }),
+      guestIds.length
+        ? staffContext.supabase.from("guests").select("id, first_name, last_name").in("id", guestIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
 
-    if (staffError) {
+    if (staffResult.error || guestResult.error) {
       return NextResponse.json(
         {
           success: false,
-          message: "Failed to load staff details for audit logs.",
+          message: "Failed to load actor details for audit logs.",
         },
         { status: 500 }
       );
     }
 
-    const staffById = ((staffData as StaffRow[] | null) ?? []).reduce<Record<string, string>>((accumulator, row) => {
+    const staffById = ((staffResult.data as StaffRow[] | null) ?? []).reduce<Record<string, string>>((accumulator, row) => {
       accumulator[row.id] = row.full_name;
+      return accumulator;
+    }, {});
+    const guestById = ((guestResult.data as GuestRow[] | null) ?? []).reduce<Record<string, string>>((accumulator, row) => {
+      accumulator[row.id] = `${row.first_name} ${row.last_name}`;
       return accumulator;
     }, {});
 
     const rows = logs.map((log) => ({
       id: log.log_id,
-      staff: log.user_id ? staffById[log.user_id] ?? "Unknown Staff" : log.attempted_email ?? "System",
+      staff: log.user_id
+        ? staffById[log.user_id] ?? "Unknown Staff"
+        : log.auth_user_id
+          ? guestById[log.auth_user_id] ?? `Guest ${log.auth_user_id.slice(0, 8)}`
+          : log.attempted_email ?? "System",
       module: log.entity_type ? log.entity_type.replace(/_/g, " ") : "General",
       action: log.action,
       record: log.entity_id ?? log.attempted_email ?? "-",

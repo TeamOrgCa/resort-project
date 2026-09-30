@@ -239,7 +239,7 @@ export async function POST(request: Request) {
     }
     if (conflict) {
       return NextResponse.json(
-        { success: false, message: "The requested schedule overlaps with an existing reservation." },
+        { success: false, message: "The requested date has already been reserved." },
         { status: 409 }
       );
     }

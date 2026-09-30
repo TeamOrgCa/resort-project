@@ -95,7 +95,7 @@ export default function AdminAuditPage() {
     <div>
       <AdminSectionHeader
         title="Audit Log"
-        subtitle="Chronological record of staff actions and account access attempts."
+        subtitle="Chronological record of staff actions, guest bookings, and account access attempts."
       />
 
       {fetchError ? (

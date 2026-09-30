@@ -137,6 +137,12 @@ export async function POST(request: Request) {
       .eq("reservation_id", requestRow.reservation_id);
 
     if (updateReservationError) {
+      if (updateReservationError.code === "23P01") {
+        return NextResponse.json(
+          { success: false, code: "DATE_UNAVAILABLE", message: "The requested date was reserved by another guest." },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         { success: false, message: "Failed to update reservation dates." },
         { status: 500 }

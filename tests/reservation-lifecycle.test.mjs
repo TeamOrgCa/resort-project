@@ -42,12 +42,12 @@ test("reservation lifecycle database races", { skip: !enabled || !url || !servic
   }).select("payment_id").single();
 
   try {
-    const { error: guestError } = await admin.from("guests").insert({
+    const { error: guestError } = await admin.from("guests").upsert({
       id: guestId, email, first_name: "Race", last_name: "Test",
       phone_number: "09170000000", address: "Integration test",
     });
     assert.ifError(guestError);
-    const { error: secondGuestError } = await admin.from("guests").insert({
+    const { error: secondGuestError } = await admin.from("guests").upsert({
       id: secondGuestId, email: `reservation-race-second-${tag}@example.invalid`,
       first_name: "Second", last_name: "Guest", phone_number: "09170000001", address: "Integration test",
     });
@@ -55,11 +55,14 @@ test("reservation lifecycle database races", { skip: !enabled || !url || !servic
     const { error: staffError } = await staff.auth.signInWithPassword({ email: staffEmail, password: staffPassword });
     assert.ifError(staffError);
 
-    // Two requests for one guest and calendar date race; the database admits one.
-    const [first, second] = await Promise.all([insertReservation("15", 8), insertReservation("15", 18)]);
+    // Two different guests race for one Manila calendar date; one gets it.
+    const [first, second] = await Promise.all([
+      insertReservation("15", 8, guestId),
+      insertReservation("15", 18, secondGuestId),
+    ]);
     assert.equal([first, second].filter((r) => r.data).length, 1);
     assert.equal([first, second].filter((r) => r.error?.code === "23P01").length, 1);
-    assert.ok((await insertReservation("15", 8, secondGuestId)).data, "another guest may book the same date");
+    const losingGuestId = first.data ? secondGuestId : guestId;
 
     const expiredId = (first.data ?? second.data).reservation_id;
     const { error: setDeadlineError } = await admin.from("reservations")
@@ -70,7 +73,24 @@ test("reservation lifecycle database races", { skip: !enabled || !url || !servic
     assert.ifError(expireError);
     const { data: expired } = await admin.from("reservations").select("status").eq("reservation_id", expiredId).single();
     assert.equal(expired.status, "expired");
-    assert.ok((await insertReservation("15", 8)).data, "expired reservation releases its date");
+    assert.ok((await insertReservation("15", 8, losingGuestId)).data, "expired reservation releases its date to another guest");
+
+    const justInTime = await insertReservation("19", 8, guestId);
+    assert.ifError(justInTime.error);
+    const { error: dueError } = await admin.from("reservations")
+      .update({ payment_deadline_at: new Date(Date.now() - 1_000).toISOString() })
+      .eq("reservation_id", justInTime.data.reservation_id);
+    assert.ifError(dueError);
+    const replacement = await insertReservation("19", 8, secondGuestId);
+    assert.ifError(replacement.error);
+    const { data: released } = await admin.from("reservations").select("status")
+      .eq("reservation_id", justInTime.data.reservation_id).single();
+    assert.equal(released.status, "expired", "a new claim releases an overdue hold before cron runs");
+    const { data: releaseAudit, error: releaseAuditError } = await admin.from("audit_logs")
+      .select("action").eq("entity_id", justInTime.data.reservation_id)
+      .eq("action", "Released unpaid booking date after 30 minutes").maybeSingle();
+    assert.ifError(releaseAuditError);
+    assert.ok(releaseAudit, "expiration is recorded in the audit log");
 
     const raceReservation = await insertReservation("18", 8);
     assert.ifError(raceReservation.error);
@@ -97,6 +117,8 @@ test("reservation lifecycle database races", { skip: !enabled || !url || !servic
     const { data: submitted } = await admin.from("reservations").select("status")
       .eq("reservation_id", reviewReservation.data.reservation_id).single();
     assert.equal(submitted.status, "payment_submitted");
+    const competingAfterProof = await insertReservation("16", 18, secondGuestId);
+    assert.equal(competingAfterProof.error?.code, "23P01", "proof under review retains the date");
 
     // Two staff approvals race on the same pending payment; one succeeds.
     const approve = () => staff.from("payments").update({ status: "verified" })
@@ -117,7 +139,7 @@ test("reservation lifecycle database races", { skip: !enabled || !url || !servic
     const { data: rejected } = await admin.from("reservations").select("status")
       .eq("reservation_id", rejectedReservation.data.reservation_id).single();
     assert.equal(rejected.status, "rejected");
-    assert.ok((await insertReservation("17", 8)).data, "rejected reservation releases its date");
+    assert.ok((await insertReservation("17", 8, secondGuestId)).data, "rejected reservation releases its date");
   } finally {
     await staff.auth.signOut();
     await admin.auth.admin.deleteUser(guestId);

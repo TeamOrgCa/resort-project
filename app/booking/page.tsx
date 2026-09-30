@@ -10,13 +10,6 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 import { createClient } from "@/lib/supabase/client";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
-import { manilaDateKey } from "@/lib/booking/manila-date";
-
-interface ReservationAvailabilityRow {
-  start_datetime: string;
-  end_datetime: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed";
-}
 
 interface OcularAvailabilityRow {
   scheduled_date: string;
@@ -44,6 +37,8 @@ export default function Booking() {
   const [ocularSubmitting, setOcularSubmitting] = useState(false);
   const [ocularError, setOcularError] = useState<string | null>(null);
   const [bookedStayDateKeys, setBookedStayDateKeys] = useState<string[]>([]);
+  const [availabilityLoading, setAvailabilityLoading] = useState(true);
+  const [availabilityError, setAvailabilityError] = useState(false);
   const [bookedOcularSlotsByDate, setBookedOcularSlotsByDate] = useState<Record<string, string[]>>({});
   const [availableTimes, setAvailableTimes] = useState<string[]>([]);
 
@@ -93,14 +88,7 @@ export default function Booking() {
 
     const loadAvailability = async () => {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-
-      const [reservationsResult, ocularResult, slotsResponse] = await Promise.all([
-        supabase
-          .from("reservations")
-          .select("start_datetime, end_datetime, status")
-          .eq("guest_id", user?.id ?? "00000000-0000-0000-0000-000000000000")
-          .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"]),
+      const [ocularResult, slotsResponse] = await Promise.all([
         supabase
           .from("ocular_visits")
           .select("scheduled_date, time_slot_id, status")
@@ -118,28 +106,6 @@ export default function Booking() {
         const slotLabels = Object.fromEntries((slotsResult.slots ?? []).map((slot) => [slot.slot_id, `${slot.start_time.slice(0, 5)}-${slot.end_time.slice(0, 5)}`]));
         slotLabelsById = slotLabels;
         setAvailableTimes(Object.values(slotLabels));
-      }
-
-      if (!reservationsResult.error) {
-        const bookedKeys = new Set<string>();
-
-        for (const row of (reservationsResult.data as ReservationAvailabilityRow[] | null) ?? []) {
-          const start = new Date(row.start_datetime);
-          const end = new Date(row.end_datetime);
-          if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-            continue;
-          }
-
-          const cursor = new Date(`${manilaDateKey(start)}T00:00:00Z`);
-          const inclusiveEnd = new Date(`${manilaDateKey(new Date(end.getTime() - 1))}T00:00:00Z`);
-
-          while (cursor <= inclusiveEnd) {
-            bookedKeys.add(cursor.toISOString().slice(0, 10));
-            cursor.setUTCDate(cursor.getUTCDate() + 1);
-          }
-        }
-
-        setBookedStayDateKeys(Array.from(bookedKeys));
       }
 
       if (!ocularResult.error) {
@@ -171,9 +137,47 @@ export default function Booking() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    let requestId = 0;
+    const month = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}`;
+    const loadAvailability = async () => {
+      const currentRequest = ++requestId;
+      try {
+        const response = await fetch(`/api/booking/availability?month=${month}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("Availability request failed.");
+        const result = (await response.json()) as { bookedDates: string[] };
+        if (!active || currentRequest !== requestId) return;
+        setBookedStayDateKeys(result.bookedDates);
+        setAvailabilityError(false);
+      } catch {
+        if (active && currentRequest === requestId) setAvailabilityError(true);
+      } finally {
+        if (active && currentRequest === requestId) setAvailabilityLoading(false);
+      }
+    };
+    setAvailabilityLoading(true);
+    void loadAvailability();
+    const refresh = setInterval(() => void loadAvailability(), 15_000);
+    window.addEventListener("focus", loadAvailability);
+    return () => {
+      active = false;
+      clearInterval(refresh);
+      window.removeEventListener("focus", loadAvailability);
+    };
+  }, [currentMonth]);
+
   const handleContinueToReservation = () => {
+    if (availabilityLoading || availabilityError) {
+      setStayError("Booking availability is loading. Please try again shortly.");
+      return;
+    }
     if (!selectedStayDate) {
       setStayError("Please select a booking date.");
+      return;
+    }
+    if (isDateBooked(selectedStayDate)) {
+      setStayError("This date has just been reserved. Please choose another date.");
       return;
     }
 
@@ -275,7 +279,7 @@ export default function Booking() {
         setSelectedTime("");
       }
     } else {
-      if (isDateBooked(date)) return;
+      if (availabilityLoading || availabilityError || isDateBooked(date)) return;
 
       const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
       if (isPast) return;
@@ -584,7 +588,7 @@ export default function Booking() {
                         setCustomEndDate(event.target.value);
                         setStayError(null);
                       }}
-                      disabled={!selectedStayDate}
+                      disabled={!selectedStayDate || availabilityLoading || availabilityError}
                       className="w-full rounded-lg border border-neutral/20 px-3 py-2 disabled:bg-neutral/10"
                     />
                     <p className="mt-1 text-xs text-neutral/60">Start date comes from the calendar selection.</p>
@@ -662,6 +666,8 @@ export default function Booking() {
                   <h3 className="text-2xl font-semibold text-neutral text-center mb-2">
                     {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
                   </h3>
+                  {bookingType === "stay" && availabilityLoading && <p className="text-center text-sm text-neutral/60">Loading available dates...</p>}
+                  {bookingType === "stay" && availabilityError && <p role="alert" className="text-center text-sm text-red-700">Unable to load available dates. Retrying automatically.</p>}
                 </div>
 
                 {/* Calendar Grid */}
@@ -707,7 +713,7 @@ export default function Booking() {
                           key={index}
                           type="button"
                           onClick={() => handleDateClick(date)}
-                          disabled={isBooked || isPast}
+                          disabled={availabilityLoading || availabilityError || isBooked || isPast}
                           className={`aspect-square rounded-lg flex items-center justify-center font-medium transition-all
                             ${isBooked ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
                             ${isPast && !isBooked ? "text-neutral/30 cursor-not-allowed" : ""}
@@ -867,7 +873,7 @@ export default function Booking() {
                     </button>
                     
                     <p className="text-xs text-neutral/60 text-center mt-4">
-                      No payment required at this stage
+                      Your date is held for 30 minutes after you save the booking. Submit your down payment proof before the deadline or the date becomes available again.
                     </p>
                   </>
                 ) : (

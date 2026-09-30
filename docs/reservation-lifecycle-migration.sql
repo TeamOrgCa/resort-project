@@ -40,16 +40,16 @@ where status = 'pending' and payment_deadline_at <= now();
 
 create extension if not exists btree_gist;
 alter table public.reservations drop constraint if exists one_active_reservation_per_guest_date;
-alter table public.reservations add constraint one_active_reservation_per_guest_date
+alter table public.reservations drop constraint if exists one_active_reservation_per_date;
+alter table public.reservations add constraint one_active_reservation_per_date
   exclude using gist (
-    guest_id with =,
     (daterange(
       (start_datetime at time zone 'Asia/Manila')::date,
       (end_datetime at time zone 'Asia/Manila')::date +
         case when (end_datetime at time zone 'Asia/Manila')::time = time '00:00:00' then 0 else 1 end,
       '[)'
     )) with &&
-  ) where (guest_id is not null and status in
+  ) where (status in
     ('pending', 'payment_submitted', 'confirmed', 'reschedule_requested'));
 
 create unique index if not exists one_pending_payment_per_reservation

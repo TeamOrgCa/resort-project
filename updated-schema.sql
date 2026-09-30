@@ -1,5 +1,6 @@
--- After this baseline, apply docs/reservation-lifecycle-migration.sql to install
--- payment deadlines, state guards, expiry cron, and role-restricted review.
+-- After this baseline, apply docs/reservation-lifecycle-migration.sql and then
+-- docs/first-come-booking-migration.sql to install deadlines, exclusive dates,
+-- expiry, auditing, and role-restricted payment review.
 -- =========================
 -- STAFF USERS
 -- =========================
@@ -370,14 +371,12 @@ create table public.reservations (
   check (adult_count + child_count > 0)
 );
 
--- One guest can hold only one active reservation across each Manila calendar date.
--- Different guests may book the same date.
+-- One active reservation can hold a Manila calendar date across the resort.
 create extension if not exists btree_gist;
 
 alter table public.reservations
-add constraint one_active_reservation_per_guest_date
+add constraint one_active_reservation_per_date
 exclude using gist (
-  guest_id with =,
   (daterange(
     (start_datetime at time zone 'Asia/Manila')::date,
     (end_datetime at time zone 'Asia/Manila')::date +
@@ -385,7 +384,7 @@ exclude using gist (
     '[)'
   )) with &&
 )
-where (guest_id is not null and status in ('pending', 'payment_submitted', 'confirmed', 'reschedule_requested'));
+where (status in ('pending', 'payment_submitted', 'confirmed', 'reschedule_requested'));
 
 -- Reservation rescheduling table for audit/history of reschedule requests.
 

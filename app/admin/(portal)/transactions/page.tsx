@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminMetricCard from "@/components/admin/AdminMetricCard";
 import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
 import InvoiceDetailsModal from "@/components/admin/transactions/InvoiceDetailsModal";
 import KeyValueDetailsModal from "@/components/admin/transactions/KeyValueDetailsModal";
+import PaymentReviewModal from "@/components/admin/transactions/PaymentReviewModal";
 import TransactionsTablePanel from "@/components/admin/transactions/TransactionsTablePanel";
-import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import type {
   InvoiceDetailInvoiceRow,
   InvoiceDetailPaymentRow,
@@ -37,6 +37,9 @@ interface PaymentSnapshotRow {
   reservation_id: string;
   reference_number: string;
   amount: number;
+  payment_type: string;
+  account_name: string | null;
+  account_number: string | null;
   paid_at: string | null;
   proof_path: string;
   status: "pending" | "verified" | "rejected";
@@ -48,12 +51,6 @@ const paymentReviewLane = (status: PaymentSnapshotRow["ocr_status"]) => {
   if (status === "consistent") return "Ready to reconcile";
   if (status === "mismatch" || status === "unreadable") return "Investigate";
   return "Other method";
-};
-
-const paymentApprovalGuidance = (status: PaymentSnapshotRow["ocr_status"]) => {
-  if (status === "consistent") return "OCR matched the receipt fields. Reconcile the reference and amount against the merchant transaction record";
-  if (status === "mismatch" || status === "unreadable") return "Investigate the OCR issue and reconcile the actual transaction in the merchant record";
-  return "Reconcile this payment against the receiving account's transaction record";
 };
 
 const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Generated Invoices", "Issued Receipts"] as const;
@@ -168,9 +165,14 @@ export default function AdminTransactionsPage() {
   const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
   const [payments, setPayments] = useState<PaymentSnapshotRow[]>([]);
   const [canReviewPayments, setCanReviewPayments] = useState(false);
-  const [pendingPaymentApproval, setPendingPaymentApproval] = useState<PaymentSnapshotRow | null>(null);
-  const [pendingPaymentRejection, setPendingPaymentRejection] = useState<PaymentSnapshotRow | null>(null);
-  const [isApprovingPayment, setIsApprovingPayment] = useState(false);
+  const [reviewPayment, setReviewPayment] = useState<PaymentSnapshotRow | null>(null);
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [isProofLoading, setIsProofLoading] = useState(false);
+  const [proofError, setProofError] = useState<string | null>(null);
+  const [reviewActionError, setReviewActionError] = useState<string | null>(null);
+  const [reviewDecision, setReviewDecision] = useState<"approve" | "reject" | null>(null);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const proofRequestId = useRef(0);
   const [viewDetails, setViewDetails] = useState<ViewDetailsState | null>(null);
   const [isInvoiceDetailsOpen, setIsInvoiceDetailsOpen] = useState(false);
   const [isInvoiceDetailsLoading, setIsInvoiceDetailsLoading] = useState(false);
@@ -221,7 +223,7 @@ export default function AdminTransactionsPage() {
             reservationIds.length
               ? supabase
                   .from("payments")
-                  .select("payment_id, reservation_id, reference_number, amount, paid_at, proof_path, status, ocr_status, ocr_notes")
+                  .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, proof_path, status, ocr_status, ocr_notes")
                   .in("reservation_id", reservationIds)
               : Promise.resolve({ data: [], error: null }),
             supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment").order("issued_at", { ascending: false }).limit(200),
@@ -409,96 +411,101 @@ export default function AdminTransactionsPage() {
       return;
     }
 
-    if (action === "View") {
-      setViewDetails({
-        title: "Payment Verification Details",
-        fields: [
-          { label: "Reservation Ref", value: reservationReferencesById[payment.reservation_id] ?? "-" },
-          { label: "Payment Ref", value: payment.reference_number },
-          { label: "Amount", value: formatCurrency(Number(payment.amount ?? 0)) },
-          { label: "Status", value: toTitleCase(payment.status) },
-          { label: "OCR screen", value: toTitleCase(payment.ocr_status.replaceAll("_", " ")) },
-          { label: "Review lane", value: paymentReviewLane(payment.ocr_status) },
-          { label: "OCR notes", value: payment.ocr_notes ?? "-" },
-          { label: "Paid At", value: payment.paid_at ? formatDateTime(payment.paid_at) : "-" },
-        ],
-      });
-      return;
-    }
-
     if (action === "Review") {
+      const requestId = ++proofRequestId.current;
+      setReviewPayment(payment);
+      setReviewDecision(null);
+      setReviewActionError(null);
+      setProofUrl(null);
+      setProofError(null);
+      setIsProofLoading(true);
       if (!payment.proof_path) {
-        setFetchError("This payment has no uploaded proof file.");
+        setProofError("This payment has no uploaded proof file.");
+        setIsProofLoading(false);
         return;
       }
 
-      const supabase = createClient();
-      const { data, error } = await supabase.storage.from(PAYMENT_PROOF_BUCKET).createSignedUrl(payment.proof_path, 120);
-      if (error || !data?.signedUrl) {
-        setFetchError("Unable to open payment proof image.");
-        return;
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase.storage.from(PAYMENT_PROOF_BUCKET).createSignedUrl(payment.proof_path, 600);
+        if (requestId !== proofRequestId.current) return;
+        if (error || !data?.signedUrl) {
+          setProofError("Unable to load payment proof image.");
+          return;
+        }
+        setProofUrl(data.signedUrl);
+      } catch {
+        if (requestId === proofRequestId.current) setProofError("Unable to load payment proof image.");
+      } finally {
+        if (requestId === proofRequestId.current) setIsProofLoading(false);
       }
-      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-
-    if (action === "Approve" && payment.status === "pending") {
-      setPendingPaymentApproval(payment);
-    }
-    if (action === "Reject" && payment.status === "pending") {
-      setPendingPaymentRejection(payment);
     }
   };
 
-  const approvePayment = async () => {
-    if (!pendingPaymentApproval) return;
-    setIsApprovingPayment(true);
-    setFetchError(null);
+  const closePaymentReview = () => {
+    if (isSubmittingReview) return;
+    proofRequestId.current += 1;
+    setReviewPayment(null);
+    setProofUrl(null);
+    setProofError(null);
+    setReviewActionError(null);
+    setReviewDecision(null);
+  };
+
+  const reconcilePaymentStatus = async (paymentId: string) => {
+    const { data } = await createClient().from("payments")
+      .select("status").eq("payment_id", paymentId)
+      .maybeSingle<{ status: PaymentSnapshotRow["status"] }>();
+    if (!data || data.status === "pending") return false;
+    setPayments((current) => current.map((payment) => payment.payment_id === paymentId
+      ? { ...payment, status: data.status } : payment));
+    setReviewPayment((current) => current?.payment_id === paymentId ? { ...current, status: data.status } : current);
+    setPendingPaymentCount((current) => Math.max(current - 1, 0));
+    setReviewDecision(null);
+    return true;
+  };
+
+  const submitPaymentReview = async () => {
+    if (!reviewPayment || !reviewDecision || reviewPayment.status !== "pending" || !canReviewPayments || isSubmittingReview) return;
+    if (reviewDecision === "approve" && !proofUrl) return;
+    const paymentId = reviewPayment.payment_id;
+    const decision = reviewDecision;
+    setIsSubmittingReview(true);
+    setReviewActionError(null);
 
     try {
-      const response = await fetch("/api/admin/payments/approve", {
+      const response = await fetch(`/api/admin/payments/${decision === "approve" ? "approve" : "reject"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId: pendingPaymentApproval.payment_id }),
+        body: JSON.stringify({ paymentId }),
       });
       const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
       if (!response.ok || !result?.success) {
-        setFetchError(result?.message ?? "Failed to approve payment.");
+        const updated = await reconcilePaymentStatus(paymentId);
+        setReviewActionError(updated
+          ? `Payment status changed, but the server reported: ${result?.message ?? "a follow-up error"}. Refresh billing records to confirm all follow-up steps.`
+          : result?.message ?? `Failed to ${decision} payment.`);
         return;
       }
 
-      setPayments((current) => current.map((payment) => payment.payment_id === pendingPaymentApproval.payment_id ? { ...payment, status: "verified" } : payment));
+      setPayments((current) => current.map((payment) => payment.payment_id === paymentId
+        ? { ...payment, status: decision === "approve" ? "verified" : "rejected" } : payment));
       setPendingPaymentCount((current) => Math.max(current - 1, 0));
-      setPendingPaymentApproval(null);
+      proofRequestId.current += 1;
+      setReviewPayment(null);
+      setReviewDecision(null);
+      setProofUrl(null);
     } catch {
-      setFetchError("Failed to approve payment.");
-    } finally {
-      setIsApprovingPayment(false);
-    }
-  };
-
-  const rejectPayment = async () => {
-    if (!pendingPaymentRejection) return;
-    setIsApprovingPayment(true);
-    setFetchError(null);
-    try {
-      const response = await fetch("/api/admin/payments/reject", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId: pendingPaymentRejection.payment_id }),
-      });
-      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
-      if (!response.ok || !result?.success) {
-        setFetchError(result?.message ?? "Failed to reject payment.");
-        return;
+      try {
+        const updated = await reconcilePaymentStatus(paymentId);
+        setReviewActionError(updated
+          ? "Payment status changed, but the connection failed during follow-up. Refresh billing records."
+          : `Failed to ${decision} payment.`);
+      } catch {
+        setReviewActionError(`Failed to ${decision} payment.`);
       }
-      setPayments((current) => current.map((payment) => payment.payment_id === pendingPaymentRejection.payment_id
-        ? { ...payment, status: "rejected" } : payment));
-      setPendingPaymentCount((current) => Math.max(current - 1, 0));
-      setPendingPaymentRejection(null);
-    } catch {
-      setFetchError("Failed to reject payment.");
     } finally {
-      setIsApprovingPayment(false);
+      setIsSubmittingReview(false);
     }
   };
 
@@ -831,7 +838,7 @@ export default function AdminTransactionsPage() {
                 { key: "status", label: "Status", options: ["Pending", "Verified", "Rejected"] },
                 { key: "reviewLane", label: "Review Lane", options: ["Ready to reconcile", "Investigate", "Other method"] },
               ]}
-              rowActions={canReviewPayments ? ["View", "Review", "Approve", "Reject"] : ["View"]}
+              rowActions={["Review"]}
               onRowAction={handlePaymentRowAction}
             />
           </div>
@@ -865,30 +872,22 @@ export default function AdminTransactionsPage() {
 
       {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)} /> : null}
 
-      <ConfirmationDialog
-        isOpen={Boolean(pendingPaymentApproval)}
-        title="Approve Payment"
-        message={`Approve payment ${pendingPaymentApproval?.reference_number ?? ""}? ${paymentApprovalGuidance(pendingPaymentApproval?.ocr_status ?? "not_applicable")} before approving. This confirms the reservation and generates the receipt.`}
-        confirmText="Approve"
-        cancelText="Cancel"
-        isConfirming={isApprovingPayment}
-        onCancel={() => {
-          if (!isApprovingPayment) setPendingPaymentApproval(null);
-        }}
-        onConfirm={() => {
-          void approvePayment();
-        }}
-      />
-      <ConfirmationDialog
-        isOpen={Boolean(pendingPaymentRejection)}
-        title="Reject Payment"
-        message={`Reject payment ${pendingPaymentRejection?.reference_number ?? ""}? The reservation will be released if this was its first payment.`}
-        confirmText="Reject"
-        cancelText="Keep Pending"
-        isConfirming={isApprovingPayment}
-        onCancel={() => { if (!isApprovingPayment) setPendingPaymentRejection(null); }}
-        onConfirm={() => { void rejectPayment(); }}
-      />
+      {reviewPayment && (
+        <PaymentReviewModal
+          payment={reviewPayment}
+          reservationReference={reservationReferencesById[reviewPayment.reservation_id] ?? "-"}
+          proofUrl={proofUrl}
+          isProofLoading={isProofLoading}
+          proofError={proofError}
+          actionError={reviewActionError}
+          canReview={canReviewPayments}
+          decision={reviewDecision}
+          isSubmitting={isSubmittingReview}
+          onDecision={setReviewDecision}
+          onConfirm={() => { void submitPaymentReview(); }}
+          onClose={closePaymentReview}
+        />
+      )}
     </div>
   );
 }
