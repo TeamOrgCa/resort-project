@@ -28,6 +28,7 @@ function BookingDetailsContent() {
   const [isSavingBooking, setIsSavingBooking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [paymentDeadlineAt, setPaymentDeadlineAt] = useState<string | null>(null);
 
   const startDateTime = parseDateTimeString(bookingDraft.startDatetime || null);
   const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
@@ -96,6 +97,7 @@ function BookingDetailsContent() {
               id?: string;
               referenceNumber?: string;
               totalAmount?: number;
+              paymentDeadlineAt?: string | null;
             };
           }
         | null;
@@ -116,6 +118,7 @@ function BookingDetailsContent() {
           ? { total: Number(json.reservation.totalAmount), downPayment: downPaymentAmount(Number(json.reservation.totalAmount)) }
           : {}),
       });
+      setPaymentDeadlineAt(json.reservation.paymentDeadlineAt ?? null);
       setSaveSuccess("Booking saved successfully. You can now continue to payment or go to manage booking.");
     } catch {
       setSaveError("Unable to save booking right now. Please try again.");
@@ -270,27 +273,16 @@ function BookingDetailsContent() {
                     <p>
                       Booking saved on {formattedSaveDate}. Reference: <span className="font-semibold text-primary">{bookingDraft.reservationReference || "-"}</span>
                     </p>
+                    {paymentDeadlineAt && <p>Submit payment by {new Date(paymentDeadlineAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} (Manila time).</p>}
                   </div>
                 ) : null}
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <Link href="/booking/payment">
-                    <button
-                      type="button"
-                      disabled={!isAlreadySaved}
-                      className="w-full bg-secondary text-base px-6 py-4 rounded-full font-semibold hover:bg-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
+                  <Link href={isAlreadySaved ? "/booking/payment" : "#"} aria-disabled={!isAlreadySaved} onClick={(event) => { if (!isAlreadySaved) event.preventDefault(); }} className="w-full bg-secondary text-base px-6 py-4 rounded-full font-semibold text-center hover:bg-secondary/90 transition-all aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
                       Continue to Payment
-                    </button>
                   </Link>
-                  <Link href="/manage">
-                    <button
-                      type="button"
-                      disabled={!isAlreadySaved}
-                      className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold hover:bg-accent/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
+                  <Link href={isAlreadySaved ? "/manage" : "#"} aria-disabled={!isAlreadySaved} onClick={(event) => { if (!isAlreadySaved) event.preventDefault(); }} className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold text-center hover:bg-accent/90 transition-all aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
                       Go to Manage Booking
-                    </button>
                   </Link>
                 </div>
               </div>

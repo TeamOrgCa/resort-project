@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
 import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
+import { isValidAccountNumber, sanitizeAccountNumber } from "@/lib/helper/validation";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -325,6 +326,11 @@ function PaymentContent() {
 
     if (!selectedPaymentMethodId || !selectedPaymentMethod) {
       setSubmitError("Please select an available payment method.");
+      return;
+    }
+
+    if (paymentMethod === "ewallet" && !isValidAccountNumber(ewalletDetails.accountNumber)) {
+      setSubmitError("Enter an account number with 6–20 digits only.");
       return;
     }
 
@@ -848,7 +854,11 @@ function PaymentContent() {
                           <input
                             type="text"
                             value={ewalletDetails.accountNumber}
-                            onChange={(e) => setEwalletDetails({ ...ewalletDetails, accountNumber: e.target.value })}
+                            inputMode="numeric"
+                            pattern="[0-9]{6,20}"
+                            minLength={6}
+                            maxLength={20}
+                            onChange={(e) => setEwalletDetails({ ...ewalletDetails, accountNumber: sanitizeAccountNumber(e.target.value) })}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
                           />

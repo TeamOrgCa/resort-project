@@ -86,6 +86,10 @@ export async function POST(request: Request) {
       );
     }
 
+    if (staffContext.staffUser.role !== "admin" && staffContext.staffUser.role !== "cashier") {
+      return NextResponse.json({ success: false, message: "Only admin or cashier can record and approve payments." }, { status: 403 });
+    }
+
     const body = await request.json();
     const payload = parsePayload(body);
 
@@ -142,11 +146,11 @@ export async function POST(request: Request) {
       );
     }
 
-    if (reservation.status === "cancelled") {
+    if (reservation.status !== "pending" && reservation.status !== "confirmed") {
       return NextResponse.json(
         {
           success: false,
-          message: "Cannot add payment to a cancelled reservation.",
+          message: "This reservation cannot accept a new payment.",
         },
         { status: 400 }
       );
@@ -232,7 +236,8 @@ export async function POST(request: Request) {
     const { error: verifyPaymentError } = await staffContext.supabase
       .from("payments")
       .update({ status: "verified" })
-      .eq("payment_id", insertedPayment.payment_id);
+      .eq("payment_id", insertedPayment.payment_id)
+      .eq("status", "pending");
 
     if (verifyPaymentError) {
       return NextResponse.json(
@@ -244,22 +249,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (reservation.status !== "confirmed") {
-      const { error: confirmReservationError } = await staffContext.supabase
-        .from("reservations")
-        .update({ status: "confirmed" })
-        .eq("reservation_id", reservation.reservation_id);
-
-      if (confirmReservationError) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Payment verified but failed to confirm reservation.",
-          },
-          { status: 500 }
-        );
-      }
-    }
+    // The payment review trigger confirms an initial reservation atomically.
 
     // Invoice creation is handled by database triggers.
 
@@ -399,15 +389,7 @@ export async function POST(request: Request) {
       entityId: createdPayment.payment_id,
     });
 
-    if (!auditSuccess) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Payment entry created but audit logging failed.",
-        },
-        { status: 500 }
-      );
-    }
+    if (!auditSuccess) console.warn("Manual payment entry audit log was not recorded.");
 
     if (reservation.guest_id) {
       const { error: notificationError } = await createNotifications({

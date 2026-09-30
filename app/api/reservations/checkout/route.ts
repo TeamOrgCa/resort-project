@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
 import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
+import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 
 export const runtime = "nodejs";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
@@ -271,14 +272,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Selected payment method is unavailable." }, { status: 400 });
     }
 
-    const { data: overlapReservation, error: overlapError } = await supabase
-      .from("reservations")
-      .select("reservation_id")
-      .in("status", ["pending", "confirmed"])
-      .lt("start_datetime", payload.endDatetime)
-      .gt("end_datetime", payload.startDatetime)
-      .limit(1)
-      .maybeSingle();
+    const { conflict: overlapReservation, error: overlapError } = await checkReservationOverlap(
+      payload.startDatetime,
+      payload.endDatetime,
+      user.id
+    );
 
     if (overlapError) {
       return NextResponse.json(
@@ -434,10 +432,13 @@ export async function POST(request: Request) {
         special_requests: payload.specialRequests || null,
         status: "pending",
       })
-      .select("reservation_id, reference_number, status")
+      .select("reservation_id, reference_number, status, payment_deadline_at")
       .single();
 
     if (reservationError || !reservation) {
+      if (reservationError?.code === "23P01") {
+        return NextResponse.json({ success: false, code: "DUPLICATE_RESERVATION", message: "You already have an active reservation on that date." }, { status: 409 });
+      }
       console.error("[checkout] Failed to create reservation", reservationError);
       return NextResponse.json(
         buildDbFailurePayload(reservationError, "Failed to create reservation."),
@@ -574,6 +575,9 @@ export async function POST(request: Request) {
       .single();
 
     if (paymentError || !payment) {
+      if (paymentError?.code === "P0001" && /deadline|expired/i.test(paymentError.message)) {
+        return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline passed during checkout. Please try a new reservation." }, { status: 410 });
+      }
       console.error("[checkout] Failed to record payment", paymentError);
       await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
       return NextResponse.json(
@@ -602,6 +606,7 @@ export async function POST(request: Request) {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
           status: reservation.status,
+          paymentDeadlineAt: reservation.payment_deadline_at,
           totalAmount,
         },
         payment: {

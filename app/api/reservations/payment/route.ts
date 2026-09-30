@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
 import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
+import { isValidAccountNumber } from "@/lib/helper/validation";
 
 export const runtime = "nodejs";
 
@@ -26,7 +27,8 @@ interface ReservationRow {
   reservation_id: string;
   guest_id: string;
   reference_number: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed";
+  status: "pending" | "payment_submitted" | "confirmed" | "expired" | "rejected" | "cancelled" | "completed";
+  payment_deadline_at: string | null;
 }
 
 interface TransactionRow {
@@ -74,7 +76,7 @@ const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
       amount: payment.amount,
       referenceNumber: payment.referenceNumber.trim(),
       accountName: payment.accountName.trim(),
-      accountNumber: payment.accountNumber?.trim() || null,
+      accountNumber: typeof payment.accountNumber === "string" ? payment.accountNumber.trim() || null : null,
       proofPath: payment.proofPath.trim(),
     },
   };
@@ -106,6 +108,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Selected payment method is not available." }, { status: 400 });
     }
 
+    if (!paymentMethod.type.toLowerCase().includes("bank") && !isValidAccountNumber(payload.payment.accountNumber ?? "")) {
+      return NextResponse.json({ success: false, message: "Account number must contain 6–20 digits." }, { status: 400 });
+    }
+
     const {
       data: { user },
       error: authError,
@@ -123,7 +129,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, status")
+      .select("reservation_id, guest_id, reference_number, status, payment_deadline_at")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -252,6 +258,16 @@ export async function POST(request: Request) {
       );
     }
 
+    if (reservation.status === "expired" || reservation.status === "rejected") {
+      return NextResponse.json({ success: false, code: "RESERVATION_INACTIVE", message: "This reservation is no longer active. Please create a new booking." }, { status: 410 });
+    }
+    if (reservation.status === "payment_submitted") {
+      return NextResponse.json({ success: false, message: "A payment is already awaiting staff review." }, { status: 409 });
+    }
+    if (reservation.status === "pending" && (!reservation.payment_deadline_at || new Date(reservation.payment_deadline_at).getTime() <= Date.now())) {
+      return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline has passed. Please make a new reservation." }, { status: 410 });
+    }
+
     if (!payload.payment.proofPath.startsWith(`${user.id}/`) || payload.payment.proofPath.includes("..")) {
       return NextResponse.json({ success: false, message: "Invalid payment proof path." }, { status: 400 });
     }
@@ -311,11 +327,14 @@ export async function POST(request: Request) {
       .single();
 
     if (paymentError || !payment) {
+      if (paymentError?.code === "P0001" && /deadline|expired/i.test(paymentError.message)) {
+        return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline has passed. Please make a new reservation." }, { status: 410 });
+      }
       if (paymentError?.code === "23505") {
         return NextResponse.json(
           {
             success: false,
-            message: "Payment reference already exists. Please provide a unique reference number.",
+            message: "A payment is already pending or this reference number was used. Please review your booking.",
           },
           { status: 409 }
         );

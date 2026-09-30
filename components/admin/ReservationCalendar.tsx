@@ -272,6 +272,7 @@ export default function ReservationCalendar() {
                             <p>{guest.phone_number ?? "No phone provided"}</p>
                             <p>{reservation.adult_count} adults · {reservation.child_count} children</p>
                             <p>{formatTime(reservation.start_datetime)} - {formatTime(reservation.end_datetime)}</p>
+                            <p>Status: {titleCase(reservation.status)}</p>
                           </div>
                         ) : event.kind === "ocular" ? (
                           <p className="mt-2 text-xs text-neutral/70">Status: {titleCase(event.status ?? "pending")}</p>

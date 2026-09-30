@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
+import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 
 type DbErrorLike = {
   message?: string;
@@ -198,14 +199,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: overlapReservation, error: overlapError } = await supabase
-      .from("reservations")
-      .select("reservation_id")
-      .in("status", ["pending", "confirmed"])
-      .lt("start_datetime", payload.endDatetime)
-      .gt("end_datetime", payload.startDatetime)
-      .limit(1)
-      .maybeSingle();
+    const { conflict: overlapReservation, error: overlapError } = await checkReservationOverlap(
+      payload.startDatetime,
+      payload.endDatetime,
+      user.id
+    );
 
     if (overlapError) {
       return NextResponse.json(
@@ -323,10 +321,13 @@ export async function POST(request: Request) {
         special_requests: payload.specialRequests || null,
         status: "pending",
       })
-      .select("reservation_id, reference_number, status")
+      .select("reservation_id, reference_number, status, payment_deadline_at")
       .single();
 
     if (reservationError || !reservation) {
+      if (reservationError?.code === "23P01") {
+        return NextResponse.json({ success: false, code: "DUPLICATE_RESERVATION", message: "You already have an active reservation on that date." }, { status: 409 });
+      }
       return NextResponse.json(buildDbFailurePayload(reservationError, "Failed to create reservation."), { status: 500 });
     }
 
@@ -412,6 +413,7 @@ export async function POST(request: Request) {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
           status: reservation.status,
+          paymentDeadlineAt: reservation.payment_deadline_at,
           totalAmount,
         },
       },

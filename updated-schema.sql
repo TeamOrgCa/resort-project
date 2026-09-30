@@ -1,3 +1,5 @@
+-- After this baseline, apply docs/reservation-lifecycle-migration.sql to install
+-- payment deadlines, state guards, expiry cron, and role-restricted review.
 -- =========================
 -- STAFF USERS
 -- =========================
@@ -292,20 +294,23 @@ for each row execute procedure public.handle_updated_at();
 -- AUTO CREATE GUEST
 -- =========================
 create or replace function public.handle_new_user()
-returns trigger as $$
+returns trigger
+language plpgsql security definer set search_path = ''
+as $$
 begin
-  insert into public.guests (id, email, first_name, last_name, phone_number, address)
+  insert into public.guests (id, email, first_name, last_name, middle_name, phone_number, address)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'first_name', 'Unknown'),
     coalesce(new.raw_user_meta_data->>'last_name', 'Unknown'),
+    new.raw_user_meta_data->>'middle_name',
     coalesce(new.raw_user_meta_data->>'phone_number', 'Unknown'),
     coalesce(new.raw_user_meta_data->>'address', 'Unknown')
   );
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
 
 create trigger on_auth_user_created
 after insert on auth.users
@@ -341,8 +346,9 @@ create table public.reservations (
   cancellation_reason text,
 
   status text check (
-    status in ('pending', 'confirmed', 'cancelled', 'completed', 'reschedule_requested')
+    status in ('pending', 'payment_submitted', 'confirmed', 'expired', 'rejected', 'cancelled', 'completed', 'reschedule_requested')
   ) default 'pending',
+  payment_deadline_at timestamptz,
 
   booking_type text check (
     booking_type in ('online', 'walk_in')
@@ -364,15 +370,22 @@ create table public.reservations (
   check (adult_count + child_count > 0)
 );
 
--- Prevent overlapping reservations for the same time period (only for pending and confirmed)
+-- One guest can hold only one active reservation across each Manila calendar date.
+-- Different guests may book the same date.
 create extension if not exists btree_gist;
 
 alter table public.reservations
-add constraint no_overlapping_reservations
+add constraint one_active_reservation_per_guest_date
 exclude using gist (
-  tstzrange(start_datetime, end_datetime) with && 
+  guest_id with =,
+  (daterange(
+    (start_datetime at time zone 'Asia/Manila')::date,
+    (end_datetime at time zone 'Asia/Manila')::date +
+      case when (end_datetime at time zone 'Asia/Manila')::time = time '00:00:00' then 0 else 1 end,
+    '[)'
+  )) with &&
 )
-where (status in ('pending', 'confirmed'));
+where (guest_id is not null and status in ('pending', 'payment_submitted', 'confirmed', 'reschedule_requested'));
 
 -- Reservation rescheduling table for audit/history of reschedule requests.
 
@@ -700,7 +713,7 @@ create table public.payments (
   payment_method_id uuid,
   payment_type text check (payment_type in ('downpayment', 'full', 'additional')) not null,
 
-  status text check (status in ('pending', 'verified')) default 'pending',
+  status text check (status in ('pending', 'verified', 'rejected')) default 'pending',
 
   paid_at timestamptz default timezone('utc', now()),
 
@@ -711,6 +724,8 @@ create table public.payments (
   account_number text,
   verified_by uuid references public.staff_users(id) on delete set null,
   verified_at timestamptz,
+  rejected_by uuid references public.staff_users(id) on delete set null,
+  rejected_at timestamptz,
   proof_path text not null,
   ocr_status text not null default 'not_applicable'
     check (ocr_status in ('not_applicable', 'consistent', 'mismatch', 'unreadable')),

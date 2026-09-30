@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { createNotifications } from "@/lib/notifications";
+import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 
 interface ApproveReschedulePayload {
   rescheduleId: string;
@@ -94,6 +95,23 @@ export async function POST(request: Request) {
 
     if (reservationError || !reservation) {
       return NextResponse.json({ success: false, message: "Reservation not found." }, { status: 404 });
+    }
+
+    if (reservation.status !== "reschedule_requested") {
+      return NextResponse.json({ success: false, message: "This reservation is no longer awaiting reschedule approval." }, { status: 400 });
+    }
+
+    const { conflict, error: overlapError } = await checkReservationOverlap(
+      requestRow.new_start,
+      requestRow.new_end,
+      reservation.guest_id,
+      requestRow.reservation_id
+    );
+    if (overlapError) {
+      return NextResponse.json({ success: false, message: "Unable to check the requested schedule." }, { status: 500 });
+    }
+    if (conflict) {
+      return NextResponse.json({ success: false, message: "The requested schedule now overlaps with an existing reservation." }, { status: 409 });
     }
 
     const { data: transaction, error: transactionError } = await staffContext.supabase

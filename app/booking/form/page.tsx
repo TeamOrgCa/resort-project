@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
@@ -46,6 +47,7 @@ export default function BookingForm() {
 }
 
 function BookingFormContent() {
+  const router = useRouter();
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [formData, setFormData] = useState({
@@ -65,6 +67,7 @@ function BookingFormContent() {
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadCatalog = async () => {
@@ -161,6 +164,8 @@ function BookingFormContent() {
     value = sanitizeName(String(value));
   }
 
+  if (name === "phone") value = String(value).replace(/\D/g, "").slice(0, 15);
+
   if (name === "adultCount" || name === "childCount") {
     value = Number(value);
   }
@@ -169,6 +174,7 @@ function BookingFormContent() {
     ...formData,
     [name]: value,
   });
+  setFormError(null);
 };
 
   const toggleAmenity = (amenityId: string) => {
@@ -208,15 +214,25 @@ function BookingFormContent() {
   const downPayment = pricing.downPaymentMin;
 
   const handleContinueToPayment = () => {
-    if (!selectedRoom || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0) {
+    if (!selectedRoom || !bookingDraft.startDatetime || !bookingDraft.endDatetime) {
+      setFormError("Select valid booking dates and an available room first.");
       return;
     }
-
-      if (
-      !isValidName(formData.firstName) ||
-      !isValidName(formData.lastName)
-    ) {
-      alert("Please enter a valid first and last name.");
+    if (!Number.isInteger(formData.adultCount) || formData.adultCount < 1 || formData.adultCount > 10 ||
+        !Number.isInteger(formData.childCount) || formData.childCount < 0 || formData.childCount > 10) {
+      setFormError("Enter 1–10 adults and 0–10 children.");
+      return;
+    }
+    if (!isValidName(formData.firstName.trim()) || !isValidName(formData.lastName.trim())) {
+      setFormError("Please enter a valid first and last name.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      setFormError("Enter a valid email address.");
+      return;
+    }
+    if (!/^\d{7,15}$/.test(formData.phone)) {
+      setFormError("Enter a phone number with 7–15 digits.");
       return;
     }
 
@@ -245,6 +261,7 @@ function BookingFormContent() {
       reservationId: "",
       reservationReference: "",
     });
+    router.push("/booking/details");
   };
 
   return (
@@ -328,6 +345,8 @@ function BookingFormContent() {
                       <label className="block text-sm font-medium text-neutral/70 mb-2">Phone Number *</label>
                       <input
                         type="tel"
+                        inputMode="numeric"
+                        maxLength={15}
                         name="phone"
                         value={formData.phone}
                         onChange={handleInputChange}
@@ -452,20 +471,21 @@ function BookingFormContent() {
                   ></textarea>
                 </div>
 
+                {formError && <p role="alert" className="mb-3 text-sm text-red-700">{formError}</p>}
                 <div className="flex gap-4">
                   <Link href="/booking" className="flex-1">
                     <button className="w-full bg-neutral/10 text-neutral px-6 py-4 rounded-full font-semibold hover:bg-neutral/20 transition-colors">
                       Back
                     </button>
                   </Link>
-                  <Link href="/booking/details" className="flex-1" onClick={handleContinueToPayment}>
-                    <button
+                  <div className="flex-1">
+                    <button type="button" onClick={handleContinueToPayment}
                       disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Review Full Details
                     </button>
-                  </Link>
+                  </div>
                 </div>
               </div>
             </div>

@@ -12,7 +12,7 @@ interface ReservationCancelRow {
   guest_id: string;
   reference_number: string;
   start_datetime: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed";
+  status: "pending" | "payment_submitted" | "confirmed" | "expired" | "rejected" | "cancelled" | "completed";
 }
 
 const parsePayload = (value: unknown): CancelPayload | null => {
@@ -109,6 +109,10 @@ export async function POST(request: Request) {
       );
     }
 
+    if (reservation.status === "expired" || reservation.status === "rejected") {
+      return NextResponse.json({ success: false, message: "This reservation is no longer active." }, { status: 400 });
+    }
+
     if (reservation.status === "completed") {
       return NextResponse.json(
         {
@@ -118,16 +122,12 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    // i commented this
-    // if (!hasTwoDayLeadTime(reservation.start_datetime)) {
-    //   return NextResponse.json(
-    //     {
-    //       success: false,
-    //       message: "Cancellation is only allowed at least 2 days before check-in.",
-    //     },
-    //     { status: 400 }
-    //   );
-    // }
+    if (new Date(reservation.start_datetime).getTime() - Date.now() < 48 * 60 * 60 * 1000) {
+      return NextResponse.json(
+        { success: false, message: "Cancellation is only allowed at least 2 days before check-in." },
+        { status: 400 }
+      );
+    }
 
     const { error: updateError } = await supabase
       .from("reservations")

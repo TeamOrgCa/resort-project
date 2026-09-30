@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { sendReservationConfirmedEmail } from "@/lib/email";
 import { createNotifications } from "@/lib/notifications";
 
@@ -10,7 +10,7 @@ interface ApprovePaymentPayload {
 interface PaymentRow {
   payment_id: string;
   reservation_id: string;
-  status: "pending" | "verified";
+  status: "pending" | "verified" | "rejected";
   amount: number;
 }
 
@@ -21,7 +21,7 @@ interface ReservationRow {
   reference_number: string;
   start_datetime: string;
   end_datetime: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed";
+  status: string;
 }
 
 interface GuestEmailRow {
@@ -71,6 +71,10 @@ export async function POST(request: Request) {
       );
     }
 
+    if (staffContext.staffUser.role !== "admin" && staffContext.staffUser.role !== "cashier") {
+      return NextResponse.json({ success: false, message: "Only admin or cashier can approve payments." }, { status: 403 });
+    }
+
     const body = await request.json();
     const payload = parsePayload(body);
 
@@ -100,6 +104,10 @@ export async function POST(request: Request) {
       );
     }
 
+    if (payment.status !== "pending") {
+      return NextResponse.json({ success: false, message: "This payment has already been reviewed." }, { status: 409 });
+    }
+
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
       .select("reservation_id, guest_id, walk_in_guest_id, reference_number, start_datetime, end_datetime, status")
@@ -116,48 +124,26 @@ export async function POST(request: Request) {
       );
     }
 
-    if (reservation.status === "cancelled") {
+    if (reservation.status !== "payment_submitted" && reservation.status !== "confirmed") {
       return NextResponse.json(
         {
           success: false,
-          message: "Cannot approve payment for a cancelled reservation.",
+          message: "This reservation is not eligible for payment approval.",
         },
         { status: 400 }
       );
     }
 
-    if (payment.status !== "verified") {
-      const { error: verifyPaymentError } = await staffContext.supabase
-        .from("payments")
-        .update({ status: "verified" })
-        .eq("payment_id", payload.paymentId);
-
-      if (verifyPaymentError) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Failed to verify payment.",
-          },
-          { status: 500 }
-        );
-      }
-    }
-
-    if (reservation.status !== "confirmed") {
-      const { error: confirmReservationError } = await staffContext.supabase
-        .from("reservations")
-        .update({ status: "confirmed" })
-        .eq("reservation_id", reservation.reservation_id);
-
-      if (confirmReservationError) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Payment verified but failed to confirm reservation.",
-          },
-          { status: 500 }
-        );
-      }
+    const { data: verifiedPayment, error: verifyPaymentError } = await staffContext.supabase
+      .from("payments")
+      .update({ status: "verified" })
+      .eq("payment_id", payload.paymentId)
+      .eq("status", "pending")
+      .select("payment_id")
+      .maybeSingle();
+    if (verifyPaymentError || !verifiedPayment) {
+      return NextResponse.json({ success: false, message: verifyPaymentError?.message ?? "This payment has already been reviewed." },
+        { status: verifyPaymentError ? 500 : 409 });
     }
 
     // Invoice creation is handled by database triggers.
@@ -195,21 +181,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const auditSuccess = await createAuditLog(staffContext, {
-      action: "Approved payment verification",
-      entityType: "payment",
-      entityId: payment.payment_id,
-    });
-
-    if (!auditSuccess) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Payment approved but audit logging failed.",
-        },
-        { status: 500 }
-      );
-    }
+    // The database trigger records the reviewer and audit entry atomically.
 
     const { data: transactionSummary, error: transactionSummaryError } = await staffContext.supabase
       .from("transactions")
@@ -320,7 +292,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (payment.status !== "verified" && reservation.guest_id) {
+    if (reservation.guest_id) {
       const { error: notificationError } = await createNotifications({
         actorId: staffContext.staffUser.id,
         guestId: reservation.guest_id,

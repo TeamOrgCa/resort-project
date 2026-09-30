@@ -10,6 +10,7 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 import { createClient } from "@/lib/supabase/client";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
+import { manilaDateKey } from "@/lib/booking/manila-date";
 
 interface ReservationAvailabilityRow {
   start_datetime: string;
@@ -92,12 +93,14 @@ export default function Booking() {
 
     const loadAvailability = async () => {
       const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
 
       const [reservationsResult, ocularResult, slotsResponse] = await Promise.all([
         supabase
           .from("reservations")
           .select("start_datetime, end_datetime, status")
-          .in("status", ["pending", "confirmed"]),
+          .eq("guest_id", user?.id ?? "00000000-0000-0000-0000-000000000000")
+          .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"]),
         supabase
           .from("ocular_visits")
           .select("scheduled_date, time_slot_id, status")
@@ -127,12 +130,12 @@ export default function Booking() {
             continue;
           }
 
-          const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-          const inclusiveEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+          const cursor = new Date(`${manilaDateKey(start)}T00:00:00Z`);
+          const inclusiveEnd = new Date(`${manilaDateKey(new Date(end.getTime() - 1))}T00:00:00Z`);
 
           while (cursor <= inclusiveEnd) {
-            bookedKeys.add(toDateKey(cursor));
-            cursor.setDate(cursor.getDate() + 1);
+            bookedKeys.add(cursor.toISOString().slice(0, 10));
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
           }
         }
 

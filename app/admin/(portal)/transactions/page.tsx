@@ -39,7 +39,7 @@ interface PaymentSnapshotRow {
   amount: number;
   paid_at: string | null;
   proof_path: string;
-  status: "pending" | "verified";
+  status: "pending" | "verified" | "rejected";
   ocr_status: "not_applicable" | "consistent" | "mismatch" | "unreadable";
   ocr_notes: string | null;
 }
@@ -167,7 +167,9 @@ export default function AdminTransactionsPage() {
   const [paymentReservationById, setPaymentReservationById] = useState<Record<string, string>>({});
   const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
   const [payments, setPayments] = useState<PaymentSnapshotRow[]>([]);
+  const [canReviewPayments, setCanReviewPayments] = useState(false);
   const [pendingPaymentApproval, setPendingPaymentApproval] = useState<PaymentSnapshotRow | null>(null);
+  const [pendingPaymentRejection, setPendingPaymentRejection] = useState<PaymentSnapshotRow | null>(null);
   const [isApprovingPayment, setIsApprovingPayment] = useState(false);
   const [viewDetails, setViewDetails] = useState<ViewDetailsState | null>(null);
   const [isInvoiceDetailsOpen, setIsInvoiceDetailsOpen] = useState(false);
@@ -184,6 +186,13 @@ export default function AdminTransactionsPage() {
         setFetchError(null);
 
         const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: staffRole } = await supabase.from("staff_users")
+            .select("role, is_active").eq("id", user.id)
+            .maybeSingle<{ role: string; is_active: boolean }>();
+          if (isMounted) setCanReviewPayments(Boolean(staffRole?.is_active && ["admin", "cashier"].includes(staffRole.role)));
+        }
 
         const { data: transactionsData, error: transactionsError } = await supabase
           .from("transactions")
@@ -433,8 +442,11 @@ export default function AdminTransactionsPage() {
       return;
     }
 
-    if (action === "Approve" && payment.status !== "verified") {
+    if (action === "Approve" && payment.status === "pending") {
       setPendingPaymentApproval(payment);
+    }
+    if (action === "Reject" && payment.status === "pending") {
+      setPendingPaymentRejection(payment);
     }
   };
 
@@ -460,6 +472,31 @@ export default function AdminTransactionsPage() {
       setPendingPaymentApproval(null);
     } catch {
       setFetchError("Failed to approve payment.");
+    } finally {
+      setIsApprovingPayment(false);
+    }
+  };
+
+  const rejectPayment = async () => {
+    if (!pendingPaymentRejection) return;
+    setIsApprovingPayment(true);
+    setFetchError(null);
+    try {
+      const response = await fetch("/api/admin/payments/reject", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentId: pendingPaymentRejection.payment_id }),
+      });
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+      if (!response.ok || !result?.success) {
+        setFetchError(result?.message ?? "Failed to reject payment.");
+        return;
+      }
+      setPayments((current) => current.map((payment) => payment.payment_id === pendingPaymentRejection.payment_id
+        ? { ...payment, status: "rejected" } : payment));
+      setPendingPaymentCount((current) => Math.max(current - 1, 0));
+      setPendingPaymentRejection(null);
+    } catch {
+      setFetchError("Failed to reject payment.");
     } finally {
       setIsApprovingPayment(false);
     }
@@ -791,10 +828,10 @@ export default function AdminTransactionsPage() {
               rows={paymentVerificationRows}
               defaultSort={{ key: "paidAt", direction: "desc" }}
               filters={[
-                { key: "status", label: "Status", options: ["Pending", "Verified"] },
+                { key: "status", label: "Status", options: ["Pending", "Verified", "Rejected"] },
                 { key: "reviewLane", label: "Review Lane", options: ["Ready to reconcile", "Investigate", "Other method"] },
               ]}
-              rowActions={["View", "Review", "Approve"]}
+              rowActions={canReviewPayments ? ["View", "Review", "Approve", "Reject"] : ["View"]}
               onRowAction={handlePaymentRowAction}
             />
           </div>
@@ -841,6 +878,16 @@ export default function AdminTransactionsPage() {
         onConfirm={() => {
           void approvePayment();
         }}
+      />
+      <ConfirmationDialog
+        isOpen={Boolean(pendingPaymentRejection)}
+        title="Reject Payment"
+        message={`Reject payment ${pendingPaymentRejection?.reference_number ?? ""}? The reservation will be released if this was its first payment.`}
+        confirmText="Reject"
+        cancelText="Keep Pending"
+        isConfirming={isApprovingPayment}
+        onCancel={() => { if (!isApprovingPayment) setPendingPaymentRejection(null); }}
+        onConfirm={() => { void rejectPayment(); }}
       />
     </div>
   );
