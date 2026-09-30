@@ -1,0 +1,5 @@
+# Reusable booking task context
+
+Paste this into a future request when asking for booking work:
+
+> Work in `C:\Users\Admin\Desktop\resort-project`. The customer booking flow is `app/booking/page.tsx` → `app/booking/form/page.tsx` → `app/booking/details/page.tsx` → `app/booking/payment/page.tsx`. The guest management page is `app/manage/page.tsx`. Booking draft state is in `lib/stores/booking-store.ts`; server operations are under `app/api/reservations/` and `app/api/ocular-visits/`. Payment policy and proof rules are under `lib/booking/`. Read `SYSTEM_IMPROVEMENT_CONTEXT.md` and `docs/RESERVATION_LIFECYCLE.md` before changing reservations. Different guests may book the same date; one guest may hold only one active reservation per Manila calendar date. Database constraints and the payment expiry cron are the final authority. Validate both client input and API payloads. Check button navigation, disabled states, loading/errors, auth/ownership, persistence after refresh, and status rules. Run TypeScript and ESLint. Report changes, tests, and live integration limits. Read `docs/booking-validation-report.md` for the earlier audit.

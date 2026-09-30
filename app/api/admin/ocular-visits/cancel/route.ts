@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { sendOcularVisitCancelledEmail } from "@/lib/email";
+import { createNotifications } from "@/lib/notifications";
 
 const cancellationReasons = [
   "Guest requested for cancellation",
@@ -184,6 +185,19 @@ export async function POST(request: Request) {
         timeSlot: ocularVisit.time_slot,
         cancellationReason: payload.cancellationReason,
       });
+    }
+
+    if (ocularVisit.guest_id) {
+      const { error: notificationError } = await createNotifications({
+        actorId: staffContext.staffUser.id,
+        guestId: ocularVisit.guest_id,
+        title: "Ocular visit cancelled",
+        message: `Ocular visit ${ocularVisit.reference_number} was cancelled.`,
+        entityType: "ocular_visit",
+        entityId: ocularVisit.visit_id,
+        guestActionUrl: "/ocular",
+      });
+      if (notificationError) console.warn("Failed to notify guest of ocular cancellation:", notificationError);
     }
 
     return NextResponse.json(

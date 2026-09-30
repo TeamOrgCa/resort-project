@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { notifyGuestAndStaff } from "@/lib/notifications";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { sendOcularVisitCancelledEmail } from "@/lib/email";
 
 interface CancelPayload {
@@ -111,9 +111,10 @@ export async function POST(request: Request) {
 
     // Notify staff and guest + attempt to send email
     try {
-      await notifyGuestAndStaff(supabase, {
+      const { error: notificationError } = await createNotifications({
         actorId: user.id,
         guestId: user.id,
+        staffRoles: NOTIFICATION_AUDIENCES.reservation,
         title: "Ocular visit cancelled",
         message: `Ocular visit ${ocularVisit.reference_number} was cancelled by guest.`,
         entityType: "ocular_visit",
@@ -121,6 +122,7 @@ export async function POST(request: Request) {
         guestActionUrl: "/ocular",
         staffActionUrl: "/admin/reservations",
       });
+      if (notificationError) console.warn("Failed to create ocular cancellation notifications:", notificationError);
 
       await sendOcularVisitCancelledEmail({
         guestEmail: user.email ?? "",

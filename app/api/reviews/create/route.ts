@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
-import { notifyGuestAndStaff } from "@/lib/notifications";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 
 export async function POST(request: NextRequest) {
   try {
@@ -157,9 +157,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+    const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: user.id,
+      staffRoles: NOTIFICATION_AUDIENCES.review,
       title: "Review submitted",
       message: "Thanks for sharing your experience.",
       entityType: "review",

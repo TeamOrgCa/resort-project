@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import AdminNotifications from "@/components/admin/AdminNotifications";
 import ManualBookingDialog from "@/components/admin/ManualBookingDialog";
 import { scheduleBlocksRows } from "@/components/admin/content";
+import { manilaDateKey } from "@/lib/booking/manila-date";
 import { createClient } from "@/lib/supabase/client";
 
 type Reservation = {
@@ -16,6 +16,11 @@ type Reservation = {
   adult_count: number;
   child_count: number;
   status: string;
+  booking_mode: string | null;
+  booking_type: string | null;
+  special_requests: string | null;
+  payment_deadline_at: string | null;
+  created_at: string;
 };
 
 type OcularVisit = {
@@ -63,6 +68,7 @@ const startOfMonthGrid = (date: Date) => {
   return new Date(first.getFullYear(), first.getMonth(), 1 - mondayOffset);
 };
 const addDays = (date: Date, amount: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount);
+const addDaysUtc = (date: Date, amount: number) => new Date(date.getTime() + amount * 86_400_000);
 const formatTime = (value: string) => new Date(value).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" });
 const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
@@ -77,19 +83,34 @@ export default function ReservationCalendar() {
   const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!selectedEvent) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedEvent(null);
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [selectedEvent]);
 
   useEffect(() => {
     let mounted = true;
+    let requestId = 0;
 
-    const loadCalendarData = async () => {
-      setIsLoading(true);
+    const loadCalendarData = async (initial = false) => {
+      const currentRequest = ++requestId;
+      if (initial) setIsLoading(true);
       setError(null);
 
       try {
         const supabase = createClient();
+        const gridStart = dateKey(startOfMonthGrid(month));
+        const gridEnd = dateKey(addDays(startOfMonthGrid(month), 42));
         const [{ data: reservationData, error: reservationError }, { data: ocularData, error: ocularError }] = await Promise.all([
-          supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status").order("start_datetime", { ascending: true }).limit(300),
-          supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, status").order("scheduled_date", { ascending: true }).limit(300),
+          supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at").neq("status", "expired").lt("start_datetime", `${gridEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(300),
+          supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, status").gte("scheduled_date", gridStart).lt("scheduled_date", gridEnd).order("scheduled_date", { ascending: true }).limit(300),
         ]);
 
         if (reservationError || ocularError) throw reservationError ?? ocularError;
@@ -104,38 +125,63 @@ export default function ReservationCalendar() {
         ]);
 
         if (guestError || walkInError) throw guestError ?? walkInError;
-        if (!mounted) return;
+        if (!mounted || currentRequest !== requestId) return;
 
         setReservations(reservationRows);
         setOcularVisits(ocularRows);
         setGuests(((guestData as Guest[] | null) ?? []).reduce<Record<string, Guest>>((map, guest) => ({ ...map, [guest.id]: guest }), {}));
         setWalkInGuests(((walkInData as WalkInGuest[] | null) ?? []).reduce<Record<string, WalkInGuest>>((map, guest) => ({ ...map, [guest.walk_in_guest_id]: guest }), {}));
       } catch {
-        if (mounted) setError("Failed to load the reservation calendar.");
+        if (mounted && currentRequest === requestId) setError("Failed to load the reservation calendar.");
       } finally {
-        if (mounted) setIsLoading(false);
+        if (mounted && currentRequest === requestId) setIsLoading(false);
       }
     };
 
-    void loadCalendarData();
+    void loadCalendarData(true);
+    const refresh = window.setInterval(() => {
+      setNow(Date.now());
+      void loadCalendarData();
+    }, 30_000);
+    window.addEventListener("focus", onFocus);
+    function onFocus() {
+      setNow(Date.now());
+      void loadCalendarData();
+    }
     return () => {
       mounted = false;
+      window.clearInterval(refresh);
+      window.removeEventListener("focus", onFocus);
     };
-  }, []);
+  }, [month]);
 
   const calendarEvents = useMemo<CalendarEvent[]>(() => {
-    const reservationEvents = reservations.map((reservation) => {
+    const gridStart = dateKey(startOfMonthGrid(month));
+    const gridEnd = dateKey(addDays(startOfMonthGrid(month), 42));
+    const reservationEvents = reservations.filter((reservation) =>
+      reservation.status !== "expired" &&
+      !(reservation.status === "pending" && reservation.payment_deadline_at &&
+        new Date(reservation.payment_deadline_at).getTime() <= now)
+    ).flatMap((reservation) => {
       const guest = reservation.guest_id ? guests[reservation.guest_id] : reservation.walk_in_guest_id ? walkInGuests[reservation.walk_in_guest_id] : null;
       const isAttention = reservation.status === "pending" || reservation.status === "reschedule_requested";
-      return {
-        id: reservation.reservation_id,
-        kind: isAttention ? "attention" : "reservation",
-        date: dateKey(new Date(reservation.start_datetime)),
-        label: guest ? `${guest.first_name} ${guest.last_name}` : reservation.reference_number,
-        reference: reservation.reference_number,
-        reservationId: reservation.reservation_id,
-        status: reservation.status,
-      } satisfies CalendarEvent;
+      const startDay = manilaDateKey(reservation.start_datetime);
+      const lastDay = manilaDateKey(new Date(new Date(reservation.end_datetime).getTime() - 1));
+      const events: CalendarEvent[] = [];
+      for (let day = new Date(`${startDay}T00:00:00Z`); day <= new Date(`${lastDay}T00:00:00Z`); day = addDaysUtc(day, 1)) {
+        const occupiedDate = day.toISOString().slice(0, 10);
+        if (occupiedDate < gridStart || occupiedDate >= gridEnd) continue;
+        events.push({
+          id: `${reservation.reservation_id}:${occupiedDate}`,
+          kind: isAttention ? "attention" : "reservation",
+          date: occupiedDate,
+          label: guest ? `${guest.first_name} ${guest.last_name}` : reservation.reference_number,
+          reference: reservation.reference_number,
+          reservationId: reservation.reservation_id,
+          status: reservation.status,
+        });
+      }
+      return events;
     });
     const ocularEvents = ocularVisits.map((visit) => ({
       id: visit.visit_id,
@@ -153,7 +199,7 @@ export default function ReservationCalendar() {
       status: row.status,
     }));
     return [...reservationEvents, ...ocularEvents, ...maintenanceEvents].filter((event) => event.date);
-  }, [guests, ocularVisits, reservations, walkInGuests]);
+  }, [guests, month, now, ocularVisits, reservations, walkInGuests]);
 
   const eventsByDay = useMemo(() => calendarEvents.reduce<Record<string, CalendarEvent[]>>((map, event) => {
     map[event.date] = [...(map[event.date] ?? []), event];
@@ -176,8 +222,16 @@ export default function ReservationCalendar() {
     return Array.from({ length: 42 }, (_, index) => addDays(start, index));
   }, [month]);
   const monthLabel = month.toLocaleDateString("en-PH", { month: "long", year: "numeric" });
-  const upcomingCount = reservations.filter((reservation) => new Date(reservation.start_datetime) >= new Date() && reservation.status !== "cancelled").length;
-  const attentionCount = calendarEvents.filter((event) => event.kind === "attention").length;
+  const upcomingCount = new Set(calendarEvents.filter((event) => event.reservationId && event.date >= dateKey(new Date()) && !["cancelled", "rejected", "completed"].includes(event.status ?? "")).map((event) => event.reservationId)).size;
+  const attentionCount = new Set(calendarEvents.filter((event) => event.kind === "attention").map((event) => event.reservationId)).size;
+  const selectedReservation = selectedEvent?.reservationId
+    ? reservations.find((reservation) => reservation.reservation_id === selectedEvent.reservationId)
+    : null;
+  const selectedGuest = selectedReservation?.guest_id
+    ? guests[selectedReservation.guest_id]
+    : selectedReservation?.walk_in_guest_id
+      ? walkInGuests[selectedReservation.walk_in_guest_id]
+      : null;
 
   return (
     <div>
@@ -200,15 +254,14 @@ export default function ReservationCalendar() {
           <button type="button" onClick={() => setIsSearchOpen((current) => !current)} className="rounded-full border border-neutral/20 bg-white p-2 text-neutral hover:bg-base" aria-label="Search reservations" title="Search reservations">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" strokeWidth="2" /><path strokeLinecap="round" strokeWidth="2" d="m16 16 4 4" /></svg>
           </button>
-          <AdminNotifications />
           <button type="button" onClick={() => setIsManualBookingOpen(true)} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-base shadow-sm hover:bg-primary/90">+ New Reservation</button>
         </div>
       </header>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         {[
-          { label: "Upcoming reservations", value: upcomingCount, detail: "Across all booking dates" },
-          { label: "Ocular visits", value: ocularVisits.length, detail: "Scheduled guest visits" },
+          { label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" },
+          { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" },
           { label: "Needs attention", value: attentionCount, detail: "Pending or reschedule requests" },
         ].map((metric) => (
           <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm">
@@ -240,10 +293,16 @@ export default function ReservationCalendar() {
           {calendarDays.map((day) => {
             const dayKey = dateKey(day);
             const dayEvents = filteredEventsByDay[dayKey] ?? [];
+            const dayReservation = dayEvents.find((event) => event.reservationId && !["cancelled", "rejected"].includes(event.status ?? ""))
+              ?? dayEvents.find((event) => event.reservationId);
             const isCurrentMonth = day.getMonth() === month.getMonth();
             const isToday = dateKey(day) === dateKey(new Date());
             return <div key={dayKey} className={`min-h-28 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
-              <div className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</div>
+              {dayReservation ? (
+                <button type="button" onClick={() => setSelectedEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</button>
+              ) : (
+                <div className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</div>
+              )}
               <div className="space-y-1">
                 {dayEvents.map((event) => {
                   const style = eventStyles[event.kind];
@@ -260,7 +319,8 @@ export default function ReservationCalendar() {
                     <div key={event.id} className="group relative">
                       <button
                         type="button"
-                        className={`block w-full truncate rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold ${style.className}`}
+                        onClick={() => setSelectedEvent(event)}
+                        className={`block w-full truncate rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${style.className}`}
                         title={`${style.label}: ${event.label}`}
                       >
                         {event.label}
@@ -274,6 +334,7 @@ export default function ReservationCalendar() {
                             <p>{guest.phone_number ?? "No phone provided"}</p>
                             <p>{reservation.adult_count} adults · {reservation.child_count} children</p>
                             <p>{formatTime(reservation.start_datetime)} - {formatTime(reservation.end_datetime)}</p>
+                            <p>Status: {titleCase(reservation.status)}</p>
                           </div>
                         ) : event.kind === "ocular" ? (
                           <p className="mt-2 text-xs text-neutral/70">Status: {titleCase(event.status ?? "pending")}</p>
@@ -289,6 +350,51 @@ export default function ReservationCalendar() {
           })}
         </div>
       </section>
+
+      {selectedEvent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/50 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${eventStyles[selectedEvent.kind].label} details`}
+          onClick={() => setSelectedEvent(null)}
+        >
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">{eventStyles[selectedEvent.kind].label}</p>
+                <h3 className="mt-1 text-xl font-semibold text-neutral">{selectedEvent.label}</h3>
+              </div>
+              <button type="button" autoFocus onClick={() => setSelectedEvent(null)} className="rounded-lg border border-neutral/20 px-3 py-1.5 text-sm text-neutral hover:bg-base">Close</button>
+            </div>
+            {selectedReservation ? (
+              <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+                {[
+                  ["Reference", selectedReservation.reference_number],
+                  ["Status", titleCase(selectedReservation.status)],
+                  ["Guest", selectedGuest ? `${selectedGuest.first_name} ${selectedGuest.last_name}` : "Unknown guest"],
+                  ["Booking type", titleCase(selectedReservation.booking_type ?? "online")],
+                  ["Booking mode", titleCase(selectedReservation.booking_mode ?? "day")],
+                  ["Email", selectedGuest?.email || "-"],
+                  ["Phone", selectedGuest?.phone_number || "-"],
+                  ["Start", new Date(selectedReservation.start_datetime).toLocaleString("en-PH", { timeZone: "Asia/Manila" })],
+                  ["End", new Date(selectedReservation.end_datetime).toLocaleString("en-PH", { timeZone: "Asia/Manila" })],
+                  ["Guests", `${selectedReservation.adult_count} adults, ${selectedReservation.child_count} children`],
+                  ["Payment deadline", selectedReservation.payment_deadline_at ? new Date(selectedReservation.payment_deadline_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "-"],
+                  ["Created", new Date(selectedReservation.created_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" })],
+                ].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="font-medium text-neutral">{value}</dd></div>)}
+                <div className="sm:col-span-2"><dt className="text-neutral/60">Special requests</dt><dd className="font-medium text-neutral">{selectedReservation.special_requests || "None"}</dd></div>
+              </dl>
+            ) : (
+              <div className="mt-5 space-y-2 text-sm text-neutral/80">
+                <p>Reference: {selectedEvent.reference ?? "-"}</p>
+                <p>Date: {selectedEvent.date}</p>
+                <p>Status: {titleCase(selectedEvent.status ?? "scheduled")}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <ManualBookingDialog
         isOpen={isManualBookingOpen}

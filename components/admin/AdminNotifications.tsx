@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import type { StaffRole } from "@/lib/auth/staff-auth";
 
 type NotificationItem = {
   notification_id: string;
@@ -12,12 +13,12 @@ type NotificationItem = {
   created_at: string;
 };
 
-export default function AdminNotifications() {
+export default function AdminNotifications({ role }: { role: StaffRole }) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -43,14 +44,14 @@ export default function AdminNotifications() {
     const { data } = await supabase
       .from("notifications")
       .select("notification_id, title, message, action_url, is_read, created_at")
-      .eq("recipient_role", "staff")
-      .or(`recipient_id.is.null,recipient_id.eq.${activeUserId}`)
+      .eq("recipient_role", role)
+      .eq("recipient_id", activeUserId)
       .order("created_at", { ascending: false })
       .limit(6);
 
     setNotifications((data as NotificationItem[] | null) ?? []);
     setNotificationsLoading(false);
-  }, [supabase]);
+  }, [supabase, role]);
 
   const handleToggle = async () => {
     const nextOpen = !isOpen;

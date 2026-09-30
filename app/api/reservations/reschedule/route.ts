@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { notifyGuestAndStaff } from "@/lib/notifications";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
+import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 
 interface ReschedulePayload {
   reservationId: string;
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (newStart.getTime() < new Date().setHours(0, 0, 0, 0)) {
+    if (newStart.getTime() <= Date.now()) {
       return NextResponse.json(
         { success: false, message: "Reschedule must be in the future." },
         { status: 400 }
@@ -210,6 +211,39 @@ export async function POST(request: Request) {
       );
     }
 
+    if (reservation.status !== "confirmed") {
+      return NextResponse.json({ success: false, message: "Payment must be approved before rescheduling this reservation." }, { status: 400 });
+    }
+
+    if (
+      newStart.getTime() === new Date(reservation.start_datetime).getTime() &&
+      newEnd.getTime() === new Date(reservation.end_datetime).getTime()
+    ) {
+      return NextResponse.json(
+        { success: false, message: "Choose a different schedule from your current reservation." },
+        { status: 400 }
+      );
+    }
+
+    const { conflict, error: overlapError } = await checkReservationOverlap(
+      payload.newStartDatetime,
+      payload.newEndDatetime,
+      reservation.guest_id,
+      reservation.reservation_id
+    );
+    if (overlapError) {
+      return NextResponse.json(
+        { success: false, message: "Unable to check the requested schedule." },
+        { status: 500 }
+      );
+    }
+    if (conflict) {
+      return NextResponse.json(
+        { success: false, message: "The requested date has already been reserved." },
+        { status: 409 }
+      );
+    }
+
     /* -----------------------------
        INSERT RESCHEDULE REQUEST
     ------------------------------*/
@@ -268,9 +302,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(adminSupabase, {
+    const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: reservation.guest_id,
+      staffRoles: NOTIFICATION_AUDIENCES.reservation,
       title: "Reschedule requested",
       message: `Reschedule request submitted for reservation ${reservation.reference_number}.`,
       entityType: "reservation_reschedule",

@@ -5,6 +5,7 @@ import { Suspense, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -27,6 +28,7 @@ function BookingDetailsContent() {
   const [isSavingBooking, setIsSavingBooking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [paymentDeadlineAt, setPaymentDeadlineAt] = useState<string | null>(null);
 
   const startDateTime = parseDateTimeString(bookingDraft.startDatetime || null);
   const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
@@ -38,7 +40,8 @@ function BookingDetailsContent() {
     bookingDraft.adultCount > 0;
 
   const totalGuests = Number(bookingDraft.adultCount || 0) + Number(bookingDraft.childCount || 0);
-  const remainingBalance = Math.max(Number(bookingDraft.total || 0) - Number(bookingDraft.downPayment || 0), 0);
+  const downPayment = downPaymentAmount(Number(bookingDraft.total || 0));
+  const remainingBalance = Math.max(Number(bookingDraft.total || 0) - downPayment, 0);
 
    // FIXED ghost saved state
   const isAlreadySaved =
@@ -93,6 +96,8 @@ function BookingDetailsContent() {
             reservation?: {
               id?: string;
               referenceNumber?: string;
+              totalAmount?: number;
+              paymentDeadlineAt?: string | null;
             };
           }
         | null;
@@ -109,7 +114,11 @@ function BookingDetailsContent() {
         reservationId: json.reservation.id,
         reservationReference:
           json.reservation.referenceNumber || "",
+        ...(Number.isFinite(json.reservation.totalAmount)
+          ? { total: Number(json.reservation.totalAmount), downPayment: downPaymentAmount(Number(json.reservation.totalAmount)) }
+          : {}),
       });
+      setPaymentDeadlineAt(json.reservation.paymentDeadlineAt ?? null);
       setSaveSuccess("Booking saved successfully. You can now continue to payment or go to manage booking.");
     } catch {
       setSaveError("Unable to save booking right now. Please try again.");
@@ -181,7 +190,7 @@ function BookingDetailsContent() {
                     <h3 className="text-lg font-semibold text-neutral mb-3">To Pay First</h3>
                     <div className="grid sm:grid-cols-2 gap-2 text-sm">
                       <p>
-                        Down Payment: <span className="font-semibold text-primary">₱{Number(bookingDraft.downPayment || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        {DOWN_PAYMENT_PERCENT}% Down Payment: <span className="font-semibold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </p>
                       <p>
                         Remaining Balance: <span className="font-semibold text-neutral">₱{remainingBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -264,27 +273,16 @@ function BookingDetailsContent() {
                     <p>
                       Booking saved on {formattedSaveDate}. Reference: <span className="font-semibold text-primary">{bookingDraft.reservationReference || "-"}</span>
                     </p>
+                    {paymentDeadlineAt && <p>Submit payment by {new Date(paymentDeadlineAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} (Manila time).</p>}
                   </div>
                 ) : null}
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <Link href="/booking/payment">
-                    <button
-                      type="button"
-                      disabled={!isAlreadySaved}
-                      className="w-full bg-secondary text-base px-6 py-4 rounded-full font-semibold hover:bg-secondary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
+                  <Link href={isAlreadySaved ? "/booking/payment" : "#"} aria-disabled={!isAlreadySaved} onClick={(event) => { if (!isAlreadySaved) event.preventDefault(); }} className="w-full bg-secondary text-base px-6 py-4 rounded-full font-semibold text-center hover:bg-secondary/90 transition-all aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
                       Continue to Payment
-                    </button>
                   </Link>
-                  <Link href="/manage">
-                    <button
-                      type="button"
-                      disabled={!isAlreadySaved}
-                      className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold hover:bg-accent/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
+                  <Link href={isAlreadySaved ? "/manage" : "#"} aria-disabled={!isAlreadySaved} onClick={(event) => { if (!isAlreadySaved) event.preventDefault(); }} className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold text-center hover:bg-accent/90 transition-all aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
                       Go to Manage Booking
-                    </button>
                   </Link>
                 </div>
               </div>
@@ -295,12 +293,12 @@ function BookingDetailsContent() {
                 <h3 className="text-2xl font-bold text-neutral mb-4">Quick Summary</h3>
                 <div className="space-y-3 text-sm text-neutral/80">
                   <div className="flex justify-between"><span>Total</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                  <div className="flex justify-between"><span>Pay Now</span><span className="font-semibold text-primary">₱{Number(bookingDraft.downPayment || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                  <div className="flex justify-between"><span>{DOWN_PAYMENT_PERCENT}% Down Payment Option</span><span className="font-semibold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                   <div className="flex justify-between"><span>Balance</span><span className="font-semibold text-neutral">₱{remainingBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                 </div>
 
                 <div className="mt-6 rounded-lg bg-highlight/10 p-4 text-sm text-neutral/80">
-                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. Downpayment minimum is 20% and cancellation downpayments are non-refundable.
+                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. At payment, choose half or the full total. Payments remain subject to verification and the no-refund policy.
                 </div>
               </div>
             </div>

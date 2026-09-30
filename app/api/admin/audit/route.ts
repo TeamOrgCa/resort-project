@@ -1,18 +1,14 @@
 import { NextResponse } from "next/server";
-import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
-
-interface AuditPayload {
-  action: string;
-  entityType?: string;
-  entityId?: string;
-}
+import { requireActiveStaff } from "@/lib/server/admin-audit";
 
 interface AuditLogRow {
   log_id: string;
   user_id: string | null;
+  auth_user_id: string | null;
   action: string;
   entity_type: string | null;
   entity_id: string | null;
+  attempted_email: string | null;
   created_at: string;
 }
 
@@ -21,23 +17,11 @@ interface StaffRow {
   full_name: string;
 }
 
-const parseAuditPayload = (value: unknown): AuditPayload | null => {
-  if (typeof value !== "object" || value === null) {
-    return null;
-  }
-
-  const payload = value as Partial<AuditPayload>;
-
-  if (typeof payload.action !== "string" || !payload.action.trim()) {
-    return null;
-  }
-
-  return {
-    action: payload.action.trim(),
-    entityType: typeof payload.entityType === "string" ? payload.entityType.trim() : undefined,
-    entityId: typeof payload.entityId === "string" ? payload.entityId.trim() : undefined,
-  };
-};
+interface GuestRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
 
 export async function GET() {
   try {
@@ -55,7 +39,7 @@ export async function GET() {
 
     const { data: logsData, error: logsError } = await staffContext.supabase
       .from("audit_logs")
-      .select("log_id, user_id, action, entity_type, entity_id, created_at")
+      .select("log_id, user_id, auth_user_id, action, entity_type, entity_id, attempted_email, created_at")
       .order("created_at", { ascending: false })
       .limit(300);
 
@@ -71,32 +55,47 @@ export async function GET() {
 
     const logs = (logsData as AuditLogRow[] | null) ?? [];
     const staffIds = [...new Set(logs.map((log) => log.user_id).filter((value): value is string => Boolean(value)))];
+    const guestIds = [...new Set(logs.map((log) => log.auth_user_id)
+      .filter((value): value is string => value !== null && !staffIds.includes(value)))];
 
-    const { data: staffData, error: staffError } = staffIds.length
-      ? await staffContext.supabase.from("staff_users").select("id, full_name").in("id", staffIds)
-      : { data: [], error: null };
+    const [staffResult, guestResult] = await Promise.all([
+      staffIds.length
+        ? staffContext.supabase.from("staff_users").select("id, full_name").in("id", staffIds)
+        : Promise.resolve({ data: [], error: null }),
+      guestIds.length
+        ? staffContext.supabase.from("guests").select("id, first_name, last_name").in("id", guestIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
 
-    if (staffError) {
+    if (staffResult.error || guestResult.error) {
       return NextResponse.json(
         {
           success: false,
-          message: "Failed to load staff details for audit logs.",
+          message: "Failed to load actor details for audit logs.",
         },
         { status: 500 }
       );
     }
 
-    const staffById = ((staffData as StaffRow[] | null) ?? []).reduce<Record<string, string>>((accumulator, row) => {
+    const staffById = ((staffResult.data as StaffRow[] | null) ?? []).reduce<Record<string, string>>((accumulator, row) => {
       accumulator[row.id] = row.full_name;
+      return accumulator;
+    }, {});
+    const guestById = ((guestResult.data as GuestRow[] | null) ?? []).reduce<Record<string, string>>((accumulator, row) => {
+      accumulator[row.id] = `${row.first_name} ${row.last_name}`;
       return accumulator;
     }, {});
 
     const rows = logs.map((log) => ({
       id: log.log_id,
-      staff: log.user_id ? staffById[log.user_id] ?? "Unknown Staff" : "System",
+      staff: log.user_id
+        ? staffById[log.user_id] ?? "Unknown Staff"
+        : log.auth_user_id
+          ? guestById[log.auth_user_id] ?? `Guest ${log.auth_user_id.slice(0, 8)}`
+          : log.attempted_email ?? "System",
       module: log.entity_type ? log.entity_type.replace(/_/g, " ") : "General",
       action: log.action,
-      record: log.entity_id ?? "-",
+      record: log.entity_id ?? log.attempted_email ?? "-",
       timestamp: log.created_at,
     }));
 
@@ -106,67 +105,6 @@ export async function GET() {
       {
         success: false,
       message: "Unexpected error while loading audit logs.",
-      },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const staffContext = await requireActiveStaff();
-
-    if (!staffContext) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized.",
-        },
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
-    const payload = parseAuditPayload(body);
-
-    if (!payload) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid audit payload.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const success = await createAuditLog(staffContext, {
-      action: payload.action,
-      entityType: payload.entityType,
-      entityId: payload.entityId,
-    });
-
-    if (!success) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to create audit log.",
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Audit log created.",
-      },
-      { status: 201 }
-    );
-  } catch {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Unexpected error while creating audit log.",
       },
       { status: 500 }
     );

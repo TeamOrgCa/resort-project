@@ -1,9 +1,14 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { notifyGuestAndStaff } from "@/lib/notifications";
-import { getAllSettings } from "@/lib/settings/settingsService";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
+import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
+import { isValidAccountNumber } from "@/lib/helper/validation";
 
-type PaymentType = "downpayment" | "full" | "additional";
+export const runtime = "nodejs";
+
+type PaymentType = "downpayment" | "full";
 
 interface ReservationPaymentPayload {
   reservationId: string;
@@ -22,7 +27,8 @@ interface ReservationRow {
   reservation_id: string;
   guest_id: string;
   reference_number: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed";
+  status: "pending" | "payment_submitted" | "confirmed" | "expired" | "rejected" | "cancelled" | "completed";
+  payment_deadline_at: string | null;
 }
 
 interface TransactionRow {
@@ -49,8 +55,9 @@ const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
   if (
     typeof payment.paymentMethodId !== "string" ||
     !payment.paymentMethodId.trim() ||
+    (payment.type !== "downpayment" && payment.type !== "full") ||
     typeof payment.amount !== "number" ||
-    payment.amount <= 0 ||
+    !Number.isFinite(payment.amount) || payment.amount <= 0 ||
     typeof payment.referenceNumber !== "string" ||
     !payment.referenceNumber.trim() ||
     typeof payment.accountName !== "string" ||
@@ -65,14 +72,11 @@ const parsePayload = (value: unknown): ReservationPaymentPayload | null => {
     reservationId: payload.reservationId.trim(),
     payment: {
       paymentMethodId: payment.paymentMethodId.trim(),
-      type:
-        payment.type === "full" || payment.type === "additional" || payment.type === "downpayment"
-          ? payment.type
-          : "downpayment",
+      type: payment.type,
       amount: payment.amount,
       referenceNumber: payment.referenceNumber.trim(),
       accountName: payment.accountName.trim(),
-      accountNumber: payment.accountNumber?.trim() || null,
+      accountNumber: typeof payment.accountNumber === "string" ? payment.accountNumber.trim() || null : null,
       proofPath: payment.proofPath.trim(),
     },
   };
@@ -94,17 +98,18 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createClient();
-    const [{ data: paymentMethod, error: paymentMethodError }, settings] = await Promise.all([
-      supabase
-        .from("payment_methods")
-        .select("payment_method_id, is_active")
-        .eq("payment_method_id", payload.payment.paymentMethodId)
-        .maybeSingle<{ payment_method_id: string; is_active: boolean }>(),
-      getAllSettings(supabase),
-    ]);
+    const { data: paymentMethod, error: paymentMethodError } = await supabase
+      .from("payment_methods")
+      .select("payment_method_id, name, type, is_active")
+      .eq("payment_method_id", payload.payment.paymentMethodId)
+      .maybeSingle<{ payment_method_id: string; name: string; type: string; is_active: boolean }>();
 
     if (paymentMethodError || !paymentMethod?.is_active) {
       return NextResponse.json({ success: false, message: "Selected payment method is not available." }, { status: 400 });
+    }
+
+    if (!paymentMethod.type.toLowerCase().includes("bank") && !isValidAccountNumber(payload.payment.accountNumber ?? "")) {
+      return NextResponse.json({ success: false, message: "Account number must contain 6–20 digits." }, { status: 400 });
     }
 
     const {
@@ -124,7 +129,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, status")
+      .select("reservation_id, guest_id, reference_number, status, payment_deadline_at")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -245,47 +250,64 @@ export async function POST(request: Request) {
       );
     }
 
-    const requestedAmount = Number(payload.payment.amount ?? 0);
-    const effectiveAmount = payload.payment.type === "full" ? remainingBalance : requestedAmount;
-
-    if (payload.payment.type === "downpayment") {
-      const configuredRate = Number(settings["reservation.downpayment_percentage"] ?? 20) / 100;
-      const minimumDownpayment = Number(transaction.total_amount ?? 0) * configuredRate;
-      if (requestedAmount + 0.0001 < minimumDownpayment) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `Downpayment must be at least ${configuredRate * 100}% of total (₱${minimumDownpayment.toLocaleString("en-PH", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}).`,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    if (payload.payment.type !== "full" && requestedAmount > remainingBalance) {
+    const alreadyPaid = Number(transaction.paid_amount ?? 0);
+    if (payload.payment.type === "downpayment" && alreadyPaid > 0) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Payment amount cannot exceed remaining balance.",
-        },
-        { status: 400 }
+        { success: false, message: "A payment has already been verified. Please pay the outstanding balance." },
+        { status: 409 }
       );
     }
 
-    if (effectiveAmount <= 0) {
+    if (reservation.status === "expired" || reservation.status === "rejected") {
+      return NextResponse.json({ success: false, code: "RESERVATION_INACTIVE", message: "This reservation is no longer active. Please create a new booking." }, { status: 410 });
+    }
+    if (reservation.status === "payment_submitted") {
+      return NextResponse.json({ success: false, message: "A payment is already awaiting staff review." }, { status: 409 });
+    }
+    if (reservation.status === "pending" && (!reservation.payment_deadline_at || new Date(reservation.payment_deadline_at).getTime() <= Date.now())) {
+      return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline has passed. Please make a new reservation." }, { status: 410 });
+    }
+
+    if (!payload.payment.proofPath.startsWith(`${user.id}/`) || payload.payment.proofPath.includes("..")) {
+      return NextResponse.json({ success: false, message: "Invalid payment proof path." }, { status: 400 });
+    }
+
+    const effectiveAmount = payload.payment.type === "full"
+      ? remainingBalance
+      : downPaymentAmount(Number(transaction.total_amount));
+    if (!moneyMatches(payload.payment.amount, effectiveAmount) || effectiveAmount > remainingBalance) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "This reservation has no remaining balance.",
-        },
+        { success: false, message: `Payment amount does not match the selected ${DOWN_PAYMENT_PERCENT}% down payment or full balance. Refresh the booking and try again.` },
         { status: 400 }
       );
     }
+    const { data: receivingAccount } = await supabase.from("payment_accounts")
+      .select("account_name, account_number")
+      .eq("payment_method_id", payload.payment.paymentMethodId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle<{ account_name: string; account_number: string | null }>();
+    const ocr = await inspectPaymentProof(supabase, {
+      userId: user.id,
+      proofPath: payload.payment.proofPath,
+      methodName: paymentMethod.name,
+      methodType: paymentMethod.type,
+      amount: effectiveAmount,
+      reference: payload.payment.referenceNumber,
+      recipientName: receivingAccount?.account_name,
+      recipientNumber: receivingAccount?.account_number,
+    });
+    if (!ocr) {
+      return NextResponse.json({ success: false, message: "Payment proof is missing or is not a supported image under 8 MB." }, { status: 400 });
+    }
+    if (ocr.status === "rejected") {
+      return NextResponse.json({ success: false, code: "INVALID_PAYMENT_PROOF", message: ocr.notes }, { status: 422 });
+    }
+    if (ocr.status === "screening_unavailable") {
+      return NextResponse.json({ success: false, code: "PROOF_SCREENING_UNAVAILABLE", message: ocr.notes }, { status: 503 });
+    }
 
-    const { data: payment, error: paymentError } = await supabase
+    const { data: payment, error: paymentError } = await createAdminClient()
       .from("payments")
       .insert({
         reservation_id: reservation.reservation_id,
@@ -297,18 +319,39 @@ export async function POST(request: Request) {
         account_name: payload.payment.accountName,
         account_number: payload.payment.accountNumber,
         proof_path: payload.payment.proofPath,
+        ocr_status: ocr.status,
+        ocr_notes: ocr.notes,
+        ocr_checked_at: ocr.status === "not_applicable" ? null : new Date().toISOString(),
       })
-      .select("payment_id, status")
+      .select("payment_id, status, ocr_status")
       .single();
 
     if (paymentError || !payment) {
+      if (paymentError?.code === "P0001" && /deadline|expired/i.test(paymentError.message)) {
+        return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline has passed. Please make a new reservation." }, { status: 410 });
+      }
       if (paymentError?.code === "23505") {
         return NextResponse.json(
           {
             success: false,
-            message: "Payment reference already exists. Please provide a unique reference number.",
+            message: "A payment is already pending or this reference number was used. Please review your booking.",
           },
           { status: 409 }
+        );
+      }
+
+      console.error("[payment] Failed to save payment", paymentError);
+      if (
+        (paymentError?.code === "42703" || paymentError?.code === "PGRST204") &&
+        /ocr_(status|notes|checked_at)/i.test(`${paymentError.message} ${paymentError.details ?? ""}`)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "PAYMENT_SCHEMA_MIGRATION_REQUIRED",
+            message: "Payment processing is being updated. Please ask an administrator to apply docs/account-access-migration.sql, then try again.",
+          },
+          { status: 503 }
         );
       }
 
@@ -321,18 +364,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
-      actorId: user.id,
-      guestId: reservation.guest_id,
-      title: "Payment submitted",
-      message: `Payment for reservation ${reservation.reference_number} is pending review.`,
-      entityType: "payment",
-      entityId: payment.payment_id,
-      guestActionUrl: "/manage",
-      staffActionUrl: "/admin/reservations",
-    });
-
-    if (notificationError) {
+    try {
+      const { error: notificationError } = await createNotifications({
+        actorId: user.id,
+        guestId: reservation.guest_id,
+        staffRoles: NOTIFICATION_AUDIENCES.payment,
+        title: "Payment submitted",
+        message: `Payment for reservation ${reservation.reference_number} is pending review.`,
+        entityType: "payment",
+        entityId: payment.payment_id,
+        guestActionUrl: "/manage",
+        staffActionUrl: "/admin/transactions",
+      });
+      if (notificationError) console.warn("Failed to create payment notifications:", notificationError);
+    } catch (notificationError) {
       console.warn("Failed to create payment notifications:", notificationError);
     }
 
@@ -344,8 +389,10 @@ export async function POST(request: Request) {
           status: payment.status,
           amount: effectiveAmount,
           proofPath: payload.payment.proofPath,
+          ocrStatus: payment.ocr_status,
         },
         reservation: {
+          referenceNumber: reservation.reference_number,
           totalAmount: Number(transaction.total_amount ?? 0),
           paidAmount: Number(transaction.paid_amount ?? 0),
           remainingBalance,
@@ -354,13 +401,11 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    console.error("[payment] Unexpected error while submitting payment", error);
     return NextResponse.json(
       {
         success: false,
-        message:
-          error instanceof Error
-            ? `Unexpected error while submitting payment. ${error.message}`
-            : "Unexpected error while submitting payment.",
+        message: "Unexpected error while submitting payment. Please try again or contact support.",
       },
       { status: 500 }
     );

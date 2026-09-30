@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { createNotifications } from "@/lib/notifications";
+import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 
 interface ApproveReschedulePayload {
   rescheduleId: string;
@@ -16,6 +18,7 @@ interface RescheduleRequestRow {
 
 interface ReservationRow {
   reservation_id: string;
+  guest_id: string | null;
   status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
 }
 
@@ -86,12 +89,29 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
-      .select("reservation_id, status")
+      .select("reservation_id, guest_id, status")
       .eq("reservation_id", requestRow.reservation_id)
       .maybeSingle<ReservationRow>();
 
     if (reservationError || !reservation) {
       return NextResponse.json({ success: false, message: "Reservation not found." }, { status: 404 });
+    }
+
+    if (reservation.status !== "reschedule_requested") {
+      return NextResponse.json({ success: false, message: "This reservation is no longer awaiting reschedule approval." }, { status: 400 });
+    }
+
+    const { conflict, error: overlapError } = await checkReservationOverlap(
+      requestRow.new_start,
+      requestRow.new_end,
+      reservation.guest_id,
+      requestRow.reservation_id
+    );
+    if (overlapError) {
+      return NextResponse.json({ success: false, message: "Unable to check the requested schedule." }, { status: 500 });
+    }
+    if (conflict) {
+      return NextResponse.json({ success: false, message: "The requested schedule now overlaps with an existing reservation." }, { status: 409 });
     }
 
     const { data: transaction, error: transactionError } = await staffContext.supabase
@@ -117,6 +137,12 @@ export async function POST(request: Request) {
       .eq("reservation_id", requestRow.reservation_id);
 
     if (updateReservationError) {
+      if (updateReservationError.code === "23P01") {
+        return NextResponse.json(
+          { success: false, code: "DATE_UNAVAILABLE", message: "The requested date was reserved by another guest." },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         { success: false, message: "Failed to update reservation dates." },
         { status: 500 }
@@ -166,6 +192,19 @@ export async function POST(request: Request) {
         { success: false, message: "Reschedule approved but audit logging failed." },
         { status: 500 }
       );
+    }
+
+    if (reservation.guest_id) {
+      const { error: notificationError } = await createNotifications({
+        actorId: staffContext.staffUser.id,
+        guestId: reservation.guest_id,
+        title: "Reschedule approved",
+        message: "Your reservation reschedule request was approved.",
+        entityType: "reservation_reschedule",
+        entityId: requestRow.reschedule_id,
+        guestActionUrl: "/manage",
+      });
+      if (notificationError) console.warn("Failed to notify guest of reschedule approval:", notificationError);
     }
 
     return NextResponse.json(

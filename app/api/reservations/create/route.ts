@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
-import { notifyGuestAndStaff } from "@/lib/notifications";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
+import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 
 type DbErrorLike = {
   message?: string;
@@ -198,14 +199,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: overlapReservation, error: overlapError } = await supabase
-      .from("reservations")
-      .select("reservation_id")
-      .in("status", ["pending", "confirmed"])
-      .lt("start_datetime", payload.endDatetime)
-      .gt("end_datetime", payload.startDatetime)
-      .limit(1)
-      .maybeSingle();
+    const { conflict: overlapReservation, error: overlapError } = await checkReservationOverlap(
+      payload.startDatetime,
+      payload.endDatetime,
+      user.id
+    );
 
     if (overlapError) {
       return NextResponse.json(
@@ -221,7 +219,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          message: "The selected schedule overlaps with an existing reservation.",
+          message: "This booking date has already been reserved. Please choose another date.",
         },
         { status: 409 }
       );
@@ -323,10 +321,13 @@ export async function POST(request: Request) {
         special_requests: payload.specialRequests || null,
         status: "pending",
       })
-      .select("reservation_id, reference_number, status")
+      .select("reservation_id, reference_number, status, payment_deadline_at")
       .single();
 
     if (reservationError || !reservation) {
+      if (reservationError?.code === "23P01") {
+        return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
+      }
       return NextResponse.json(buildDbFailurePayload(reservationError, "Failed to create reservation."), { status: 500 });
     }
 
@@ -389,9 +390,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await notifyGuestAndStaff(supabase, {
+    const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: user.id,
+      staffRoles: NOTIFICATION_AUDIENCES.reservation,
       title: "Booking saved",
       message: `Reservation ${reservation.reference_number} is pending payment.`,
       entityType: "reservation",
@@ -411,6 +413,7 @@ export async function POST(request: Request) {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
           status: reservation.status,
+          paymentDeadlineAt: reservation.payment_deadline_at,
           totalAmount,
         },
       },

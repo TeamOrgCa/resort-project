@@ -3,7 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function LoginContent() {
@@ -21,19 +20,23 @@ function LoginContent() {
     setLoading(true);
     setError("");
 
-    const supabase = createClient();
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-    } else {
-      router.push(redirect);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = (await response.json()) as { success: boolean; message: string };
+      if (!response.ok || !data.success) {
+        setError(data.message || "Unable to sign in.");
+        return;
+      }
+      router.push(redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/");
       router.refresh();
+    } catch {
+      setError("Unable to connect to the server. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 

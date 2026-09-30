@@ -21,7 +21,7 @@ interface UpdateReservationServicesPayload {
 interface ReservationRow {
   reservation_id: string;
   guest_id: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
+  status: "pending" | "payment_submitted" | "confirmed" | "expired" | "rejected" | "cancelled" | "completed" | "reschedule_requested";
   start_datetime: string;
   end_datetime: string;
   adult_count: number;
@@ -156,7 +156,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (reservation.status === "cancelled" || reservation.status === "completed") {
+    if (["cancelled", "completed", "expired", "rejected", "payment_submitted"].includes(reservation.status)) {
       return NextResponse.json(
         {
           success: false,

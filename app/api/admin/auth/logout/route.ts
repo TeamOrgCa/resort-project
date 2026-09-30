@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 
 import { STAFF_SESSION_COOKIE } from "@/lib/auth/staff-auth";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { createClient } from "@/lib/supabase/server";
 
 export async function POST() {
   try {
     const staffContext = await requireActiveStaff();
 
     if (!staffContext) {
+      await (await createClient()).auth.signOut();
       const response = NextResponse.json({ success: true, message: "Signed out." }, { status: 200 });
       response.cookies.delete(STAFF_SESSION_COOKIE);
       return response;

@@ -56,6 +56,10 @@ export const validateBookingWindow = (input: BookingWindowInput): BookingWindowV
     return { valid: false, message: "End datetime must be after start datetime.", durationHours };
   }
 
+  if (durationHours > 366 * 24) {
+    return { valid: false, message: "Booking windows cannot exceed 366 days.", durationHours };
+  }
+
   if (input.bookingMode === "custom") {
     if (durationHours < CUSTOM_MIN_DURATION_HOURS) {
       return {

@@ -3,10 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { sanitizeName } from "@/lib/helper/validation";
-import { isValidName } from "@/lib/helper/validation";
+import { validateGuestRegistration } from "@/lib/auth/guest-registration";
 
 export default function Register() {
   const router = useRouter();
@@ -25,106 +24,53 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-
     const { name } = e.target;
     let value = e.target.value;
 
-    // Sanitize name fields
     if (name === "firstName" || name === "lastName" || name === "middleName") {
       value = sanitizeName(value);
     }
-
-
-    setFormData({
-      ...formData,
-      [name]: value,
-    });
-
-
-
+    if (name === "phoneNumber") {
+      value = `${value.startsWith("+") ? "+" : ""}${value.replace(/\D/g, "")}`.slice(0, 16);
+    }
+    setFormData((previous) => ({ ...previous, [name]: value }));
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    if (loading) return;
     setError("");
-
-      if (
-          !isValidName(formData.firstName) ||
-          !isValidName(formData.lastName) ||
-          !isValidName(formData.middleName)
-        ) {
-          alert("Please enter a valid first and last name.");
-          return;
-        }
-
-    // Validate passwords match
-    if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match");
-      setLoading(false);
+    const validation = validateGuestRegistration(formData);
+    if (validation.error) {
+      setError(validation.error);
       return;
     }
 
-    // Validate password length
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters");
-      setLoading(false);
-      return;
-    }
-
-    const supabase = createClient();
-
-    // Sign up the user
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        data: {
-          first_name: formData.firstName,
-          last_name: formData.lastName,
-          middle_name: formData.middleName,
-          phone_number: formData.phoneNumber,
-          address: formData.address,
-        },
-      },
-    });
-
-    if (signUpError) {
-      setError(signUpError.message);
-      setLoading(false);
-      return;
-    }
-
-    // If user is created, insert profile data
-    if (data.user) {
-      const { error: profileError } = await supabase
-        .from('guests')
-        .insert([
-          {
-            id: data.user.id,
-            first_name: formData.firstName,
-            last_name: formData.lastName,
-            middle_name: formData.middleName || null,
-            email: formData.email,
-            phone_number: formData.phoneNumber,
-            address: formData.address,
-          },
-        ]);
-
-      if (profileError) {
-        console.error('Profile creation error:', profileError);
-        // Don't show error to user as auth was successful
+    setLoading(true);
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      const result = (await response.json()) as { success?: boolean; message?: string; needsEmailConfirmation?: boolean };
+      if (!response.ok || !result.success) {
+        setError(result.message || "Unable to create your account. Please try again.");
+        return;
       }
-
+      setNeedsEmailConfirmation(Boolean(result.needsEmailConfirmation));
       setSuccess(true);
-      setTimeout(() => {
-        router.push('/auth/login');
-      }, 2000);
+      if (!result.needsEmailConfirmation) {
+        setTimeout(() => router.push("/auth/login"), 2000);
+      }
+    } catch {
+      setError("Unable to connect to the server. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   if (success) {
@@ -136,10 +82,13 @@ export default function Register() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-neutral mb-2">Registration Successful!</h2>
+          <h2 className="text-2xl font-bold text-neutral mb-2">{needsEmailConfirmation ? "Check your email" : "Registration Successful!"}</h2>
           <p className="text-neutral/70 mb-4">
-            Your account has been created. Redirecting to login...
+            {needsEmailConfirmation
+              ? "If the address can be registered, you will receive a confirmation link. Confirm your email before signing in."
+              : "Your account has been created. Redirecting to login..."}
           </p>
+          {needsEmailConfirmation && <Link href="/auth/login" className="text-primary font-semibold hover:underline">Go to sign in</Link>}
         </div>
       </div>
     );
@@ -167,7 +116,7 @@ export default function Register() {
         <div className="bg-white rounded-3xl shadow-xl p-8">
           <form onSubmit={handleRegister} className="space-y-6">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+              <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
                 {error}
               </div>
             )}
@@ -187,6 +136,7 @@ export default function Register() {
                     value={formData.firstName}
                     onChange={handleChange}
                     required
+                    maxLength={100}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
@@ -202,6 +152,7 @@ export default function Register() {
                     value={formData.lastName}
                     onChange={handleChange}
                     required
+                    maxLength={100}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
@@ -216,6 +167,7 @@ export default function Register() {
                     name="middleName"
                     value={formData.middleName}
                     onChange={handleChange}
+                    maxLength={100}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
@@ -237,6 +189,7 @@ export default function Register() {
                     value={formData.email}
                     onChange={handleChange}
                     required
+                    maxLength={254}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="your@email.com"
                   />
@@ -253,6 +206,10 @@ export default function Register() {
                     value={formData.phoneNumber}
                     onChange={handleChange}
                     required
+                    inputMode="tel"
+                    maxLength={16}
+                    pattern="[+]?[0-9]{7,15}"
+                    title="Use 7 to 15 digits, optionally starting with +"
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="+63 XXX XXX XXXX"
                   />
@@ -269,6 +226,7 @@ export default function Register() {
                     onChange={handleChange}
                     required
                     rows={3}
+                    maxLength={500}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                     placeholder="Street Address, City, Province, Postal Code"
                   />
@@ -292,6 +250,7 @@ export default function Register() {
                     onChange={handleChange}
                     required
                     minLength={6}
+                    maxLength={128}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="Min. 6 characters"
                   />

@@ -1,0 +1,2 @@
+-- Superseded by reservation-lifecycle-migration.sql.
+-- Do not apply the earlier global overlap constraint: different guests may book the same date.

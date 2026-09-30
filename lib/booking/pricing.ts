@@ -1,4 +1,5 @@
 import { BookingMode } from "@/lib/booking/policy";
+import { downPaymentAmount } from "@/lib/booking/payment-policy";
 
 type RateTier = "weekday" | "weekend";
 type PackageMode = Exclude<BookingMode, "custom">;
@@ -9,7 +10,6 @@ interface PackageRate {
 }
 
 const INCLUDED_PAX = 20;
-const MIN_DOWNPAYMENT_RATE = 0.2;
 
 const PACKAGE_RATES: Record<RateTier, Record<PackageMode, PackageRate>> = {
   weekday: {
@@ -109,6 +109,6 @@ export const computeBookingPricing = (input: BookingPricingInput): BookingPricin
     subtotal: total,
     tax: 0,
     total,
-    downPaymentMin: round2(total * MIN_DOWNPAYMENT_RATE),
+    downPaymentMin: downPaymentAmount(total),
   };
 };

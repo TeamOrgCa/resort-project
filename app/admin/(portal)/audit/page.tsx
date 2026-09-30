@@ -6,7 +6,7 @@ import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
 
 const auditColumns: AdminTableColumn[] = [
-  { key: "staff", label: "Staff" },
+  { key: "staff", label: "Actor / Email" },
   { key: "module", label: "Module" },
   { key: "action", label: "Action" },
   { key: "record", label: "Affected Record" },
@@ -95,7 +95,7 @@ export default function AdminAuditPage() {
     <div>
       <AdminSectionHeader
         title="Audit Log"
-        subtitle="Chronological record of staff actions for accountability and transparency."
+        subtitle="Chronological record of staff actions, guest bookings, and account access attempts."
       />
 
       {fetchError ? (
@@ -111,7 +111,7 @@ export default function AdminAuditPage() {
         defaultSort={{ key: "timestamp", direction: "desc" }}
         filters={[
           { key: "module", label: "Module", options: moduleOptions },
-          { key: "staff", label: "Staff", options: staffOptions },
+          { key: "staff", label: "Actor / Email", options: staffOptions },
         ]}
         actions={["Export Log"]}
         rowActions={["View Details"]}

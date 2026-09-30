@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
+import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
+import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
+import { checkReservationOverlap } from "@/lib/server/reservation-availability";
+
+export const runtime = "nodejs";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 
-type PaymentType = "downpayment" | "full" | "additional";
+type PaymentType = "downpayment" | "full";
 
 interface ServiceSelectionInput {
   serviceId: string;
@@ -129,8 +136,9 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
   if (
     typeof payment.paymentMethodId !== "string" ||
     !payment.paymentMethodId.trim() ||
+    (payment.type !== "downpayment" && payment.type !== "full") ||
     typeof payment.amount !== "number" ||
-    payment.amount <= 0 ||
+    !Number.isFinite(payment.amount) || payment.amount <= 0 ||
     typeof payment.referenceNumber !== "string" ||
     typeof payment.accountName !== "string" ||
     typeof payment.proofPath !== "string"
@@ -174,10 +182,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
       : [],
     payment: {
       paymentMethodId: payment.paymentMethodId,
-      type:
-        payment.type === "full" || payment.type === "additional" || payment.type === "downpayment"
-          ? payment.type
-          : "downpayment",
+      type: payment.type,
       amount: payment.amount,
       referenceNumber: payment.referenceNumber.trim(),
       accountName: payment.accountName.trim(),
@@ -256,14 +261,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: overlapReservation, error: overlapError } = await supabase
-      .from("reservations")
-      .select("reservation_id")
-      .in("status", ["pending", "confirmed"])
-      .lt("start_datetime", payload.endDatetime)
-      .gt("end_datetime", payload.startDatetime)
-      .limit(1)
-      .maybeSingle();
+    if (!payload.payment.proofPath.startsWith(`${user.id}/`) || payload.payment.proofPath.includes("..")) {
+      return NextResponse.json({ success: false, message: "Invalid payment proof path." }, { status: 400 });
+    }
+    const { data: paymentMethod, error: paymentMethodError } = await supabase.from("payment_methods")
+      .select("name, type, is_active")
+      .eq("payment_method_id", payload.payment.paymentMethodId)
+      .maybeSingle<{ name: string; type: string; is_active: boolean }>();
+    if (paymentMethodError || !paymentMethod?.is_active) {
+      return NextResponse.json({ success: false, message: "Selected payment method is unavailable." }, { status: 400 });
+    }
+
+    const { conflict: overlapReservation, error: overlapError } = await checkReservationOverlap(
+      payload.startDatetime,
+      payload.endDatetime,
+      user.id
+    );
 
     if (overlapError) {
       return NextResponse.json(
@@ -279,7 +292,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          message: "The selected schedule overlaps with an existing reservation.",
+          message: "This booking date has already been reserved. Please choose another date.",
         },
         { status: 409 }
       );
@@ -357,14 +370,41 @@ export async function POST(request: Request) {
     });
     const totalAmount = pricing.total;
 
-    if (payload.payment.amount > totalAmount) {
+    const expectedAmount = payload.payment.type === "full" ? totalAmount : downPaymentAmount(totalAmount);
+    if (!moneyMatches(payload.payment.amount, expectedAmount)) {
       return NextResponse.json(
         {
           success: false,
-          message: "Payment amount cannot exceed total reservation amount.",
+          message: `Payment amount must equal the ${DOWN_PAYMENT_PERCENT}% down payment or the full reservation total.`,
         },
         { status: 400 }
       );
+    }
+
+    const { data: receivingAccount } = await supabase.from("payment_accounts")
+      .select("account_name, account_number")
+      .eq("payment_method_id", payload.payment.paymentMethodId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle<{ account_name: string; account_number: string | null }>();
+    const ocr = await inspectPaymentProof(supabase, {
+      userId: user.id,
+      proofPath: payload.payment.proofPath,
+      methodName: paymentMethod.name,
+      methodType: paymentMethod.type,
+      amount: expectedAmount,
+      reference: payload.payment.referenceNumber,
+      recipientName: receivingAccount?.account_name,
+      recipientNumber: receivingAccount?.account_number,
+    });
+    if (!ocr) {
+      return NextResponse.json({ success: false, message: "Payment proof is missing or is not a supported image under 8 MB." }, { status: 400 });
+    }
+    if (ocr.status === "rejected") {
+      return NextResponse.json({ success: false, code: "INVALID_PAYMENT_PROOF", message: ocr.notes }, { status: 422 });
+    }
+    if (ocr.status === "screening_unavailable") {
+      return NextResponse.json({ success: false, code: "PROOF_SCREENING_UNAVAILABLE", message: ocr.notes }, { status: 503 });
     }
 
     const reservationReference = await generateReferenceNumber(supabase);
@@ -392,10 +432,13 @@ export async function POST(request: Request) {
         special_requests: payload.specialRequests || null,
         status: "pending",
       })
-      .select("reservation_id, reference_number, status")
+      .select("reservation_id, reference_number, status, payment_deadline_at")
       .single();
 
     if (reservationError || !reservation) {
+      if (reservationError?.code === "23P01") {
+        return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
+      }
       console.error("[checkout] Failed to create reservation", reservationError);
       return NextResponse.json(
         buildDbFailurePayload(reservationError, "Failed to create reservation."),
@@ -512,7 +555,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: payment, error: paymentError } = await supabase
+    const { data: payment, error: paymentError } = await createAdminClient()
       .from("payments")
       .insert({
         reservation_id: reservation.reservation_id,
@@ -524,11 +567,17 @@ export async function POST(request: Request) {
         account_name: payload.payment.accountName,
         account_number: payload.payment.accountNumber,
         proof_path: payload.payment.proofPath,
+        ocr_status: ocr.status,
+        ocr_notes: ocr.notes,
+        ocr_checked_at: ocr.status === "not_applicable" ? null : new Date().toISOString(),
       })
-      .select("payment_id, status")
+      .select("payment_id, status, ocr_status")
       .single();
 
     if (paymentError || !payment) {
+      if (paymentError?.code === "P0001" && /deadline|expired/i.test(paymentError.message)) {
+        return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline passed during checkout. Please try a new reservation." }, { status: 410 });
+      }
       console.error("[checkout] Failed to record payment", paymentError);
       await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
       return NextResponse.json(
@@ -537,6 +586,19 @@ export async function POST(request: Request) {
       );
     }
 
+    const { error: notificationError } = await createNotifications({
+      actorId: user.id,
+      guestId: user.id,
+      staffRoles: NOTIFICATION_AUDIENCES.checkout,
+      title: "Reservation checkout submitted",
+      message: `Reservation ${reservation.reference_number} and payment were submitted for review.`,
+      entityType: "payment",
+      entityId: payment.payment_id,
+      guestActionUrl: "/manage",
+      staffActionUrl: "/admin/transactions",
+    });
+    if (notificationError) console.warn("Failed to create checkout notifications:", notificationError);
+
     return NextResponse.json(
       {
         success: true,
@@ -544,6 +606,7 @@ export async function POST(request: Request) {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
           status: reservation.status,
+          paymentDeadlineAt: reservation.payment_deadline_at,
           totalAmount,
         },
         payment: {
@@ -551,6 +614,7 @@ export async function POST(request: Request) {
           status: payment.status,
           amount: payload.payment.amount,
           proofPath: payload.payment.proofPath,
+          ocrStatus: payment.ocr_status,
         },
       },
       { status: 201 }
