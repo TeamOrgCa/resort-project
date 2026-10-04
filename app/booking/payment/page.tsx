@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount, resolvePaymentType } from "@/lib/booking/payment-policy";
+import { buildBookingCostSummary } from "@/lib/booking/summary";
 import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 import { isValidAccountNumber, sanitizeAccountNumber } from "@/lib/helper/validation";
 
@@ -268,11 +269,7 @@ function PaymentContent() {
   }, [hasVerifiedDownpayment, paidAmount]);
 
   const roomName = bookingDraft.roomName || "Selected Room";
-  const roomPrice = bookingDraft.roomPrice || 0;
-  const nights = bookingDraft.nights || 1;
-
-  const subtotal = bookingDraft.subtotal || 0;
-  const tax = bookingDraft.tax || 0;
+  const costSummary = buildBookingCostSummary(bookingDraft);
   const totalAmount = bookingDraft.total || 0;
   const downPayment = downPaymentAmount(totalAmount);
   const selectedServices = bookingDraft.services || [];
@@ -495,27 +492,27 @@ function PaymentContent() {
               <div className="flex justify-between">
                 <span className="text-neutral/70">Check-in</span>
                 <span className="font-semibold text-neutral">
-                  {successStartDateTime?.toLocaleString("en-PH", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "N/A"}
+                  {successStartDateTime?.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "N/A"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Check-out</span>
                 <span className="font-semibold text-neutral">
-                  {successEndDateTime?.toLocaleString("en-PH", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "N/A"}
+                  {successEndDateTime?.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "N/A"}
                 </span>
               </div>
-              <div className="flex justify-between">
+              {!isBalancePayment && <div className="flex justify-between">
                 <span className="text-neutral/70">Room Type</span>
                 <span className="font-semibold text-neutral">{successRoomName}</span>
-              </div>
-              <div className="flex justify-between">
+              </div>}
+              {!isBalancePayment && <div className="flex justify-between">
                 <span className="text-neutral/70">Adults</span>
                 <span className="font-semibold text-neutral">{successAdultCount}</span>
-              </div>
-              <div className="flex justify-between">
+              </div>}
+              {!isBalancePayment && <div className="flex justify-between">
                 <span className="text-neutral/70">Children</span>
                 <span className="font-semibold text-neutral">{successChildCount}</span>
-              </div>
+              </div>}
               <div className="flex justify-between pt-3 border-t border-neutral/10">
                 <span className="text-neutral/70">Total Amount</span>
                 <span className="font-semibold text-neutral">₱{successTotalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -955,38 +952,20 @@ function PaymentContent() {
                     <p className="font-mono font-bold text-neutral">{reservationReferenceFromDraft || "Save booking first"}</p>
                   </div>
 
-                  <div className="pb-4 border-b border-neutral/10">
-                    <div className="flex justify-between mb-1">
-                      <span className="text-neutral/70">Room</span>
-                      <span className="font-semibold text-neutral">{roomName}</span>
-                    </div>
-                    <div className="flex justify-between mb-1">
-                      <span className="text-neutral/70">Rate</span>
-                      <span className="font-semibold text-neutral">₱{roomPrice.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} package</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral/70">Duration</span>
-                      <span className="font-semibold text-neutral">{nights} nights</span>
-                    </div>
-                  </div>
+                  {!isBalancePayment && <div className="pb-4 border-b border-neutral/10">
+                    <div className="flex justify-between mb-1"><span className="text-neutral/70">Selected unit</span><span className="font-semibold text-neutral text-right">{roomName}</span></div>
+                    <div className="flex justify-between mb-1"><span className="text-neutral/70">Booking mode</span><span className="font-semibold text-neutral">{bookingDraft.bookingMode.replace("_", " ")}</span></div>
+                    <div className="flex justify-between"><span className="text-neutral/70">Duration</span><span className="font-semibold text-neutral">{startDateTime && endDateTime ? Math.round((endDateTime.getTime() - startDateTime.getTime()) / 3_600_000 * 100) / 100 : 0} hours</span></div>
+                  </div>}
 
-                  <div className="pb-4 border-b border-neutral/10">
-                    <p className="text-sm font-semibold text-neutral mb-2">Guest Charges</p>
-                    {adultCount > 0 && (
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-neutral/70">Guests included</span>
-                        <span className="text-neutral">20 pax</span>
-                      </div>
-                    )}
-                    {childCount > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-neutral/70">Total guests</span>
-                        <span className="text-neutral">{adultCount + childCount} pax</span>
-                      </div>
-                    )}
-                  </div>
+                  {!isBalancePayment && <div className="pb-4 border-b border-neutral/10">
+                    <p className="text-sm font-semibold text-neutral mb-2">Booking Charges</p>
+                    <div className="flex justify-between text-sm mb-1"><span className="text-neutral/70">{costSummary.packageLabel}</span><span className="text-neutral">₱{costSummary.packageCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                    <div className="flex justify-between text-sm mb-1"><span className="text-neutral/70">Guests</span><span className="text-neutral">{adultCount} adults, {childCount} children</span></div>
+                    {costSummary.extraGuestCharge > 0 && <div className="flex justify-between text-sm"><span className="text-neutral/70">Extra guests ({costSummary.extraGuests})</span><span className="text-neutral">₱{costSummary.extraGuestCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                  </div>}
 
-                  {selectedServices.length > 0 && (
+                  {!isBalancePayment && selectedServices.length > 0 && (
                     <div className="pb-4 border-b border-neutral/10">
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>
                       {selectedServices.map((service) => (
@@ -998,20 +977,25 @@ function PaymentContent() {
                     </div>
                   )}
 
-                  <div className="flex justify-between">
+                  {!isBalancePayment && <div className="flex justify-between">
                     <span className="text-neutral/70">Subtotal</span>
-                    <span className="font-semibold text-neutral">₱{subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
+                    <span className="font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>}
 
-                  <div className="flex justify-between">
-                    <span className="text-neutral/70">Tax (12%)</span>
-                    <span className="font-semibold text-neutral">₱{tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
+                  {!isBalancePayment && costSummary.tax > 0 && <div className="flex justify-between">
+                    <span className="text-neutral/70">Tax</span>
+                    <span className="font-semibold text-neutral">₱{costSummary.tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>}
 
                   <div className="flex justify-between">
                     <span className="text-neutral/70">Total Amount</span>
                     <span className="font-semibold text-neutral">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
+
+                  {paidAmount > 0 && <div className="flex justify-between">
+                    <span className="text-neutral/70">Already paid</span>
+                    <span className="font-semibold text-neutral">₱{paidAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>}
 
                   <div className="bg-primary/5 p-4 rounded-lg">
                     <div className="flex justify-between mb-2">
@@ -1020,11 +1004,11 @@ function PaymentContent() {
                       </span>
                       <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
-                    <p className="text-xs text-neutral/60">{effectivePayOption === "full" ? "You are clearing the current reservation balance." : "Required now to confirm booking"}</p>
+                    <p className="text-xs text-neutral/60">{effectivePayOption === "full" ? "Payment is subject to staff verification." : "Your reservation is confirmed after staff verifies this payment."}</p>
                   </div>
 
                   <div className="flex justify-between pt-4 border-t border-neutral/10">
-                    <span className="text-neutral/70">Remaining Balance</span>
+                    <span className="text-neutral/70">Balance after approval</span>
                     <span className="font-semibold text-neutral">₱{remainingAfterThisPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
 

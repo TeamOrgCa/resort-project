@@ -10,7 +10,6 @@ import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
 import GuestRefundStatus from "@/components/GuestRefundStatus";
-import GuestReceipts from "@/components/GuestReceipts";
 
 type ManageTab = "bookings" | "ocular";
 type RecordMode = "view" | "edit" | "reschedule" | null;
@@ -925,7 +924,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               <>
                 <h2 className="text-2xl font-bold text-neutral mb-4">Your Booking Records</h2>
                 <GuestRefundStatus />
-                <GuestReceipts bookings={bookings} />
                 {cancelError ? (
                   <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
                     {cancelError}

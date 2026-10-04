@@ -10,6 +10,7 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 import { createClient } from "@/lib/supabase/client";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
+import { computeBookingPricing } from "@/lib/booking/pricing";
 
 interface OcularAvailabilityRow {
   scheduled_date: string;
@@ -438,6 +439,38 @@ export default function Booking() {
     );
   }
 
+  const summaryWindow = selectedStayDate ? buildBookingWindow({
+    bookingMode,
+    date: selectedStayDate,
+    wholeDayVariant,
+    customStartTime,
+    customEndTime,
+    customEndDate: bookingMode === "custom"
+      ? parseLocalDateValue(customEndDate || formatDateForStore(selectedStayDate)) ?? selectedStayDate
+      : undefined,
+  }) : null;
+  const validSummaryWindow = summaryWindow && "startDatetime" in summaryWindow
+    && typeof summaryWindow.startDatetime === "string"
+    && typeof summaryWindow.endDatetime === "string"
+    && validateBookingWindow({
+      bookingMode,
+      startDatetime: summaryWindow.startDatetime,
+      endDatetime: summaryWindow.endDatetime,
+      wholeDayVariant,
+      customStartTime,
+      customEndTime,
+    }).valid ? { startDatetime: summaryWindow.startDatetime, endDatetime: summaryWindow.endDatetime } : null;
+  const summaryPricing = validSummaryWindow ? computeBookingPricing({
+    bookingMode,
+    startDatetime: validSummaryWindow.startDatetime,
+    endDatetime: validSummaryWindow.endDatetime,
+    adultCount: 1,
+    childCount: 0,
+  }) : null;
+  const formatSummaryDate = (value: string) => new Date(value).toLocaleString("en-PH", {
+    timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
+
   return (
     <div className="min-h-screen bg-base">
       <Navigation />
@@ -808,34 +841,13 @@ export default function Booking() {
                       <div>
                         <label className="text-sm text-neutral/70">Check-in</label>
                         <p className="text-lg font-semibold text-neutral">
-                          {selectedStayDate ? selectedStayDate.toLocaleDateString() : "Select date"}
+                          {validSummaryWindow ? formatSummaryDate(validSummaryWindow.startDatetime) : "Select date and time"}
                         </p>
                       </div>
                       <div>
                         <label className="text-sm text-neutral/70">Check-out</label>
                         <p className="text-lg font-semibold text-neutral">
-                          {selectedStayDate
-                            ? (() => {
-                                const bookingWindow = buildBookingWindow({
-                                  bookingMode,
-                                  date: selectedStayDate,
-                                  wholeDayVariant,
-                                  customStartTime,
-                                  customEndTime,
-                                    customEndDate:
-                                      bookingMode === "custom"
-                                        ? parseLocalDateValue(customEndDate || formatDateForStore(selectedStayDate)) ?? selectedStayDate
-                                        : undefined,
-                                });
-                                if ("error" in bookingWindow) return "Select date";
-                                return new Date(bookingWindow.endDatetime).toLocaleString("en-PH", {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "numeric",
-                                  minute: "2-digit",
-                                });
-                              })()
-                            : "Select date"}
+                          {validSummaryWindow ? formatSummaryDate(validSummaryWindow.endDatetime) : "Select date and time"}
                         </p>
                       </div>
                       {selectedStayDate && (
@@ -852,9 +864,13 @@ export default function Booking() {
 
                     <div className="border-t border-neutral/10 pt-6 mb-6">
                       <h4 className="font-semibold text-neutral mb-3">Rate Information</h4>
-                      <p className="text-sm text-neutral/70 mb-2">Starting from</p>
-                      <p className="text-3xl font-bold text-primary">₱7,500<span className="text-lg text-neutral/70">/night</span></p>
-                      <p className="text-xs text-neutral/60 mt-2">*Final price may vary based on room type and amenities</p>
+                      {summaryPricing ? (
+                        <>
+                          <p className="text-sm text-neutral/70 mb-2">{summaryPricing.rateTier === "weekend" ? "Weekend" : "Weekday"} base package, up to {summaryPricing.includedGuests} guests</p>
+                          <p className="text-3xl font-bold text-primary">₱{summaryPricing.packageRate.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                          <p className="text-xs text-neutral/60 mt-2">Extra guests and selected services are added in the next step.</p>
+                        </>
+                      ) : <p className="text-sm text-neutral/70">Select a valid date and time to see the package rate.</p>}
                     </div>
 
                     {stayError ? (

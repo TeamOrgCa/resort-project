@@ -114,7 +114,7 @@ export default function ChatBotMars() {
                     message.role === "user"
                       ? "bg-primary text-base"
                       : "bg-white/10 text-white"
-                  }`}
+                  } whitespace-pre-wrap`}
                 >
                   {message.content}
                 </div>

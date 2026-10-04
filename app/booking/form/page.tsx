@@ -396,14 +396,14 @@ function BookingFormContent() {
                         className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       />
                     </div>
-                    <div className="mt-4.5">
+                    <div>
                       <label className="block text-sm font-medium text-neutral/70 mb-2">Room Type *</label>
                       <select
                         name="roomType"
                         value={formData.roomType}
                         onChange={handleInputChange}
                         disabled={catalogLoading || units.length === 0}
-                        className="w-full px-0 py-3.5 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
+                        className="w-full h-[50px] px-4 rounded-lg border border-neutral/20 bg-white focus:border-primary focus:outline-none"
                       >
                         {units.map((room) => (
                           <option key={room.id} value={room.id}>
@@ -499,11 +499,11 @@ function BookingFormContent() {
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
                       <span className="text-neutral/70">Start</span>
-                      <span className="font-semibold text-neutral">{effectiveStartDate.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                      <span className="font-semibold text-neutral">{effectiveStartDate.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral/70">End</span>
-                      <span className="font-semibold text-neutral">{effectiveEndDate.toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                      <span className="font-semibold text-neutral">{effectiveEndDate.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                     </div>
                     <div className="flex justify-between mt-2">
                       <span className="text-neutral/70">Mode</span>
@@ -513,7 +513,11 @@ function BookingFormContent() {
 
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
-                      <span className="text-neutral/70">Package ({pricing.rateTier})</span>
+                      <span className="text-neutral/70">Selected unit</span>
+                      <span className="font-semibold text-neutral text-right">{selectedRoom?.name || "Choose a unit"}</span>
+                    </div>
+                    <div className="flex justify-between mb-2">
+                      <span className="text-neutral/70">{pricing.rateTier === "weekend" ? "Weekend" : "Weekday"} {pricing.packageMode.replace("_", " ")} package</span>
                       <span className="font-semibold text-neutral">₱{pricing.packageRate.toLocaleString("en-PH")}</span>
                     </div>
                     <div className="flex justify-between">
@@ -546,7 +550,7 @@ function BookingFormContent() {
                         return (
                           <div key={id} className="flex justify-between text-sm mb-1">
                             <span className="text-neutral/70">{amenity?.name}</span>
-                            <span className="text-neutral">₱{amenity?.price.toLocaleString()}</span>
+                            <span className="text-neutral">₱{Number(amenity?.price || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         );
                       })}
@@ -558,10 +562,10 @@ function BookingFormContent() {
                       <span className="text-neutral/70">Subtotal</span>
                       <span className="font-semibold text-neutral">₱{subtotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
-                    <div className="flex justify-between">
+                    {tax > 0 && <div className="flex justify-between">
                       <span className="text-neutral/70">Tax</span>
                       <span className="font-semibold text-neutral">₱{tax.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
+                    </div>}
                   </div>
 
                   <div className="flex justify-between text-xl font-bold">
@@ -574,13 +578,13 @@ function BookingFormContent() {
                       <span className="text-sm font-semibold text-neutral">Down Payment ({DOWN_PAYMENT_PERCENT}%)</span>
                       <span className="text-lg font-bold text-accent">₱{downPayment.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
-                    <p className="text-xs text-neutral/60 mt-2">Required to confirm reservation</p>
+                    <p className="text-xs text-neutral/60 mt-2">Your reservation is confirmed after staff verifies the payment.</p>
                   </div>
                 </div>
 
                 <div className="bg-highlight/10 p-4 rounded-lg">
                   <p className="text-sm text-neutral/80">
-                    <span className="font-semibold">Note:</span> This is a preliminary estimate. Final charges will be calculated upon checkout based on your actual stay and services used.
+                    <span className="font-semibold">Note:</span> Review the selected package, guest count, and services before saving. The amount may change if you later add services.
                   </p>
                 </div>
               </div>

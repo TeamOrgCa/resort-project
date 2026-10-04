@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type { BillingBreakdown } from "@/lib/booking/billing-breakdown";
 
 interface ReservationEmailBase {
   guestEmail: string;
@@ -6,6 +7,33 @@ interface ReservationEmailBase {
   reservationReference: string;
   checkInDate?: string | null;
   checkOutDate?: string | null;
+}
+
+interface BillingEmailBase {
+  guestEmail: string;
+  guestName: string;
+  reservationReference: string;
+  checkInDate: string;
+  checkOutDate: string;
+  bookingMode: string;
+  adultCount: number;
+  childCount: number;
+  breakdown: BillingBreakdown;
+}
+
+interface ReceiptEmailPayload extends BillingEmailBase {
+  receiptNumber: string;
+  issuedAt: string;
+  amountPaid: number;
+  totalAmount: number;
+  balance: number;
+}
+
+interface InvoiceEmailPayload extends BillingEmailBase {
+  issuedAt: string;
+  totalAmount: number;
+  paidAmount: number;
+  balance: number;
 }
 
 interface ReservationCancelledEmailPayload extends ReservationEmailBase {
@@ -24,7 +52,7 @@ interface OcularVisitEmailPayload {
   timeSlot: string;
 }
 
-const appName = process.env.EMAIL_APP_NAME ?? "Resort Project";
+const appName = process.env.EMAIL_APP_NAME ?? "Marville Resort";
 const senderName = process.env.EMAIL_FROM_NAME ?? appName;
 const senderEmail = process.env.EMAIL_FROM ?? process.env.EMAIL_USER;
 
@@ -66,8 +94,67 @@ const formatDateTimeLabel = (value?: string | null) => {
     hour: "numeric",
     minute: "2-digit",
     hour12: true, // set to false if you want 24-hour format
+    timeZone: "Asia/Manila",
   });
 };
+
+const formatMoney = (value: number) =>
+  new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value);
+
+const billingLines = (payload: BillingEmailBase) => [
+  `Reservation: ${payload.reservationReference}`,
+  `Booking type: ${payload.bookingMode}`,
+  `Guests: ${payload.adultCount} adults, ${payload.childCount} children`,
+  `Check-in: ${formatDateTimeLabel(payload.checkInDate)}`,
+  `Check-out: ${formatDateTimeLabel(payload.checkOutDate)}`,
+];
+
+const billingRows = (payload: BillingEmailBase) => [
+  ["Reservation", payload.reservationReference],
+  ["Booking type", payload.bookingMode],
+  ["Guests", `${payload.adultCount} adults, ${payload.childCount} children`],
+  ["Check-in", formatDateTimeLabel(payload.checkInDate)],
+  ["Check-out", formatDateTimeLabel(payload.checkOutDate)],
+];
+
+const billingTable = (rows: string[][]) => `<table style="border-collapse:collapse;width:100%;max-width:480px">${rows.map(([label, value]) =>
+  `<tr><th scope="row" style="text-align:left;padding:7px 12px 7px 0">${escapeHtml(label)}</th><td style="padding:7px 0">${escapeHtml(value)}</td></tr>`
+).join("")}</table>`;
+
+const breakdownText = (breakdown: BillingBreakdown) => [
+  "Items availed and charges:",
+  ...breakdown.lines.flatMap((line) => [
+    `- ${line.description}: ${line.quantity} × ${formatMoney(line.unitPrice)} = ${formatMoney(line.amount)}`,
+    `  ${line.detail}`,
+  ]),
+  `Total charges: ${formatMoney(breakdown.total)}`,
+];
+
+const breakdownTable = (breakdown: BillingBreakdown) => `
+  <h3 style="margin:24px 0 8px">Items availed and charges</h3>
+  <table style="border-collapse:collapse;width:100%;max-width:640px;font-size:14px">
+    <thead><tr style="border-bottom:2px solid #d1d5db;text-align:left">
+      <th style="padding:8px 6px">Item</th><th style="padding:8px 6px;text-align:right">Qty</th>
+      <th style="padding:8px 6px;text-align:right">Rate</th><th style="padding:8px 6px;text-align:right">Amount</th>
+    </tr></thead>
+    <tbody>${breakdown.lines.map((line) => `<tr style="border-bottom:1px solid #e5e7eb">
+      <td style="padding:9px 6px"><strong>${escapeHtml(line.description)}</strong><br><span style="color:#6b7280">${escapeHtml(line.detail)}</span></td>
+      <td style="padding:9px 6px;text-align:right">${line.quantity}</td>
+      <td style="padding:9px 6px;text-align:right">${escapeHtml(formatMoney(line.unitPrice))}</td>
+      <td style="padding:9px 6px;text-align:right">${escapeHtml(formatMoney(line.amount))}</td>
+    </tr>`).join("")}</tbody>
+    <tfoot><tr><th colspan="3" style="padding:10px 6px;text-align:right">Total charges</th>
+      <th style="padding:10px 6px;text-align:right">${escapeHtml(formatMoney(breakdown.total))}</th></tr></tfoot>
+  </table>`;
+
+// Standard swimming inclusions and payment timing are from RESORT_CONTEXT.md.
+const billingNotesText = (balance: number) => [
+  "Standard private pool inclusions (included in the package price): cottage, two air-conditioned rooms with private toilets, videoke, griller, free parking, and consumable food.",
+  ...(balance > 0 ? ["The remaining balance is due upon arrival before swimming."] : []),
+  "Questions? Call 09172796592 or 82360633.",
+];
+
+const billingNotesHtml = (balance: number) => `<p style="margin-top:20px"><strong>Standard private pool inclusions</strong><br>Cottage, two air-conditioned rooms with private toilets, videoke, griller, free parking, and consumable food. These are included in the package price.</p>${balance > 0 ? "<p>The remaining balance is due upon arrival before swimming.</p>" : ""}<p>Questions? Call 09172796592 or 82360633.</p>`;
 
 const formatTimeSlotLabel = (slot: string) => {
   if (!slot.includes("-")) return slot;
@@ -148,6 +235,70 @@ const sendMail = async ({
     console.error("Failed to send email.", error);
     return false;
   }
+};
+
+export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
+  const lines = [
+    `Hi ${payload.guestName || "Guest"},`, "", "Your verified payment receipt is ready.",
+    `Receipt: ${payload.receiptNumber}`,
+    `Issued: ${formatDateTimeLabel(payload.issuedAt)}`,
+    ...billingLines(payload),
+    "",
+    ...breakdownText(payload.breakdown),
+    "",
+    `Amount paid: ${formatMoney(payload.amountPaid)}`,
+    `Reservation total: ${formatMoney(payload.totalAmount)}`,
+    `Remaining balance: ${formatMoney(payload.balance)}`,
+    "", ...billingNotesText(payload.balance),
+    "", "Keep this email for your records.",
+  ];
+  const rows = [
+    ["Receipt", payload.receiptNumber],
+    ["Issued", formatDateTimeLabel(payload.issuedAt)],
+    ...billingRows(payload),
+  ];
+  const paymentRows = [
+    ["Amount paid", formatMoney(payload.amountPaid)],
+    ["Reservation total", formatMoney(payload.totalAmount)],
+    ["Remaining balance", formatMoney(payload.balance)],
+  ];
+  return sendMail({
+    to: payload.guestEmail,
+    subject: `Payment Receipt ${payload.receiptNumber}`,
+    text: lines.join("\n"),
+    html: `<div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5"><h2>Payment Receipt</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your verified payment receipt is ready.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>Keep this email for your records.</p></div>`,
+  });
+};
+
+export const sendReservationInvoiceEmail = async (payload: InvoiceEmailPayload) => {
+  const lines = [
+    `Hi ${payload.guestName || "Guest"},`, "", "Your reservation invoice is ready.",
+    `Issued: ${formatDateTimeLabel(payload.issuedAt)}`,
+    ...billingLines(payload),
+    "",
+    ...breakdownText(payload.breakdown),
+    "",
+    `Invoice total: ${formatMoney(payload.totalAmount)}`,
+    `Payments received: ${formatMoney(payload.paidAmount)}`,
+    `Remaining balance: ${formatMoney(payload.balance)}`,
+    "", ...billingNotesText(payload.balance),
+    "", "You can review your booking in your account.",
+  ];
+  const rows = [
+    ["Issued", formatDateTimeLabel(payload.issuedAt)],
+    ...billingRows(payload),
+  ];
+  const paymentRows = [
+    ["Invoice total", formatMoney(payload.totalAmount)],
+    ["Payments received", formatMoney(payload.paidAmount)],
+    ["Remaining balance", formatMoney(payload.balance)],
+  ];
+  return sendMail({
+    to: payload.guestEmail,
+    subject: `Reservation Invoice ${payload.reservationReference}`,
+    text: lines.join("\n"),
+    html: `<div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5"><h2>Reservation Invoice</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your reservation invoice is ready.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>You can review your booking in your account.</p></div>`,
+  });
 };
 
 export const sendReservationConfirmedEmail = async ({

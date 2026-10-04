@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { createNotifications } from "@/lib/notifications";
+import { emailBillingDocuments } from "@/lib/server/billing-email";
 
 type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
 
@@ -17,6 +18,10 @@ interface ManualPaymentPayload {
 interface ReservationRow {
   reservation_id: string;
   guest_id: string | null;
+  walk_in_guest_id: string | null;
+  reference_number: string;
+  start_datetime: string;
+  end_datetime: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
@@ -132,7 +137,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
-      .select("reservation_id, guest_id, status")
+      .select("reservation_id, guest_id, walk_in_guest_id, reference_number, start_datetime, end_datetime, status")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -398,6 +403,13 @@ export async function POST(request: Request) {
 
     if (!auditSuccess) console.warn("Manual payment entry audit log was not recorded.");
 
+    let billingEmails = { receiptSent: false, invoiceSent: false };
+    try {
+      billingEmails = await emailBillingDocuments(staffContext.supabase, reservation, createdPayment.payment_id, Number(createdPayment.amount));
+    } catch (error) {
+      console.error("Unable to email billing documents after manual payment.", error);
+    }
+
     if (reservation.guest_id) {
       const { error: notificationError } = await createNotifications({
         actorId: staffContext.staffUser.id,
@@ -417,6 +429,7 @@ export async function POST(request: Request) {
         reservationId: reservation.reservation_id,
         remainingBalance: Number(updatedTransaction?.balance ?? 0),
         overpaidAmount: Number(updatedTransaction?.overpaid_amount ?? 0),
+        billingEmails,
       },
       { status: 201 }
     );
