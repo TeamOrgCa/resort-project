@@ -7,7 +7,7 @@ import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
-import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount, resolvePaymentType } from "@/lib/booking/payment-policy";
 import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 import { isValidAccountNumber, sanitizeAccountNumber } from "@/lib/helper/validation";
 
@@ -291,6 +291,7 @@ function PaymentContent() {
   const successPaidAmount = submittedSummary?.paidAmount ?? downPayment;
   const successPayOption = submittedSummary?.payOption ?? payOption;
   const remainingBalance = Math.max(totalAmount - paidAmount, 0);
+  const effectivePayOption = resolvePaymentType(isBalancePayment, hasVerifiedDownpayment || paidAmount > 0, payOption);
   const payableNow = isBalancePayment
     ? hasVerifiedDownpayment || paidAmount > 0
       ? remainingBalance
@@ -319,7 +320,7 @@ function PaymentContent() {
       return;
     }
 
-    if ((hasVerifiedDownpayment || paidAmount > 0) && payOption === "downpayment") {
+    if ((hasVerifiedDownpayment || paidAmount > 0) && effectivePayOption === "downpayment") {
       setSubmitError("A verified downpayment already exists. Only the remaining balance can be paid.");
       return;
     }
@@ -390,7 +391,7 @@ function PaymentContent() {
           reservationId,
           payment: {
             paymentMethodId: selectedPaymentMethodId,
-            type: payOption,
+            type: effectivePayOption,
             amount: payableNow,
             referenceNumber:
               paymentMethod === "bank"
@@ -451,7 +452,7 @@ function PaymentContent() {
         totalAmount,
         paidAmount: payableNow,
         previousPaidAmount: paidAmount,
-        payOption,
+        payOption: effectivePayOption,
       });
       setReservationReference(checkoutJson.reservation?.referenceNumber || reservationReferenceFromDraft || null);
       setReceiptScreen(checkoutJson.payment?.ocrStatus ?? null);
@@ -1015,11 +1016,11 @@ function PaymentContent() {
                   <div className="bg-primary/5 p-4 rounded-lg">
                     <div className="flex justify-between mb-2">
                       <span className="font-semibold text-neutral">
-                        {payOption === "full" ? "Paying Now (Full)" : `Down Payment (${downpaymentPercentage}%)`}
+                        {effectivePayOption === "full" ? "Paying Now (Full Balance)" : `Down Payment (${downpaymentPercentage}%)`}
                       </span>
                       <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
-                    <p className="text-xs text-neutral/60">{payOption === "full" ? "You are clearing the full current reservation amount." : "Required now to confirm booking"}</p>
+                    <p className="text-xs text-neutral/60">{effectivePayOption === "full" ? "You are clearing the current reservation balance." : "Required now to confirm booking"}</p>
                   </div>
 
                   <div className="flex justify-between pt-4 border-t border-neutral/10">

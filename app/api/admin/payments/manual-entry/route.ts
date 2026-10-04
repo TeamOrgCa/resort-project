@@ -53,7 +53,7 @@ const parsePayload = (value: unknown): ManualPaymentPayload | null => {
   if (
     typeof payload.reservationId !== "string" ||
     typeof payload.amount !== "number" ||
-    payload.amount <= 0 ||
+    !Number.isFinite(payload.amount) || payload.amount <= 0 ||
     typeof payload.paymentReference !== "string" ||
     !payload.paymentReference.trim() ||
     (payload.paymentMethod !== "bank_transfer" && payload.paymentMethod !== "e_wallet" && payload.paymentMethod !== "cash")
@@ -182,6 +182,10 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       );
+    }
+
+    if (Math.round(payload.amount * 100) > Math.round(remainingBalance * 100)) {
+      return NextResponse.json({ success: false, message: "Payment exceeds the current reservation balance." }, { status: 400 });
     }
 
     const { data: insertedPayment, error: insertError } = await staffContext.supabase
@@ -387,6 +391,9 @@ export async function POST(request: Request) {
       action: "Created manual payment entry",
       entityType: "payment",
       entityId: createdPayment.payment_id,
+      details: { reservationId: reservation.reservation_id, amount: payload.amount,
+        paymentMethod: payload.paymentMethod, paymentReference: payload.paymentReference,
+        remainingBalance: Number(updatedTransaction?.balance ?? 0) },
     });
 
     if (!auditSuccess) console.warn("Manual payment entry audit log was not recorded.");
@@ -403,7 +410,6 @@ export async function POST(request: Request) {
       });
       if (notificationError) console.warn("Failed to notify guest of manual payment:", notificationError);
     }
-
     return NextResponse.json(
       {
         success: true,

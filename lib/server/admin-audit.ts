@@ -7,6 +7,7 @@ interface AuditLogInput {
   action: string;
   entityType?: string | null;
   entityId?: string | null;
+  details?: Record<string, unknown> | null;
 }
 
 interface StaffContext {
@@ -60,6 +61,7 @@ export async function createAuditLog(staffContext: StaffContext, input: AuditLog
     action: input.action,
     entity_type: input.entityType ?? null,
     entity_id: input.entityId ?? null,
+    details: input.details ?? null,
   });
 
   return !error;

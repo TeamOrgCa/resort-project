@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { downPaymentAmount, moneyMatches } from "../lib/booking/payment-policy.ts";
+import { downPaymentAmount, moneyMatches, resolvePaymentType } from "../lib/booking/payment-policy.ts";
 import { assessGcashText, screenReceiptText } from "../lib/booking/gcash-receipt.ts";
 
 const receipt = `GCash\nPayment sent successfully\nAmount Sent\nPHP 5,000.00\nReference No. 1234567890123\nSent to MarVille Resort\n0917***1234`;
@@ -15,6 +15,11 @@ test("20% down payment rounds an odd cent upward", () => {
   assert.equal(downPaymentAmount(100.01), 20.01);
   assert.equal(moneyMatches(20.01, downPaymentAmount(100.01)), true);
   assert.equal(moneyMatches(20, downPaymentAmount(100.01)), false);
+});
+
+test("an added service balance after full payment submits as a full balance payment", () => {
+  assert.equal(resolvePaymentType(true, true, "downpayment"), "full");
+  assert.equal(resolvePaymentType(true, false, "downpayment"), "downpayment");
 });
 
 test("GCash receipt screens as consistent when key fields agree", () => {

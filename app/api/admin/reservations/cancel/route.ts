@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { createNotifications } from "@/lib/notifications";
 import { sendReservationCancelledEmail } from "@/lib/email";
 
@@ -119,51 +119,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: cancelError } = await staffContext.supabase
-      .from("reservations")
-      .update({
-        status: "cancelled",
-        cancelled_at: new Date().toISOString(),
-        cancellation_reason: payload.cancellationReason,
-      })
-      .eq("reservation_id", reservation.reservation_id);
+    const { data: refundId, error: cancelError } = await staffContext.supabase.rpc("cancel_reservation_with_refund", {
+      p_reservation: reservation.reservation_id,
+      p_reason: payload.cancellationReason,
+      p_admin: true,
+    });
 
     if (cancelError) {
       return NextResponse.json(
         {
           success: false,
-          message: "Failed to cancel reservation.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const { error: voidInvoicesError } = await staffContext.supabase
-      .from("invoices")
-      .update({ status: "void" })
-      .eq("reservation_id", reservation.reservation_id);
-
-    if (voidInvoicesError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Reservation cancelled but failed to void related invoices.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const auditSuccess = await createAuditLog(staffContext, {
-      action: `Cancelled reservation (cancellation_reason: ${payload.cancellationReason})`,
-      entityType: "reservation",
-      entityId: reservation.reservation_id,
-    });
-
-    if (!auditSuccess) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Reservation cancelled but audit logging failed.",
+          message: cancelError.message,
         },
         { status: 500 }
       );
@@ -213,12 +179,24 @@ export async function POST(request: Request) {
       if (notificationError) console.warn("Failed to notify guest of reservation cancellation:", notificationError);
     }
 
+    if (refundId) {
+      const { error: refundNoticeError } = await createNotifications({
+        actorId: staffContext.staffUser.id, guestId: reservation.guest_id,
+        staffRoles: ["admin", "cashier"], title: "Refund request pending",
+        message: `A refund request for reservation ${reservation.reference_number} is awaiting review.`,
+        entityType: "refund_request", entityId: refundId,
+        guestActionUrl: "/manage", staffActionUrl: "/admin/transactions",
+      });
+      if (refundNoticeError) console.warn("Failed to create refund notifications:", refundNoticeError);
+    }
+
     return NextResponse.json(
       {
         success: true,
         reservationId: reservation.reservation_id,
         status: "cancelled",
         cancellationReason: payload.cancellationReason,
+        refundId,
         message: emailSent
           ? "Reservation cancelled successfully and cancellation email sent."
           : "Reservation cancelled successfully. Email delivery could not be confirmed.",

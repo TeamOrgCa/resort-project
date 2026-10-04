@@ -8,6 +8,7 @@ import InvoiceDetailsModal from "@/components/admin/transactions/InvoiceDetailsM
 import KeyValueDetailsModal from "@/components/admin/transactions/KeyValueDetailsModal";
 import PaymentReviewModal from "@/components/admin/transactions/PaymentReviewModal";
 import TransactionsTablePanel from "@/components/admin/transactions/TransactionsTablePanel";
+import RefundRequestsPanel from "@/components/admin/transactions/RefundRequestsPanel";
 import type {
   InvoiceDetailInvoiceRow,
   InvoiceDetailPaymentRow,
@@ -53,7 +54,7 @@ const paymentReviewLane = (status: PaymentSnapshotRow["ocr_status"]) => {
   return "Other method";
 };
 
-const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Generated Invoices", "Issued Receipts"] as const;
+const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Refund Requests", "Generated Invoices", "Issued Receipts"] as const;
 
 const transactionColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reservation Ref" },
@@ -75,6 +76,7 @@ const invoiceColumns: AdminTableColumn[] = [
 
 const receiptColumns: AdminTableColumn[] = [
   { key: "receiptNumber", label: "Receipt No." },
+  { key: "guest", label: "Guest" },
   { key: "reference", label: "Reservation Ref" },
   { key: "paymentReference", label: "Payment Ref" },
   { key: "issuedAt", label: "Issued At" },
@@ -154,6 +156,7 @@ const deriveTransactionStatus = (totalAmount: number, paidAmount: number, balanc
 export default function AdminTransactionsPage() {
   const [activeTab, setActiveTab] = useState<(typeof transactionTabs)[number]>("Transaction Ledger");
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshRevision, setRefreshRevision] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -165,6 +168,12 @@ export default function AdminTransactionsPage() {
   const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
   const [payments, setPayments] = useState<PaymentSnapshotRow[]>([]);
   const [canReviewPayments, setCanReviewPayments] = useState(false);
+  const [cashReservationId, setCashReservationId] = useState<string | null>(null);
+  const [cashAmount, setCashAmount] = useState("");
+  const [cashReference, setCashReference] = useState("");
+  const [cashBusy, setCashBusy] = useState(false);
+  const [cashError, setCashError] = useState<string | null>(null);
+  const [cashMessage, setCashMessage] = useState<string | null>(null);
   const [reviewPayment, setReviewPayment] = useState<PaymentSnapshotRow | null>(null);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [isProofLoading, setIsProofLoading] = useState(false);
@@ -178,6 +187,12 @@ export default function AdminTransactionsPage() {
   const [isInvoiceDetailsLoading, setIsInvoiceDetailsLoading] = useState(false);
   const [invoiceDetailsError, setInvoiceDetailsError] = useState<string | null>(null);
   const [invoiceDetails, setInvoiceDetails] = useState<InvoiceViewDetails | null>(null);
+
+  useEffect(() => {
+    const refreshOnFocus = () => setRefreshRevision((revision) => revision + 1);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -226,7 +241,7 @@ export default function AdminTransactionsPage() {
                   .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, proof_path, status, ocr_status, ocr_notes")
                   .in("reservation_id", reservationIds)
               : Promise.resolve({ data: [], error: null }),
-            supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment").order("issued_at", { ascending: false }).limit(200),
+            supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name").order("issued_at", { ascending: false }).limit(200),
           ]);
 
         if (reservationsError) throw reservationsError;
@@ -254,7 +269,7 @@ export default function AdminTransactionsPage() {
 
         const paymentRows = (paymentsData as PaymentSnapshotRow[] | null) ?? [];
         const nextPaymentReferencesById = paymentRows.reduce<Record<string, string>>((accumulator, payment) => {
-          accumulator[payment.reservation_id] = payment.reference_number;
+          accumulator[payment.payment_id] = payment.reference_number;
           return accumulator;
         }, {});
 
@@ -287,7 +302,7 @@ export default function AdminTransactionsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [refreshRevision]);
 
   const transactionRows: AdminTableRow[] = useMemo(
     () =>
@@ -328,8 +343,9 @@ export default function AdminTransactionsPage() {
       receipts.map((receipt) => ({
         id: receipt.receipt_id,
         receiptNumber: receipt.receipt_number,
+        guest: receipt.billed_to_name ?? "-",
         reference: reservationReferencesById[paymentReservationById[receipt.payment_id] ?? ""] ?? "-",
-        paymentReference: paymentReferencesById[paymentReservationById[receipt.payment_id] ?? ""] ?? "-",
+        paymentReference: paymentReferencesById[receipt.payment_id] ?? "-",
         issuedAt: formatDateTime(receipt.issued_at),
         status: receipt.is_active === false ? "Archived" : receipt.archived_at ? "Archived" : "Active",
       })),
@@ -385,6 +401,15 @@ export default function AdminTransactionsPage() {
   );
 
   const handleTransactionRowAction = (action: string, row: AdminTableRow) => {
+    if (action === "Settle") {
+      const transaction = transactions.find((item) => item.transaction_id === row.id);
+      if (!canReviewPayments || !transaction || Number(transaction.balance ?? 0) <= 0) return;
+      setCashReservationId(transaction.reservation_id);
+      setCashAmount(Number(transaction.balance).toFixed(2));
+      setCashReference(`CASH-${crypto.randomUUID().slice(0, 12).toUpperCase()}`);
+      setCashError(null);
+      return;
+    }
     if (action !== "View") {
       return;
     }
@@ -442,6 +467,24 @@ export default function AdminTransactionsPage() {
     }
   };
 
+  const submitCashPayment = async () => {
+    if (!cashReservationId || cashBusy) return;
+    setCashBusy(true); setCashError(null);
+    try {
+      const response = await fetch("/api/admin/payments/manual-entry", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reservationId: cashReservationId, amount: Number(cashAmount),
+          paymentMethod: "cash", paymentReference: cashReference.trim() }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message ?? "Unable to record cash payment.");
+      setCashMessage(`Payment recorded for ${reservationReferencesById[cashReservationId] ?? "reservation"}. A new receipt was issued in the guest's name.`);
+      setCashReservationId(null);
+      setRefreshRevision((revision) => revision + 1);
+    } catch (cause) { setCashError(cause instanceof Error ? cause.message : "Unable to record cash payment."); }
+    finally { setCashBusy(false); }
+  };
+
   const closePaymentReview = () => {
     if (isSubmittingReview) return;
     proofRequestId.current += 1;
@@ -495,6 +538,7 @@ export default function AdminTransactionsPage() {
       setReviewPayment(null);
       setReviewDecision(null);
       setProofUrl(null);
+      setRefreshRevision((revision) => revision + 1);
     } catch {
       try {
         const updated = await reconcilePaymentStatus(paymentId);
@@ -671,7 +715,7 @@ export default function AdminTransactionsPage() {
 
       const { data: receiptRecord, error: receiptError } = await supabase
         .from("receipts")
-        .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment")
+        .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name")
         .eq("receipt_id", receiptId)
         .maybeSingle<ReceiptDetailReceiptRow>();
 
@@ -738,7 +782,7 @@ export default function AdminTransactionsPage() {
           { label: "Transaction Total at Time", value: formatCurrency(Number(receiptRecord.transaction_total_at_time ?? 0)) },
           { label: "Balance After Payment", value: formatCurrency(Number(receiptRecord.balance_after_payment ?? 0)) },
           { label: "Reservation Ref", value: reservationRecord.reference_number ?? "-" },
-          { label: "Guest", value: guestName || "-" },
+          { label: "Billed To", value: receiptRecord.billed_to_name || guestName || "-" },
           { label: "Guest Email", value: guestRecord?.email ?? "-" },
           { label: "Booking Type", value: toTitleCase(reservationRecord.booking_type ?? "online") },
           { label: "Reservation Status", value: toTitleCase(reservationRecord.status ?? "pending") },
@@ -778,6 +822,7 @@ export default function AdminTransactionsPage() {
           {fetchError}
         </p>
       ) : null}
+      {cashMessage && <p role="status" className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-neutral">{cashMessage}</p>}
 
       <section className="mt-6 rounded-2xl border border-neutral/10 bg-white p-4">
         <div className="mb-4 flex flex-wrap gap-2 border-b border-neutral/10 pb-4">
@@ -806,8 +851,17 @@ export default function AdminTransactionsPage() {
             rows={transactionRows}
             defaultSort={{ key: "updatedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid"] }]}
-            actions={["Post Payment", "Export Ledger"]}
-            rowActions={["View", "Settle"]}
+            actions={canReviewPayments ? ["Post Payment", "Export Ledger"] : ["Export Ledger"]}
+            rowActions={canReviewPayments ? ["View", "Settle"] : ["View"]}
+            onAction={(action) => {
+              if (action !== "Post Payment" || !canReviewPayments) return;
+              const first = transactions.find((transaction) => Number(transaction.balance ?? 0) > 0);
+              if (!first) { setFetchError("No reservation has an outstanding balance."); return; }
+              setCashReservationId(first.reservation_id);
+              setCashAmount(Number(first.balance).toFixed(2));
+              setCashReference(`CASH-${crypto.randomUUID().slice(0, 12).toUpperCase()}`);
+              setCashError(null);
+            }}
             onRowAction={handleTransactionRowAction}
           />
         )}
@@ -856,6 +910,7 @@ export default function AdminTransactionsPage() {
             onRowAction={handleReceiptRowAction}
           />
         )}
+        {activeTab === "Refund Requests" && <RefundRequestsPanel />}
       </section>
 
       <InvoiceDetailsModal
@@ -871,6 +926,22 @@ export default function AdminTransactionsPage() {
       />
 
       {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)} /> : null}
+
+      {cashReservationId && <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/50 p-4" role="dialog" aria-modal="true" aria-label="Record cash payment">
+        <form className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl" onSubmit={(event) => { event.preventDefault(); void submitCashPayment(); }}>
+          <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Record cash payment</h2><p className="text-sm text-neutral/70">A separate receipt is issued for this payment under the reservation guest.</p></div><button type="button" onClick={() => setCashReservationId(null)}>Close</button></div>
+          <label className="block text-sm">Reservation<select value={cashReservationId} onChange={(event) => {
+            const next = transactions.find((item) => item.reservation_id === event.target.value);
+            setCashReservationId(event.target.value); setCashAmount(Number(next?.balance ?? 0).toFixed(2));
+          }} className="mt-1 w-full rounded-lg border p-2">
+            {transactions.filter((item) => Number(item.balance ?? 0) > 0).map((item) => <option key={item.reservation_id} value={item.reservation_id}>{reservationReferencesById[item.reservation_id] ?? item.reservation_id} · balance {formatCurrency(Number(item.balance ?? 0))}</option>)}
+          </select></label>
+          <label className="block text-sm">Amount received<input type="number" min="0.01" max={Number(transactions.find((item) => item.reservation_id === cashReservationId)?.balance ?? 0)} step="0.01" required value={cashAmount} onChange={(event) => setCashAmount(event.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label>
+          <label className="block text-sm">Cash reference<input required value={cashReference} onChange={(event) => setCashReference(event.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label>
+          {cashError && <p role="alert" className="rounded bg-red-50 p-2 text-sm">{cashError}</p>}
+          <button disabled={cashBusy || !Number.isFinite(Number(cashAmount)) || Number(cashAmount) <= 0} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base disabled:opacity-50">{cashBusy ? "Recording..." : "Record payment and issue receipt"}</button>
+        </form>
+      </div>}
 
       {reviewPayment && (
         <PaymentReviewModal

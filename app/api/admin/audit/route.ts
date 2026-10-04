@@ -9,6 +9,7 @@ interface AuditLogRow {
   entity_type: string | null;
   entity_id: string | null;
   attempted_email: string | null;
+  details: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -39,7 +40,7 @@ export async function GET() {
 
     const { data: logsData, error: logsError } = await staffContext.supabase
       .from("audit_logs")
-      .select("log_id, user_id, auth_user_id, action, entity_type, entity_id, attempted_email, created_at")
+      .select("log_id, user_id, auth_user_id, action, entity_type, entity_id, attempted_email, details, created_at")
       .order("created_at", { ascending: false })
       .limit(300);
 
@@ -96,6 +97,7 @@ export async function GET() {
       module: log.entity_type ? log.entity_type.replace(/_/g, " ") : "General",
       action: log.action,
       record: log.entity_id ?? log.attempted_email ?? "-",
+      details: log.details ? JSON.stringify(log.details, null, 2) : "",
       timestamp: log.created_at,
     }));
 

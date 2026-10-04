@@ -34,6 +34,7 @@ export default function AdminAuditPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [rows, setRows] = useState<AdminTableRow[]>([]);
+  const [selected, setSelected] = useState<AdminTableRow | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -115,7 +116,15 @@ export default function AdminAuditPage() {
         ]}
         actions={["Export Log"]}
         rowActions={["View Details"]}
+        onRowAction={(_, row) => setSelected(row)}
       />
+      {selected && <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/50 p-4" role="dialog" aria-modal="true" aria-label="Audit details" onClick={() => setSelected(null)}>
+        <div className="max-h-[85vh] w-full max-w-xl overflow-auto rounded-xl bg-white p-5" onClick={(event) => event.stopPropagation()}>
+          <div className="flex justify-between gap-4"><h2 className="text-lg font-semibold">{selected.action}</h2><button onClick={() => setSelected(null)}>Close</button></div>
+          <p className="mt-2 text-sm">Actor: {selected.staff}</p><p className="text-sm">Record: {selected.record}</p><p className="text-sm">Time: {selected.timestamp}</p>
+          <pre className="mt-4 overflow-auto whitespace-pre-wrap rounded bg-base p-3 text-xs">{selected.details || "No additional details recorded."}</pre>
+        </div>
+      </div>}
     </div>
   );
 }
