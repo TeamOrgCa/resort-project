@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import type { AdminTableColumn, AdminTableRow, AdminTableSort } from "@/components/admin/types";
+import ReportPeriodFilter, { defaultReportDateRange, type ReportDateRange, type ReportPeriod } from "@/components/admin/ReportPeriodFilter";
 
 type ReportTab = "Sales Report" | "Financial Report" | "Guest Report" | "Staff Report";
-type PeriodFilter = "Daily" | "Weekly" | "Monthly";
+type PeriodFilter = ReportPeriod;
 
 interface ReportData {
   trend: { label: string; value: number }[];
@@ -54,8 +55,9 @@ const reportTables: Record<ReportTab, ReportTableConfig> = {
 const emptyReport: ReportData = { trend: [], split: [], rows: [] };
 
 /** Fetches one report from the authenticated server endpoint. */
-const fetchReport = async (tab: ReportTab, period: PeriodFilter): Promise<ReportData> => {
+const fetchReport = async (tab: ReportTab, period: PeriodFilter, range: ReportDateRange): Promise<ReportData> => {
   const params = new URLSearchParams({ tab, period });
+  if (period === "Custom") { params.set("startDate", range.startDate); params.set("endDate", range.endDate); }
   const response = await fetch(`/api/admin/reports?${params.toString()}`, { cache: "no-store" });
   const payload = (await response.json().catch(() => null)) as ReportResponse | null;
 
@@ -72,6 +74,7 @@ const formatChartValue = (value: number) => `₱${value.toLocaleString("en-PH", 
 export default function AdminReportsPage() {
   const [activeTab, setActiveTab] = useState<ReportTab>("Sales Report");
   const [period, setPeriod] = useState<PeriodFilter>("Daily");
+  const [customRange, setCustomRange] = useState<ReportDateRange>(defaultReportDateRange);
   const [report, setReport] = useState<ReportData>(emptyReport);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -84,7 +87,7 @@ export default function AdminReportsPage() {
       setFetchError(null);
 
       try {
-        const nextReport = await fetchReport(activeTab, period);
+        const nextReport = await fetchReport(activeTab, period, customRange);
         if (isMounted) setReport(nextReport);
       } catch (error) {
         if (!isMounted) return;
@@ -99,7 +102,9 @@ export default function AdminReportsPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeTab, period]);
+  }, [activeTab, period, customRange]);
+
+  const periodLabel = period === "Custom" ? `${customRange.startDate} through ${customRange.endDate}` : period;
 
   const splitTotal = useMemo(() => report.split.reduce((total, item) => total + item.value, 0), [report.split]);
   const maxTrendValue = Math.max(...report.trend.map((point) => point.value), 1);
@@ -135,21 +140,14 @@ export default function AdminReportsPage() {
             ))}
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-neutral/70">
-            <span>Period</span>
-            <select value={period} onChange={(event) => setPeriod(event.target.value as PeriodFilter)} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral">
-              <option value="Daily">Daily</option>
-              <option value="Weekly">Weekly</option>
-              <option value="Monthly">Monthly</option>
-            </select>
-          </label>
+          <ReportPeriodFilter period={period} range={customRange} onPeriodChange={setPeriod} onRangeChange={setCustomRange} />
         </div>
 
         <p className="mb-4 text-sm text-neutral/70">{tabDescription}</p>
 
         <div className="grid gap-4 lg:grid-cols-3">
           <article className="rounded-2xl border border-neutral/10 bg-base p-4 lg:col-span-2">
-            <h3 className="text-sm font-semibold text-neutral">{activeTab} Trend ({period})</h3>
+            <h3 className="text-sm font-semibold text-neutral">{activeTab} Trend ({periodLabel})</h3>
             {isLoading ? <div className="mt-6 text-sm text-neutral/60">Loading report...</div> : report.trend.length === 0 ? <div className="mt-6 text-sm text-neutral/60">No records found for this period.</div> : (
               <div className="mt-3 grid grid-cols-7 gap-2">
                 {report.trend.map((point) => (
@@ -172,7 +170,7 @@ export default function AdminReportsPage() {
         </div>
 
         <div className="mt-6">
-          <AdminTablePreview title={`${activeTab} Snapshot (${period})`} columns={tableConfig.columns} rows={report.rows} defaultSort={tableConfig.defaultSort} actions={["Generate Report", "Export CSV"]} rowActions={["Open"]} />
+          <AdminTablePreview title={`${activeTab} Snapshot (${periodLabel})`} columns={tableConfig.columns} rows={report.rows} defaultSort={tableConfig.defaultSort} actions={["Generate Report", "Export CSV"]} rowActions={["Open"]} />
         </div>
       </section>
     </div>

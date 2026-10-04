@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ManualBookingDialog from "@/components/admin/ManualBookingDialog";
-import { scheduleBlocksRows } from "@/components/admin/content";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import { createClient } from "@/lib/supabase/client";
 
@@ -40,6 +39,7 @@ type Guest = {
 };
 
 type WalkInGuest = Omit<Guest, "id"> & { walk_in_guest_id: string };
+type MaintenanceBlock = { block_id: string; name: string; reason: string; start_date: string; end_date: string; status: string };
 type EventKind = "reservation" | "ocular" | "maintenance" | "attention";
 
 type CalendarEvent = {
@@ -76,6 +76,15 @@ export default function ReservationCalendar() {
   const [month, setMonth] = useState(() => new Date());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [ocularVisits, setOcularVisits] = useState<OcularVisit[]>([]);
+  const [maintenanceBlocks, setMaintenanceBlocks] = useState<MaintenanceBlock[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showBlockForm, setShowBlockForm] = useState(false);
+  const [blockName, setBlockName] = useState("");
+  const [blockReason, setBlockReason] = useState("");
+  const [blockStart, setBlockStart] = useState("");
+  const [blockEnd, setBlockEnd] = useState("");
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [blockMessage, setBlockMessage] = useState<string | null>(null);
   const [guests, setGuests] = useState<Record<string, Guest>>({});
   const [walkInGuests, setWalkInGuests] = useState<Record<string, WalkInGuest>>({});
   const [searchTerm, setSearchTerm] = useState("");
@@ -108,12 +117,14 @@ export default function ReservationCalendar() {
         const supabase = createClient();
         const gridStart = dateKey(startOfMonthGrid(month));
         const gridEnd = dateKey(addDays(startOfMonthGrid(month), 42));
-        const [{ data: reservationData, error: reservationError }, { data: ocularData, error: ocularError }] = await Promise.all([
+        const [{ data: reservationData, error: reservationError }, { data: ocularData, error: ocularError }, blocksResponse] = await Promise.all([
           supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at").neq("status", "expired").lt("start_datetime", `${gridEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(300),
           supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, status").gte("scheduled_date", gridStart).lt("scheduled_date", gridEnd).order("scheduled_date", { ascending: true }).limit(300),
+          fetch(`/api/admin/maintenance-blocks?start=${gridStart}&end=${gridEnd}`, { cache: "no-store" }),
         ]);
 
-        if (reservationError || ocularError) throw reservationError ?? ocularError;
+        if (reservationError || ocularError || !blocksResponse.ok) throw reservationError ?? ocularError ?? new Error("Unable to load maintenance blocks.");
+        const blocksPayload = await blocksResponse.json() as { blocks?: MaintenanceBlock[] };
 
         const reservationRows = (reservationData as Reservation[] | null) ?? [];
         const ocularRows = (ocularData as OcularVisit[] | null) ?? [];
@@ -129,6 +140,7 @@ export default function ReservationCalendar() {
 
         setReservations(reservationRows);
         setOcularVisits(ocularRows);
+        setMaintenanceBlocks(blocksPayload.blocks ?? []);
         setGuests(((guestData as Guest[] | null) ?? []).reduce<Record<string, Guest>>((map, guest) => ({ ...map, [guest.id]: guest }), {}));
         setWalkInGuests(((walkInData as WalkInGuest[] | null) ?? []).reduce<Record<string, WalkInGuest>>((map, guest) => ({ ...map, [guest.walk_in_guest_id]: guest }), {}));
       } catch {
@@ -154,6 +166,44 @@ export default function ReservationCalendar() {
       window.removeEventListener("focus", onFocus);
     };
   }, [month]);
+
+  useEffect(() => {
+    void (async () => {
+      const client = createClient();
+      const { data: { user } } = await client.auth.getUser();
+      if (!user) return;
+      const { data } = await client.from("staff_users").select("role, is_active").eq("id", user.id).maybeSingle();
+      setIsAdmin(data?.role === "admin" && data.is_active === true);
+    })();
+  }, []);
+
+  const saveBlock = async () => {
+    setBlockBusy(true); setBlockMessage(null);
+    try {
+      const response = await fetch("/api/admin/maintenance-blocks", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: blockName, reason: blockReason, startDate: blockStart, endDate: blockEnd }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message ?? "Unable to create block.");
+      setBlockMessage(result.message ?? "Dates blocked and guest alerts created.");
+      setShowBlockForm(false);
+      const refreshed = await fetch("/api/admin/maintenance-blocks", { cache: "no-store" });
+      const payload = await refreshed.json();
+      if (refreshed.ok) setMaintenanceBlocks(payload.blocks ?? []);
+    } catch (error) { setBlockMessage(error instanceof Error ? error.message : "Unable to create block."); }
+    finally { setBlockBusy(false); }
+  };
+
+  const releaseBlock = async (blockId: string) => {
+    setBlockBusy(true); setBlockMessage(null);
+    try {
+      const response = await fetch("/api/admin/maintenance-blocks", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blockId }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message ?? "Unable to release block.");
+      setMaintenanceBlocks((blocks) => blocks.map((block) => block.block_id === blockId ? { ...block, status: "released" } : block));
+      setSelectedEvent(null); setBlockMessage("Maintenance block released.");
+    } catch (error) { setBlockMessage(error instanceof Error ? error.message : "Unable to release block."); }
+    finally { setBlockBusy(false); }
+  };
 
   const calendarEvents = useMemo<CalendarEvent[]>(() => {
     const gridStart = dateKey(startOfMonthGrid(month));
@@ -191,15 +241,16 @@ export default function ReservationCalendar() {
       reference: visit.reference_number,
       status: visit.status,
     }));
-    const maintenanceEvents = scheduleBlocksRows.filter((row) => row.type === "Maintenance").map((row) => ({
-      id: String(row.id),
-      kind: "maintenance" as const,
-      date: row.date ?? "",
-      label: row.reason ?? "Maintenance",
-      status: row.status,
-    }));
+    const maintenanceEvents = maintenanceBlocks.filter((block) => block.status === "active").flatMap((block) => {
+      const events: CalendarEvent[] = [];
+      for (let day = new Date(`${block.start_date}T00:00:00Z`); day <= new Date(`${block.end_date}T00:00:00Z`); day = addDaysUtc(day, 1)) {
+        events.push({ id: `${block.block_id}:${day.toISOString().slice(0, 10)}`, kind: "maintenance",
+          date: day.toISOString().slice(0, 10), label: block.name, reference: block.reason, status: "blocked" });
+      }
+      return events;
+    });
     return [...reservationEvents, ...ocularEvents, ...maintenanceEvents].filter((event) => event.date);
-  }, [guests, month, now, ocularVisits, reservations, walkInGuests]);
+  }, [guests, maintenanceBlocks, month, now, ocularVisits, reservations, walkInGuests]);
 
   const eventsByDay = useMemo(() => calendarEvents.reduce<Record<string, CalendarEvent[]>>((map, event) => {
     map[event.date] = [...(map[event.date] ?? []), event];
@@ -255,8 +306,19 @@ export default function ReservationCalendar() {
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" strokeWidth="2" /><path strokeLinecap="round" strokeWidth="2" d="m16 16 4 4" /></svg>
           </button>
           <button type="button" onClick={() => setIsManualBookingOpen(true)} className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-base shadow-sm hover:bg-primary/90">+ New Reservation</button>
+          {isAdmin && <button type="button" onClick={() => setShowBlockForm((open) => !open)} className="rounded-lg border border-neutral/20 px-3 py-2 text-xs font-semibold">+ Maintenance Block</button>}
         </div>
       </header>
+
+      {blockMessage && <p role="status" className="mb-4 rounded-lg bg-orange-50 p-3 text-sm text-neutral">{blockMessage}</p>}
+      {showBlockForm && <form className="mb-5 grid gap-3 rounded-xl border border-neutral/10 bg-white p-4 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); void saveBlock(); }}>
+        <label className="text-sm">Name<input required maxLength={120} value={blockName} onChange={(event) => setBlockName(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
+        <label className="text-sm">Reason / guest announcement<input required maxLength={2000} value={blockReason} onChange={(event) => setBlockReason(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
+        <label className="text-sm">Start date<input required type="date" value={blockStart} onChange={(event) => setBlockStart(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
+        <label className="text-sm">End date<input required type="date" min={blockStart} value={blockEnd} onChange={(event) => setBlockEnd(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
+        <p className="text-xs text-neutral/60 sm:col-span-2">Existing active reservations prevent a block. Every registered guest receives an in-app alert.</p>
+        <button disabled={blockBusy} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base disabled:opacity-50">{blockBusy ? "Creating..." : "Block dates and alert guests"}</button>
+      </form>}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         {[
@@ -390,6 +452,8 @@ export default function ReservationCalendar() {
                 <p>Reference: {selectedEvent.reference ?? "-"}</p>
                 <p>Date: {selectedEvent.date}</p>
                 <p>Status: {titleCase(selectedEvent.status ?? "scheduled")}</p>
+                {selectedEvent.kind === "maintenance" && <p>Reason: {selectedEvent.reference}</p>}
+                {isAdmin && selectedEvent.kind === "maintenance" && <button type="button" disabled={blockBusy} onClick={() => void releaseBlock(selectedEvent.id.split(":")[0])} className="rounded-lg border px-3 py-2 text-sm">Release block</button>}
               </div>
             )}
           </div>

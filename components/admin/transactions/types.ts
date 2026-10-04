@@ -122,6 +122,7 @@ export interface ReceiptRow {
   issued_at: string;
   is_active: boolean | null;
   archived_at: string | null;
+  billed_to_name: string | null;
 }
 
 export interface PaymentRow {
@@ -140,6 +141,7 @@ export interface ReceiptDetailReceiptRow {
   amount_paid: number | null;
   transaction_total_at_time: number | null;
   balance_after_payment: number | null;
+  billed_to_name: string | null;
 }
 
 export interface ReceiptDetailPaymentRow {

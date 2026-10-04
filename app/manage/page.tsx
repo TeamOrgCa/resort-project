@@ -9,6 +9,7 @@ import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
+import GuestRefundStatus from "@/components/GuestRefundStatus";
 
 type ManageTab = "bookings" | "ocular";
 type RecordMode = "view" | "edit" | "reschedule" | null;
@@ -280,6 +281,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [selectedAddServiceId, setSelectedAddServiceId] = useState("");
   const [addServiceQuantity, setAddServiceQuantity] = useState("1");
   const [serviceEditError, setServiceEditError] = useState<string | null>(null);
+  const [serviceEditMessage, setServiceEditMessage] = useState<string | null>(null);
   const [isSavingServices, setIsSavingServices] = useState(false);
   const [rescheduleFormError, setRescheduleFormError] = useState<string | null>(null);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
@@ -420,7 +422,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         },
         body: JSON.stringify({
           reservationId,
-          acceptedNoRefundPolicy: true,
         }),
       });
 
@@ -480,11 +481,11 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         }),
       });
 
-      let result: { success?: boolean; message?: string; errorCode?: string | null } | null = null;
+      let result: { success?: boolean; message?: string; errorCode?: string | null; totalAmount?: number; paidAmount?: number; remainingBalance?: number } | null = null;
       let rawText = "";
 
       try {
-        result = (await response.json()) as { success?: boolean; message?: string; errorCode?: string | null };
+        result = (await response.json()) as { success?: boolean; message?: string; errorCode?: string | null; totalAmount?: number; paidAmount?: number; remainingBalance?: number };
       } catch {
         rawText = await response.text().catch(() => "");
       }
@@ -502,31 +503,17 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         [selectedBooking.id]: editableServices,
       }));
 
-      const supabase = createClient();
-      const { data: transactionRow } = await supabase
-        .from("transactions")
-        .select("total_amount")
-        .eq("reservation_id", selectedBooking.id)
-        .maybeSingle<{ total_amount: number }>();
-
-      if (transactionRow) {
-        setBookings((currentBookings) =>
-          currentBookings.map((booking) =>
-            booking.id === selectedBooking.id
-              ? {
-                  ...booking,
-                  totalAmount: Number(transactionRow.total_amount ?? booking.totalAmount),
-                  remainingBalance: Math.max(
-                    Number(transactionRow.total_amount ?? booking.totalAmount) - Number(booking.paidAmount ?? 0),
-                    0
-                  ),
-                }
-              : booking
-          )
-        );
-      }
+      setBookings((currentBookings) => currentBookings.map((booking) =>
+        booking.id === selectedBooking.id ? {
+          ...booking,
+          totalAmount: Number(result.totalAmount ?? booking.totalAmount),
+          paidAmount: Number(result.paidAmount ?? booking.paidAmount),
+          remainingBalance: Number(result.remainingBalance ?? booking.remainingBalance),
+        } : booking
+      ));
 
       setRecordMode("view");
+      setServiceEditMessage(result.message ?? "Services added to your bill.");
     } catch {
       setServiceEditError("Failed to update services.");
     } finally {
@@ -936,6 +923,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             {activeTab === "bookings" && (
               <>
                 <h2 className="text-2xl font-bold text-neutral mb-4">Your Booking Records</h2>
+                <GuestRefundStatus />
                 {cancelError ? (
                   <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
                     {cancelError}
@@ -987,6 +975,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                                   setSelectedBookingId(record.id);
                                   setRecordMode("edit");
                                   setServiceEditError(null);
+                                  setServiceEditMessage(null);
                                   setSelectedAddServiceId("");
                                   setAddServiceQuantity("1");
                                   setEditableServices(
@@ -1088,6 +1077,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
                 {recordMode === "view" && selectedBooking && (
                   <div className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5">
+                    {serviceEditMessage && <p role="status" className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-neutral">{serviceEditMessage}</p>}
                     <h3 className="text-lg font-semibold text-neutral mb-3">Booking Details</h3>
                     <div className="grid gap-3 md:grid-cols-2 text-sm text-neutral/80">
                       <p>
@@ -1512,7 +1502,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       <ConfirmationDialog
         isOpen={Boolean(pendingCancellation)}
         title="Cancel Booking"
-        message={`Cancel booking ${pendingCancellation?.reference ?? ""}? This action follows the no-refund policy and can only be requested at least 2 days before check-in.`}
+        message={`Cancel booking ${pendingCancellation?.reference ?? ""}? Cancellation is available at least 2 days before check-in. If a payment was verified, a refund request will be created for admin review under the cancellation policy.`}
         confirmText="Confirm Cancel"
         cancelText="Keep Booking"
         isConfirming={isCancellingBooking}

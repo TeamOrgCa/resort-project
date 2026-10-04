@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import type { AdminTableColumn, AdminTableRow, AdminTableSort } from "@/components/admin/types";
+import ReportPeriodFilter, { defaultReportDateRange, type ReportDateRange, type ReportPeriod } from "@/components/admin/ReportPeriodFilter";
 
 type AnalyticsTab = "Booking Trend Analysis" | "Revenue Forecasting" | "Performance Signals" | "Guest Feedback Sentiment";
-type PeriodFilter = "Daily" | "Weekly" | "Monthly";
+type PeriodFilter = ReportPeriod;
 
 type ChartData = { trend: { label: string; value: number }[]; split: { label: string; value: number }[]; rows: AdminTableRow[] };
 type SentimentData = { overallSentiment: string; positivePercent: number; neutralPercent: number; negativePercent: number; themes: string[]; summary: string };
@@ -47,8 +48,10 @@ const emptyChart: ChartData = { trend: [], split: [], rows: [] };
 const emptySentiment: SentimentData = { overallSentiment: "Not analyzed", positivePercent: 0, neutralPercent: 0, negativePercent: 0, themes: [], summary: "Run sentiment analysis to evaluate approved guest feedback." };
 
 /** Requests the live analytics snapshot for the selected time window. */
-const fetchAnalytics = async (period: PeriodFilter) => {
-  const response = await fetch(`/api/admin/analytics?period=${period}`, { cache: "no-store" });
+const fetchAnalytics = async (period: PeriodFilter, range: ReportDateRange) => {
+  const params = new URLSearchParams({ period });
+  if (period === "Custom") { params.set("startDate", range.startDate); params.set("endDate", range.endDate); }
+  const response = await fetch(`/api/admin/analytics?${params}`, { cache: "no-store" });
   const payload = (await response.json().catch(() => null)) as AnalyticsResponse | null;
   if (!response.ok || !payload?.success || !payload.reports) throw new Error(payload?.message ?? "Failed to load analytics.");
   return payload.reports;
@@ -68,7 +71,7 @@ const exportRows = (tab: AnalyticsTab, rows: AdminTableRow[], columns: AdminTabl
 /** Builds a print-friendly report so the browser can save the current view as a PDF. */
 const exportPdf = (
   tab: AnalyticsTab,
-  period: PeriodFilter,
+  period: string,
   rows: AdminTableRow[],
   columns: AdminTableColumn[],
   sentiment: SentimentData
@@ -110,6 +113,7 @@ const formatValue = (value: number) => `₱${value.toLocaleString("en-PH", { max
 export default function AdminAnalyticsPage() {
   const [activeTab, setActiveTab] = useState<AnalyticsTab>("Booking Trend Analysis");
   const [period, setPeriod] = useState<PeriodFilter>("Daily");
+  const [customRange, setCustomRange] = useState<ReportDateRange>(defaultReportDateRange);
   const [reports, setReports] = useState<{ booking: ChartData; revenue: ChartData; performance: ChartData }>({ booking: emptyChart, revenue: emptyChart, performance: emptyChart });
   const [sentiment, setSentiment] = useState<SentimentData>(emptySentiment);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,12 +124,15 @@ export default function AdminAnalyticsPage() {
     let mounted = true;
     setIsLoading(true);
     setError(null);
-    void fetchAnalytics(period)
+    setSentiment(emptySentiment);
+    void fetchAnalytics(period, customRange)
       .then((nextReports) => { if (mounted) setReports(nextReports); })
       .catch((loadError: unknown) => { if (mounted) setError(loadError instanceof Error ? loadError.message : "Failed to load analytics."); })
       .finally(() => { if (mounted) setIsLoading(false); });
     return () => { mounted = false; };
-  }, [period]);
+  }, [period, customRange]);
+
+  const periodLabel = period === "Custom" ? `${customRange.startDate} through ${customRange.endDate}` : period;
 
   const chartData = activeTab === "Booking Trend Analysis" ? reports.booking : activeTab === "Revenue Forecasting" ? reports.revenue : activeTab === "Performance Signals" ? reports.performance : emptyChart;
   const sentimentRows: AdminTableRow[] = [
@@ -150,7 +157,7 @@ export default function AdminAnalyticsPage() {
     setIsActionRunning(true);
     setError(null);
     try {
-      const response = await fetch("/api/admin/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, period }) });
+      const response = await fetch("/api/admin/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, period, ...(period === "Custom" ? customRange : {}) }) });
       const payload = (await response.json().catch(() => null)) as ActionResponse | null;
       if (!response.ok || !payload?.success) throw new Error(payload?.message ?? "Analytics action failed.");
       if (action === "forecast" && payload.report) setReports((current) => ({ ...current, revenue: payload.report as ChartData }));
@@ -168,7 +175,7 @@ export default function AdminAnalyticsPage() {
       return;
     }
     if (action === "Export PDF") {
-      exportPdf(activeTab, period, visibleRows, tableConfig.columns, sentiment);
+      exportPdf(activeTab, periodLabel, visibleRows, tableConfig.columns, sentiment);
       return;
     }
     if (action === "Run Forecast") await runAction("forecast");
@@ -182,13 +189,13 @@ export default function AdminAnalyticsPage() {
       <section className="rounded-2xl border border-neutral/10 bg-white p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-neutral/10 pb-4">
           <div className="flex flex-wrap gap-2">{analyticsTabs.map((tab) => <button key={tab.title} type="button" onClick={() => setActiveTab(tab.title)} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === tab.title ? "bg-primary text-base" : "bg-base text-neutral hover:bg-neutral/10"}`}>{tab.title}</button>)}</div>
-          <label className="flex items-center gap-2 text-sm text-neutral/70"><span>Period</span><select value={period} onChange={(event) => setPeriod(event.target.value as PeriodFilter)} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral"><option value="Daily">Daily</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option></select></label>
+          <ReportPeriodFilter period={period} range={customRange} onPeriodChange={setPeriod} onRangeChange={setCustomRange} />
         </div>
         <p className="mb-4 text-sm text-neutral/70">{analyticsTabs.find((tab) => tab.title === activeTab)?.description}</p>
 
-        {activeTab === "Guest Feedback Sentiment" ? <article className="rounded-2xl border border-neutral/10 bg-base p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm text-neutral/70">Overall sentiment</p><p className="mt-1 text-3xl font-bold text-primary">{sentiment.overallSentiment}</p></div><button type="button" onClick={() => void runAction("sentiment")} disabled={isActionRunning} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base disabled:opacity-50">{isActionRunning ? "Analyzing..." : "Analyze Feedback"}</button></div><p className="mt-4 text-sm text-neutral/80">{sentiment.summary}</p><div className="mt-4 flex flex-wrap gap-2">{sentiment.themes.map((theme) => <span key={theme} className="rounded-full bg-white px-3 py-1 text-xs text-neutral">{theme}</span>)}</div></article> : <div className="grid gap-4 lg:grid-cols-3"><article className="rounded-2xl border border-neutral/10 bg-base p-4 lg:col-span-2"><h3 className="text-sm font-semibold text-neutral">{activeTab} Trend ({period})</h3>{isLoading ? <div className="mt-6 text-sm text-neutral/60">Loading analytics...</div> : chartData.trend.length === 0 ? <div className="mt-6 text-sm text-neutral/60">No records found for this period.</div> : <div className="mt-3 grid grid-cols-7 gap-2">{chartData.trend.map((point) => <div key={point.label} className="flex flex-col items-center gap-2"><div className="flex h-32 w-full items-end rounded-lg bg-white px-2 py-2"><div className="w-full rounded-md bg-accent" style={{ height: `${(point.value / maxTrend) * 100}%` }} /></div><p className="text-center text-xs text-neutral/70">{formatValue(point.value)}<br />{point.label}</p></div>)}</div>}</article><article className="rounded-2xl border border-neutral/10 bg-base p-4"><h3 className="text-sm font-semibold text-neutral">Signal Split</h3><div className="mx-auto mt-3 h-36 w-36 rounded-full" style={{ background: `conic-gradient(${pieStops})` }} />{chartData.split.length === 0 ? <p className="mt-3 text-xs text-neutral/60">No records found.</p> : <ul className="mt-3 space-y-1 text-xs text-neutral/80">{chartData.split.map((item) => <li key={item.label}>{item.label}: {Math.round((item.value / splitTotal) * 100)}%</li>)}</ul>}</article></div>}
+        {activeTab === "Guest Feedback Sentiment" ? <article className="rounded-2xl border border-neutral/10 bg-base p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm text-neutral/70">Overall sentiment</p><p className="mt-1 text-3xl font-bold text-primary">{sentiment.overallSentiment}</p></div><button type="button" onClick={() => void runAction("sentiment")} disabled={isActionRunning} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base disabled:opacity-50">{isActionRunning ? "Analyzing..." : "Analyze Feedback"}</button></div><p className="mt-4 text-sm text-neutral/80">{sentiment.summary}</p><div className="mt-4 flex flex-wrap gap-2">{sentiment.themes.map((theme) => <span key={theme} className="rounded-full bg-white px-3 py-1 text-xs text-neutral">{theme}</span>)}</div></article> : <div className="grid gap-4 lg:grid-cols-3"><article className="rounded-2xl border border-neutral/10 bg-base p-4 lg:col-span-2"><h3 className="text-sm font-semibold text-neutral">{activeTab} Trend ({periodLabel})</h3>{isLoading ? <div className="mt-6 text-sm text-neutral/60">Loading analytics...</div> : chartData.trend.length === 0 ? <div className="mt-6 text-sm text-neutral/60">No records found for this period.</div> : <div className="mt-3 grid grid-cols-7 gap-2">{chartData.trend.map((point) => <div key={point.label} className="flex flex-col items-center gap-2"><div className="flex h-32 w-full items-end rounded-lg bg-white px-2 py-2"><div className="w-full rounded-md bg-accent" style={{ height: `${(point.value / maxTrend) * 100}%` }} /></div><p className="text-center text-xs text-neutral/70">{formatValue(point.value)}<br />{point.label}</p></div>)}</div>}</article><article className="rounded-2xl border border-neutral/10 bg-base p-4"><h3 className="text-sm font-semibold text-neutral">Signal Split</h3><div className="mx-auto mt-3 h-36 w-36 rounded-full" style={{ background: `conic-gradient(${pieStops})` }} />{chartData.split.length === 0 ? <p className="mt-3 text-xs text-neutral/60">No records found.</p> : <ul className="mt-3 space-y-1 text-xs text-neutral/80">{chartData.split.map((item) => <li key={item.label}>{item.label}: {Math.round((item.value / splitTotal) * 100)}%</li>)}</ul>}</article></div>}
 
-        <div className="mt-6"><AdminTablePreview title={`${activeTab} Snapshot (${period})`} columns={tableConfig.columns} rows={visibleRows} defaultSort={tableConfig.defaultSort} actions={activeTab === "Guest Feedback Sentiment" ? ["Analyze Feedback", "Export Summary", "Export PDF"] : ["Run Forecast", "Export Summary", "Export PDF"]} onAction={(action) => void handleAction(action)} isActionDisabled={(action) => action === "Run Forecast" && activeTab !== "Revenue Forecasting" || isActionRunning} rowActions={[]} /></div>
+        <div className="mt-6"><AdminTablePreview title={`${activeTab} Snapshot (${periodLabel})`} columns={tableConfig.columns} rows={visibleRows} defaultSort={tableConfig.defaultSort} actions={activeTab === "Guest Feedback Sentiment" ? ["Analyze Feedback", "Export Summary", "Export PDF"] : ["Run Forecast", "Export Summary", "Export PDF"]} onAction={(action) => void handleAction(action)} isActionDisabled={(action) => action === "Run Forecast" && activeTab !== "Revenue Forecasting" || isActionRunning} rowActions={[]} /></div>
       </section>
     </div>
   );

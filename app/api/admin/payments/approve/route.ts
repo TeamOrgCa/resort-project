@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { sendReservationConfirmedEmail } from "@/lib/email";
 import { createNotifications } from "@/lib/notifications";
+import { emailBillingDocuments } from "@/lib/server/billing-email";
 
 interface ApprovePaymentPayload {
   paymentId: string;
@@ -17,7 +18,7 @@ interface PaymentRow {
 interface ReservationRow {
   reservation_id: string;
   guest_id: string | null;
-  walk_in_guest_id?: string | null;
+  walk_in_guest_id: string | null;
   reference_number: string;
   start_datetime: string;
   end_datetime: string;
@@ -292,6 +293,13 @@ export async function POST(request: Request) {
       });
     }
 
+    let billingEmails = { receiptSent: false, invoiceSent: false };
+    try {
+      billingEmails = await emailBillingDocuments(staffContext.supabase, reservation, payment.payment_id, Number(payment.amount));
+    } catch (error) {
+      console.error("Unable to email billing documents after payment approval.", error);
+    }
+
     if (reservation.guest_id) {
       const { error: notificationError } = await createNotifications({
         actorId: staffContext.staffUser.id,
@@ -310,11 +318,12 @@ export async function POST(request: Request) {
         success: true,
         message: emailSent
           ? "Payment approved, billing documents generated, and confirmation email sent."
-          : "Payment approved and billing documents generated. Email delivery could not be confirmed.",
+          : "Payment approved and billing documents generated. Confirmation email delivery could not be confirmed.",
         reservationId: reservation.reservation_id,
         remainingBalance: Number(refreshedTransaction?.balance ?? 0),
         overpaidAmount: Number(refreshedTransaction?.overpaid_amount ?? 0),
         emailSent,
+        billingEmails,
       },
       { status: 200 }
     );

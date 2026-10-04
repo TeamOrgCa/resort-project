@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import {
   getClientKey,
   getSafetyResponse,
@@ -8,7 +9,8 @@ import {
   MAX_MESSAGE_LENGTH,
   MAX_OUTPUT_TOKENS,
   normalizeMessage,
-  systemInstruction,
+  instructionForGuestBookings,
+  type GuestBooking,
 } from "@/lib/chatbot/guardrails";
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -49,10 +51,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ reply: safetyResponse });
     }
 
+    let bookings: GuestBooking[] | null = null;
+    const supabase = await createClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (!userError && user) {
+      const { data, error } = await supabase
+        .from("reservations")
+        .select("reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at")
+        .eq("guest_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (!error) bookings = (data ?? []) as GuestBooking[];
+    }
+
     const genAI = new GoogleGenerativeAI(geminiApiKey);
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
-      systemInstruction,
+      systemInstruction: instructionForGuestBookings(bookings, Boolean(user && !userError)),
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens: MAX_OUTPUT_TOKENS,

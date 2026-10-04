@@ -22,14 +22,19 @@ export async function checkReservationOverlap(
 
   if (excludeReservationId) query = query.neq("reservation_id", excludeReservationId);
 
-  const { data, error } = await query;
+  const [reservationResult, blockResult] = await Promise.all([
+    query,
+    createAdminClient().from("maintenance_blocks").select("block_id")
+      .eq("status", "active").lte("start_date", endDay).gte("end_date", startDay).limit(1),
+  ]);
+  const { data, error } = reservationResult;
   const now = Date.now();
   return {
-    conflict: Boolean(data?.some((reservation) =>
+    conflict: Boolean(blockResult.data?.length) || Boolean(data?.some((reservation) =>
       reservation.status !== "pending" ||
       !reservation.payment_deadline_at ||
       new Date(reservation.payment_deadline_at).getTime() > now
     )),
-    error,
+    error: error ?? blockResult.error,
   };
 }

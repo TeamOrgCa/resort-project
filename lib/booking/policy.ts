@@ -1,3 +1,5 @@
+import { manilaDateKey } from "@/lib/booking/manila-date";
+
 export type BookingMode = "day" | "night" | "whole_day" | "custom";
 export type WholeDayVariant = "day_to_night" | "night_to_day";
 
@@ -91,10 +93,7 @@ export const validateBookingWindow = (input: BookingWindowInput): BookingWindowV
       };
     }
 
-    const sameDay =
-      start.getFullYear() === end.getFullYear() &&
-      start.getMonth() === end.getMonth() &&
-      start.getDate() === end.getDate();
+    const sameDay = manilaDateKey(start) === manilaDateKey(end);
 
     if (sameDay && endClock.minutesOfDay <= startClock.minutesOfDay) {
       return {
@@ -127,17 +126,18 @@ export const validateBookingWindow = (input: BookingWindowInput): BookingWindowV
   return { valid: true, durationHours };
 };
 
-export const toIsoLocalDay = (date: Date) => {
+const calendarDateKey = (date: Date) => {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
 
+export const toIsoLocalDay = (date: Date) => manilaDateKey(date);
+
 const atTime = (date: Date, hour: number, minute = 0) => {
-  const next = new Date(date);
-  next.setHours(hour, minute, 0, 0);
-  return next;
+  const clock = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return new Date(`${calendarDateKey(date)}T${clock}:00+08:00`);
 };
 
 export interface BuildBookingWindowInput {
@@ -159,17 +159,17 @@ export const buildBookingWindow = (input: BuildBookingWindowInput) => {
   } else if (input.bookingMode === "night") {
     start = atTime(input.date, 18);
     end = atTime(input.date, 6);
-    end.setDate(end.getDate() + 1);
+    end = new Date(end.getTime() + 86_400_000);
   } else if (input.bookingMode === "whole_day") {
     const variant = input.wholeDayVariant ?? "day_to_night";
     if (variant === "day_to_night") {
       start = atTime(input.date, 8);
       end = atTime(input.date, 6);
-      end.setDate(end.getDate() + 1);
+      end = new Date(end.getTime() + 86_400_000);
     } else {
       start = atTime(input.date, 18);
       end = atTime(input.date, 16);
-      end.setDate(end.getDate() + 1);
+      end = new Date(end.getTime() + 86_400_000);
     }
   } else {
     const startClock = parseClock(input.customStartTime ?? null);

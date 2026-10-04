@@ -4,7 +4,7 @@ import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications
 
 interface CancelPayload {
   reservationId: string;
-  acceptedNoRefundPolicy: boolean;
+  acceptedNoRefundPolicy?: boolean;
 }
 
 interface ReservationCancelRow {
@@ -22,7 +22,7 @@ const parsePayload = (value: unknown): CancelPayload | null => {
 
   const payload = value as Partial<CancelPayload>;
 
-  if (typeof payload.reservationId !== "string" || typeof payload.acceptedNoRefundPolicy !== "boolean") {
+  if (typeof payload.reservationId !== "string") {
     return null;
   }
 
@@ -42,16 +42,6 @@ export async function POST(request: Request) {
         {
           success: false,
           message: "Invalid cancellation request.",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!payload.acceptedNoRefundPolicy) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "You must agree to the no-refund cancellation terms.",
         },
         { status: 400 }
       );
@@ -129,36 +119,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: updateError } = await supabase
-      .from("reservations")
-      .update({
-        status: "cancelled",
-        cancelled_at: new Date().toISOString(),
-        cancellation_reason: "Guest cancellation (no-refund policy accepted).",
-      })
-      .eq("reservation_id", reservation.reservation_id)
-      .eq("guest_id", user.id);
+    const { data: refundId, error: updateError } = await supabase.rpc("cancel_reservation_with_refund", {
+      p_reservation: reservation.reservation_id,
+      p_reason: "Guest requested cancellation",
+      p_admin: false,
+    });
 
     if (updateError) {
       return NextResponse.json(
         {
           success: false,
-          message: "Failed to cancel reservation.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const { error: voidInvoicesError } = await supabase
-      .from("invoices")
-      .update({ status: "void" })
-      .eq("reservation_id", reservation.reservation_id);
-
-    if (voidInvoicesError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Reservation cancelled but failed to void related invoices.",
+          message: updateError.message,
         },
         { status: 500 }
       );
@@ -180,11 +151,23 @@ export async function POST(request: Request) {
       console.warn("Failed to create cancellation notifications:", notificationError);
     }
 
+    if (refundId) {
+      const refundNotice = await createNotifications({
+        actorId: user.id, guestId: reservation.guest_id,
+        staffRoles: ["admin", "cashier"], title: "Refund request pending",
+        message: `A refund request for reservation ${reservation.reference_number} is awaiting review.`,
+        entityType: "refund_request", entityId: refundId,
+        guestActionUrl: "/manage", staffActionUrl: "/admin/transactions",
+      });
+      if (refundNotice.error) console.warn("Failed to create refund notifications:", refundNotice.error);
+    }
+
     return NextResponse.json({
       success: true,
       reservationId: reservation.reservation_id,
       referenceNumber: reservation.reference_number,
-      message: "Reservation cancelled successfully.",
+      refundId,
+      message: refundId ? "Reservation cancelled. Your refund request is pending review." : "Reservation cancelled successfully.",
     });
   } catch {
     return NextResponse.json(

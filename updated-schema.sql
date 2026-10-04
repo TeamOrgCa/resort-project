@@ -1,6 +1,8 @@
--- After this baseline, apply docs/reservation-lifecycle-migration.sql and then
--- docs/first-come-booking-migration.sql to install deadlines, exclusive dates,
--- expiry, auditing, and role-restricted payment review.
+-- After this base schema, apply docs/reservation-lifecycle-migration.sql,
+-- docs/first-come-booking-migration.sql, then
+-- docs/maintenance-refunds-migration.sql, then
+-- docs/additional-services-billing-migration.sql for maintenance dates,
+-- refunds, added service charges, and named payment receipts.
 -- =========================
 -- STAFF USERS
 -- =========================

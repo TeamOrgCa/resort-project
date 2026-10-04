@@ -1,5 +1,6 @@
 import { BookingMode } from "@/lib/booking/policy";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
+import { isManilaWeekend, manilaHour } from "@/lib/booking/manila-date";
 
 type RateTier = "weekday" | "weekend";
 type PackageMode = Exclude<BookingMode, "custom">;
@@ -52,15 +53,14 @@ export interface BookingPricingResult {
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 const getRateTier = (startDate: Date): RateTier => {
-  const day = startDate.getDay();
-  return day === 5 || day === 6 || day === 0 ? "weekend" : "weekday";
+  return isManilaWeekend(startDate) ? "weekend" : "weekday";
 };
 
 const durationHours = (start: Date, end: Date) => (end.getTime() - start.getTime()) / (1000 * 60 * 60);
 
 const mapCustomToNearestPackage = (start: Date, end: Date, tier: RateTier): PackageMode => {
   const duration = durationHours(start, end);
-  const startHour = start.getHours() + start.getMinutes() / 60;
+  const startHour = manilaHour(start);
 
   const candidates: Array<{ mode: PackageMode; score: number; baseRate: number }> = [
     { mode: "day", score: Math.abs(duration - 8) + Math.abs(startHour - 8), baseRate: PACKAGE_RATES[tier].day.baseRate },

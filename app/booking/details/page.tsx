@@ -6,6 +6,7 @@ import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
+import { buildBookingCostSummary } from "@/lib/booking/summary";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -42,13 +43,14 @@ function BookingDetailsContent() {
   const totalGuests = Number(bookingDraft.adultCount || 0) + Number(bookingDraft.childCount || 0);
   const downPayment = downPaymentAmount(Number(bookingDraft.total || 0));
   const remainingBalance = Math.max(Number(bookingDraft.total || 0) - downPayment, 0);
+  const costSummary = buildBookingCostSummary(bookingDraft);
 
    // FIXED ghost saved state
   const isAlreadySaved =
     typeof bookingDraft.reservationId === "string" &&
     bookingDraft.reservationId.trim() !== "";
 
-  const formattedSaveDate = useMemo(() => new Date().toLocaleDateString("en-PH"), []);
+  const formattedSaveDate = useMemo(() => new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }), []);
 
   const handleSaveBooking = async () => {
     if (!hasValidDraft) {
@@ -212,10 +214,10 @@ function BookingDetailsContent() {
                     <h3 className="text-lg font-semibold text-neutral mb-3">Booking Details</h3>
                     <div className="grid sm:grid-cols-2 gap-2 text-sm text-neutral/80">
                       <p>
-                        Start: <span className="font-semibold text-neutral">{startDateTime?.toLocaleString("en-PH", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
+                        Start: <span className="font-semibold text-neutral">{startDateTime?.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
                       </p>
                       <p>
-                        End: <span className="font-semibold text-neutral">{endDateTime?.toLocaleString("en-PH", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
+                        End: <span className="font-semibold text-neutral">{endDateTime?.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
                       </p>
                       <p>Mode: <span className="font-semibold text-neutral">{bookingDraft.bookingMode === "whole_day" ? `Whole-Day (${bookingDraft.wholeDayVariant === "day_to_night" ? "Variant A" : "Variant B"})` : bookingDraft.bookingMode.replace("_", " ")}</span></p>
                       <p>Room: <span className="font-semibold text-neutral">{bookingDraft.roomName}</span></p>
@@ -244,9 +246,11 @@ function BookingDetailsContent() {
                   <div className="rounded-xl border border-neutral/10 p-4">
                     <h3 className="text-lg font-semibold text-neutral mb-3">Billing Breakdown</h3>
                     <div className="space-y-2 text-sm text-neutral/80">
-                      <div className="flex justify-between"><span>Package</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.roomPrice || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                      <div className="flex justify-between"><span>Subtotal</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.subtotal || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                      <div className="flex justify-between"><span>Tax (12%)</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.tax || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                      <div className="flex justify-between"><span>{costSummary.packageLabel}</span><span className="font-semibold text-neutral">₱{costSummary.packageCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                      {costSummary.extraGuestCharge > 0 && <div className="flex justify-between"><span>Extra guests ({costSummary.extraGuests})</span><span className="font-semibold text-neutral">₱{costSummary.extraGuestCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                      {bookingDraft.services.map((service) => <div key={service.id} className="flex justify-between"><span>{service.name}</span><span className="font-semibold text-neutral">₱{Number(service.price || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
+                      <div className="flex justify-between"><span>Subtotal</span><span className="font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                      {costSummary.tax > 0 && <div className="flex justify-between"><span>Tax</span><span className="font-semibold text-neutral">₱{costSummary.tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                       <div className="flex justify-between border-t border-neutral/10 pt-2"><span className="font-semibold text-neutral">Total</span><span className="font-bold text-primary">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                     </div>
                   </div>

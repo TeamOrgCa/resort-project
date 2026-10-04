@@ -18,13 +18,19 @@ export async function GET(request: Request) {
   const end = new Date(`${nextMonth}T00:00:00+08:00`).toISOString();
 
   try {
-    const { data, error } = await createAdminClient().from("reservations")
+    const admin = createAdminClient();
+    const { data, error } = await admin.from("reservations")
       .select("start_datetime, end_datetime, status, payment_deadline_at")
       .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"])
       .lt("start_datetime", end)
       .gt("end_datetime", start)
       .limit(1000);
     if (error) throw error;
+
+    const { data: blocks, error: blocksError } = await admin.from("maintenance_blocks")
+      .select("start_date, end_date").eq("status", "active")
+      .lt("start_date", nextMonth).gte("end_date", firstDay).limit(1000);
+    if (blocksError) throw blocksError;
 
     const booked = new Set<string>();
     const now = Date.now();
@@ -40,6 +46,13 @@ export async function GET(request: Request) {
         const key = day.toISOString().slice(0, 10);
         if (key.startsWith(month)) booked.add(key);
         day = new Date(day.getTime() + 86_400_000);
+      }
+    }
+
+    for (const block of blocks ?? []) {
+      for (let day = new Date(`${block.start_date}T00:00:00Z`); day <= new Date(`${block.end_date}T00:00:00Z`); day = new Date(day.getTime() + 86_400_000)) {
+        const key = day.toISOString().slice(0, 10);
+        if (key.startsWith(month)) booked.add(key);
       }
     }
 
