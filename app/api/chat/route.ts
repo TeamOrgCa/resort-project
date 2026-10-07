@@ -3,12 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   getClientKey,
+  getBookingGuidance,
   getSafetyResponse,
   isRateLimited,
   limitOutput,
   MAX_MESSAGE_LENGTH,
   MAX_OUTPUT_TOKENS,
   normalizeMessage,
+  normalizeHistory,
   instructionForGuestBookings,
   type GuestBooking,
 } from "@/lib/chatbot/guardrails";
@@ -25,10 +27,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!geminiApiKey) {
-      return NextResponse.json({ error: "ChatBot Mars is not configured." }, { status: 503 });
-    }
-
     if (isRateLimited(getClientKey(req))) {
       return NextResponse.json(
         { error: "Too many messages. Please wait a few minutes and try again." },
@@ -38,6 +36,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => null);
     const message = normalizeMessage(body?.message);
+    const history = normalizeHistory(body?.history);
 
     if (!message) {
       return NextResponse.json(
@@ -46,9 +45,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const safetyResponse = getSafetyResponse(message);
+    const safetyResponse = getSafetyResponse(message, history.length > 0);
     if (safetyResponse) {
       return NextResponse.json({ reply: safetyResponse });
+    }
+
+    const bookingGuidance = getBookingGuidance(message);
+    if (bookingGuidance) return NextResponse.json({ reply: bookingGuidance });
+
+    if (!geminiApiKey) {
+      return NextResponse.json({ error: "ChatBot Mars is not configured." }, { status: 503 });
     }
 
     let bookings: GuestBooking[] | null = null;
@@ -74,7 +80,11 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    const result = await model.generateContent(message);
+    const contents = [
+      ...history.map((turn) => ({ role: turn.role === "assistant" ? "model" : "user", parts: [{ text: turn.content }] })),
+      { role: "user", parts: [{ text: message }] },
+    ];
+    const result = await model.generateContent({ contents });
     const response = await result.response;
     const text = limitOutput(response.text());
 
