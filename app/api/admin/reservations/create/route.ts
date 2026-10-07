@@ -3,6 +3,7 @@ import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
+import { isValidGuestCounts } from "@/lib/booking/guest-count";
 
 type GuestType = "existing" | "walk_in";
 
@@ -124,11 +125,7 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     return null;
   }
 
-  if (!Number.isInteger(payload.adultCount) || payload.adultCount <= 0) {
-    return null;
-  }
-
-  if (!Number.isInteger(payload.childCount) || payload.childCount < 0) {
+  if (!isValidGuestCounts(payload.adultCount, payload.childCount)) {
     return null;
   }
 

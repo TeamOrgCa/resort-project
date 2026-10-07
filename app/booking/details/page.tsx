@@ -7,6 +7,8 @@ import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
 import { buildBookingCostSummary } from "@/lib/booking/summary";
+import PolicyAgreement from "@/components/legal/PolicyAgreement";
+import { LEGAL_POLICY_VERSION } from "@/lib/legal/policies";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -30,6 +32,7 @@ function BookingDetailsContent() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [paymentDeadlineAt, setPaymentDeadlineAt] = useState<string | null>(null);
+  const [acceptedPolicies, setAcceptedPolicies] = useState(false);
 
   const startDateTime = parseDateTimeString(bookingDraft.startDatetime || null);
   const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
@@ -55,6 +58,11 @@ function BookingDetailsContent() {
   const handleSaveBooking = async () => {
     if (!hasValidDraft) {
       setSaveError("Missing booking details. Please go back to the form.");
+      return;
+    }
+
+    if (!acceptedPolicies && !isAlreadySaved) {
+      setSaveError("Read and agree to the Terms and Conditions and Privacy Policy before saving your booking.");
       return;
     }
 
@@ -88,6 +96,7 @@ function BookingDetailsContent() {
             serviceId: service.id,
             quantity: 1,
           })),
+          acceptedPoliciesVersion: LEGAL_POLICY_VERSION,
         }),
       });
 
@@ -256,6 +265,8 @@ function BookingDetailsContent() {
                   </div>
                 </div>
 
+                {!isAlreadySaved && <div className="mt-8"><PolicyAgreement accepted={acceptedPolicies} onChange={setAcceptedPolicies} /></div>}
+
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                   <Link href="/booking/form" className="flex-1">
                     <button type="button" className="w-full bg-neutral/10 text-neutral px-6 py-4 rounded-full font-semibold hover:bg-neutral/20 transition-colors">
@@ -264,7 +275,7 @@ function BookingDetailsContent() {
                   </Link>
                   <button
                     type="button"
-                    disabled={!hasValidDraft || isSavingBooking || isAlreadySaved}
+                    disabled={!hasValidDraft || !acceptedPolicies || isSavingBooking || isAlreadySaved}
                     onClick={handleSaveBooking}
                     className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >

@@ -4,6 +4,8 @@ import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
+import { isValidGuestCounts } from "@/lib/booking/guest-count";
+import { LEGAL_POLICY_VERSION } from "@/lib/legal/policies";
 
 type DbErrorLike = {
   message?: string;
@@ -29,6 +31,7 @@ interface CreateReservationPayload {
   unitId: string;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
+  acceptedPoliciesVersion: string;
 }
 
 interface UnitRow {
@@ -88,7 +91,8 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     typeof payload.endDatetime !== "string" ||
     typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
-    typeof payload.childCount !== "number"
+    typeof payload.childCount !== "number" ||
+    payload.acceptedPoliciesVersion !== LEGAL_POLICY_VERSION
   ) {
     return null;
   }
@@ -97,11 +101,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     return null;
   }
 
-  if (!Number.isInteger(payload.adultCount) || payload.adultCount <= 0) {
-    return null;
-  }
-
-  if (!Number.isInteger(payload.childCount) || payload.childCount < 0) {
+  if (!isValidGuestCounts(payload.adultCount, payload.childCount)) {
     return null;
   }
 
@@ -127,6 +127,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
             quantity: Number.isInteger(item.quantity) && (item.quantity ?? 0) > 0 ? item.quantity : 1,
           }))
       : [],
+    acceptedPoliciesVersion: LEGAL_POLICY_VERSION,
   };
 };
 

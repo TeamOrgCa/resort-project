@@ -1,6 +1,7 @@
 import { BookingMode } from "@/lib/booking/policy";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
 import { isManilaWeekend, manilaHour } from "@/lib/booking/manila-date";
+import { INCLUDED_GUESTS } from "@/lib/booking/guest-count";
 
 type RateTier = "weekday" | "weekend";
 type PackageMode = Exclude<BookingMode, "custom">;
@@ -9,8 +10,6 @@ interface PackageRate {
   baseRate: number;
   addOnPerHead: number;
 }
-
-const INCLUDED_PAX = 20;
 
 const PACKAGE_RATES: Record<RateTier, Record<PackageMode, PackageRate>> = {
   weekday: {
@@ -90,7 +89,7 @@ export const computeBookingPricing = (input: BookingPricingInput): BookingPricin
   const packageRate = PACKAGE_RATES[tier][packageMode].baseRate;
   const addOnPerHead = PACKAGE_RATES[tier][packageMode].addOnPerHead;
   const totalGuests = Math.max(0, Number(input.adultCount || 0) + Number(input.childCount || 0));
-  const extraGuests = Math.max(totalGuests - INCLUDED_PAX, 0);
+  const extraGuests = Math.max(totalGuests - INCLUDED_GUESTS, 0);
   const extraGuestTotal = extraGuests * addOnPerHead;
   const servicesTotal = Math.max(0, Number(input.servicesTotal || 0));
   const subtotal = packageRate + extraGuestTotal + servicesTotal;
@@ -101,7 +100,7 @@ export const computeBookingPricing = (input: BookingPricingInput): BookingPricin
     packageMode,
     packageRate,
     addOnPerHead,
-    includedGuests: INCLUDED_PAX,
+    includedGuests: INCLUDED_GUESTS,
     totalGuests,
     extraGuests,
     extraGuestTotal,

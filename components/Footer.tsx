@@ -71,6 +71,10 @@ export default function Footer() {
         </div>
         <div className="border-t border-base/20 pt-8 text-center text-base/60">
           <p>&copy; 2026 MarVille Resort Complex. All rights reserved.</p>
+          <div className="mt-3 flex justify-center gap-5 text-sm">
+            <Link href="/terms" className="hover:text-highlight">Terms and Conditions</Link>
+            <Link href="/privacy" className="hover:text-highlight">Privacy Policy</Link>
+          </div>
         </div>
       </div>
     </footer>

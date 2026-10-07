@@ -11,6 +11,7 @@ import { DOWN_PAYMENT_PERCENT, downPaymentAmount, resolvePaymentType } from "@/l
 import { buildBookingCostSummary } from "@/lib/booking/summary";
 import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 import { isValidAccountNumber, sanitizeAccountNumber } from "@/lib/helper/validation";
+import PolicyAgreement from "@/components/legal/PolicyAgreement";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -303,7 +304,7 @@ function PaymentContent() {
     setSubmitError(null);
 
     if (!acceptedTerms) {
-      setSubmitError("Please agree to the Terms and Conditions before confirming payment.");
+      setSubmitError("Please confirm the Terms and Conditions and Privacy Policy before submitting payment.");
       return;
     }
 
@@ -910,18 +911,8 @@ function PaymentContent() {
                     </div>
                   )}
 
-                  <div className="mb-6 rounded-lg border border-neutral/20 bg-base px-4 py-3">
-                    <label className="flex items-start gap-2 text-sm text-neutral/80">
-                      <input
-                        type="checkbox"
-                        checked={acceptedTerms}
-                        onChange={(event) => setAcceptedTerms(event.target.checked)}
-                        className="mt-1 h-4 w-4 rounded border-neutral/30"
-                      />
-                      <span>
-                        I agree to the Terms and Conditions, including the {downpaymentPercentage}% down payment or full payment choice, no-refund cancellation policy, and reschedule-only guidance.
-                      </span>
-                    </label>
+                  <div className="mb-6">
+                    <PolicyAgreement accepted={acceptedTerms} onChange={setAcceptedTerms} />
                   </div>
 
                   <div className="flex gap-4">
