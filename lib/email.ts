@@ -186,7 +186,7 @@ const createTransporter = () => {
     return null;
   }
 
-  const host = process.env.EMAIL_HOST;
+  const host = process.env.EMAIL_HOST || `smtp.gmail.com`;
   const port = Number(process.env.EMAIL_PORT ?? 587);
 
   if (host) {

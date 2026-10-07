@@ -1,8 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 
-// A resort stay occupies each Manila calendar date it touches. The database
-// exclusion constraint is authoritative; this read only gives early feedback.
+// The database exclusion constraint is authoritative; this read gives early feedback.
 export async function checkReservationOverlap(
   startDatetime: string,
   endDatetime: string,
@@ -11,14 +10,12 @@ export async function checkReservationOverlap(
 ) {
   const startDay = manilaDateKey(startDatetime);
   const endDay = manilaDateKey(new Date(new Date(endDatetime).getTime() - 1));
-  const rangeStart = new Date(`${startDay}T00:00:00+08:00`).toISOString();
-  const rangeEnd = new Date(new Date(`${endDay}T00:00:00+08:00`).getTime() + 24 * 60 * 60 * 1000).toISOString();
   let query = createAdminClient()
     .from("reservations")
     .select("reservation_id, status, payment_deadline_at")
     .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"])
-    .lt("start_datetime", rangeEnd)
-    .gt("end_datetime", rangeStart);
+    .lt("start_datetime", endDatetime)
+    .gt("end_datetime", startDatetime);
 
   if (excludeReservationId) query = query.neq("reservation_id", excludeReservationId);
 

@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 function ResetPasswordContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const invalidLink = searchParams.get("error") === "invalid_link";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -52,8 +54,8 @@ function ResetPasswordContent() {
   const handleReset = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!password || password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (!password || password.length < 6 || password.length > 128) {
+      setError("Password must be between 6 and 128 characters.");
       return;
     }
 
@@ -76,6 +78,7 @@ function ResetPasswordContent() {
     }
 
     setSuccess("Password updated. You can now sign in.");
+    await supabase.auth.signOut();
     setIsSubmitting(false);
 
     window.setTimeout(() => {
@@ -94,7 +97,7 @@ function ResetPasswordContent() {
         <div className="bg-white rounded-3xl shadow-xl p-8">
           {!isReady ? (
             <p className="text-sm text-neutral/70">Checking reset link...</p>
-          ) : !hasRecoverySession ? (
+          ) : invalidLink || !hasRecoverySession ? (
             <div className="space-y-4">
               <p className="text-sm text-neutral/70">
                 This reset link is invalid or has expired. Please request a new one.

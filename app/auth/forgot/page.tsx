@@ -21,10 +21,8 @@ function ForgotPasswordContent() {
     setStatus("sending");
 
     const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/reset`;
-
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo,
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: `${window.location.origin}/auth/confirm`,
     });
 
     if (resetError) {
@@ -54,7 +52,7 @@ function ForgotPasswordContent() {
 
             {status === "sent" ? (
               <div className="bg-secondary/10 border border-secondary/30 text-neutral px-4 py-3 rounded-lg">
-                If an account exists for {email.trim() || "your email"}, a reset link has been sent.
+                If a guest account exists for {email.trim() || "your email"}, a reset link has been sent.
               </div>
             ) : null}
 

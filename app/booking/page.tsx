@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/client";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { isWindowAvailable, type ReservedWindow } from "@/lib/booking/availability";
+import { manilaDateKey } from "@/lib/booking/manila-date";
 
 interface OcularAvailabilityRow {
   scheduled_date: string;
@@ -37,7 +39,8 @@ export default function Booking() {
   const [visitScheduled, setVisitScheduled] = useState(false);
   const [ocularSubmitting, setOcularSubmitting] = useState(false);
   const [ocularError, setOcularError] = useState<string | null>(null);
-  const [bookedStayDateKeys, setBookedStayDateKeys] = useState<string[]>([]);
+  const [reservedWindows, setReservedWindows] = useState<ReservedWindow[]>([]);
+  const [blockedDateRanges, setBlockedDateRanges] = useState<Array<{ start_date: string; end_date: string }>>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [availabilityError, setAvailabilityError] = useState(false);
   const [bookedOcularSlotsByDate, setBookedOcularSlotsByDate] = useState<Record<string, string[]>>({});
@@ -147,9 +150,10 @@ export default function Booking() {
       try {
         const response = await fetch(`/api/booking/availability?month=${month}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Availability request failed.");
-        const result = (await response.json()) as { bookedDates: string[] };
+        const result = (await response.json()) as { reservations: ReservedWindow[]; blockedDates: Array<{ start_date: string; end_date: string }> };
         if (!active || currentRequest !== requestId) return;
-        setBookedStayDateKeys(result.bookedDates);
+        setReservedWindows(result.reservations);
+        setBlockedDateRanges(result.blockedDates);
         setAvailabilityError(false);
       } catch {
         if (active && currentRequest === requestId) setAvailabilityError(true);
@@ -177,11 +181,6 @@ export default function Booking() {
       setStayError("Please select a booking date.");
       return;
     }
-    if (isDateBooked(selectedStayDate)) {
-      setStayError("This date has just been reserved. Please choose another date.");
-      return;
-    }
-
     const selectedCustomEndDate =
       bookingMode === "custom"
         ? parseLocalDateValue(customEndDate || formatDateForStore(selectedStayDate))
@@ -220,6 +219,11 @@ export default function Booking() {
       return;
     }
 
+    if (!isBookingWindowAvailable(generatedWindow.startDatetime, generatedWindow.endDatetime)) {
+      setStayError("This time is already reserved or blocked for maintenance. Choose another time or package.");
+      return;
+    }
+
     setStayError(null);
     resetBookingDraft();
     setBookingWindow(bookingMode, generatedWindow.startDatetime, generatedWindow.endDatetime, {
@@ -253,8 +257,6 @@ export default function Booking() {
     return `${toLabel(start)} - ${toLabel(end)}`;
   };
 
-  const bookedStayDateSet = useMemo(() => new Set(bookedStayDateKeys), [bookedStayDateKeys]);
-
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -263,8 +265,31 @@ export default function Booking() {
     return { days, firstDay };
   };
 
+  const isBookingWindowAvailable = (start: string, end: string) => {
+    if (!isWindowAvailable(start, end, reservedWindows)) return false;
+    const startDay = manilaDateKey(start);
+    const endDay = manilaDateKey(new Date(new Date(end).getTime() - 1));
+    for (let day = new Date(`${startDay}T00:00:00Z`); day <= new Date(`${endDay}T00:00:00Z`); day = new Date(day.getTime() + 86_400_000)) {
+      const key = day.toISOString().slice(0, 10);
+      if (blockedDateRanges.some((block) => block.start_date <= key && block.end_date >= key)) return false;
+    }
+    return true;
+  };
+
+  const packageAvailable = (date: Date, mode: BookingMode, variant: WholeDayVariant = "day_to_night") => {
+    const window = buildBookingWindow({ bookingMode: mode, date, wholeDayVariant: variant });
+    return typeof window.startDatetime === "string" && typeof window.endDatetime === "string" &&
+      isBookingWindowAvailable(window.startDatetime, window.endDatetime);
+  };
+
+  const dateAvailability = (date: Date) => ({
+    day: packageAvailable(date, "day"),
+    night: packageAvailable(date, "night"),
+  });
+
   const isDateBooked = (date: Date) => {
-    return bookedStayDateSet.has(toDateKey(date));
+    const { day, night } = dateAvailability(date);
+    return !day && !night;
   };
 
   const isDateSelected = (date: Date) => {
@@ -347,10 +372,12 @@ export default function Booking() {
   };
 
   const nextMonth = () => {
+    setSelectedStayDate(null);
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
   };
 
   const prevMonth = () => {
+    setSelectedStayDate(null);
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
   };
 
@@ -738,7 +765,8 @@ export default function Booking() {
                         </button>
                       );
                     } else {
-                      const isBooked = isDateBooked(date);
+                      const { day, night } = dateAvailability(date);
+                      const isBooked = !day && !night;
                       const isSelected = isDateSelected(date);
 
                       return (
@@ -747,14 +775,17 @@ export default function Booking() {
                           type="button"
                           onClick={() => handleDateClick(date)}
                           disabled={availabilityLoading || availabilityError || isBooked || isPast}
-                          className={`aspect-square rounded-lg flex items-center justify-center font-medium transition-all
+                          aria-label={`${toDateKey(date)}: ${isBooked ? "Fully booked" : `${day ? "day available" : "day booked"}, ${night ? "night available" : "night booked"}`}`}
+                          title={isBooked ? "Fully booked" : `${day ? "Day available" : "Day booked"} · ${night ? "Night available" : "Night booked"}`}
+                          className={`aspect-square rounded-lg flex flex-col items-center justify-center font-medium transition-all
                             ${isBooked ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
                             ${isPast && !isBooked ? "text-neutral/30 cursor-not-allowed" : ""}
                             ${isSelected ? "bg-primary text-base" : ""}
-                            ${!isBooked && !isPast && !isSelected ? "hover:bg-primary/10 text-neutral" : ""}
+                            ${!isBooked && !isPast && !isSelected ? (day && night ? "hover:bg-primary/10 text-neutral" : "bg-amber-50 text-amber-900 hover:bg-amber-100") : ""}
                           `}
                         >
-                          {index + 1}
+                          <span>{index + 1}</span>
+                          {!isBooked && !isPast && <span className="text-[9px] leading-tight">{day && night ? "Day · Night" : day ? "Day only" : "Night only"}</span>}
                         </button>
                       );
                     }
@@ -771,7 +802,11 @@ export default function Booking() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-neutral/20 rounded"></div>
-                        <span className="text-sm text-neutral/70">Booked</span>
+                        <span className="text-sm text-neutral/70">Fully booked</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-amber-50 rounded"></div>
+                        <span className="text-sm text-neutral/70">Day or night available</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-neutral/30 rounded"></div>
@@ -858,6 +893,9 @@ export default function Booking() {
                               ? `Whole-Day (${wholeDayVariant === "day_to_night" ? "Variant A" : "Variant B"})`
                               : bookingMode.charAt(0).toUpperCase() + bookingMode.slice(1)}
                           </p>
+                          {validSummaryWindow && !availabilityLoading && !availabilityError && !isBookingWindowAvailable(validSummaryWindow.startDatetime, validSummaryWindow.endDatetime) && (
+                            <p className="mt-1 text-sm text-amber-800">This package is booked at the selected time. Choose an available package or date.</p>
+                          )}
                         </div>
                       )}
                     </div>

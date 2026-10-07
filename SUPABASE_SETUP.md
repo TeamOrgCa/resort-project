@@ -45,6 +45,29 @@ NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=your_anon_key
 ```
 
+### Guest password reset with Supabase Auth and Gmail SMTP
+
+The guest page calls `supabase.auth.resetPasswordForEmail()`; Supabase Auth sends the message through its configured SMTP provider. The app's Nodemailer `EMAIL_USER` and `EMAIL_PASS` settings do **not** configure Supabase Auth email delivery.
+
+1. Turn on two-step verification for the Gmail account and create a Google App Password for Supabase SMTP. Use the App Password, not the regular Gmail password.
+2. In **Supabase Dashboard → Authentication → SMTP Settings**, enable custom SMTP and enter:
+
+   | Setting | Value |
+   | --- | --- |
+   | Host | `smtp.gmail.com` |
+   | Port | `465` |
+   | Username | Your full Gmail address (the same as `EMAIL_USER` if you use one account) |
+   | Password | Your Google App Password (the same as `EMAIL_PASS` only if that value is already an App Password) |
+   | Sender email | The same Gmail address |
+   | Sender name | `Marville Resort` |
+
+3. In **Authentication → URL Configuration**, set the Site URL to your public site and add `http://localhost:3000/auth/confirm` plus `https://your-site.example/auth/confirm` to the allowed Redirect URLs. Replace the production example with your real domain.
+4. In **Authentication → Email Templates → Reset Password**, use this link in the HTML template: `<a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=recovery">Reset password</a>`. This sends guests to `/auth/confirm`, which verifies the recovery token and redirects to `/auth/reset`. The confirm route also accepts Supabase's PKCE `code` redirect if you keep the default template.
+
+Test with a real guest account after saving the SMTP settings. The guest updates the password on `/auth/reset` with `supabase.auth.updateUser()`.
+
+Gmail has sending limits and can temporarily restrict sending. For a small number of guest emails it can be a practical starting point; monitor Supabase Auth logs and Gmail delivery when testing.
+
 ## Step 4: Test Authentication
 
 1. Start your development server: `npm run dev`
