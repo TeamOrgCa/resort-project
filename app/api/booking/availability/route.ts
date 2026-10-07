@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { manilaDateKey } from "@/lib/booking/manila-date";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: Request) {
@@ -14,8 +13,10 @@ export async function GET(request: Request) {
   }
   const firstDay = `${month}-01`;
   const nextMonth = new Date(Date.UTC(year, monthNumber, 1)).toISOString().slice(0, 10);
+  const dayAfterNextMonth = new Date(Date.UTC(year, monthNumber, 2)).toISOString().slice(0, 10);
+  // Include the following day because night and whole-day packages cross midnight.
   const start = new Date(`${firstDay}T00:00:00+08:00`).toISOString();
-  const end = new Date(`${nextMonth}T00:00:00+08:00`).toISOString();
+  const end = new Date(new Date(`${nextMonth}T00:00:00+08:00`).getTime() + 86_400_000).toISOString();
 
   try {
     const admin = createAdminClient();
@@ -29,34 +30,16 @@ export async function GET(request: Request) {
 
     const { data: blocks, error: blocksError } = await admin.from("maintenance_blocks")
       .select("start_date, end_date").eq("status", "active")
-      .lt("start_date", nextMonth).gte("end_date", firstDay).limit(1000);
+      .lt("start_date", dayAfterNextMonth).gte("end_date", firstDay).limit(1000);
     if (blocksError) throw blocksError;
 
-    const booked = new Set<string>();
     const now = Date.now();
-    for (const reservation of data ?? []) {
-      if (reservation.status === "pending" && reservation.payment_deadline_at &&
-        new Date(reservation.payment_deadline_at).getTime() <= now) continue;
+    const reservations = (data ?? []).filter((reservation) =>
+      reservation.status !== "pending" || !reservation.payment_deadline_at ||
+      new Date(reservation.payment_deadline_at).getTime() > now
+    ).map(({ start_datetime, end_datetime }) => ({ start_datetime, end_datetime }));
 
-      const startDay = manilaDateKey(reservation.start_datetime);
-      const endDay = manilaDateKey(new Date(new Date(reservation.end_datetime).getTime() - 1));
-      let day = new Date(`${startDay}T00:00:00Z`);
-      const last = new Date(`${endDay}T00:00:00Z`);
-      while (day <= last) {
-        const key = day.toISOString().slice(0, 10);
-        if (key.startsWith(month)) booked.add(key);
-        day = new Date(day.getTime() + 86_400_000);
-      }
-    }
-
-    for (const block of blocks ?? []) {
-      for (let day = new Date(`${block.start_date}T00:00:00Z`); day <= new Date(`${block.end_date}T00:00:00Z`); day = new Date(day.getTime() + 86_400_000)) {
-        const key = day.toISOString().slice(0, 10);
-        if (key.startsWith(month)) booked.add(key);
-      }
-    }
-
-    return NextResponse.json({ bookedDates: [...booked].sort() }, {
+    return NextResponse.json({ reservations, blockedDates: blocks ?? [] }, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

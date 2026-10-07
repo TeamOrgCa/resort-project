@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import ManualBookingDialog from "@/components/admin/ManualBookingDialog";
 import { manilaDateKey } from "@/lib/booking/manila-date";
+import { buildBookingWindow } from "@/lib/booking/policy";
+import { isWindowAvailable } from "@/lib/booking/availability";
 import { createClient } from "@/lib/supabase/client";
 
 type Reservation = {
@@ -117,10 +119,11 @@ export default function ReservationCalendar() {
         const supabase = createClient();
         const gridStart = dateKey(startOfMonthGrid(month));
         const gridEnd = dateKey(addDays(startOfMonthGrid(month), 42));
+        const availabilityEnd = dateKey(addDays(startOfMonthGrid(month), 43));
         const [{ data: reservationData, error: reservationError }, { data: ocularData, error: ocularError }, blocksResponse] = await Promise.all([
-          supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at").neq("status", "expired").lt("start_datetime", `${gridEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(300),
+          supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at").neq("status", "expired").lt("start_datetime", `${availabilityEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(300),
           supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, status").gte("scheduled_date", gridStart).lt("scheduled_date", gridEnd).order("scheduled_date", { ascending: true }).limit(300),
-          fetch(`/api/admin/maintenance-blocks?start=${gridStart}&end=${gridEnd}`, { cache: "no-store" }),
+          fetch(`/api/admin/maintenance-blocks?start=${gridStart}&end=${availabilityEnd}`, { cache: "no-store" }),
         ]);
 
         if (reservationError || ocularError || !blocksResponse.ok) throw reservationError ?? ocularError ?? new Error("Unable to load maintenance blocks.");
@@ -272,6 +275,24 @@ export default function ReservationCalendar() {
     const start = startOfMonthGrid(month);
     return Array.from({ length: 42 }, (_, index) => addDays(start, index));
   }, [month]);
+  const availabilityByDay = useMemo(() => {
+    const activeReservations = reservations.filter((reservation) =>
+      ["pending", "payment_submitted", "confirmed", "reschedule_requested"].includes(reservation.status) &&
+      !(reservation.status === "pending" && reservation.payment_deadline_at &&
+        new Date(reservation.payment_deadline_at).getTime() <= now)
+    );
+    return Object.fromEntries(calendarDays.map((date) => {
+      const key = dateKey(date);
+      const isAvailable = (mode: "day" | "night") => {
+        const window = buildBookingWindow({ bookingMode: mode, date });
+        if (typeof window.startDatetime !== "string" || typeof window.endDatetime !== "string") return false;
+        const lastDay = manilaDateKey(new Date(new Date(window.endDatetime).getTime() - 1));
+        if (maintenanceBlocks.some((block) => block.status === "active" && block.start_date <= lastDay && block.end_date >= key)) return false;
+        return isWindowAvailable(window.startDatetime, window.endDatetime, activeReservations);
+      };
+      return [key, { day: isAvailable("day"), night: isAvailable("night") }];
+    })) as Record<string, { day: boolean; night: boolean }>;
+  }, [calendarDays, maintenanceBlocks, now, reservations]);
   const monthLabel = month.toLocaleDateString("en-PH", { month: "long", year: "numeric" });
   const upcomingCount = new Set(calendarEvents.filter((event) => event.reservationId && event.date >= dateKey(new Date()) && !["cancelled", "rejected", "completed"].includes(event.status ?? "")).map((event) => event.reservationId)).size;
   const attentionCount = new Set(calendarEvents.filter((event) => event.kind === "attention").map((event) => event.reservationId)).size;
@@ -348,6 +369,8 @@ export default function ReservationCalendar() {
 
         <div className="flex flex-wrap gap-x-5 gap-y-2 border-b border-neutral/10 px-4 py-3 text-xs text-neutral/70">
           {(Object.entries(eventStyles) as Array<[EventKind, (typeof eventStyles)[EventKind]]>).map(([kind, style]) => <span key={kind} className="inline-flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${style.dotClassName}`} />{style.label}</span>)}
+          <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-amber-200" />One package available</span>
+          <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-neutral/30" />Fully booked</span>
         </div>
 
         <div className="grid grid-cols-7 border-b border-neutral/10 bg-base text-[10px] font-semibold uppercase tracking-wide text-neutral/50">{weekDays.map((day) => <div key={day} className="border-r border-neutral/10 px-2 py-3 last:border-r-0">{day.slice(0, 3)}</div>)}</div>
@@ -359,12 +382,16 @@ export default function ReservationCalendar() {
               ?? dayEvents.find((event) => event.reservationId);
             const isCurrentMonth = day.getMonth() === month.getMonth();
             const isToday = dateKey(day) === dateKey(new Date());
+            const availability = availabilityByDay[dayKey];
+            const maintenanceBlocked = (eventsByDay[dayKey] ?? []).some((event) => event.kind === "maintenance");
+            const availabilityLabel = maintenanceBlocked ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : "Fully booked";
             return <div key={dayKey} className={`min-h-28 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
               {dayReservation ? (
                 <button type="button" onClick={() => setSelectedEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</button>
               ) : (
                 <div className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</div>
               )}
+              <p className={`mb-1 rounded px-1 py-0.5 text-[10px] font-medium ${availability?.day && availability?.night ? "bg-green-50 text-green-800" : availability?.day || availability?.night ? "bg-amber-50 text-amber-900" : "bg-neutral/10 text-neutral/60"}`} title={availabilityLabel}>{availabilityLabel}</p>
               <div className="space-y-1">
                 {dayEvents.map((event) => {
                   const style = eventStyles[event.kind];
