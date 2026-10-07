@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 type ChatMessage = {
@@ -9,6 +10,15 @@ type ChatMessage = {
 };
 
 const CHATBOT_ENABLED = true;
+const quickQuestions = ["How do I book?", "What are your swimming rates?", "How do payments work?", "Can I reschedule?"];
+const faqQuestions = [
+  "What is included in a private pool booking?",
+  "Is an ocular visit free?",
+  "Where is Marville Resort located?",
+  "Can we bring food and drinks?",
+  "How much is an additional room?",
+  "What time are the swimming packages?",
+];
 
 export default function ChatBotMars() {
   const [open, setOpen] = useState(false);
@@ -18,7 +28,7 @@ export default function ChatBotMars() {
     {
       role: "assistant",
       content:
-        "Hi, I’m ChatBot Mars. Ask me about rooms, booking, amenities, dining, or resort activities.",
+        "Hi, I’m ChatBot Mars. I can help with booking steps, rates, payments, and resort policies. What would you like to know?",
     },
   ]);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -31,10 +41,8 @@ export default function ChatBotMars() {
     return null;
   }
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const trimmedInput = input.trim();
+  const sendMessage = async (question: string) => {
+    const trimmedInput = question.trim();
     if (!trimmedInput || loading) {
       return;
     }
@@ -52,7 +60,7 @@ export default function ChatBotMars() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: trimmedInput }),
+        body: JSON.stringify({ message: trimmedInput, history: messages.slice(1).slice(-8) }),
       });
 
       const data = await response.json();
@@ -70,13 +78,13 @@ export default function ChatBotMars() {
             "I’m not sure how to answer that yet, but I can help with bookings, rooms, and resort info.",
         },
       ]);
-    } catch {
+    } catch (error) {
       setMessages((currentMessages) => [
         ...currentMessages,
         {
           role: "assistant",
           content:
-            "Sorry, I’m having trouble connecting right now. Please try again in a moment.",
+            error instanceof Error ? error.message : "Sorry, I’m having trouble connecting right now. Please try again in a moment.",
         },
       ]);
     } finally {
@@ -84,10 +92,15 @@ export default function ChatBotMars() {
     }
   };
 
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void sendMessage(input);
+  };
+
   return (
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
       {open && (
-        <div className="w-[min(92vw,24rem)] overflow-hidden rounded-3xl border border-white/20 bg-neutral/95 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+        <div className="flex max-h-[90vh] w-[min(92vw,24rem)] flex-col overflow-hidden rounded-3xl border border-white/20 bg-neutral/95 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl">
           <div className="flex items-center justify-between border-b border-white/10 bg-linear-to-r from-primary to-secondary px-5 py-4 text-base">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-base/70">MarVille Assistant</p>
@@ -103,7 +116,7 @@ export default function ChatBotMars() {
             </button>
           </div>
 
-          <div className="max-h-112 space-y-4 overflow-y-auto px-4 py-5">
+          <div className="min-h-24 flex-1 space-y-4 overflow-y-auto px-4 py-5" aria-live="polite">
             {messages.map((message, index) => (
               <div
                 key={`${message.role}-${index}`}
@@ -129,6 +142,30 @@ export default function ChatBotMars() {
               </div>
             )}
             <div ref={endRef} />
+          </div>
+
+          <div className="flex flex-wrap gap-2 border-t border-white/10 px-4 py-3">
+            {quickQuestions.map((question) => (
+              <button key={question} type="button" disabled={loading} onClick={() => void sendMessage(question)} className="rounded-full border border-white/20 px-3 py-1.5 text-xs text-white/85 hover:bg-white/10 disabled:opacity-50">
+                {question}
+              </button>
+            ))}
+          </div>
+
+          <details className="border-t border-white/10 px-4 py-2 text-xs text-white/85">
+            <summary className="cursor-pointer font-semibold">More frequently asked questions</summary>
+            <div className="mt-2 grid max-h-28 gap-1 overflow-y-auto">
+              {faqQuestions.map((question) => (
+                <button key={question} type="button" disabled={loading} onClick={() => void sendMessage(question)} className="rounded-lg px-2 py-1.5 text-left hover:bg-white/10 disabled:opacity-50">
+                  {question}
+                </button>
+              ))}
+            </div>
+          </details>
+
+          <div className="flex gap-4 px-4 pb-3 text-xs font-semibold text-white/85">
+            <Link href="/booking" onClick={() => setOpen(false)} className="hover:text-white hover:underline">Book a stay or visit</Link>
+            <Link href="/manage" onClick={() => setOpen(false)} className="hover:text-white hover:underline">Manage booking</Link>
           </div>
 
           <form onSubmit={handleSubmit} className="border-t border-white/10 p-4">
