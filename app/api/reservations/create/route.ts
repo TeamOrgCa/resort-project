@@ -32,6 +32,7 @@ interface CreateReservationPayload {
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
   acceptedPoliciesVersion: string;
+  bookingPolicyVersion: number;
 }
 
 interface UnitRow {
@@ -92,7 +93,8 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
     typeof payload.childCount !== "number" ||
-    payload.acceptedPoliciesVersion !== LEGAL_POLICY_VERSION
+    payload.acceptedPoliciesVersion !== LEGAL_POLICY_VERSION ||
+    !Number.isSafeInteger(payload.bookingPolicyVersion) || Number(payload.bookingPolicyVersion) < 1
   ) {
     return null;
   }
@@ -128,6 +130,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
           }))
       : [],
     acceptedPoliciesVersion: LEGAL_POLICY_VERSION,
+    bookingPolicyVersion: Number(payload.bookingPolicyVersion),
   };
 };
 
@@ -319,6 +322,7 @@ export async function POST(request: Request) {
         end_datetime: payload.endDatetime,
         adult_count: payload.adultCount,
         child_count: payload.childCount,
+        booking_policy_version: payload.bookingPolicyVersion,
         special_requests: payload.specialRequests || null,
         status: "pending",
       })
@@ -328,6 +332,9 @@ export async function POST(request: Request) {
     if (reservationError || !reservation) {
       if (reservationError?.code === "23P01") {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
+      }
+      if (reservationError?.code === "40001") {
+        return NextResponse.json({ success: false, code: "POLICY_CHANGED", message: "The booking policy changed. Refresh this page and review it again before saving." }, { status: 409 });
       }
       return NextResponse.json(buildDbFailurePayload(reservationError, "Failed to create reservation."), { status: 500 });
     }

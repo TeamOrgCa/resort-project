@@ -10,9 +10,10 @@ import type { StaffRole } from "@/lib/auth/staff-auth";
 interface AdminShellProps {
   children: ReactNode;
   role: StaffRole;
+  permissions: string[];
 }
 
-export default function AdminShell({ children, role }: AdminShellProps) {
+export default function AdminShell({ children, role, permissions }: AdminShellProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -43,7 +44,7 @@ export default function AdminShell({ children, role }: AdminShellProps) {
     <SettingsProvider>
       <div className="admin-shell-grid">
         <aside className="admin-shell-sidebar hidden md:block">
-          <AdminSidebar role={role} />
+          <AdminSidebar role={role} permissions={permissions} />
         </aside>
 
         <main className="min-w-0">
@@ -85,7 +86,7 @@ export default function AdminShell({ children, role }: AdminShellProps) {
                   Close
                 </button>
               </div>
-              <AdminSidebar role={role} />
+              <AdminSidebar role={role} permissions={permissions} />
             </aside>
           </div>
         ) : null}

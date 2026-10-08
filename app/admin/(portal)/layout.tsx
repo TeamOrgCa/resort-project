@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import AdminShell from "@/components/admin/AdminShell";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
+import { getRolePermissions } from "@/lib/server/role-permissions";
 
 export default async function AdminPortalLayout({ children }: { children: ReactNode }) {
   const staffContext = await requireActiveStaff();
@@ -12,7 +13,7 @@ export default async function AdminPortalLayout({ children }: { children: ReactN
 
   return (
     <div className="min-h-screen bg-base">
-      <AdminShell role={staffContext.staffUser.role}>{children}</AdminShell>
+      <AdminShell role={staffContext.staffUser.role} permissions={await getRolePermissions(staffContext.supabase, staffContext.staffUser.role)}>{children}</AdminShell>
     </div>
   );
 }

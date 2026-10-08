@@ -3,6 +3,8 @@
 MarVille Resort Complex  
 Last updated: October 2026
 
+The current cancellation and refund policy is published at /terms and shown before you save a booking. Your reservation retains the version in effect when it is booked.
+
 ## 1. Reservations and payment
 
 A booking request is subject to availability. A reservation is saved when you submit it, and payment proof remains pending until resort staff verifies the actual transaction. A submitted screenshot or reference number does not by itself confirm payment.
@@ -17,7 +19,7 @@ The booking summary is the amount to review before saving. Ask the resort about 
 
 ## 3. Changes and cancellation
 
-Down payments are non-refundable if you cancel. Rescheduling is allowed with at least two weeks' notice during peak months (September to December and summer) or at least one week's notice during non-peak months, subject to an available date and resort confirmation.
+The cancellation notice and refund rules for your reservation are the booking policy version displayed above and saved with your reservation. Rescheduling is allowed with at least two weeks' notice during peak months (September to December and summer) or at least one week's notice during non-peak months, subject to an available date and resort confirmation.
 
 The resort's listed change fees are ₱50 for six days' notice, ₱100 for three days, ₱300 for one to two days, and ₱500 on or after the booked date. These shorter notice periods may fall outside the standard rescheduling window; contact the resort to ask whether an exception is available. Do not assume a new date is confirmed until staff approves it.
 

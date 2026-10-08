@@ -5,13 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import {
-  permissionColumns,
-  permissionRows,
   usersColumns,
 } from "@/components/admin/content";
 import CreateStaffDialog from "@/components/admin/users/CreateStaffDialog";
 import EditStaffDialog from "@/components/admin/users/EditStaffDialog";
 import ResetPasswordDialog from "@/components/admin/users/ResetPasswordDialog";
+import RolePermissionsEditor from "@/components/admin/users/RolePermissionsEditor";
 import type { StaffUserFormValues, StaffUserTableRow } from "@/components/admin/users/types";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 
@@ -91,7 +90,7 @@ export default function AdminUsersPage() {
         id: row.id,
         fullName: row.full_name,
         email: row.email,
-        role: row.role,
+        role: row.role === "staff" ? "Manager" : row.role === "admin" ? "Admin" : "Cashier",
         status: row.is_active ? "Active" : "Inactive",
         lastLogin: row.last_login_at ? new Date(row.last_login_at).toLocaleString("en-PH", {
           dateStyle: "medium",
@@ -325,7 +324,7 @@ export default function AdminUsersPage() {
             rows={tableRows}
             defaultSort={{ key: "createdAt", direction: "desc" }}
             filters={[
-              { key: "role", label: "Role", options: ["admin", "staff", "cashier"] },
+              { key: "role", label: "Role", options: ["Admin", "Manager", "Cashier"] },
               { key: "status", label: "Status", options: ["Active", "Inactive"] },
             ]}
             actions={["Add Staff User"]}
@@ -337,16 +336,7 @@ export default function AdminUsersPage() {
           />
         )}
 
-        {activeTab === "Role Permission Matrix" && (
-          <AdminTablePreview
-            title="Role Permission Matrix"
-            columns={permissionColumns}
-            rows={permissionRows}
-            enableSearch={false}
-            sortable={false}
-            actions={[]}
-          />
-        )}
+        {activeTab === "Role Permission Matrix" && <RolePermissionsEditor />}
       </section>
 
       <CreateStaffDialog

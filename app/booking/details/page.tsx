@@ -33,6 +33,7 @@ function BookingDetailsContent() {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [paymentDeadlineAt, setPaymentDeadlineAt] = useState<string | null>(null);
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
+  const [bookingPolicyVersion, setBookingPolicyVersion] = useState<number | null>(null);
 
   const startDateTime = parseDateTimeString(bookingDraft.startDatetime || null);
   const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
@@ -61,7 +62,7 @@ function BookingDetailsContent() {
       return;
     }
 
-    if (!acceptedPolicies && !isAlreadySaved) {
+    if ((!acceptedPolicies || bookingPolicyVersion === null) && !isAlreadySaved) {
       setSaveError("Read and agree to the Terms and Conditions and Privacy Policy before saving your booking.");
       return;
     }
@@ -97,6 +98,7 @@ function BookingDetailsContent() {
             quantity: 1,
           })),
           acceptedPoliciesVersion: LEGAL_POLICY_VERSION,
+          bookingPolicyVersion,
         }),
       });
 
@@ -265,7 +267,7 @@ function BookingDetailsContent() {
                   </div>
                 </div>
 
-                {!isAlreadySaved && <div className="mt-8"><PolicyAgreement accepted={acceptedPolicies} onChange={setAcceptedPolicies} /></div>}
+                {!isAlreadySaved && <div className="mt-8"><PolicyAgreement accepted={acceptedPolicies} onChange={setAcceptedPolicies} onPolicyVersion={setBookingPolicyVersion} /></div>}
 
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                   <Link href="/booking/form" className="flex-1">
@@ -275,7 +277,7 @@ function BookingDetailsContent() {
                   </Link>
                   <button
                     type="button"
-                    disabled={!hasValidDraft || !acceptedPolicies || isSavingBooking || isAlreadySaved}
+                    disabled={!hasValidDraft || !acceptedPolicies || bookingPolicyVersion === null || isSavingBooking || isAlreadySaved}
                     onClick={handleSaveBooking}
                     className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -313,7 +315,7 @@ function BookingDetailsContent() {
                 </div>
 
                 <div className="mt-6 rounded-lg bg-highlight/10 p-4 text-sm text-neutral/80">
-                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. At payment, choose half or the full total. Payments remain subject to verification and the no-refund policy.
+                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. At payment, choose the down payment or the full total. Payments remain subject to verification and the policy attached to your booking.
                 </div>
               </div>
             </div>

@@ -94,7 +94,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
             >
               {roleOptions.map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {option === "staff" ? "Manager" : option === "admin" ? "Admin" : "Cashier"}
                 </option>
               ))}
             </select>

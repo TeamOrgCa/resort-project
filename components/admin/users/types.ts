@@ -17,11 +17,11 @@ export interface StaffUserTableRow {
   id: string;
   fullName: string;
   email: string;
-  role: StaffRole;
+  role: "Admin" | "Manager" | "Cashier";
   status: string;
   lastLogin: string;
   createdAt: string;
-  [key: string]: string | StaffRole;
+  [key: string]: string;
 }
 
 export interface StaffUserFormValues {

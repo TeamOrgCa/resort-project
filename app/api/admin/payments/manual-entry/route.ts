@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { staffHasPermission } from "@/lib/server/role-permissions";
 import { createNotifications } from "@/lib/notifications";
 import { emailBillingDocuments } from "@/lib/server/billing-email";
 
@@ -91,8 +92,8 @@ export async function POST(request: Request) {
       );
     }
 
-    if (staffContext.staffUser.role !== "admin" && staffContext.staffUser.role !== "cashier") {
-      return NextResponse.json({ success: false, message: "Only admin or cashier can record and approve payments." }, { status: 403 });
+    if (!(await staffHasPermission(staffContext.supabase, staffContext.staffUser.role, "payment_entry"))) {
+      return NextResponse.json({ success: false, message: "Payment entry permission required." }, { status: 403 });
     }
 
     const body = await request.json();

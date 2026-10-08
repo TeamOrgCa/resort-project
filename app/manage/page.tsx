@@ -1050,8 +1050,8 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                                     setCancelError("This reservation is already cancelled.");
                                     return;
                                   }
-                                  if (record.status.toLowerCase() === "completed" || new Date(record.startDatetime).getTime() - Date.now() < 48 * 60 * 60 * 1000) {
-                                    setCancelError("Cancellation is only allowed at least 2 days before check-in and before completion.");
+                                  if (record.status.toLowerCase() === "completed") {
+                                    setCancelError("Completed reservations cannot be cancelled.");
                                     return;
                                   }
 
@@ -1062,7 +1062,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                                   });
                                   
                                 }}
-                                disabled={isClosedReservation(record.status) || new Date(record.startDatetime).getTime() - Date.now() < 48 * 60 * 60 * 1000}
+                                disabled={isClosedReservation(record.status)}
                                 className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
                               >
                                 Cancel
@@ -1502,7 +1502,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       <ConfirmationDialog
         isOpen={Boolean(pendingCancellation)}
         title="Cancel Booking"
-        message={`Cancel booking ${pendingCancellation?.reference ?? ""}? Cancellation is available at least 2 days before check-in. If a payment was verified, a refund request will be created for admin review under the cancellation policy.`}
+        message={`Cancel booking ${pendingCancellation?.reference ?? ""}? Your booking's cancellation notice window applies. If a payment was verified, a refund review request may be created under the policy attached to your booking.`}
         confirmText="Confirm Cancel"
         cancelText="Keep Booking"
         isConfirming={isCancellingBooking}

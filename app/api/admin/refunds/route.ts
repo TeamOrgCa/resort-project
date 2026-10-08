@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { createNotifications } from "@/lib/notifications";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { staffHasPermission } from "@/lib/server/role-permissions";
 
 export async function GET() {
   const staff = await requireActiveStaff();
   if (!staff) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
   const { data, error } = await staff.supabase.from("refund_requests")
-    .select("refund_id, reservation_id, guest_id, amount, policy_snapshot, status, requested_at, reviewed_by, reviewed_at, review_reason, refunded_by, refunded_at, gcash_reference, proof_path")
+    .select("refund_id, reservation_id, guest_id, amount, policy_snapshot, policy_version, status, requested_at, reviewed_by, reviewed_at, review_reason, refunded_by, refunded_at, gcash_reference, proof_path")
     .order("requested_at", { ascending: false }).limit(200);
   if (error) return NextResponse.json({ message: error.message }, { status: 500 });
   const ids = [...new Set((data ?? []).map((row) => row.reservation_id))];
@@ -28,12 +29,8 @@ export async function POST(request: Request) {
       !["approved", "rejected", "refunded"].includes(String(action))) {
     return NextResponse.json({ message: "Invalid refund request." }, { status: 400 });
   }
-  if (action !== "refunded" && staff.staffUser.role !== "admin") {
-    return NextResponse.json({ message: "Only an admin can review refunds." }, { status: 403 });
-  }
-  if (action === "refunded" && !["admin", "cashier"].includes(staff.staffUser.role)) {
-    return NextResponse.json({ message: "Admin or cashier access required." }, { status: 403 });
-  }
+  if (!(await staffHasPermission(staff.supabase, staff.staffUser.role, action === "refunded" ? "refund_payout" : "refund_review")))
+    return NextResponse.json({ message: "Permission required." }, { status: 403 });
   let proofPath: string | null = null;
   if (action === "refunded") {
     const proof = form?.get("proof");

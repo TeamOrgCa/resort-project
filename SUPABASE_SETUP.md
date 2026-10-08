@@ -22,6 +22,10 @@ This will create:
 - Triggers for automatic profile creation
 - Indexes for performance
 
+### Booking policy versions
+
+After applying `docs/maintenance-refunds-migration.sql`, run `docs/booking-policy-versions-migration.sql` in the Supabase SQL Editor before using the Configuration page. It creates immutable policy versions, captures the version on new reservations, and snapshots cancellation and refund wording in refund requests and audit records. Existing reservations have no recorded booking-time version; their policy is captured when they are cancelled.
+
 ## Step 2: Configure Authentication
 
 ### Enable Email Authentication

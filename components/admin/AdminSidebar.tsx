@@ -9,9 +9,10 @@ import type { StaffRole } from "@/lib/auth/staff-auth";
 
 interface AdminSidebarProps {
   role: StaffRole;
+  permissions: string[];
 }
 
-export default function AdminSidebar({ role }: AdminSidebarProps) {
+export default function AdminSidebar({ role, permissions }: AdminSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -23,7 +24,7 @@ export default function AdminSidebar({ role }: AdminSidebarProps) {
   };
 
   // Filter navigation based on role
-  const filteredNavigation = filterNavigationByRole(adminNavigation, role);
+  const filteredNavigation = filterNavigationByRole(adminNavigation, role, permissions);
 
   return (
     <div className="h-full border-r border-white/10 text-white" style={{ backgroundColor: "#2D1B12" }}>
@@ -64,7 +65,7 @@ export default function AdminSidebar({ role }: AdminSidebarProps) {
         </button>
 
         <div className="mt-4 border-t border-white/10 pt-4 text-xs text-white/60 sm:text-sm">
-          <p className="font-semibold text-white/80">Role: {role.toUpperCase()}</p>
+          <p className="font-semibold text-white/80">Role: {role === "staff" ? "MANAGER" : role.toUpperCase()}</p>
         </div>
       </div>
     </div>

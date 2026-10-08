@@ -54,7 +54,7 @@ function PaymentContent() {
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedTermsForReservation, setAcceptedTermsForReservation] = useState("");
   const [uploadedProofPath, setUploadedProofPath] = useState<string | null>(null);
   const [reservationReference, setReservationReference] = useState<string | null>(null);
   const [receiptScreen, setReceiptScreen] = useState<string | null>(null);
@@ -191,6 +191,7 @@ function PaymentContent() {
   const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
   const unitId = bookingDraft.unitId || "";
   const reservationId = bookingDraft.reservationId || "";
+  const acceptedTerms = Boolean(reservationId && acceptedTermsForReservation === reservationId);
   const reservationReferenceFromDraft = bookingDraft.reservationReference || "";
   const isBalancePayment = Boolean(reservationId && unitId === "balance-payment");
   const [payOption, setPayOption] = useState<"downpayment" | "full">("downpayment");
@@ -562,7 +563,7 @@ function PaymentContent() {
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Downpayments are non-refundable; rescheduling is allowed within policy windows
+                Cancellation and refund terms follow the policy attached to your booking
               </li>
             </ul>
           </div>
@@ -912,7 +913,7 @@ function PaymentContent() {
                   )}
 
                   <div className="mb-6">
-                    <PolicyAgreement accepted={acceptedTerms} onChange={setAcceptedTerms} />
+                    <PolicyAgreement key={reservationId} accepted={acceptedTerms} onChange={(accepted) => setAcceptedTermsForReservation(accepted ? reservationId : "")} reservationId={reservationId || undefined} />
                   </div>
 
                   <div className="flex gap-4">
@@ -1017,7 +1018,7 @@ function PaymentContent() {
 
                 <div className="bg-highlight/10 p-4 rounded-lg">
                   <h4 className="font-semibold text-neutral mb-2 text-sm">Cancellation Policy</h4>
-                  <p className="text-xs text-neutral/70">No-refund policy applies for cancellations. Rescheduling is available based on notice windows.</p>
+                  <p className="text-xs text-neutral/70">Review the cancellation and refund policy attached to your booking in the agreement above.</p>
                 </div>
               </div>
             </div>
