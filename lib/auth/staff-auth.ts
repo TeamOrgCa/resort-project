@@ -6,6 +6,7 @@ export interface StaffUserProfile {
   email: string;
   role: StaffRole;
   is_active: boolean;
+  must_change_password: boolean;
   active_session_id: string | null;
   last_login_at: string | null;
   last_logout_at: string | null;

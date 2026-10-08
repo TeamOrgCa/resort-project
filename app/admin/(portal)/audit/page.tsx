@@ -122,7 +122,11 @@ export default function AdminAuditPage() {
         <div className="max-h-[85vh] w-full max-w-xl overflow-auto rounded-xl bg-white p-5" onClick={(event) => event.stopPropagation()}>
           <div className="flex justify-between gap-4"><h2 className="text-lg font-semibold">{selected.action}</h2><button onClick={() => setSelected(null)}>Close</button></div>
           <p className="mt-2 text-sm">Actor: {selected.staff}</p><p className="text-sm">Record: {selected.record}</p><p className="text-sm">Time: {selected.timestamp}</p>
-          <pre className="mt-4 overflow-auto whitespace-pre-wrap rounded bg-base p-3 text-xs">{selected.details || "No additional details recorded."}</pre>
+          <pre className="mt-4 overflow-auto whitespace-pre-wrap rounded bg-base p-3 text-sm font-sans">{selected.summary}</pre>
+          {(selected.recordId || selected.details) && <details className="mt-4 text-sm"><summary className="cursor-pointer font-medium">Technical details</summary>
+            {selected.recordId && <p className="mt-2 break-all">Record ID: {selected.recordId}</p>}
+            {selected.details && <pre className="mt-2 overflow-auto whitespace-pre-wrap rounded bg-base p-3 text-xs">{selected.details}</pre>}
+          </details>}
         </div>
       </div>}
     </div>

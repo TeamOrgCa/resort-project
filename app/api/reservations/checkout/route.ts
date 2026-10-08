@@ -6,6 +6,7 @@ import { computeBookingPricing } from "@/lib/booking/pricing";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
 import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
+import { isValidGuestCounts } from "@/lib/booking/guest-count";
 
 export const runtime = "nodejs";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
@@ -150,11 +151,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     return null;
   }
 
-  if (!Number.isInteger(payload.adultCount) || payload.adultCount <= 0) {
-    return null;
-  }
-
-  if (!Number.isInteger(payload.childCount) || payload.childCount < 0) {
+  if (!isValidGuestCounts(payload.adultCount, payload.childCount)) {
     return null;
   }
 

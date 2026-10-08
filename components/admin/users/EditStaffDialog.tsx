@@ -97,7 +97,7 @@ export default function EditStaffDialog({
             >
               {roleOptions.map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {option === "staff" ? "Manager" : option === "admin" ? "Admin" : "Cashier"}
                 </option>
               ))}
             </select>

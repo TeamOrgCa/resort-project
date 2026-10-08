@@ -61,6 +61,7 @@ export async function POST(request: Request, context: { params: Promise<{ staffI
       .from("staff_users")
       .update({
         active_session_id: null,
+        must_change_password: true,
         last_logout_at: new Date().toISOString(),
       })
       .eq("id", staffId);

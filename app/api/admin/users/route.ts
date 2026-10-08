@@ -140,6 +140,7 @@ export async function POST(request: Request) {
         email: payload.email,
         role: payload.role,
         is_active: payload.isActive,
+        must_change_password: true,
         active_session_id: null,
         last_login_at: null,
         last_logout_at: null,

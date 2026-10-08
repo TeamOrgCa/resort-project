@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
@@ -991,7 +991,7 @@ export default function Booking() {
                     </svg>
                   </div>
                   <h3 className="text-xl font-bold text-neutral mb-2">Reschedule-Friendly</h3>
-                  <p className="text-neutral/70">Downpayments are non-refundable, but rescheduling is available within policy windows.</p>
+                  <p className="text-neutral/70">Cancellation and refund terms are shown before you save your booking. Rescheduling is available within policy windows.</p>
                 </div>
 
                 <div className="bg-base p-6 rounded-2xl">

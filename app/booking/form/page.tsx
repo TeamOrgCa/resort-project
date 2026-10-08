@@ -10,6 +10,7 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { DOWN_PAYMENT_PERCENT } from "@/lib/booking/payment-policy";
 import { isValidName, sanitizeName } from "@/lib/helper/validation";
+import { isValidGuestCounts, MAX_GUESTS, MAX_EXTRA_GUESTS } from "@/lib/booking/guest-count";
 
 interface UnitOption {
   id: string;
@@ -200,6 +201,7 @@ function BookingFormContent() {
     return total + (amenity?.price || 0);
   }, 0);
   const selectedServiceItems = services.filter((service) => selectedAmenities.includes(service.id));
+  const guestCountsValid = isValidGuestCounts(formData.adultCount, formData.childCount);
   const pricing = computeBookingPricing({
     bookingMode: bookingDraft.bookingMode,
     startDatetime: effectiveStartDate.toISOString(),
@@ -218,9 +220,8 @@ function BookingFormContent() {
       setFormError("Select valid booking dates and an available room first.");
       return;
     }
-    if (!Number.isInteger(formData.adultCount) || formData.adultCount < 1 || formData.adultCount > 10 ||
-        !Number.isInteger(formData.childCount) || formData.childCount < 0 || formData.childCount > 10) {
-      setFormError("Enter 1–10 adults and 0–10 children.");
+    if (!guestCountsValid) {
+      setFormError(`Enter at least one adult and no more than ${MAX_GUESTS} guests in total.`);
       return;
     }
     if (!isValidName(formData.firstName.trim()) || !isValidName(formData.lastName.trim())) {
@@ -379,7 +380,8 @@ function BookingFormContent() {
                         value={formData.adultCount}
                         onChange={handleInputChange}
                         min="1"
-                        max="10"
+                        max={MAX_GUESTS}
+                        step="1"
                         className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                         required
                       />
@@ -392,7 +394,8 @@ function BookingFormContent() {
                         value={formData.childCount}
                         onChange={handleInputChange}
                         min="0"
-                        max="10"
+                        max={MAX_GUESTS - 1}
+                        step="1"
                         className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       />
                     </div>
@@ -413,6 +416,13 @@ function BookingFormContent() {
                       </select>
                     </div>
                   </div>
+                  <p className={`mt-3 text-sm ${guestCountsValid ? "text-neutral/70" : "text-red-600"}`} aria-live="polite">
+                    {guestCountsValid
+                      ? <>The package includes {pricing.includedGuests} guests, with up to {MAX_EXTRA_GUESTS} additional guests ({MAX_GUESTS} total). Each additional guest is ₱{pricing.addOnPerHead.toLocaleString("en-PH")}; {pricing.extraGuests > 0
+                          ? `${pricing.extraGuests} extra ${pricing.extraGuests === 1 ? "guest adds" : "guests add"} ₱${pricing.extraGuestTotal.toLocaleString("en-PH")} to your total.`
+                          : "no additional guest charge applies."}</>
+                      : `Enter at least one adult and no more than ${MAX_GUESTS} guests in total.`}
+                  </p>
                   {selectedRoom && (
                     <div className="mt-4 p-4 bg-primary/5 rounded-lg">
                       <p className="text-sm text-neutral/80">{selectedRoom.description}</p>

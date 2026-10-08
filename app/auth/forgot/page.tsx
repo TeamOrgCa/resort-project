@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 function ForgotPasswordContent() {
+  const searchParams = useSearchParams();
+  const isStaff = searchParams.get("staff") === "1";
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [error, setError] = useState("");
@@ -22,7 +25,7 @@ function ForgotPasswordContent() {
 
     const supabase = createClient();
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-      redirectTo: `${window.location.origin}/auth/confirm`,
+      redirectTo: `${window.location.origin}${isStaff ? "/auth/confirm/staff" : "/auth/confirm"}`,
     });
 
     if (resetError) {
@@ -52,7 +55,7 @@ function ForgotPasswordContent() {
 
             {status === "sent" ? (
               <div className="bg-secondary/10 border border-secondary/30 text-neutral px-4 py-3 rounded-lg">
-                If a guest account exists for {email.trim() || "your email"}, a reset link has been sent.
+                If an account exists for {email.trim() || "your email"}, a reset link has been sent.
               </div>
             ) : null}
 
@@ -81,7 +84,7 @@ function ForgotPasswordContent() {
           </form>
 
           <div className="mt-6 text-center">
-            <Link href="/auth/login" className="text-primary font-semibold hover:underline">
+            <Link href={isStaff ? "/staff/login" : "/auth/login"} className="text-primary font-semibold hover:underline">
               Back to sign in
             </Link>
           </div>

@@ -6,6 +6,9 @@ export async function GET(request: NextRequest) {
   const type = request.nextUrl.searchParams.get("type");
   const code = request.nextUrl.searchParams.get("code");
   const destination = new URL("/auth/reset", request.url);
+  if (request.nextUrl.searchParams.get("staff") === "1") {
+    destination.searchParams.set("staff", "1");
+  }
   const supabase = await createClient();
 
   if (tokenHash && type === "recovery") {

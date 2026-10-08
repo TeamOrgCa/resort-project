@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
+import { staffHasPermission } from "@/lib/server/role-permissions";
 import { createNotifications } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   try {
     const staff = await requireActiveStaff();
     if (!staff) return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
-    if (staff.staffUser.role !== "admin" && staff.staffUser.role !== "cashier") {
-      return NextResponse.json({ success: false, message: "Only admin or cashier can reject payments." }, { status: 403 });
+    if (!(await staffHasPermission(staff.supabase, staff.staffUser.role, "payment_approval"))) {
+      return NextResponse.json({ success: false, message: "Payment approval permission required." }, { status: 403 });
     }
     const body = await request.json().catch(() => null) as { paymentId?: unknown } | null;
     const paymentId = typeof body?.paymentId === "string" ? body.paymentId.trim() : "";

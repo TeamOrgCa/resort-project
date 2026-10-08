@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { STAFF_SESSION_COOKIE, type StaffUserProfile } from "@/lib/auth/staff-auth";
-import { createStaffSessionCookieOptions } from "@/lib/auth/staff-session";
 import { loginAccess, loginError, recordAttempt } from "@/lib/server/login-access";
+import { completeStaffLogin } from "@/lib/server/staff-login";
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +10,7 @@ export async function POST(request: Request) {
 
     const { data: staff, error } = await admin.from("staff_users")
       .select("id, full_name, email, role, is_active, active_session_id")
-      .eq("id", user.id).maybeSingle<StaffUserProfile>();
+      .eq("id", user.id).maybeSingle();
 
     if (error || !staff || !staff.is_active) {
       await recordAttempt(admin, email, deviceId, "staff", "denied", user.id);
@@ -19,29 +18,22 @@ export async function POST(request: Request) {
       return finish(loginError("Staff account is unavailable.", 403));
     }
 
-    const sessionToken = crypto.randomUUID();
-    const { error: updateError } = await admin.from("staff_users").update({
-      active_session_id: sessionToken,
-      last_login_at: new Date().toISOString(),
-      ...(staff.active_session_id ? { last_logout_at: new Date().toISOString() } : {}),
-    }).eq("id", staff.id);
-    if (updateError) throw updateError;
-
-    if (staff.active_session_id) {
-      const { error: auditError } = await admin.from("audit_logs").insert({
-        user_id: staff.id, action: "Session invalidated by another login",
-        entity_type: "staff_session", entity_id: staff.active_session_id,
-        attempted_email: email, auth_user_id: user.id, device_id: deviceId,
-      });
-      if (auditError) throw auditError;
+    if (!email.endsWith("@gmail.com")) {
+      return completeStaffLogin({ admin, supabase, user, email, deviceId, finish });
     }
-    await recordAttempt(admin, email, deviceId, "staff", "success", user.id);
 
-    const response = NextResponse.json({ success: true, message: "Staff authentication successful.", staffUser: {
-      id: staff.id, fullName: staff.full_name, email: staff.email, role: staff.role,
-    } });
-    response.cookies.set(STAFF_SESSION_COOKIE, sessionToken, createStaffSessionCookieOptions());
-    return finish(response);
+    const { error: otpError } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false },
+    });
+    await supabase.auth.signOut();
+    if (otpError) return finish(loginError("Unable to send the verification code.", 502));
+
+    return finish(NextResponse.json({
+      success: true,
+      requiresOtp: true,
+      message: "A verification code was sent to your staff email.",
+    }));
   } catch {
     return loginError("Unable to process login request.", 500);
   }

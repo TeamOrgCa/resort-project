@@ -32,6 +32,8 @@ import type {
 } from "@/components/admin/transactions/types";
 import { createClient } from "@/lib/supabase/client";
 import { PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
+import { hasPermission } from "@/lib/auth/role-access";
+import type { StaffRole } from "@/lib/auth/staff-auth";
 
 interface PaymentSnapshotRow {
   payment_id: string;
@@ -168,6 +170,7 @@ export default function AdminTransactionsPage() {
   const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
   const [payments, setPayments] = useState<PaymentSnapshotRow[]>([]);
   const [canReviewPayments, setCanReviewPayments] = useState(false);
+  const [canRecordPayments, setCanRecordPayments] = useState(false);
   const [cashReservationId, setCashReservationId] = useState<string | null>(null);
   const [cashAmount, setCashAmount] = useState("");
   const [cashReference, setCashReference] = useState("");
@@ -208,7 +211,12 @@ export default function AdminTransactionsPage() {
           const { data: staffRole } = await supabase.from("staff_users")
             .select("role, is_active").eq("id", user.id)
             .maybeSingle<{ role: string; is_active: boolean }>();
-          if (isMounted) setCanReviewPayments(Boolean(staffRole?.is_active && ["admin", "cashier"].includes(staffRole.role)));
+          if (staffRole?.is_active) {
+            const role = staffRole.role as StaffRole;
+            const { data: grants } = role === "admin" ? { data: null } : await supabase.from("role_permissions").select("permissions").eq("role", role).maybeSingle();
+            if (isMounted) setCanReviewPayments(hasPermission(role, grants?.permissions ?? [], "payment_approval"));
+            if (isMounted) setCanRecordPayments(hasPermission(role, grants?.permissions ?? [], "payment_entry"));
+          }
         }
 
         const { data: transactionsData, error: transactionsError } = await supabase
@@ -403,7 +411,7 @@ export default function AdminTransactionsPage() {
   const handleTransactionRowAction = (action: string, row: AdminTableRow) => {
     if (action === "Settle") {
       const transaction = transactions.find((item) => item.transaction_id === row.id);
-      if (!canReviewPayments || !transaction || Number(transaction.balance ?? 0) <= 0) return;
+      if (!canRecordPayments || !transaction || Number(transaction.balance ?? 0) <= 0) return;
       setCashReservationId(transaction.reservation_id);
       setCashAmount(Number(transaction.balance).toFixed(2));
       setCashReference(`CASH-${crypto.randomUUID().slice(0, 12).toUpperCase()}`);
@@ -851,10 +859,10 @@ export default function AdminTransactionsPage() {
             rows={transactionRows}
             defaultSort={{ key: "updatedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid"] }]}
-            actions={canReviewPayments ? ["Post Payment", "Export Ledger"] : ["Export Ledger"]}
-            rowActions={canReviewPayments ? ["View", "Settle"] : ["View"]}
+            actions={canRecordPayments ? ["Post Payment", "Export Ledger"] : ["Export Ledger"]}
+            rowActions={canRecordPayments ? ["View", "Settle"] : ["View"]}
             onAction={(action) => {
-              if (action !== "Post Payment" || !canReviewPayments) return;
+              if (action !== "Post Payment" || !canRecordPayments) return;
               const first = transactions.find((transaction) => Number(transaction.balance ?? 0) > 0);
               if (!first) { setFetchError("No reservation has an outstanding balance."); return; }
               setCashReservationId(first.reservation_id);

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
+import { createAuditLog, requireActiveStaff, requireAdminStaff } from "@/lib/server/admin-audit";
 import { settingDefinitions } from "@/lib/settings/catalog";
 import { getAllSettings, updateSettings } from "@/lib/settings/settingsService";
 import type { SettingValue, SettingsUpdate } from "@/lib/settings/types";
@@ -21,7 +21,7 @@ const parseUpdates = (value: unknown): SettingsUpdate[] | null => {
 };
 
 export async function GET() {
-  const staffContext = await requireAdminStaff();
+  const staffContext = await requireActiveStaff();
   if (!staffContext) return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
 
   try {

@@ -112,13 +112,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    if (new Date(reservation.start_datetime).getTime() - Date.now() < 48 * 60 * 60 * 1000) {
-      return NextResponse.json(
-        { success: false, message: "Cancellation is only allowed at least 2 days before check-in." },
-        { status: 400 }
-      );
-    }
-
     const { data: refundId, error: updateError } = await supabase.rpc("cancel_reservation_with_refund", {
       p_reservation: reservation.reservation_id,
       p_reason: "Guest requested cancellation",
@@ -131,7 +124,7 @@ export async function POST(request: Request) {
           success: false,
           message: updateError.message,
         },
-        { status: 500 }
+        { status: updateError.code === "22023" ? 400 : 500 }
       );
     }
 
