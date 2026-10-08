@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { DEVICE_COOKIE, isDeviceId, loginError } from "@/lib/server/login-access";
 import { completeStaffLogin } from "@/lib/server/staff-login";
+import { getAuthSessionId } from "@/lib/auth/auth-session";
 
 export async function POST(request: Request) {
   try {
@@ -20,6 +21,8 @@ export async function POST(request: Request) {
 
     const { data, error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
     if (error || !data.user) return loginError("The verification code is invalid or expired.", 401);
+    const authSessionId = getAuthSessionId(data.session?.access_token);
+    if (!authSessionId) return loginError("Unable to verify the login session.", 401);
 
     const admin = createAdminClient();
     const cookieStore = await cookies();
@@ -36,7 +39,7 @@ export async function POST(request: Request) {
       return response;
     };
 
-    return completeStaffLogin({ admin, supabase, user: data.user, email, deviceId, finish });
+    return completeStaffLogin({ admin, supabase, user: data.user, authSessionId, email, deviceId, finish });
   } catch {
     return loginError("Unable to verify the login code.", 500);
   }

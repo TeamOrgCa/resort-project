@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
 
 import { STAFF_SESSION_COOKIE, type StaffUserProfile } from "@/lib/auth/staff-auth";
-import { createStaffSessionCookieOptions } from "@/lib/auth/staff-session";
 import { loginError, recordAttempt } from "@/lib/server/login-access";
 
 interface StaffLoginContext {
   admin: ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>;
   supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>;
   user: { id: string };
+  authSessionId: string;
   email: string;
   deviceId: string;
   finish: (response: NextResponse) => NextResponse;
 }
 
 export async function completeStaffLogin(context: StaffLoginContext) {
-  const { admin, supabase, user, email, deviceId, finish } = context;
+  const { admin, supabase, user, authSessionId, email, deviceId, finish } = context;
   const { data: staff, error } = await admin.from("staff_users")
     .select("id, full_name, email, role, is_active, must_change_password, active_session_id")
     .eq("id", user.id).maybeSingle<StaffUserProfile>();
@@ -25,9 +25,8 @@ export async function completeStaffLogin(context: StaffLoginContext) {
     return finish(loginError("Staff account is unavailable.", 403));
   }
 
-  const sessionToken = crypto.randomUUID();
   const { error: updateError } = await admin.from("staff_users").update({
-    active_session_id: sessionToken,
+    active_session_id: authSessionId,
     last_login_at: new Date().toISOString(),
     ...(staff.active_session_id ? { last_logout_at: new Date().toISOString() } : {}),
   }).eq("id", staff.id);
@@ -61,6 +60,6 @@ export async function completeStaffLogin(context: StaffLoginContext) {
       mustChangePassword: staff.must_change_password,
     },
   });
-  response.cookies.set(STAFF_SESSION_COOKIE, sessionToken, createStaffSessionCookieOptions());
+  response.cookies.delete(STAFF_SESSION_COOKIE);
   return finish(response);
 }

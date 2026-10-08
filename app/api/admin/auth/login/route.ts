@@ -6,7 +6,8 @@ export async function POST(request: Request) {
   try {
     const access = await loginAccess("staff", await request.json());
     if (access.response) return access.response;
-    const { admin, supabase, user, email, deviceId, finish } = access;
+    const { admin, supabase, user, authSessionId, email, deviceId, finish } = access;
+    if (!authSessionId) return finish(loginError("Unable to verify the login session.", 401));
 
     const { data: staff, error } = await admin.from("staff_users")
       .select("id, full_name, email, role, is_active, active_session_id")
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     }
 
     if (!email.endsWith("@gmail.com")) {
-      return completeStaffLogin({ admin, supabase, user, email, deviceId, finish });
+      return completeStaffLogin({ admin, supabase, user, authSessionId, email, deviceId, finish });
     }
 
     const { error: otpError } = await supabase.auth.signInWithOtp({
