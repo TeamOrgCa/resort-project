@@ -19,3 +19,4 @@ Cancellation - The user may cancel their reservation through the website to clea
 Reviews and Feedback Page - This page will allow guests who have completed their stay to submit feedback and ratings regarding their experience at the resort. It includes a structured review form where guests may provide comments, suggestions, and an overall satisfaction rating. Submitted reviews may be displayed publicly on the website to help future guests make informed decisions, while also serving as valuable input for management to evaluate service quality and areas for improvement.
 
 AI-Powered Chatbot -  The chatbot will be designed to assist website visitors with frequently asked questions and basic booking-related inquiries. It will provide instant responses regarding resort information, services and amenities, reservation booking procedures, payment instructions, and policies.
+...
