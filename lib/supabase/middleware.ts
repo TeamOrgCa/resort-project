@@ -2,7 +2,6 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { apiPermission, getDefaultRouteForRole, hasPermission, routePermission } from '@/lib/auth/role-access'
 import { STAFF_SESSION_COOKIE, type StaffRole } from '@/lib/auth/staff-auth'
-import { getStaffSessionTokenFromCookieStore } from '@/lib/auth/staff-session'
 import { getAuthSessionId } from '@/lib/auth/auth-session'
 
 const STAFF_LOGIN_PATH = '/staff/login'
@@ -75,16 +74,21 @@ export async function updateSession(request: NextRequest) {
   const isGuestApi = (path.startsWith('/api/reservations/') && !path.startsWith('/api/reservations/availability')) ||
     path.startsWith('/api/ocular-visits') || path === '/api/reviews/create' || path === '/api/auth/me'
   if (isGuestPage || isGuestApi) {
-    if (!user) return isGuestApi ? NextResponse.json({ message: 'Unauthorized.' }, { status: 401 }) : redirectToGuestLogin(request, supabaseResponse)
+    if (!user) return isGuestApi ? NextResponse.json({ code: 'UNAUTHORIZED', message: 'Unauthorized.' }, { status: 401 }) : redirectToGuestLogin(request, supabaseResponse)
     const { data: guest, error: guestError } = await supabase.from('guests')
       .select('active_session_id').eq('id', user.id).maybeSingle<{ active_session_id: string | null }>()
     if (guestError) return new NextResponse('Unable to verify session.', { status: 503 })
     const { data: { session } } = await supabase.auth.getSession()
     const sessionId = getAuthSessionId(session?.access_token)
-    if (!guest || !sessionId || guest.active_session_id !== sessionId) {
+    if (!guest || !sessionId) {
       await supabase.auth.signOut({ scope: 'local' })
-      return isGuestApi ? NextResponse.json({ message: 'Your session ended because this account signed in on another device.' }, { status: 401 })
-        : redirectToGuestLogin(request, supabaseResponse, Boolean(guest))
+      return isGuestApi ? NextResponse.json({ code: 'UNAUTHORIZED', message: 'Unauthorized.' }, { status: 401 })
+        : redirectToGuestLogin(request, supabaseResponse)
+    }
+    if (guest.active_session_id !== sessionId) {
+      await supabase.auth.signOut({ scope: 'local' })
+      return isGuestApi ? NextResponse.json({ code: 'SESSION_REPLACED', message: 'Your session ended because this account signed in on another device.' }, { status: 401 })
+        : redirectToGuestLogin(request, supabaseResponse, true)
     }
   }
 
@@ -102,7 +106,7 @@ export async function updateSession(request: NextRequest) {
       return supabaseResponse
     }
     if (!user) {
-      if (isAdminApi) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
+      if (isAdminApi) return NextResponse.json({ code: 'UNAUTHORIZED', message: 'Unauthorized.' }, { status: 401 })
       const url = request.nextUrl.clone()
       url.pathname = STAFF_LOGIN_PATH
       if (request.nextUrl.pathname !== '/admin/login') {
@@ -120,15 +124,20 @@ export async function updateSession(request: NextRequest) {
         .maybeSingle<{ role: StaffRole; is_active: boolean; active_session_id: string | null }>()
 
       if (!staffUser) {
-        if (isAdminApi) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
+        if (isAdminApi) return NextResponse.json({ code: 'UNAUTHORIZED', message: 'Unauthorized.' }, { status: 401 })
         await supabase.auth.signOut({ scope: 'local' })
         return redirectToStaffLogin(request, supabaseResponse)
       }
 
-      const sessionToken = getStaffSessionTokenFromCookieStore(request.cookies)
-
-      if (!staffUser.is_active || !sessionToken || staffUser.active_session_id !== sessionToken) {
-        if (isAdminApi) return NextResponse.json({ message: 'Your session ended because this account signed in on another device.' }, { status: 401 })
+      const { data: { session } } = await supabase.auth.getSession()
+      const sessionId = getAuthSessionId(session?.access_token)
+      if (!staffUser.is_active || !sessionId) {
+        if (isAdminApi) return NextResponse.json({ code: 'UNAUTHORIZED', message: 'Unauthorized.' }, { status: 401 })
+        await supabase.auth.signOut({ scope: 'local' })
+        return redirectToStaffLogin(request, supabaseResponse)
+      }
+      if (staffUser.active_session_id !== sessionId) {
+        if (isAdminApi) return NextResponse.json({ code: 'SESSION_REPLACED', message: 'Your session ended because this account signed in on another device.' }, { status: 401 })
         await supabase.auth.signOut({ scope: 'local' })
         return redirectToStaffLogin(request, supabaseResponse, true)
       }

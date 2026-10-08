@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { cookies } from "next/headers";
-import { getStaffSessionTokenFromCookieStore } from "@/lib/auth/staff-session";
+import { getAuthSessionId } from "@/lib/auth/auth-session";
 import type { StaffRole, StaffUserProfile } from "@/lib/auth/staff-auth";
 
 interface AuditLogInput {
@@ -17,7 +16,6 @@ interface StaffContext {
 
 export async function requireActiveStaff(): Promise<StaffContext | null> {
   const supabase = await createClient();
-  const sessionToken = getStaffSessionTokenFromCookieStore(await cookies());
 
   const {
     data: { user },
@@ -38,7 +36,9 @@ export async function requireActiveStaff(): Promise<StaffContext | null> {
     return null;
   }
 
-  if (!sessionToken || staffUser.active_session_id !== sessionToken) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const sessionId = getAuthSessionId(session?.access_token);
+  if (!sessionId || staffUser.active_session_id !== sessionId) {
     return null;
   }
 

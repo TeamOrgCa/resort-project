@@ -6,6 +6,7 @@ export async function POST(request: Request) {
     const access = await loginAccess("guest", await request.json());
     if (access.response) return access.response;
     const { admin, supabase, user, authSessionId, email, deviceId, finish } = access;
+    if (!authSessionId) return finish(loginError("Unable to verify the login session.", 401));
 
     const { data: guest, error } = await admin.from("guests").select("id").eq("id", user.id).maybeSingle();
     if (error || !guest) {

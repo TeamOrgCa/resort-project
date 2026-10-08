@@ -15,7 +15,7 @@ export default function SessionWatcher() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
         const response = await fetch("/api/auth/session-status", { cache: "no-store" });
-        if (!response.ok) return;
+        if (response.status !== 200 && response.status !== 401) return;
         const result = await response.json() as { kind?: "staff" | "guest"; status?: string };
         if (result.status !== "replaced" && result.status !== "none") return;
         leaving = true;

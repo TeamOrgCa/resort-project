@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthSessionId } from "@/lib/auth/auth-session";
-import { getStaffSessionTokenFromCookieStore } from "@/lib/auth/staff-session";
 
 export const DEVICE_COOKIE = "resort_device_id";
 const DEVICE_COOKIE_AGE = 60 * 60 * 24 * 365;
@@ -55,11 +54,10 @@ export async function loginAccess(kind: LoginKind, body: unknown) {
       admin.from("guests").select("active_session_id").eq("id", existingUser.id).maybeSingle(),
       supabase.auth.getSession(),
     ]);
-    const staffToken = getStaffSessionTokenFromCookieStore(cookieStore);
-    const guestToken = getAuthSessionId(session?.access_token);
+    const authSessionId = getAuthSessionId(session?.access_token);
     const active = currentStaff
-      ? Boolean(currentStaff.is_active && staffToken && currentStaff.active_session_id === staffToken)
-      : Boolean(currentGuest && guestToken && currentGuest.active_session_id === guestToken);
+      ? Boolean(currentStaff.is_active && authSessionId && currentStaff.active_session_id === authSessionId)
+      : Boolean(currentGuest && authSessionId && currentGuest.active_session_id === authSessionId);
     if (active) {
       await recordAttempt(admin, credentials.email, deviceId, kind, "device_conflict");
       return { response: finish(loginError("Sign out of the current account before signing in to another.", 409)) };
