@@ -21,7 +21,7 @@ export async function completeStaffLogin(context: StaffLoginContext) {
 
   if (error || !staff || !staff.is_active) {
     await recordAttempt(admin, email, deviceId, "staff", "denied", user.id);
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     return finish(loginError("Staff account is unavailable.", 403));
   }
 
@@ -32,6 +32,8 @@ export async function completeStaffLogin(context: StaffLoginContext) {
     ...(staff.active_session_id ? { last_logout_at: new Date().toISOString() } : {}),
   }).eq("id", staff.id);
   if (updateError) throw updateError;
+  const { error: revokeError } = await supabase.auth.signOut({ scope: "others" });
+  if (revokeError) throw revokeError;
 
   if (staff.active_session_id) {
     const { error: auditError } = await admin.from("audit_logs").insert({

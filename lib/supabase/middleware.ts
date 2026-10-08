@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { apiPermission, getDefaultRouteForRole, hasPermission, routePermission } from '@/lib/auth/role-access'
 import { STAFF_SESSION_COOKIE, type StaffRole } from '@/lib/auth/staff-auth'
 import { getStaffSessionTokenFromCookieStore } from '@/lib/auth/staff-session'
+import { getAuthSessionId } from '@/lib/auth/auth-session'
 
 const STAFF_LOGIN_PATH = '/staff/login'
 
@@ -12,16 +13,27 @@ function copyCookies(source: NextResponse, target: NextResponse) {
   )
 }
 
-function redirectToStaffLogin(request: NextRequest, supabaseResponse: NextResponse) {
+function redirectToStaffLogin(request: NextRequest, supabaseResponse: NextResponse, replaced = false) {
   const url = request.nextUrl.clone()
   url.pathname = STAFF_LOGIN_PATH
   url.searchParams.delete('redirect')
+  if (replaced) url.searchParams.set('reason', 'session-replaced')
 
   const redirectResponse = NextResponse.redirect(url)
   copyCookies(supabaseResponse, redirectResponse)
   redirectResponse.cookies.delete(STAFF_SESSION_COOKIE)
 
   return redirectResponse
+}
+
+function redirectToGuestLogin(request: NextRequest, supabaseResponse: NextResponse, replaced = false) {
+  const url = request.nextUrl.clone()
+  url.pathname = '/auth/login'
+  url.searchParams.set('redirect', request.nextUrl.pathname)
+  if (replaced) url.searchParams.set('reason', 'session-replaced')
+  const response = NextResponse.redirect(url)
+  copyCookies(supabaseResponse, response)
+  return response
 }
 
 export async function updateSession(request: NextRequest) {
@@ -58,21 +70,30 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Protect booking-related routes
-  if (!user && (request.nextUrl.pathname.startsWith('/booking/form') || 
-                request.nextUrl.pathname.startsWith('/booking/payment') ||
-                request.nextUrl.pathname.startsWith('/manage'))) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/auth/login'
-    url.searchParams.set('redirect', request.nextUrl.pathname)
-    return NextResponse.redirect(url)
+  const path = request.nextUrl.pathname
+  const isGuestPage = path.startsWith('/booking/form') || path.startsWith('/booking/payment') || path.startsWith('/manage')
+  const isGuestApi = (path.startsWith('/api/reservations/') && !path.startsWith('/api/reservations/availability')) ||
+    path.startsWith('/api/ocular-visits') || path === '/api/reviews/create' || path === '/api/auth/me'
+  if (isGuestPage || isGuestApi) {
+    if (!user) return isGuestApi ? NextResponse.json({ message: 'Unauthorized.' }, { status: 401 }) : redirectToGuestLogin(request, supabaseResponse)
+    const { data: guest, error: guestError } = await supabase.from('guests')
+      .select('active_session_id').eq('id', user.id).maybeSingle<{ active_session_id: string | null }>()
+    if (guestError) return new NextResponse('Unable to verify session.', { status: 503 })
+    const { data: { session } } = await supabase.auth.getSession()
+    const sessionId = getAuthSessionId(session?.access_token)
+    if (!guest || !sessionId || guest.active_session_id !== sessionId) {
+      await supabase.auth.signOut({ scope: 'local' })
+      return isGuestApi ? NextResponse.json({ message: 'Your session ended because this account signed in on another device.' }, { status: 401 })
+        : redirectToGuestLogin(request, supabaseResponse, Boolean(guest))
+    }
   }
 
   // Protect admin routes with role-based access control
   const isAdminPage = request.nextUrl.pathname.startsWith('/admin/') || request.nextUrl.pathname === '/admin'
-  const apiRequiredPermission = request.nextUrl.pathname.startsWith('/api/admin/')
+  const isAdminApi = request.nextUrl.pathname.startsWith('/api/admin/') && !request.nextUrl.pathname.startsWith('/api/admin/auth/')
+  const apiRequiredPermission = isAdminApi
     ? apiPermission(request.nextUrl.pathname, request.method) : null
-  if (isAdminPage || apiRequiredPermission) {
+  if (isAdminPage || isAdminApi) {
     if (request.nextUrl.pathname === '/admin/login') {
       return NextResponse.redirect(new URL(STAFF_LOGIN_PATH, request.url))
     }
@@ -81,7 +102,7 @@ export async function updateSession(request: NextRequest) {
       return supabaseResponse
     }
     if (!user) {
-      if (apiRequiredPermission) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
+      if (isAdminApi) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
       const url = request.nextUrl.clone()
       url.pathname = STAFF_LOGIN_PATH
       if (request.nextUrl.pathname !== '/admin/login') {
@@ -99,17 +120,17 @@ export async function updateSession(request: NextRequest) {
         .maybeSingle<{ role: StaffRole; is_active: boolean; active_session_id: string | null }>()
 
       if (!staffUser) {
-        if (apiRequiredPermission) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
-        await supabase.auth.signOut()
+        if (isAdminApi) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
+        await supabase.auth.signOut({ scope: 'local' })
         return redirectToStaffLogin(request, supabaseResponse)
       }
 
       const sessionToken = getStaffSessionTokenFromCookieStore(request.cookies)
 
       if (!staffUser.is_active || !sessionToken || staffUser.active_session_id !== sessionToken) {
-        if (apiRequiredPermission) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
-        await supabase.auth.signOut()
-        return redirectToStaffLogin(request, supabaseResponse)
+        if (isAdminApi) return NextResponse.json({ message: 'Your session ended because this account signed in on another device.' }, { status: 401 })
+        await supabase.auth.signOut({ scope: 'local' })
+        return redirectToStaffLogin(request, supabaseResponse, true)
       }
 
       const { data: permissionRow, error: permissionError } = staffUser.role === 'admin'
@@ -127,7 +148,7 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(url)
       }
     } catch {
-      if (apiRequiredPermission) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
+      if (isAdminApi) return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 })
       // If there's an error fetching role, redirect to login
       const url = request.nextUrl.clone()
       url.pathname = '/admin/login'

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AdminLoginForm from "@/components/admin/auth/AdminLoginForm";
+import { Suspense } from "react";
 
 export default function AdminLoginPage() {
   return (
@@ -19,7 +20,7 @@ export default function AdminLoginPage() {
           </p>
 
           <div className="mt-6">
-            <AdminLoginForm />
+            <Suspense fallback={null}><AdminLoginForm /></Suspense>
           </div>
 
           <div className="mt-6 text-sm">

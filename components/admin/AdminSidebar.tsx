@@ -19,7 +19,7 @@ export default function AdminSidebar({ role, permissions }: AdminSidebarProps) {
   const handleLogout = async () => {
     const supabase = createClient();
     await fetch("/api/admin/auth/logout", { method: "POST" });
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     router.replace("/staff/login");
   };
 
