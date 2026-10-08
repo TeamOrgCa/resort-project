@@ -9,7 +9,7 @@ export async function POST() {
     const staffContext = await requireActiveStaff();
 
     if (!staffContext) {
-      await (await createClient()).auth.signOut();
+      await (await createClient()).auth.signOut({ scope: "local" });
       const response = NextResponse.json({ success: true, message: "Signed out." }, { status: 200 });
       response.cookies.delete(STAFF_SESSION_COOKIE);
       return response;
@@ -31,7 +31,7 @@ export async function POST() {
       });
     }
 
-    await staffContext.supabase.auth.signOut();
+    await staffContext.supabase.auth.signOut({ scope: "local" });
 
     const response = NextResponse.json({ success: true, message: "Signed out." }, { status: 200 });
     response.cookies.delete(STAFF_SESSION_COOKIE);

@@ -14,7 +14,7 @@ export async function POST(request: Request) {
 
     if (error || !staff || !staff.is_active) {
       await recordAttempt(admin, email, deviceId, "staff", "denied", user.id);
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
       return finish(loginError("Staff account is unavailable.", 403));
     }
 
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       email,
       options: { shouldCreateUser: false },
     });
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     if (otpError) return finish(loginError("Unable to send the verification code.", 502));
 
     return finish(NextResponse.json({

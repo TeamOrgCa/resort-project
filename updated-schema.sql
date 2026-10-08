@@ -177,6 +177,7 @@ $$;
 -- =========================
 create table public.guests (
   id uuid primary key references auth.users(id) on delete cascade,
+  active_session_id uuid,
 
   first_name text not null,
   last_name text not null,
@@ -189,6 +190,8 @@ create table public.guests (
   created_at timestamptz default timezone('utc', now()) not null,
   updated_at timestamptz default timezone('utc', now()) not null
 );
+
+create index guests_active_session_idx on public.guests(active_session_id);
 
 alter table public.guests enable row level security;
 

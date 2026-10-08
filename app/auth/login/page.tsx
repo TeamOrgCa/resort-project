@@ -9,6 +9,7 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect') || '/';
+  const sessionReplaced = searchParams.get("reason") === "session-replaced";
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -61,6 +62,7 @@ function LoginContent() {
         {/* Login Form */}
         <div className="bg-white rounded-3xl shadow-xl p-8">
           <form onSubmit={handleLogin} className="space-y-6">
+            {sessionReplaced && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-neutral">This account was signed in on another device. Your session here has ended. Sign in again to continue.</p>}
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
                 {error}

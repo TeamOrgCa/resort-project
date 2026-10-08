@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthSessionId } from "@/lib/auth/auth-session";
+import { getStaffSessionTokenFromCookieStore } from "@/lib/auth/staff-session";
 
 export const DEVICE_COOKIE = "resort_device_id";
 const DEVICE_COOKIE_AGE = 60 * 60 * 24 * 365;
@@ -48,17 +50,31 @@ export async function loginAccess(kind: LoginKind, body: unknown) {
 
   const { data: { user: existingUser } } = await supabase.auth.getUser();
   if (existingUser && existingUser.email?.toLowerCase() !== credentials.email) {
-    await recordAttempt(admin, credentials.email, deviceId, kind, "device_conflict");
-    return { response: finish(loginError("Sign out of the current account before signing in to another.", 409)) };
+    const [{ data: currentStaff }, { data: currentGuest }, { data: { session } }] = await Promise.all([
+      admin.from("staff_users").select("active_session_id, is_active").eq("id", existingUser.id).maybeSingle(),
+      admin.from("guests").select("active_session_id").eq("id", existingUser.id).maybeSingle(),
+      supabase.auth.getSession(),
+    ]);
+    const staffToken = getStaffSessionTokenFromCookieStore(cookieStore);
+    const guestToken = getAuthSessionId(session?.access_token);
+    const active = currentStaff
+      ? Boolean(currentStaff.is_active && staffToken && currentStaff.active_session_id === staffToken)
+      : Boolean(currentGuest && guestToken && currentGuest.active_session_id === guestToken);
+    if (active) {
+      await recordAttempt(admin, credentials.email, deviceId, kind, "device_conflict");
+      return { response: finish(loginError("Sign out of the current account before signing in to another.", 409)) };
+    }
+    await supabase.auth.signOut({ scope: "local" });
   }
 
   const { data, error } = await supabase.auth.signInWithPassword(credentials);
-  if (error || !data.user) {
+  const authSessionId = getAuthSessionId(data.session?.access_token);
+  if (error || !data.user || !authSessionId) {
     const lockedUntil = await recordAttempt(admin, credentials.email, deviceId, kind, "failed");
     return { response: finish(loginError(lockedUntil ? "Too many attempts. Try again in one minute." : "Invalid credentials.", lockedUntil ? 429 : 401)) };
   }
 
-  return { admin, supabase, user: data.user, email: credentials.email, deviceId, finish };
+  return { admin, supabase, user: data.user, authSessionId, email: credentials.email, deviceId, finish };
 }
 
 export async function recordAttempt(
