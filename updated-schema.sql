@@ -14,6 +14,7 @@ create table public.staff_users (
 
   role text check (role in ('admin', 'staff', 'cashier')) not null default 'staff',
   is_active boolean default true,
+  must_change_password boolean not null default false,
   active_session_id uuid,
   last_login_at timestamptz,
   last_logout_at timestamptz,

@@ -9,6 +9,7 @@ function ResetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const invalidLink = searchParams.get("error") === "invalid_link";
+  const isStaff = searchParams.get("staff") === "1";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -82,7 +83,7 @@ function ResetPasswordContent() {
     setIsSubmitting(false);
 
     window.setTimeout(() => {
-      router.push("/auth/login");
+      router.push(isStaff ? "/staff/login" : "/auth/login");
     }, 1200);
   };
 
@@ -102,7 +103,7 @@ function ResetPasswordContent() {
               <p className="text-sm text-neutral/70">
                 This reset link is invalid or has expired. Please request a new one.
               </p>
-              <Link href="/auth/forgot" className="text-primary font-semibold hover:underline">
+              <Link href={isStaff ? "/auth/forgot?staff=1" : "/auth/forgot"} className="text-primary font-semibold hover:underline">
                 Request a new reset link
               </Link>
             </div>
@@ -159,7 +160,7 @@ function ResetPasswordContent() {
               </button>
 
               <div className="text-center">
-                <Link href="/auth/login" className="text-primary font-semibold hover:underline">
+                <Link href={isStaff ? "/staff/login" : "/auth/login"} className="text-primary font-semibold hover:underline">
                   Back to sign in
                 </Link>
               </div>

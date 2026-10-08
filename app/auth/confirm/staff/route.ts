@@ -5,10 +5,7 @@ export async function GET(request: NextRequest) {
   const tokenHash = request.nextUrl.searchParams.get("token_hash");
   const type = request.nextUrl.searchParams.get("type");
   const code = request.nextUrl.searchParams.get("code");
-  const destination = new URL("/auth/reset", request.url);
-  if (request.nextUrl.searchParams.get("staff") === "1") {
-    destination.searchParams.set("staff", "1");
-  }
+  const destination = new URL("/auth/reset?staff=1", request.url);
   const supabase = await createClient();
 
   if (tokenHash && type === "recovery") {
@@ -19,6 +16,7 @@ export async function GET(request: NextRequest) {
     if (!error) return NextResponse.redirect(destination);
   }
 
-  destination.searchParams.set("error", "invalid_link");
+  destination.pathname = "/auth/reset";
+  destination.search = "?error=invalid_link&staff=1";
   return NextResponse.redirect(destination);
 }
