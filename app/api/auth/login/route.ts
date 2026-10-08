@@ -14,9 +14,11 @@ export async function POST(request: Request) {
       return finish(loginError("Guest account is unavailable.", 403));
     }
 
-    const { error: updateError } = await admin.from("guests")
-      .update({ active_session_id: authSessionId }).eq("id", user.id);
-    if (updateError) throw updateError;
+    if (authSessionId) {
+      const { error: updateError } = await admin.from("guests")
+        .update({ active_session_id: authSessionId }).eq("id", user.id);
+      if (updateError) throw updateError;
+    }
     const { error: revokeError } = await supabase.auth.signOut({ scope: "others" });
     if (revokeError) throw revokeError;
 

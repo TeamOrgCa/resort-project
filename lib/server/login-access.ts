@@ -68,13 +68,20 @@ export async function loginAccess(kind: LoginKind, body: unknown) {
   }
 
   const { data, error } = await supabase.auth.signInWithPassword(credentials);
-  const authSessionId = getAuthSessionId(data.session?.access_token);
-  if (error || !data.user || !authSessionId) {
+  if (error || !data.user) {
     const lockedUntil = await recordAttempt(admin, credentials.email, deviceId, kind, "failed");
     return { response: finish(loginError(lockedUntil ? "Too many attempts. Try again in one minute." : "Invalid credentials.", lockedUntil ? 429 : 401)) };
   }
 
-  return { admin, supabase, user: data.user, authSessionId, email: credentials.email, deviceId, finish };
+  return {
+    admin,
+    supabase,
+    user: data.user,
+    authSessionId: getAuthSessionId(data.session?.access_token),
+    email: credentials.email,
+    deviceId,
+    finish,
+  };
 }
 
 export async function recordAttempt(
