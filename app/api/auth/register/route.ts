@@ -31,13 +31,16 @@ export async function POST(request: Request) {
     const { data, error } = await supabase.auth.signUp({
       email: guest.email,
       password: guest.password,
-      options: { data: {
-        first_name: guest.firstName,
-        last_name: guest.lastName,
-        middle_name: guest.middleName,
-        phone_number: guest.phoneNumber,
-        address: guest.address,
-      } },
+      options: {
+        emailRedirectTo: new URL("/auth/confirm", request.url).toString(),
+        data: {
+          first_name: guest.firstName,
+          last_name: guest.lastName,
+          middle_name: guest.middleName,
+          phone_number: guest.phoneNumber,
+          address: guest.address,
+        },
+      },
     });
     if (error) return NextResponse.json({ message: error.message }, { status: 400 });
     if (!data.user) throw new Error("Sign-up returned no user.");
@@ -46,6 +49,14 @@ export async function POST(request: Request) {
     // guest profile for that response; keep the same confirmation message.
     if (data.user.identities?.length === 0) {
       return NextResponse.json({ success: true, needsEmailConfirmation: true });
+    }
+
+    // A session means Confirm email is disabled in Supabase. Do not leave a
+    // newly created, already verified guest account behind in that state.
+    if (data.session) {
+      const { error: rollbackError } = await admin.auth.admin.deleteUser(data.user.id);
+      if (rollbackError) console.error("Unable to roll back unverified guest registration:", rollbackError);
+      return NextResponse.json({ message: "Guest email confirmation is unavailable. Please contact the resort." }, { status: 503 });
     }
 
     // The auth.users trigger creates the profile atomically with the account.
@@ -58,7 +69,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Your account needs assistance. Please contact support." }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, needsEmailConfirmation: !data.session });
+    return NextResponse.json({ success: true, needsEmailConfirmation: true });
   } catch (error) {
     console.error("Guest registration failed:", error);
     return NextResponse.json({ message: "Unable to create your account. Please try again." }, { status: 500 });

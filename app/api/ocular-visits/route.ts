@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { sendOcularVisitScheduledEmail } from "@/lib/email";
 import { getActiveOcularSlots, type OcularSlotRecord } from "@/repositories/catalogRepository";
+import { BOOKING_LEAD_MESSAGE, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 interface OcularVisitPayload {
   scheduledDate: string;
   timeSlot: string;
@@ -88,6 +89,10 @@ export async function POST(request: Request) {
 
     if (!slot) {
       return NextResponse.json({ success: false, message: "Selected time slot is not available." }, { status: 400 });
+    }
+
+    if (!isOcularSlotStartAllowed(body.scheduledDate, slot.start_time)) {
+      return NextResponse.json({ success: false, message: BOOKING_LEAD_MESSAGE }, { status: 400 });
     }
 
     const {

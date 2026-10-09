@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOcularSlots } from "@/repositories/catalogRepository";
+import { BOOKING_LEAD_MESSAGE, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 
 export async function POST(request: Request) {
   try {
@@ -34,6 +35,9 @@ export async function POST(request: Request) {
     const slots = await getActiveOcularSlots(supabase);
     const slot = slots.find((item) => item.slot_id === timeSlotId);
     if (!slot) return NextResponse.json({ success: false, message: "This time slot is unavailable." }, { status: 400 });
+    if (!isOcularSlotStartAllowed(scheduledDate, slot.start_time)) {
+      return NextResponse.json({ success: false, message: BOOKING_LEAD_MESSAGE }, { status: 400 });
+    }
 
     const { data: conflicts, error: conflictError } = await supabase.from("ocular_visits")
       .select("visit_id, guest_id")

@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
+import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
+import { calculateRescheduleCharges } from "@/lib/booking/reschedule-charges";
+import type { BookingMode } from "@/lib/booking/policy";
 
 interface ReschedulePayload {
   reservationId: string;
@@ -16,6 +19,9 @@ interface ReservationRow {
   reference_number: string;
   start_datetime: string;
   end_datetime: string;
+  booking_mode: BookingMode | null;
+  adult_count: number;
+  child_count: number;
   status:
     | "pending"
     | "confirmed"
@@ -23,31 +29,6 @@ interface ReservationRow {
     | "completed"
     | "reschedule_requested";
 }
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const calculateRescheduleFee = (startDatetime: string) => {
-  const start = new Date(startDatetime);
-
-  if (Number.isNaN(start.getTime())) {
-    return 500;
-  }
-
-  const daysUntilStart = (start.getTime() - Date.now()) / DAY_MS;
-
-  if (daysUntilStart >= 6) {
-    return 50;
-  }
-
-  if (daysUntilStart >= 3) {
-    return 100;
-  }
-
-  if (daysUntilStart >= 1) {
-    return 300;
-  }
-
-  return 500;
-};
 
 /* -----------------------------
    VALIDATE PAYLOAD
@@ -104,9 +85,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (newStart.getTime() <= Date.now()) {
+    if (!isBookingStartAllowed(newStart)) {
       return NextResponse.json(
-        { success: false, message: "Reschedule must be in the future." },
+        { success: false, message: BOOKING_LEAD_MESSAGE },
         { status: 400 }
       );
     }
@@ -133,9 +114,7 @@ export async function POST(request: Request) {
     ------------------------------*/
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select(
-        "reservation_id, guest_id, reference_number, start_datetime, end_datetime, status"
-      )
+      .select("reservation_id, guest_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -225,6 +204,22 @@ export async function POST(request: Request) {
       );
     }
 
+    const originalDuration = new Date(reservation.end_datetime).getTime() - new Date(reservation.start_datetime).getTime();
+    if (!reservation.booking_mode || newEnd.getTime() - newStart.getTime() !== originalDuration ||
+      (newStart.getTime() - new Date(reservation.start_datetime).getTime()) % 86_400_000 !== 0) {
+      return NextResponse.json({ success: false, message: "Keep the original booking duration and package when rescheduling." }, { status: 400 });
+    }
+
+    const charges = calculateRescheduleCharges({
+      originalStart: reservation.start_datetime,
+      originalEnd: reservation.end_datetime,
+      newStart: payload.newStartDatetime,
+      newEnd: payload.newEndDatetime,
+      bookingMode: reservation.booking_mode,
+      adultCount: reservation.adult_count,
+      childCount: reservation.child_count,
+    });
+
     const { conflict, error: overlapError } = await checkReservationOverlap(
       payload.newStartDatetime,
       payload.newEndDatetime,
@@ -259,7 +254,8 @@ export async function POST(request: Request) {
         new_start: payload.newStartDatetime,
         new_end: payload.newEndDatetime,
 
-        reschedule_fee: calculateRescheduleFee(reservation.start_datetime),
+        reschedule_fee: charges.noticeFee,
+        rate_adjustment: charges.rateAdjustment,
 
         status: "pending",
       })
@@ -326,7 +322,9 @@ export async function POST(request: Request) {
         success: true,
         reservationId: reservation.reservation_id,
         status: "reschedule_requested",
-        rescheduleFee: calculateRescheduleFee(reservation.start_datetime),
+        rescheduleFee: charges.noticeFee,
+        rateAdjustment: charges.rateAdjustment,
+        totalAdditional: charges.totalAdditional,
         message: "Reschedule request submitted successfully.",
       },
       { status: 201 }

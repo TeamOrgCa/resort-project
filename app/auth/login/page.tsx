@@ -10,6 +10,7 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect') || '/';
   const sessionReplaced = searchParams.get("reason") === "session-replaced";
+  const confirmation = searchParams.get("confirmation");
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -62,6 +63,8 @@ function LoginContent() {
         {/* Login Form */}
         <div className="bg-white rounded-3xl shadow-xl p-8">
           <form onSubmit={handleLogin} className="space-y-6">
+            {confirmation === "success" && <p role="status" className="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-neutral">Email confirmed. You can now sign in.</p>}
+            {confirmation === "invalid" && <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-neutral">This confirmation link is invalid or has expired. Request a new email from the registration page.</p>}
             {sessionReplaced && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-neutral">This account was signed in on another device. Your session here has ended. Sign in again to continue.</p>}
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">

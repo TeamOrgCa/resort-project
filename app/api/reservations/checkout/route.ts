@@ -10,6 +10,7 @@ import { isValidGuestCounts } from "@/lib/booking/guest-count";
 
 export const runtime = "nodejs";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
 
 type PaymentType = "downpayment" | "full";
 
@@ -260,6 +261,10 @@ export async function POST(request: Request) {
 
     if (!payload.payment.proofPath.startsWith(`${user.id}/`) || payload.payment.proofPath.includes("..")) {
       return NextResponse.json({ success: false, message: "Invalid payment proof path." }, { status: 400 });
+    }
+
+    if (!isBookingStartAllowed(payload.startDatetime)) {
+      return NextResponse.json({ success: false, message: BOOKING_LEAD_MESSAGE }, { status: 400 });
     }
     const { data: paymentMethod, error: paymentMethodError } = await supabase.from("payment_methods")
       .select("name, type, is_active")
