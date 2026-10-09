@@ -1,233 +1,108 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createNotifications } from "@/lib/notifications";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
+import { hasPermission } from "@/lib/auth/role-access";
+import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
 
-interface ApproveReschedulePayload {
-  rescheduleId: string;
-}
-
-interface RescheduleRequestRow {
+type RescheduleRow = {
   reschedule_id: string;
   reservation_id: string;
-  status: "pending" | "approved" | "rejected";
+  status: string;
   new_start: string;
   new_end: string;
-  reschedule_fee: number | null;
-}
-
-interface ReservationRow {
-  reservation_id: string;
-  guest_id: string | null;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
-}
-
-interface TransactionRow {
-  total_amount: number | null;
-  paid_amount: number | null;
-}
-
-const parsePayload = (value: unknown): ApproveReschedulePayload | null => {
-  if (typeof value !== "object" || value === null) {
-    return null;
-  }
-
-  const payload = value as Partial<ApproveReschedulePayload>;
-
-  if (typeof payload.rescheduleId !== "string" || !payload.rescheduleId.trim()) {
-    return null;
-  }
-
-  return { rescheduleId: payload.rescheduleId.trim() };
-};
-
-const deriveReservationStatus = (paidAmount: number) => (paidAmount > 0 ? "confirmed" : "pending");
-
-const deriveTransactionStatus = (paidAmount: number, totalAmount: number): "unpaid" | "partial" | "paid" => {
-  if (paidAmount <= 0) {
-    return "unpaid";
-  }
-
-  if (paidAmount >= totalAmount) {
-    return "paid";
-  }
-
-  return "partial";
+  reschedule_fee: number;
+  rate_adjustment: number;
 };
 
 export async function POST(request: Request) {
   try {
     const staffContext = await requireActiveStaff();
-
-    if (!staffContext) {
-      return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
+    if (!staffContext) return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
+    const role = staffContext.staffUser.role;
+    const { data: grants, error: grantsError } = role === "admin"
+      ? { data: null, error: null }
+      : await staffContext.supabase.from("role_permissions").select("permissions").eq("role", role).maybeSingle();
+    if (grantsError || !hasPermission(role, grants?.permissions ?? [], "reschedule_approval")) {
+      return NextResponse.json({ success: false, message: "Reschedule approval permission is required." }, { status: 403 });
     }
 
-    const body = await request.json();
-    const payload = parsePayload(body);
+    const body = await request.json().catch(() => null) as { rescheduleId?: unknown } | null;
+    const rescheduleId = typeof body?.rescheduleId === "string" ? body.rescheduleId.trim() : "";
+    if (!rescheduleId) return NextResponse.json({ success: false, message: "Select a reschedule request." }, { status: 400 });
 
-    if (!payload) {
-      return NextResponse.json({ success: false, message: "Invalid request payload." }, { status: 400 });
+    const admin = createAdminClient();
+    const { data: requestRow, error: requestError } = await admin.from("reservation_reschedules")
+      .select("reschedule_id, reservation_id, status, new_start, new_end, reschedule_fee, rate_adjustment")
+      .eq("reschedule_id", rescheduleId).maybeSingle<RescheduleRow>();
+    if (requestError || !requestRow) return NextResponse.json({ success: false, message: "Reschedule request not found." }, { status: 404 });
+    if (requestRow.status !== "pending") return NextResponse.json({ success: false, message: "This request has already been reviewed." }, { status: 409 });
+    if (!isBookingStartAllowed(requestRow.new_start)) {
+      return NextResponse.json({ success: false, message: BOOKING_LEAD_MESSAGE }, { status: 409 });
     }
 
-    const { data: requestRow, error: requestError } = await staffContext.supabase
-      .from("reservation_reschedules")
-      .select("reschedule_id, reservation_id, status, new_start, new_end, reschedule_fee")
-      .eq("reschedule_id", payload.rescheduleId)
-      .maybeSingle<RescheduleRequestRow>();
-
-    if (requestError || !requestRow) {
-      return NextResponse.json({ success: false, message: "Reschedule request not found." }, { status: 404 });
-    }
-
-    if (requestRow.status !== "pending") {
-      return NextResponse.json(
-        { success: false, message: "This reschedule request has already been reviewed." },
-        { status: 400 }
-      );
-    }
-
-    const { data: reservation, error: reservationError } = await staffContext.supabase
-      .from("reservations")
-      .select("reservation_id, guest_id, status")
+    const { data: reservation, error: reservationError } = await admin.from("reservations")
+      .select("guest_id, reference_number, status")
       .eq("reservation_id", requestRow.reservation_id)
-      .maybeSingle<ReservationRow>();
-
-    if (reservationError || !reservation) {
-      return NextResponse.json({ success: false, message: "Reservation not found." }, { status: 404 });
-    }
-
-    if (reservation.status !== "reschedule_requested") {
-      return NextResponse.json({ success: false, message: "This reservation is no longer awaiting reschedule approval." }, { status: 400 });
+      .maybeSingle<{ guest_id: string | null; reference_number: string; status: string }>();
+    if (reservationError || !reservation || reservation.status !== "reschedule_requested") {
+      return NextResponse.json({ success: false, message: "Reservation is no longer awaiting reschedule approval." }, { status: 409 });
     }
 
     const { conflict, error: overlapError } = await checkReservationOverlap(
-      requestRow.new_start,
-      requestRow.new_end,
-      reservation.guest_id,
-      requestRow.reservation_id
+      requestRow.new_start, requestRow.new_end, reservation.guest_id, requestRow.reservation_id,
     );
-    if (overlapError) {
-      return NextResponse.json({ success: false, message: "Unable to check the requested schedule." }, { status: 500 });
-    }
-    if (conflict) {
-      return NextResponse.json({ success: false, message: "The requested schedule now overlaps with an existing reservation." }, { status: 409 });
-    }
+    if (overlapError) return NextResponse.json({ success: false, message: "Unable to check the requested schedule." }, { status: 500 });
+    if (conflict) return NextResponse.json({ success: false, message: "The requested date was reserved by another guest." }, { status: 409 });
 
-    const { data: transaction, error: transactionError } = await staffContext.supabase
-      .from("transactions")
-      .select("total_amount, paid_amount")
-      .eq("reservation_id", requestRow.reservation_id)
-      .maybeSingle<TransactionRow>();
-
-    if (transactionError) {
-      return NextResponse.json({ success: false, message: "Unable to validate reservation billing state." }, { status: 500 });
-    }
-
-    const nextReservationStatus = deriveReservationStatus(Number(transaction?.paid_amount ?? 0));
-    const nextTotalAmount = Number(transaction?.total_amount ?? 0) + Number(requestRow.reschedule_fee ?? 0);
-
-    const { error: updateReservationError } = await staffContext.supabase
-      .from("reservations")
-      .update({
-        start_datetime: requestRow.new_start,
-        end_datetime: requestRow.new_end,
-        status: nextReservationStatus,
-      })
-      .eq("reservation_id", requestRow.reservation_id);
-
-    if (updateReservationError) {
-      if (updateReservationError.code === "23P01") {
-        return NextResponse.json(
-          { success: false, code: "DATE_UNAVAILABLE", message: "The requested date was reserved by another guest." },
-          { status: 409 }
-        );
-      }
-      return NextResponse.json(
-        { success: false, message: "Failed to update reservation dates." },
-        { status: 500 }
-      );
-    }
-
-    const { error: updateTransactionError } = await staffContext.supabase
-      .from("transactions")
-      .update({
-        total_amount: nextTotalAmount,
-        status: deriveTransactionStatus(Number(transaction?.paid_amount ?? 0), nextTotalAmount),
-      })
-      .eq("reservation_id", requestRow.reservation_id);
-
-    if (updateTransactionError) {
-      return NextResponse.json(
-        { success: false, message: "Reservation updated but transaction total could not be adjusted." },
-        { status: 500 }
-      );
-    }
-
-    const { error: updateRequestError } = await staffContext.supabase
-      .from("reservation_reschedules")
-      .update({
-        status: "approved",
-        approved_by: staffContext.staffUser.id,
-        approved_at: new Date().toISOString(),
-        rejection_reason: null,
-      })
-      .eq("reschedule_id", requestRow.reschedule_id);
-
-    if (updateRequestError) {
-      return NextResponse.json(
-        { success: false, message: "Reservation updated but reschedule request could not be marked approved." },
-        { status: 500 }
-      );
-    }
-
-    const auditSuccess = await createAuditLog(staffContext, {
-      action: "Approved reschedule request",
-      entityType: "reservation_reschedule",
-      entityId: requestRow.reschedule_id,
+    const { data, error } = await admin.rpc("approve_reschedule_request", {
+      p_reschedule_id: rescheduleId,
+      p_staff_id: staffContext.staffUser.id,
     });
+    if (error) {
+      console.error("Reschedule approval failed:", error);
+      const conflict = error.code === "23P01" || error.code === "P0001";
+      return NextResponse.json({ success: false, message: conflict
+        ? "This request can no longer be approved. Refresh the records and check its date and status."
+        : "Unable to approve the request. Apply the reschedule approval migration if it is not installed." }, { status: conflict ? 409 : 500 });
+    }
 
-    if (!auditSuccess) {
-      return NextResponse.json(
-        { success: false, message: "Reschedule approved but audit logging failed." },
-        { status: 500 }
-      );
+    const result = data as { totalAmount: number; paidAmount: number; additionalCharge: number };
+    const additionalCharge = Number(result.additionalCharge ?? 0);
+    try {
+      const auditSuccess = await createAuditLog(staffContext, {
+        action: `Approved reschedule request (additional charge: PHP ${additionalCharge.toFixed(2)})`,
+        entityType: "reservation_reschedule", entityId: rescheduleId,
+      });
+      if (!auditSuccess) console.error("Reschedule approved but audit logging failed:", rescheduleId);
+    } catch (auditError) {
+      console.error("Reschedule approved but audit logging failed:", auditError);
     }
 
     if (reservation.guest_id) {
-      const { error: notificationError } = await createNotifications({
+      try { const { error: notificationError } = await createNotifications({
         actorId: staffContext.staffUser.id,
         guestId: reservation.guest_id,
         title: "Reschedule approved",
-        message: "Your reservation reschedule request was approved.",
+        message: `Reservation ${reservation.reference_number} was rescheduled. Additional charge: PHP ${additionalCharge.toFixed(2)}. Pay the updated balance in Manage Booking.`,
         entityType: "reservation_reschedule",
-        entityId: requestRow.reschedule_id,
+        entityId: rescheduleId,
         guestActionUrl: "/manage",
       });
       if (notificationError) console.warn("Failed to notify guest of reschedule approval:", notificationError);
+      } catch (notificationError) { console.warn("Failed to notify guest of reschedule approval:", notificationError); }
     }
 
-    return NextResponse.json(
-      {
-        success: true,
-        rescheduleId: requestRow.reschedule_id,
-        reservationId: requestRow.reservation_id,
-        status: "approved",
-        reservation: {
-          reservationId: requestRow.reservation_id,
-          checkInDate: requestRow.new_start,
-          checkOutDate: requestRow.new_end,
-          status: nextReservationStatus,
-        },
-        rescheduleFee: Number(requestRow.reschedule_fee ?? 0),
-        message: "Reschedule request approved.",
-      },
-      { status: 200 }
-    );
-  } catch {
-    return NextResponse.json(
-      { success: false, message: "Unexpected error while approving reschedule request." },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: true, rescheduleId, reservationId: requestRow.reservation_id,
+      status: "approved", rescheduleFee: Number(requestRow.reschedule_fee),
+      rateAdjustment: Number(requestRow.rate_adjustment), additionalCharge,
+      totalAmount: Number(result.totalAmount), paidAmount: Number(result.paidAmount),
+      message: "Reschedule approved. The guest's balance includes the additional charge.",
+    });
+  } catch (error) {
+    console.error("Unexpected reschedule approval error:", error);
+    return NextResponse.json({ success: false, message: "Unexpected error while approving reschedule request." }, { status: 500 });
   }
 }

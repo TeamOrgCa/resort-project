@@ -9,6 +9,8 @@ import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
+import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
+import { manilaDateKey } from "@/lib/booking/manila-date";
 import GuestRefundStatus from "@/components/GuestRefundStatus";
 
 type ManageTab = "bookings" | "ocular";
@@ -184,25 +186,6 @@ const parseDateValue = (value: string) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const toDateOnly = (value: string) => {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  const year = parsed.getFullYear();
-  const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
-  const day = `${parsed.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const toLocalDateInputValue = (value: Date) => {
-  const year = value.getFullYear();
-  const month = `${value.getMonth() + 1}`.padStart(2, "0");
-  const day = `${value.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
 const toDateTimeLocal = (value: string) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -217,37 +200,13 @@ const toDateTimeLocal = (value: string) => {
 };
 
 const getMinRescheduleDate = (booking: BookingRecord | null) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  let earliest = new Date(today);
-
-  if (booking?.startDatetime) {
-    const originalStart = new Date(booking.startDatetime);
-    if (!Number.isNaN(originalStart.getTime())) {
-      const candidate = new Date();
-      candidate.setHours(
-        originalStart.getHours(),
-        originalStart.getMinutes(),
-        originalStart.getSeconds(),
-        0
-      );
-
-      if (candidate.getTime() <= Date.now()) {
-        earliest.setDate(earliest.getDate() + 1);
-      }
-    }
-  }
-
-  if (booking?.checkIn) {
-    const bookingDateValue = toDateOnly(booking.checkIn);
-    const bookingDate = parseDateValue(bookingDateValue);
-    if (bookingDate && bookingDate.getTime() > earliest.getTime()) {
-      earliest = bookingDate;
-    }
-  }
-
-  return toLocalDateInputValue(earliest);
+  const today = manilaDateKey(new Date());
+  if (!booking?.startDatetime) return today;
+  const originalClock = new Date(booking.startDatetime).toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  });
+  if (isBookingStartAllowed(`${today}T${originalClock}:00+08:00`)) return today;
+  return manilaDateKey(new Date(new Date(`${today}T00:00:00+08:00`).getTime() + 86_400_000));
 };
 
 export default function ManageBooking() {
@@ -272,6 +231,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
   const [ocularBookings, setOcularBookings] = useState<OcularRecord[]>([]);
   const [ocularEdit, setOcularEdit] = useState({ scheduledDate: "", timeSlotId: "" });
+  const [now, setNow] = useState(() => Date.now());
   const [ocularEditError, setOcularEditError] = useState<string | null>(null);
   const [isSavingOcular, setIsSavingOcular] = useState(false);
   const [reservationServicesById, setReservationServicesById] = useState<Record<string, EditableReservationService[]>>({});
@@ -284,6 +244,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [serviceEditMessage, setServiceEditMessage] = useState<string | null>(null);
   const [isSavingServices, setIsSavingServices] = useState(false);
   const [rescheduleFormError, setRescheduleFormError] = useState<string | null>(null);
+  const [rescheduleMessage, setRescheduleMessage] = useState<string | null>(null);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
   const [rescheduleForm, setRescheduleForm] = useState<RescheduleFormState>({
     checkIn: "",
@@ -293,9 +254,18 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
   const selectedBooking = bookings.find((item) => item.id === selectedBookingId) ?? null;
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const saveOcularEdit = async () => {
     if (!selectedOcular || isSavingOcular) return;
     setOcularEditError(null);
+    const selectedSlot = ocularSlotsById[ocularEdit.timeSlotId];
+    if (!selectedSlot || !isOcularSlotStartAllowed(ocularEdit.scheduledDate, selectedSlot.start_time)) {
+      setOcularEditError(BOOKING_LEAD_MESSAGE);
+      return;
+    }
     setIsSavingOcular(true);
     try {
       const response = await fetch("/api/ocular-visits/reschedule", {
@@ -559,7 +529,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       return;
     }
 
-    const currentBookingDate = parseDateValue(toDateOnly(selectedBooking.checkIn));
+    const currentBookingDate = parseDateValue(manilaDateKey(selectedBooking.startDatetime));
     if (currentBookingDate && nextCheckIn.getTime() === currentBookingDate.getTime()) {
       setRescheduleFormError("Please choose a different date from the current reservation.");
       return;
@@ -574,20 +544,19 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       return;
     }
 
-    const originalStartHour = originalStart.getHours();
-    const originalStartMinute = originalStart.getMinutes();
-    const originalStartSecond = originalStart.getSeconds();
+    const originalClock = originalStart.toLocaleTimeString("en-GB", {
+      timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    });
     
     const durationMs = originalEnd.getTime() - originalStart.getTime();
     
-    const newStart = new Date(nextCheckIn);
-    newStart.setHours(originalStartHour, originalStartMinute, originalStartSecond);
+    const newStart = new Date(`${rescheduleForm.checkIn}T${originalClock}:00+08:00`);
     
     const newEnd = new Date(newStart);
     newEnd.setTime(newStart.getTime() + durationMs);
 
-    if (newStart.getTime() <= Date.now()) {
-      setRescheduleFormError("Reschedule date/time must be in the future.");
+    if (!isBookingStartAllowed(newStart)) {
+      setRescheduleFormError(BOOKING_LEAD_MESSAGE);
       return;
     }
 
@@ -595,10 +564,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     setIsSubmittingReschedule(true);
 
     try {
-      // Format dates for API
-      const newCheckInStr = toLocalDateInputValue(newStart);
-      const newCheckOutStr = toLocalDateInputValue(newEnd);
-
       const response = await fetch("/api/reservations/reschedule", {
         method: "POST",
         headers: {
@@ -606,14 +571,12 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         },
         body: JSON.stringify({
           reservationId: selectedBooking.id,
-          newCheckInDate: newCheckInStr,
-          newCheckOutDate: newCheckOutStr,
           newStartDatetime: newStart.toISOString(),
           newEndDatetime: newEnd.toISOString(),
         }),
       });
 
-      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; rescheduleFee?: number; rateAdjustment?: number; totalAdditional?: number } | null;
 
       if (!response.ok || !result?.success) {
         setRescheduleFormError(result?.message ?? "Failed to submit reschedule request.");
@@ -633,6 +596,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
       setRecordMode("view");
       setRescheduleFormError(null);
+      setRescheduleMessage(`Request sent for review. If approved, the additional charge will be ${formatCurrency(Number(result.totalAdditional ?? 0))} (${formatCurrency(Number(result.rescheduleFee ?? 0))} notice fee + ${formatCurrency(Number(result.rateAdjustment ?? 0))} higher date rate).`);
     } catch {
       setRescheduleFormError("Failed to submit reschedule request.");
     } finally {
@@ -1003,7 +967,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                                   setRescheduleFormError(null);
                                   setRescheduleForm({
                                         checkIn: (() => {
-                                          const defaultDate = toDateOnly(record.checkIn);
+                                          const defaultDate = manilaDateKey(record.startDatetime);
                                           const minDate = getMinRescheduleDate(record);
                                           const defaultParsed = parseDateValue(defaultDate);
                                           const minParsed = parseDateValue(minDate);
@@ -1078,6 +1042,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 {recordMode === "view" && selectedBooking && (
                   <div className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5">
                     {serviceEditMessage && <p role="status" className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-neutral">{serviceEditMessage}</p>}
+                    {rescheduleMessage && <p role="status" className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-neutral">{rescheduleMessage}</p>}
                     <h3 className="text-lg font-semibold text-neutral mb-3">Booking Details</h3>
                     <div className="grid gap-3 md:grid-cols-2 text-sm text-neutral/80">
                       <p>
@@ -1304,8 +1269,8 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                       <p><span className="text-neutral/70">Current Check-out:</span> <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkOut)}</span></p>
                       {selectedBooking.startDatetime && selectedBooking.endDatetime && (
                         <>
-                          <p><span className="text-neutral/70">Start Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.startDatetime).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</span></p>
-                          <p><span className="text-neutral/70">End Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.endDatetime).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</span></p>
+                          <p><span className="text-neutral/70">Start Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.startDatetime).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" })}</span></p>
+                          <p><span className="text-neutral/70">End Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.endDatetime).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" })}</span></p>
                         </>
                       )}
                     </div>
@@ -1325,7 +1290,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                           }
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                         />
-                        <p className="mt-1 text-xs text-neutral/60">Check-out will be automatically calculated based on your booking mode and duration.</p>
+                        <p className="mt-1 text-xs text-neutral/60">Earlier or later dates are allowed if available. The original Manila start time and duration stay the same. An additional notice fee and any higher date rate are charged after approval.</p>
                       </div>
                     </div>
                     <button
@@ -1467,7 +1432,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                         <input
                           type="date"
                           required
-                          min={toLocalDateInputValue(new Date())}
+                          min={manilaDateKey(new Date(now))}
                           value={ocularEdit.scheduledDate}
                           className="w-full rounded-lg border border-neutral/20 px-3 py-2"
                           onChange={(event) => setOcularEdit((current) => ({ ...current, scheduledDate: event.target.value }))}
@@ -1483,9 +1448,10 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                         >
                           {Object.values(ocularSlotsById).map((slot) => {
                             const slotValue = `${slot.start_time}-${slot.end_time}`;
-                            return <option key={slot.slot_id} value={slot.slot_id}>{formatTimeSlot(slotValue)}</option>;
+                            return <option key={slot.slot_id} value={slot.slot_id} disabled={!isOcularSlotStartAllowed(ocularEdit.scheduledDate, slot.start_time, now)}>{formatTimeSlot(slotValue)}</option>;
                           })}
                         </select>
+                        <p className="mt-1 text-xs text-neutral/60">Manila time. Slots starting in less than 30 minutes are unavailable.</p>
                       </div>
                     </div>
                     <button type="submit" disabled={isSavingOcular} className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:opacity-50">

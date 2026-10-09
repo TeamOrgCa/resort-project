@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
@@ -185,6 +186,10 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       );
+    }
+
+    if (!isBookingStartAllowed(payload.startDatetime)) {
+      return NextResponse.json({ success: false, message: BOOKING_LEAD_MESSAGE }, { status: 400 });
     }
 
     const supabase = await createClient();

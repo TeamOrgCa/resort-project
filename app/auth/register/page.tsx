@@ -25,6 +25,27 @@ export default function Register() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
+  const [isResending, setIsResending] = useState(false);
+
+  const resendConfirmation = async () => {
+    if (isResending) return;
+    setIsResending(true);
+    setResendMessage("");
+    try {
+      const response = await fetch("/api/auth/resend-confirmation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.email }),
+      });
+      const result = await response.json() as { message?: string };
+      setResendMessage(result.message ?? (response.ok ? "Confirmation email requested." : "Unable to resend confirmation email."));
+    } catch {
+      setResendMessage("Unable to resend right now. Please try again later.");
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name } = e.target;
@@ -88,7 +109,12 @@ export default function Register() {
               ? "If the address can be registered, you will receive a confirmation link. Confirm your email before signing in."
               : "Your account has been created. Redirecting to login..."}
           </p>
-          {needsEmailConfirmation && <Link href="/auth/login" className="text-primary font-semibold hover:underline">Go to sign in</Link>}
+          {needsEmailConfirmation && <div className="space-y-3">
+            <p className="text-sm text-neutral/70">Check your inbox and spam folder. The link may take a few minutes to arrive.</p>
+            <button type="button" onClick={resendConfirmation} disabled={isResending} className="block w-full text-sm font-semibold text-primary underline disabled:opacity-50">{isResending ? "Sending..." : "Resend confirmation email"}</button>
+            {resendMessage && <p role="status" className="text-sm text-neutral">{resendMessage}</p>}
+            <Link href="/auth/login" className="inline-block text-primary font-semibold hover:underline">Go to sign in</Link>
+          </div>}
         </div>
       </div>
     );

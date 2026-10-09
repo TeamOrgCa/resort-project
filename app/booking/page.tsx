@@ -9,6 +9,7 @@ import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { createClient } from "@/lib/supabase/client";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { isWindowAvailable, type ReservedWindow } from "@/lib/booking/availability";
@@ -34,8 +35,9 @@ export default function Booking() {
   const [stayError, setStayError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState("");
+  const [now, setNow] = useState(() => Date.now());
   const [bookingRef, setBookingRef] = useState("");
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [currentMonth, setCurrentMonth] = useState(() => new Date(`${manilaDateKey(new Date())}T12:00:00`));
   const [visitScheduled, setVisitScheduled] = useState(false);
   const [ocularSubmitting, setOcularSubmitting] = useState(false);
   const [ocularError, setOcularError] = useState<string | null>(null);
@@ -45,6 +47,16 @@ export default function Booking() {
   const [availabilityError, setAvailabilityError] = useState(false);
   const [bookedOcularSlotsByDate, setBookedOcularSlotsByDate] = useState<Record<string, string[]>>({});
   const [availableTimes, setAvailableTimes] = useState<string[]>([]);
+
+  useEffect(() => {
+    const refreshClock = () => setNow(Date.now());
+    const timer = window.setInterval(refreshClock, 15_000);
+    window.addEventListener("focus", refreshClock);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshClock);
+    };
+  }, []);
 
   const formatDateForStore = (date: Date) => {
     const year = date.getFullYear();
@@ -219,6 +231,11 @@ export default function Booking() {
       return;
     }
 
+    if (!isBookingStartAllowed(generatedWindow.startDatetime)) {
+      setStayError(BOOKING_LEAD_MESSAGE);
+      return;
+    }
+
     if (!isBookingWindowAvailable(generatedWindow.startDatetime, generatedWindow.endDatetime)) {
       setStayError("This time is already reserved or blocked for maintenance. Choose another time or package.");
       return;
@@ -279,6 +296,7 @@ export default function Booking() {
   const packageAvailable = (date: Date, mode: BookingMode, variant: WholeDayVariant = "day_to_night") => {
     const window = buildBookingWindow({ bookingMode: mode, date, wholeDayVariant: variant });
     return typeof window.startDatetime === "string" && typeof window.endDatetime === "string" &&
+      isBookingStartAllowed(window.startDatetime, now) &&
       isBookingWindowAvailable(window.startDatetime, window.endDatetime);
   };
 
@@ -299,7 +317,7 @@ export default function Booking() {
 
   const handleDateClick = (date: Date) => {
     if (bookingType === "ocular") {
-      const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+      const isPast = toDateKey(date) < manilaDateKey(new Date());
       if (!isPast) {
         setSelectedDate(date);
         setSelectedTime("");
@@ -307,7 +325,7 @@ export default function Booking() {
     } else {
       if (availabilityLoading || availabilityError || isDateBooked(date)) return;
 
-      const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+      const isPast = toDateKey(date) < manilaDateKey(new Date());
       if (isPast) return;
 
       setSelectedStayDate(date);
@@ -330,6 +348,11 @@ export default function Booking() {
 
     if (!selectedDate || !selectedTime) {
       setOcularError("Please select both date and time for your ocular visit.");
+      return;
+    }
+
+    if (!isOcularSlotStartAllowed(toDateKey(selectedDate), selectedTime.split("-")[0])) {
+      setOcularError(BOOKING_LEAD_MESSAGE);
       return;
     }
 
@@ -387,6 +410,16 @@ export default function Booking() {
   const bookedSlotsForSelectedDate = selectedOcularDateKey
     ? bookedOcularSlotsByDate[selectedOcularDateKey] ?? []
     : [];
+  const selectedOcularTimeAllowed = selectedOcularDateKey && selectedTime
+    ? isOcularSlotStartAllowed(selectedOcularDateKey, selectedTime.split("-")[0], now)
+    : false;
+  const earliestCustomStart = new Date(Math.ceil((now + 30 * 60_000) / 60_000) * 60_000);
+  const earliestCustomClock = earliestCustomStart.toLocaleTimeString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const customStartMinimum = selectedStayDate && toDateKey(selectedStayDate) === manilaDateKey(new Date(now))
+    ? manilaDateKey(earliestCustomStart) === toDateKey(selectedStayDate)
+      ? earliestCustomClock > "08:00" ? earliestCustomClock : "08:00"
+      : "22:01"
+    : "08:00";
 
   // Success screen for ocular visit
   if (visitScheduled) {
@@ -602,11 +635,16 @@ export default function Booking() {
                         }
                         setStayError(null);
                       }}
+                      disabled={Boolean(selectedStayDate && mode.value !== "custom" && (
+                        mode.value === "whole_day"
+                          ? !packageAvailable(selectedStayDate, "whole_day", "day_to_night") && !packageAvailable(selectedStayDate, "whole_day", "night_to_day")
+                          : !packageAvailable(selectedStayDate, mode.value)
+                      ))}
                       className={`rounded-xl border px-4 py-3 text-left transition-colors ${
                         bookingMode === mode.value
                           ? "border-primary bg-white"
                           : "border-neutral/20 bg-white/60 hover:border-primary/40"
-                      }`}
+                      } disabled:cursor-not-allowed disabled:opacity-40`}
                     >
                       <p className="font-semibold text-neutral">{mode.label}</p>
                       <p className="text-xs text-neutral/70">{mode.subtitle}</p>
@@ -620,7 +658,8 @@ export default function Booking() {
                   <button
                     type="button"
                     onClick={() => setWholeDayVariant("day_to_night")}
-                    className={`rounded-lg border px-4 py-3 text-sm text-left ${wholeDayVariant === "day_to_night" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
+                    disabled={Boolean(selectedStayDate && !packageAvailable(selectedStayDate, "whole_day", "day_to_night"))}
+                    className={`rounded-lg border px-4 py-3 text-sm text-left disabled:cursor-not-allowed disabled:opacity-40 ${wholeDayVariant === "day_to_night" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
                   >
                     <p className="font-semibold text-neutral">Variant A</p>
                     <p className="text-neutral/70">8:00 AM - 6:00 AM (next day)</p>
@@ -628,7 +667,8 @@ export default function Booking() {
                   <button
                     type="button"
                     onClick={() => setWholeDayVariant("night_to_day")}
-                    className={`rounded-lg border px-4 py-3 text-sm text-left ${wholeDayVariant === "night_to_day" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
+                    disabled={Boolean(selectedStayDate && !packageAvailable(selectedStayDate, "whole_day", "night_to_day"))}
+                    className={`rounded-lg border px-4 py-3 text-sm text-left disabled:cursor-not-allowed disabled:opacity-40 ${wholeDayVariant === "night_to_day" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
                   >
                     <p className="font-semibold text-neutral">Variant B</p>
                     <p className="text-neutral/70">6:00 PM - 4:00 PM (next day)</p>
@@ -658,7 +698,7 @@ export default function Booking() {
                     <input
                       type="time"
                       value={customStartTime}
-                      min="08:00"
+                      min={customStartMinimum}
                       max="22:00"
                       onChange={(event) => {
                         setCustomStartTime(event.target.value);
@@ -745,7 +785,7 @@ export default function Booking() {
                   ))}
                   {Array.from({ length: days }).map((_, index) => {
                     const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), index + 1);
-                    const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+                    const isPast = toDateKey(date) < manilaDateKey(new Date(now));
 
                     if (bookingType === "ocular") {
                       const isSelected = selectedDate?.toDateString() === date.toDateString();
@@ -765,9 +805,12 @@ export default function Booking() {
                         </button>
                       );
                     } else {
-                      const { day, night } = dateAvailability(date);
-                      const isBooked = !day && !night;
-                      const isSelected = isDateSelected(date);
+                    const { day, night } = dateAvailability(date);
+                    const isBooked = !day && !night;
+                    const noRemainingStarts = !isBookingStartAllowed(buildBookingWindow({ bookingMode: "day", date }).startDatetime!, now)
+                      && !isBookingStartAllowed(buildBookingWindow({ bookingMode: "night", date }).startDatetime!, now);
+                    const unavailableLabel = noRemainingStarts ? "No remaining start times" : "Fully booked";
+                    const isSelected = isDateSelected(date);
 
                       return (
                         <button
@@ -775,8 +818,8 @@ export default function Booking() {
                           type="button"
                           onClick={() => handleDateClick(date)}
                           disabled={availabilityLoading || availabilityError || isBooked || isPast}
-                          aria-label={`${toDateKey(date)}: ${isBooked ? "Fully booked" : `${day ? "day available" : "day booked"}, ${night ? "night available" : "night booked"}`}`}
-                          title={isBooked ? "Fully booked" : `${day ? "Day available" : "Day booked"} · ${night ? "Night available" : "Night booked"}`}
+                          aria-label={`${toDateKey(date)}: ${isBooked ? unavailableLabel : `${day ? "day available" : "day unavailable"}, ${night ? "night available" : "night unavailable"}`}`}
+                          title={isBooked ? unavailableLabel : `${day ? "Day available" : "Day unavailable"} · ${night ? "Night available" : "Night unavailable"}`}
                           className={`aspect-square rounded-lg flex flex-col items-center justify-center font-medium transition-all
                             ${isBooked ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
                             ${isPast && !isBooked ? "text-neutral/30 cursor-not-allowed" : ""}
@@ -835,16 +878,17 @@ export default function Booking() {
                       {availableTimes.map((time) => (
                         (() => {
                           const isBookedSlot = bookedSlotsForSelectedDate.includes(time);
+                          const isTooSoon = !isOcularSlotStartAllowed(selectedOcularDateKey, time.split("-")[0], now);
                           return (
                         <button
                           key={time}
                           type="button"
                           onClick={() => setSelectedTime(time)}
-                          disabled={isBookedSlot}
+                          disabled={isBookedSlot || isTooSoon}
                           className={`py-3 rounded-lg font-medium transition-all
-                            ${isBookedSlot ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
-                            ${selectedTime === time && !isBookedSlot ? "bg-accent text-base" : ""}
-                            ${!isBookedSlot && selectedTime !== time ? "bg-neutral/5 text-neutral hover:bg-accent/10" : ""}
+                            ${isBookedSlot || isTooSoon ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
+                            ${selectedTime === time && !isBookedSlot && !isTooSoon ? "bg-accent text-base" : ""}
+                            ${!isBookedSlot && !isTooSoon && selectedTime !== time ? "bg-neutral/5 text-neutral hover:bg-accent/10" : ""}
                           `}
                         >
                           {formatTimeSlot(time)}
@@ -855,9 +899,10 @@ export default function Booking() {
                     </div>
                     {bookedSlotsForSelectedDate.length > 0 ? (
                       <p className="mt-3 text-xs text-neutral/60">
-                        Unavailable slots are already reserved for this date.
+                        Unavailable slots may already be reserved for this date.
                       </p>
                     ) : null}
+                    <p className="mt-3 text-xs text-neutral/60">Times are in Manila time. Slots starting in less than 30 minutes are unavailable.</p>
                   </div>
                 )}
               </div>
@@ -893,6 +938,9 @@ export default function Booking() {
                               ? `Whole-Day (${wholeDayVariant === "day_to_night" ? "Variant A" : "Variant B"})`
                               : bookingMode.charAt(0).toUpperCase() + bookingMode.slice(1)}
                           </p>
+                          {validSummaryWindow && !isBookingStartAllowed(validSummaryWindow.startDatetime, now) && (
+                            <p className="mt-1 text-sm text-amber-800">{BOOKING_LEAD_MESSAGE}</p>
+                          )}
                           {validSummaryWindow && !availabilityLoading && !availabilityError && !isBookingWindowAvailable(validSummaryWindow.startDatetime, validSummaryWindow.endDatetime) && (
                             <p className="mt-1 text-sm text-amber-800">This package is booked at the selected time. Choose an available package or date.</p>
                           )}
@@ -921,7 +969,7 @@ export default function Booking() {
                       type="button"
                       onClick={handleContinueToReservation}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                      disabled={!selectedStayDate}
+                      disabled={!selectedStayDate || Boolean(validSummaryWindow && !isBookingStartAllowed(validSummaryWindow.startDatetime, now))}
                     >
                       Continue to Reservation
                     </button>
@@ -957,7 +1005,7 @@ export default function Booking() {
 
                     <button
                       type="submit"
-                      disabled={!selectedDate || !selectedTime || ocularSubmitting}
+                      disabled={!selectedDate || !selectedTime || !selectedOcularTimeAllowed || ocularSubmitting}
                       className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold hover:bg-accent/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {ocularSubmitting ? "Scheduling..." : "Schedule Visit"}

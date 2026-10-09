@@ -38,8 +38,12 @@ After applying `docs/maintenance-refunds-migration.sql`, run `docs/booking-polic
 ### Email Confirmation Settings
 1. Go to **Authentication** → **Settings**
 2. Under **Email Auth**:
-   - ✅ Enable email confirmations (or disable for development)
-   - Set **Confirm email** redirect URL to: `http://localhost:3000/auth/callback`
+   - Enable **Confirm email** for guest registration. The registration API rejects new accounts if this is disabled.
+   - Under **Authentication → URL Configuration**, set the Site URL to your public site and allow `http://localhost:3000/auth/confirm` and your production `/auth/confirm` URL.
+   - Under **Authentication → Email Templates → Confirm signup**, use a link that sends the signup token hash to the app: `<a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=email">Confirm your email</a>`.
+   - Configure Supabase Auth SMTP under **Authentication → SMTP Settings**. The app's `EMAIL_USER` and `EMAIL_PASS` do not send Supabase signup confirmation emails.
+
+After submitting `/auth/register`, Supabase sends the confirmation email. `/auth/confirm` handles the custom token-hash link above and Supabase's default signup link, then sends the guest to sign in. If an older confirmation link led to `/auth/reset?error=invalid_link`, try signing in: Supabase may already have confirmed the email before redirecting. Guests can request a new confirmation email from the registration success screen. Test delivery with a real address; the API can confirm Supabase accepted the signup request, but cannot guarantee inbox delivery.
 
 ## Step 3: Environment Variables
 
@@ -148,8 +152,8 @@ If a user tries to access these routes without being logged in, they'll be redir
 - Verify environment variables are set correctly
 
 ### Email confirmation not working
-- In development, disable email confirmation in Supabase settings
-- For production, configure a proper email provider (Sendgrid, AWS SES, etc.)
+- Keep **Confirm email** enabled in Supabase. Check the **Confirm signup** template and allowed `/auth/confirm` redirect URL above.
+- Check Supabase Auth logs and SMTP settings for delivery errors or rate limits. The app cannot deliver these emails through its separate Nodemailer settings.
 
 ## Next Steps
 
