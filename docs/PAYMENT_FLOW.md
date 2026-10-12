@@ -1,41 +1,77 @@
-# Booking payments and GCash OCR
+# Booking payments, GCash OCR and excess refunds
 
-## Guest flow
+## Guest payments
 
-1. The booking form calculates a price estimate. Saving on `/booking/details` creates the reservation and returns the server's total.
-2. `/booking/payment` offers exactly two choices: 20% of the reservation total, rounded up to the next cent, or the full outstanding balance. The 20% choice is available only before any payment is verified.
-3. A guest can return through `/manage` to pay the balance. The manage page passes the selected reservation to the payment page; it does not collect a second set of proof fields.
-4. A submitted payment remains `pending` until staff checks the real transaction and approves it. A pending payment blocks another submission for that reservation.
+1. Saving `/booking/details` creates a reservation with the server-calculated bill.
+2. `/booking/payment` accepts GCash only. Before any verified payment, guests choose the **minimum 20% down payment** (rounded up to a cent) or the **full outstanding balance**. After a verified payment, only the outstanding balance is offered.
+3. **Amount sent** must equal the amount printed on the receipt and meet the selected minimum. A receipt for less than the minimum is rejected. A larger payment is saved at its actual amount, including payments above the entire bill.
+4. After staff approval, the actual payment reduces the remaining balance. For example, a PHP 1,500 receipt against a PHP 1,000 minimum and PHP 3,000 bill leaves PHP 1,500 owing. A PHP 3,500 payment against a PHP 3,000 bill produces PHP 500 of refundable excess.
+5. Guests return through `/manage` to pay a remaining balance or request a refund of verified excess. Pending payments block another submission and a refund request until staff finishes reviewing them.
 
-`lib/booking/payment-policy.ts` owns the 20% down-payment calculation. Both guest payment APIs check the submitted amount against a server-calculated price or balance. The old `reservation.downpayment_percentage` setting is retired; it does not override the 20% or full choice.
+The minimum remains 20%; the illustrative PHP 1,000 example does not change that policy. `lib/booking/payment-policy.ts` owns rounding and money validation. Both guest APIs check server totals; a database insert guard rechecks the current bill after OCR, holding reservation and transaction locks. Existing staff/manual payment entry retains its separate workflow.
 
-## GCash receipt screening
+## Required receipt checks
 
-The guest uploads a PNG, JPEG, or WebP receipt of at most 8 MB to their own folder in the private `payment-proofs` bucket. The API downloads that file using the authenticated guest session. For GCash methods, Tesseract reads the image on the server and compares the GCash label, success status, amount, reference, and configured resort recipient. Results are stored on `payments` as `ocr_status`, `ocr_notes`, and `ocr_checked_at`:
+Upload the **original screenshot taken directly in GCash**, as a clear, complete PNG, JPEG or WebP up to 8 MB, to the guest's folder in the private `payment-proofs` bucket. Photos of another phone, scans, blurred images and edited receipts are not accepted. Select the original screenshot from the gallery rather than photographing a screen. The server runs image checks and the bundled Tesseract worker and English model. All these checks must pass before either guest API inserts a pending payment:
 
-Before any payment record is saved, the server OCR-screens both GCash and other payment-method images for basic transaction evidence. It returns `422 INVALID_PAYMENT_PROOF` for an unrelated image, an image with no recognizable receipt details, or a transaction explicitly marked failed/reversed. It returns `503 PROOF_SCREENING_UNAVAILABLE` if OCR cannot run; a payment is not silently accepted without screening. A partial but plausible receipt is accepted as pending for staff investigation. This is a text-based filter, so a fabricated image with convincing text can still pass and a very blurry genuine receipt may need a clearer upload.
+- A valid single-frame image, at least 320 pixels on its shorter side and 480 on its longer side. Camera-specific EXIF tags, substantial photo-like pixel texture and heavy compression are rejected. Ordinary screenshot software/orientation metadata is allowed. Native-resolution sampling does not resize away camera noise.
+- Readable text: overall OCR confidence at least 75, every recognized numeric word at least 80 with a height of at least 12 native pixels, and no multiple tilted long text lines. Missing numeric fields or OCR geometry fail closed.
+- GCash label and successful payment status, with no failed/reversed status.
+- Readable **Amount Sent / Amount Paid / Amount**, exactly matching Amount sent and meeting the selected minimum. A matching fee or Total Amount cannot substitute for a missing or smaller sent amount. Conflicting amount fields block submission.
+- Complete numeric reference in a labelled reference field. It must match the entered number exactly after removing spaces/hyphens. References in unrelated phone/account fields and substrings do not match. Supported reference lengths are 8–20 digits; leading zeroes are preserved. The database rejects reuse across payments, including rejected payments and alternative spacing/hyphens.
+- Resort recipient matching the active account whose QR was displayed. If a phone is printed, all visible digits must match the configured phone, including masked-phone prefixes. Otherwise the full printed recipient name must match the configured account name.
+- Receipt **date and time today in Asia/Manila**. Old days, future days, future times beyond a one-minute clock/resolution allowance, invalid or conflicting timestamps, and missing timestamps block submission. This applies equally to first payments and later balance payments, regardless of booking date.
 
-- `consistent`: readable fields agree with the submission;
-- `mismatch`: a readable amount, reference, or transaction status conflicts;
-- `unreadable`: fields or OCR runtime could not establish a match;
-- `not_applicable`: another payment method was used.
+Dates support English abbreviated/full months, month-first and day-first named dates, ISO dates, numeric MM/DD/YYYY, 12/24-hour clocks, and a date followed by a separate Time line. All unzoned timestamps are explicitly interpreted as Philippine time, independently of the server timezone.
 
-OCR checks what a screenshot says. It **does not prove that funds arrived**, and a screenshot can be edited. Cashier or admin staff must compare the reference, amount, recipient, and date against the actual GCash merchant transaction record before clicking Approve. GCash's [merchant guidance](https://help.gcash.com/hc/en-us/articles/59390640942745-What-is-Digital-QR) describes using the merchant transaction history for this check. The payment queue shows the OCR result and notes beside the proof.
+Failed receipt checks return `422 RECEIPT_VALIDATION_FAILED` (or `INVALID_PAYMENT_PROOF` for unrelated/failed images). OCR failure returns `503 PROOF_SCREENING_UNAVAILABLE`. No mismatched or unreadable new guest receipt is silently saved for manual review. Guests can correct the entered amount/reference or upload a clearer complete receipt and retry.
 
-## Review triage
+Accepted receipts store `ocr_status = consistent`, notes, screening time and `receipt_paid_at`. The staff payment review modal displays the extracted receipt time in Philippine time. Older/manual payments can have no extracted receipt time and retain their existing review lanes.
 
-The Payment Verification Queue turns OCR results into review lanes. `consistent` receipts appear as **Ready to reconcile**: staff can quickly match the reference and amount in the receiving account's transaction history. `mismatch` and `unreadable` receipts appear as **Investigate**: staff should inspect the proof and resolve the discrepancy before approval. `not_applicable` appears as **Other method** and follows the receiving account's normal reconciliation process. Staff can filter by lane; all submissions remain pending until the receiving account record is checked and approval is recorded.
+Image checks are best-effort: a photo can lose camera metadata, noise and perspective when cropped or edited. PNG alone does not prove screenshot origin, and these heuristics cannot certify provenance. Staff must visually check the full-size proof and reject photographed screens even if OCR reads the text. For new guest receipts, both the review UI and approval API require an explicit **clear original GCash screenshot** acknowledgement before approval; the checkbox resets between payments. Legacy/manual payments keep their existing review workflow.
 
-OCR is a fast filter, not a guarantee of authenticity or a substitute for settlement data. The suggested 80% clear / 20% investigation split is an illustrative goal, not a measured accuracy or automation rate for this system. Automatically approving payments would require a trusted GCash transaction feed or another source of actual settlement data.
+OCR cannot establish that money arrived or detect every edited screenshot. Accepted payments remain **pending** until staff matches the amount, reference, recipient and timestamp against the receiving account. GCash's [merchant guidance](https://help.gcash.com/hc/en-us/articles/59390640942745-What-is-Digital-QR) explains checking transaction history for the timestamp, reference and amount.
 
-The API uses `SUPABASE_SERVICE_ROLE_KEY` only for the final pending-payment insert. Guests upload and read their own proof files; active staff can read those files to review them. Keep the service key on the server.
+## Excess refunds
 
-The English Tesseract model is bundled in `assets/ocr/eng.traineddata`. The API passes an explicit worker file path because Next.js bundles Tesseract's default worker path incorrectly. `next.config.ts` traces the worker and model into both payment routes. To smoke test those paths from the project root:
+Manage Booking shows **Request excess refund** when verified payments, less completed refunds, exceed the current bill. The authenticated database function verifies ownership and calculates the amount itself; the browser cannot choose an amount or another guest. Open refunds, pending payments and pending reschedules block a new request. The request does not cancel the reservation.
 
-```powershell
-node -e "const {recognize}=require('tesseract.js'); const p=require('path'); recognize('public/website_logo_transparent.png','eng',{workerPath:p.join(process.cwd(),'node_modules','tesseract.js','src','worker-script','node','index.js'),langPath:p.join(process.cwd(),'assets','ocr'),gzip:false,cacheMethod:'none'}).then(r=>console.log(r.data.text.slice(0,80)))"
+Staff reviews requests in **Transactions → Refund Requests**, where excess-payment and cancellation requests are labelled separately. Configured `refund_review` and `refund_payout` permissions apply. Approved requests await a GCash payout with reference and proof. The amount is checked again before approval and payout against the latest bill and payments. If it is no longer available, staff can reject the request with a reason and the guest can request a fresh review.
+
+Completed refunds reduce `transactions.paid_amount` to net verified payments. Original payments and issued receipts retain their historical amounts. This prevents refunded excess from paying for services added later. Payout references cannot be reused, and only one pending/approved refund can exist per reservation; completed/rejected requests remain in the history.
+
+Cancellation retains the booked policy and notice window. Pending payments must be reviewed before cancellation so their proof remains reviewable. If cancellation refunds are enabled, an open excess request becomes a pending cancellation review and its prior approval is reset. Completed payouts are deducted before creating a later cancellation request. Disabling cancellation refund reviews does not remove an otherwise eligible excess refund. An obsolete pending reschedule cannot block refunding a cancelled booking.
+
+## Apply before deployment
+
+Existing booking, billing, account-access/OCR, maintenance-refunds, booking-policy-versions, role-permissions and reservation-edit migrations must already be installed. In Supabase SQL Editor, run in order:
+
+1. `docs/gcash-payment-validation-migration.sql`
+2. `docs/overpayment-refunds-migration.sql`
+
+Both reload PostgREST's schema cache. They do not rewrite historical receipts. The refund migration recalculates net billing for reservations with completed refunds. `updated-schema.sql` includes the new payment timestamp column; use these feature migrations after installing its prerequisite tables and policies.
+
+The screenshot quality checks and staff acknowledgement require no additional migration. `sharp` is a production dependency, and both guest OCR routes trace its runtime/native packages for deployment alongside the existing bundled worker/model.
+
+If a unique index fails, inspect existing normalized reference duplicates before retrying. Do not delete payment/refund history. These queries identify affected records:
+
+```sql
+select regexp_replace(upper(reference_number), '[^A-Z0-9]', '', 'g') as normalized_reference,
+       array_agg(payment_id) as payments
+from public.payments
+where reference_number is not null and regexp_replace(upper(reference_number), '[^A-Z0-9]', '', 'g') <> ''
+group by 1 having count(*) > 1;
+
+select regexp_replace(upper(gcash_reference), '[^A-Z0-9]', '', 'g') as normalized_reference,
+       array_agg(refund_id) as refunds
+from public.refund_requests where status = 'refunded' and gcash_reference is not null
+group by 1 having count(*) > 1;
 ```
 
-Run the parser and rounding tests with `node --experimental-strip-types --test tests/payment-flow.test.mjs`. Apply `docs/account-access-migration.sql` to an existing database before deploying the API and admin queue changes.
+`PAYMENT_SCHEMA_MIGRATION_REQUIRED` or `PGRST204` for `receipt_paid_at` means the GCash validation migration is missing. Missing older OCR columns requires `docs/account-access-migration.sql` (or `docs/payment-ocr-hotfix.sql` for those columns) as well. Missing refund RPCs requires the refund migration and its prerequisites. Do not bypass these checks to submit payments.
 
-If `/api/reservations/payment` reports `PAYMENT_SCHEMA_MIGRATION_REQUIRED` or Supabase reports `PGRST204` for `payments.ocr_checked_at`, the running database lacks the OCR columns. Apply `docs/payment-ocr-hotfix.sql` in the Supabase SQL Editor to repair the columns and reload PostgREST's schema cache, then retry the payment. Apply `docs/account-access-migration.sql` as well for the complete payment and storage policies. The API must retain the OCR result for staff review, so it does not save a payment without these columns.
+## Verification
+
+Run the complete suite with `node --experimental-strip-types --test tests/*.test.mjs`.
+
+The payment tests cover underpayments, larger down/full payments, exact receipt amount/reference matching, recipients and Manila dates, both guest API paths and saved-payment notification failures. Image tests exercise supported screenshot formats, benign and camera EXIF, metadata-free texture, unreadable/tiny numbers, tilted text, damaged images and rejection before OCR starts. Approval tests require screenshot acknowledgement for new guest receipts while preserving staff permission checks, reservation eligibility, concurrent-review handling and legacy/manual approval. The OCR integration test renders an isolated sample receipt and runs the actual bundled worker/model. The refund database tests execute both actual migrations in [PGlite's in-memory PostgreSQL](https://pglite.dev/docs/), using isolated fixtures without Supabase credentials or writes. They exercise refund ownership/permissions, approvals, payouts, changing bills, cancellation interactions, net billing, duplicate references, history and repeated migration execution. PGlite is a development dependency only.

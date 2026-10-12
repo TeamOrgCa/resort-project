@@ -9,6 +9,8 @@ const ocrRuntimeFiles = [
   "./node_modules/is-url/**/*",
   "./node_modules/bmp-js/**/*",
   "./node_modules/node-fetch/**/*",
+  "./node_modules/sharp/**/*",
+  "./node_modules/@img/sharp-*/**/*",
 ];
 
 const nextConfig: NextConfig = {

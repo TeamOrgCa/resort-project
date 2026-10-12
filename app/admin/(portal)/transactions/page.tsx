@@ -45,6 +45,7 @@ interface PaymentSnapshotRow {
   account_name: string | null;
   account_number: string | null;
   paid_at: string | null;
+  receipt_paid_at: string | null;
   proof_path: string;
   status: "pending" | "verified" | "rejected";
   ocr_status: "not_applicable" | "consistent" | "mismatch" | "unreadable";
@@ -186,6 +187,7 @@ export default function AdminTransactionsPage() {
   const [proofError, setProofError] = useState<string | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewDecision, setReviewDecision] = useState<"approve" | "reject" | null>(null);
+  const [screenshotReviewed, setScreenshotReviewed] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const proofRequestId = useRef(0);
   const [viewDetails, setViewDetails] = useState<ViewDetailsState | null>(null);
@@ -249,7 +251,7 @@ export default function AdminTransactionsPage() {
             reservationIds.length
               ? supabase
                   .from("payments")
-                  .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, proof_path, status, ocr_status, ocr_notes")
+                  .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes")
                   .in("reservation_id", reservationIds)
               : Promise.resolve({ data: [], error: null }),
             supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name").order("issued_at", { ascending: false }).limit(200),
@@ -451,6 +453,7 @@ export default function AdminTransactionsPage() {
       const requestId = ++proofRequestId.current;
       setReviewPayment(payment);
       setReviewDecision(null);
+      setScreenshotReviewed(false);
       setReviewActionError(null);
       setProofUrl(null);
       setProofError(null);
@@ -504,6 +507,7 @@ export default function AdminTransactionsPage() {
     setProofError(null);
     setReviewActionError(null);
     setReviewDecision(null);
+    setScreenshotReviewed(false);
   };
 
   const reconcilePaymentStatus = async (paymentId: string) => {
@@ -516,12 +520,17 @@ export default function AdminTransactionsPage() {
     setReviewPayment((current) => current?.payment_id === paymentId ? { ...current, status: data.status } : current);
     setPendingPaymentCount((current) => Math.max(current - 1, 0));
     setReviewDecision(null);
+    setScreenshotReviewed(false);
     return true;
   };
 
   const submitPaymentReview = async () => {
     if (!reviewPayment || !reviewDecision || reviewPayment.status !== "pending" || !canReviewPayments || isSubmittingReview) return;
     if (reviewDecision === "approve" && !proofUrl) return;
+    if (reviewDecision === "approve" && reviewPayment.receipt_paid_at && !screenshotReviewed) {
+      setReviewActionError("Check that the proof is a clear original GCash screenshot before approving.");
+      return;
+    }
     const paymentId = reviewPayment.payment_id;
     const decision = reviewDecision;
     setIsSubmittingReview(true);
@@ -531,7 +540,7 @@ export default function AdminTransactionsPage() {
       const response = await fetch(`/api/admin/payments/${decision === "approve" ? "approve" : "reject"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId }),
+        body: JSON.stringify({ paymentId, screenshotReviewed }),
       });
       const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
       if (!response.ok || !result?.success) {
@@ -548,6 +557,7 @@ export default function AdminTransactionsPage() {
       proofRequestId.current += 1;
       setReviewPayment(null);
       setReviewDecision(null);
+      setScreenshotReviewed(false);
       setProofUrl(null);
       setRefreshRevision((revision) => revision + 1);
     } catch {
@@ -968,6 +978,8 @@ export default function AdminTransactionsPage() {
           canReview={canReviewPayments}
           decision={reviewDecision}
           isSubmitting={isSubmittingReview}
+          screenshotReviewed={screenshotReviewed}
+          onScreenshotReviewed={setScreenshotReviewed}
           onDecision={setReviewDecision}
           onConfirm={() => { void submitPaymentReview(); }}
           onClose={closePaymentReview}

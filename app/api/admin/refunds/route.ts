@@ -8,7 +8,7 @@ export async function GET() {
   const staff = await requireActiveStaff();
   if (!staff) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
   const { data, error } = await staff.supabase.from("refund_requests")
-    .select("refund_id, reservation_id, guest_id, amount, policy_snapshot, policy_version, status, requested_at, reviewed_by, reviewed_at, review_reason, refunded_by, refunded_at, gcash_reference, proof_path")
+    .select("refund_id, reservation_id, guest_id, amount, request_kind, policy_snapshot, policy_version, status, requested_at, reviewed_by, reviewed_at, review_reason, refunded_by, refunded_at, gcash_reference, proof_path")
     .order("requested_at", { ascending: false }).limit(200);
   if (error) return NextResponse.json({ message: error.message }, { status: 500 });
   const ids = [...new Set((data ?? []).map((row) => row.reservation_id))];

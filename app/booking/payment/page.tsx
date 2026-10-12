@@ -7,7 +7,8 @@ import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
-import { DOWN_PAYMENT_PERCENT, downPaymentAmount, resolvePaymentType } from "@/lib/booking/payment-policy";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount, resolvePaymentType, amountMeetsMinimum } from "@/lib/booking/payment-policy";
+import { isGcashMethod, normalizeGcashReference } from "@/lib/booking/gcash-receipt";
 import { buildBookingCostSummary } from "@/lib/booking/summary";
 import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 import { isValidAccountNumber, sanitizeAccountNumber } from "@/lib/helper/validation";
@@ -47,7 +48,7 @@ export default function Payment() {
 
 function PaymentContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
-  const [paymentMethod, setPaymentMethod] = useState<"bank" | "ewallet">("bank");
+  const [paymentMethod, setPaymentMethod] = useState<"bank" | "ewallet">("ewallet");
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([]);
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState("");
@@ -62,7 +63,7 @@ function PaymentContent() {
   const [acceptedTermsForReservation, setAcceptedTermsForReservation] = useState("");
   const [uploadedProofPath, setUploadedProofPath] = useState<string | null>(null);
   const [reservationReference, setReservationReference] = useState<string | null>(null);
-  const [receiptScreen, setReceiptScreen] = useState<string | null>(null);
+  const [amountSent, setAmountSent] = useState<string | null>(null);
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
   const [isCheckingPendingPayment, setIsCheckingPendingPayment] = useState(false);
   const [hasVerifiedDownpayment, setHasVerifiedDownpayment] = useState(false);
@@ -96,14 +97,14 @@ function PaymentContent() {
         if (!response.ok || !result.success) throw new Error("Catalog unavailable");
         if (!isMounted) return;
         const accounts = (result.catalog?.paymentAccounts ?? []).filter((account) => account.qr_image);
-        const methods = (result.catalog?.paymentMethods ?? []).filter((method) => accounts.some((account) => account.payment_method_id === method.payment_method_id));
+        const methods = (result.catalog?.paymentMethods ?? []).filter((method) => isGcashMethod(method) && accounts.some((account) => account.payment_method_id === method.payment_method_id));
         setPaymentMethods(methods);
         setPaymentAccounts(accounts);
-        if (!methods.length) setPaymentCatalogError("No payment QR codes are available. Please contact the resort or try loading again.");
+        if (!methods.length) setPaymentCatalogError("No GCash QR codes are available. Please contact the resort or try loading again.");
         const firstMethod = methods.find((method) => method.payment_method_id === selectedMethodRef.current) ?? methods[0];
         if (firstMethod) {
           setSelectedPaymentMethodId(firstMethod.payment_method_id);
-          setPaymentMethod(firstMethod.type.toLowerCase().includes("bank") ? "bank" : "ewallet");
+          setPaymentMethod("ewallet");
         } else setSelectedPaymentMethodId("");
       } catch {
         if (isMounted) { setPaymentMethods([]); setPaymentAccounts([]); setSelectedPaymentMethodId(""); setPaymentCatalogError("Unable to load payment QR codes. Please try again."); }
@@ -314,11 +315,24 @@ function PaymentContent() {
         ? remainingBalance
         : downPayment
     : payOption === "full" ? totalAmount : downPayment;
-  const remainingAfterThisPayment = Math.max(remainingBalance - payableNow, 0);
+  const actualPaymentAmount = amountSent === null ? payableNow : Number(amountSent);
+  const amountIsValid = amountMeetsMinimum(actualPaymentAmount, payableNow);
+  const previewAmount = amountIsValid ? actualPaymentAmount : payableNow;
+  const remainingAfterThisPayment = Math.max(remainingBalance - previewAmount, 0);
+  const excessAfterThisPayment = Math.max(previewAmount - remainingBalance, 0);
+  const successExcess = Math.max((submittedSummary?.previousPaidAmount ?? 0) + successPaidAmount - successTotalAmount, 0);
 
   const handlePaymentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSubmitError(null);
+    if (!amountIsValid) {
+      setSubmitError(`Amount sent must be at least PHP ${payableNow.toFixed(2)} and have no more than two decimal places.`);
+      return;
+    }
+    if (!normalizeGcashReference(ewalletDetails.referenceNumber)) {
+      setSubmitError("Enter the complete numeric GCash reference number (8–20 digits). Spaces and hyphens are allowed.");
+      return;
+    }
 
     if (!acceptedTerms) {
       setSubmitError("Please confirm the Terms and Conditions and Privacy Policy before submitting payment.");
@@ -406,8 +420,9 @@ function PaymentContent() {
           reservationId,
           payment: {
             paymentMethodId: selectedPaymentMethodId,
+            receivingAccountId: selectedPaymentAccount.account_id,
             type: effectivePayOption,
-            amount: payableNow,
+            amount: actualPaymentAmount,
             referenceNumber:
               paymentMethod === "bank"
                 ? bankDetails.referenceNumber
@@ -429,7 +444,7 @@ function PaymentContent() {
         success?: boolean;
         message?: string;
         errorCode?: string | null;
-        payment?: { id?: string; status?: string; ocrStatus?: string };
+        payment?: { id?: string; status?: string; ocrStatus?: string; amount?: number };
         reservation?: { referenceNumber?: string };
       } | null = null;
       let checkoutRaw = "";
@@ -439,7 +454,7 @@ function PaymentContent() {
           success?: boolean;
           message?: string;
           errorCode?: string | null;
-          payment?: { id?: string; status?: string; ocrStatus?: string };
+          payment?: { id?: string; status?: string; ocrStatus?: string; amount?: number };
           reservation?: { referenceNumber?: string };
         };
       } catch {
@@ -465,12 +480,11 @@ function PaymentContent() {
         startDatetime: bookingDraft.startDatetime,
         endDatetime: bookingDraft.endDatetime,
         totalAmount,
-        paidAmount: payableNow,
+        paidAmount: checkoutJson.payment?.amount ?? actualPaymentAmount,
         previousPaidAmount: paidAmount,
         payOption: effectivePayOption,
       });
       setReservationReference(checkoutJson.reservation?.referenceNumber || reservationReferenceFromDraft || null);
-      setReceiptScreen(checkoutJson.payment?.ocrStatus ?? null);
       setPaymentComplete(true);
     } catch {
       setSubmitError("Unable to process payment right now. Please try again.");
@@ -490,11 +504,9 @@ function PaymentContent() {
           </div>
           <h1 className="text-4xl font-bold text-neutral mb-4">Payment Submitted!</h1>
           <p className="text-xl text-neutral/70 mb-8">Your reservation is pending admin approval</p>
-          {receiptScreen === "mismatch" || receiptScreen === "unreadable" ? (
-            <p className="mb-6 rounded-lg border border-highlight/40 bg-highlight/10 px-4 py-3 text-sm text-neutral">
-              The receipt needs manual review. Please keep your GCash transaction record available for staff.
-            </p>
-          ) : null}
+          {successExcess > 0 && <p className="mb-6 rounded-lg bg-secondary/10 px-4 py-3 text-sm text-neutral">
+            Excess payment: ₱{successExcess.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. After staff verifies this payment, request the excess refund in Manage Booking.
+          </p>}
 
           <div className="bg-base p-8 rounded-2xl mb-8">
             <h2 className="text-2xl font-bold text-neutral mb-6">Reservation Summary</h2>
@@ -655,7 +667,7 @@ function PaymentContent() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     {paymentMethods.map((method) => {
                       const isSelected = method.payment_method_id === selectedPaymentMethodId;
-                      return <button key={method.payment_method_id} type="button" onClick={() => { setSelectedPaymentMethodId(method.payment_method_id); setPaymentMethod(method.type.toLowerCase().includes("bank") ? "bank" : "ewallet"); }} className={`p-6 rounded-xl border-2 text-left transition-all ${isSelected ? "border-primary bg-primary/5" : "border-neutral/20 hover:border-primary/50"}`}><p className="font-semibold text-neutral">{method.name}</p><p className="text-sm text-neutral/70">{method.type}</p></button>;
+                      return <button key={method.payment_method_id} type="button" onClick={() => { setSelectedPaymentMethodId(method.payment_method_id); setPaymentMethod("ewallet"); }} className={`p-6 rounded-xl border-2 text-left transition-all ${isSelected ? "border-primary bg-primary/5" : "border-neutral/20 hover:border-primary/50"}`}><p className="font-semibold text-neutral">{method.name}</p><p className="text-sm text-neutral/70">GCash</p></button>;
                     })}
                   </div>
                   {paymentCatalogLoading ? <p className="mt-3 text-sm text-neutral/60">Loading payment methods...</p> : null}
@@ -743,6 +755,15 @@ function PaymentContent() {
                     </div>
                   )}
 
+                  <div className="mb-6 rounded-xl border border-neutral/15 p-4">
+                    <label htmlFor="amount-sent" className="mb-2 block text-sm font-semibold text-neutral">Amount sent (PHP) *</label>
+                    <input id="amount-sent" type="number" inputMode="decimal" step="0.01" min={payableNow} max="99999999.99"
+                      value={amountSent ?? String(payableNow)} onChange={(event) => setAmountSent(event.target.value)} required
+                      className="w-full rounded-lg border border-neutral/20 px-4 py-3 focus:border-primary focus:outline-none" aria-describedby="amount-sent-help" />
+                    <p id="amount-sent-help" className="mt-2 text-sm text-neutral/70">Enter the exact amount on your GCash receipt. Minimum: ₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. A larger payment reduces your balance.</p>
+                    {excessAfterThisPayment > 0 && <p className="mt-2 text-sm text-neutral">Excess: ₱{excessAfterThisPayment.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. You can request an excess refund in Manage Booking after approval.</p>}
+                  </div>
+
                   {submitError && (
                     <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
                       {submitError}
@@ -826,7 +847,7 @@ function PaymentContent() {
 
                   {paymentMethod === "ewallet" && (
                     <div className="mb-8">
-                      <h3 className="text-xl font-semibold text-neutral mb-4">E-Wallet Payment</h3>
+                      <h3 className="text-xl font-semibold text-neutral mb-4">GCash Payment</h3>
 
                       <div className="space-y-4 mb-6">
                         <div>
@@ -840,7 +861,7 @@ function PaymentContent() {
                             }}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                           >
-                            {paymentMethods.filter((method) => !method.type.toLowerCase().includes("bank")).map((method) => <option key={method.payment_method_id} value={method.payment_method_id}>{method.name}</option>)}
+                            {paymentMethods.map((method) => <option key={method.payment_method_id} value={method.payment_method_id}>{method.name}</option>)}
                           </select>
                         </div>
                       </div>
@@ -885,13 +906,16 @@ function PaymentContent() {
                           <input
                             type="text"
                             value={ewalletDetails.referenceNumber}
+                            inputMode="numeric"
+                            maxLength={40}
                             onChange={(e) => setEwalletDetails({ ...ewalletDetails, referenceNumber: e.target.value })}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Upload Proof of Payment *</label>
+                          <label className="block text-sm font-medium text-neutral/70 mb-2">Upload original GCash screenshot *</label>
+                          <p className="mb-2 text-sm text-neutral/70">Take a screenshot directly in GCash and upload the original file from your gallery. Photos of another phone&apos;s screen, scans, blurred images and edited receipts are not allowed. Keep the amount, recipient, reference number and today&apos;s Philippine date/time fully visible and readable.</p>
                           <input
                             ref={ewalletFileInputRef}
                             type="file"
@@ -1009,9 +1033,9 @@ function PaymentContent() {
                   <div className="bg-primary/5 p-4 rounded-lg">
                     <div className="flex justify-between mb-2">
                       <span className="font-semibold text-neutral">
-                        {effectivePayOption === "full" ? "Paying Now (Full Balance)" : `Down Payment (${downpaymentPercentage}%)`}
+                        Amount sent
                       </span>
-                      <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-xl font-bold text-primary">₱{previewAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <p className="text-xs text-neutral/60">{effectivePayOption === "full" ? "Payment is subject to staff verification." : "Your reservation is confirmed after staff verifies this payment."}</p>
                   </div>

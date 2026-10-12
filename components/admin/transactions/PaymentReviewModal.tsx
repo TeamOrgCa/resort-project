@@ -10,6 +10,7 @@ type PaymentReviewRecord = {
   account_name: string | null;
   account_number: string | null;
   paid_at: string | null;
+  receipt_paid_at?: string | null;
   proof_path: string;
   status: "pending" | "verified" | "rejected";
   ocr_status: "not_applicable" | "consistent" | "mismatch" | "unreadable";
@@ -28,6 +29,8 @@ interface PaymentReviewModalProps {
   canReview: boolean;
   decision: Decision;
   isSubmitting: boolean;
+  screenshotReviewed: boolean;
+  onScreenshotReviewed: (checked: boolean) => void;
   onDecision: (decision: Decision) => void;
   onConfirm: () => void;
   onClose: () => void;
@@ -37,11 +40,12 @@ const titleCase = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g,
 
 export default function PaymentReviewModal({
   payment, reservationReference, proofUrl, isProofLoading, proofError, actionError,
-  canReview, decision, isSubmitting, onDecision, onConfirm, onClose,
+  canReview, decision, isSubmitting, screenshotReviewed, onScreenshotReviewed, onDecision, onConfirm, onClose,
 }: PaymentReviewModalProps) {
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const imageReady = Boolean(proofUrl && loadedUrl === proofUrl && failedUrl !== proofUrl);
+  const approvalReady = imageReady && !isProofLoading && (!payment.receipt_paid_at || screenshotReviewed);
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !isSubmitting) onClose();
@@ -90,6 +94,7 @@ export default function PaymentReviewModal({
                 ["Sender name", payment.account_name || "-"],
                 ["Sender account", payment.account_number || "-"],
                 ["Submitted", payment.paid_at ? new Date(payment.paid_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "-"],
+                ["GCash receipt time (Philippines)", payment.receipt_paid_at ? new Date(payment.receipt_paid_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Not captured (legacy/manual payment)"],
                 ["Status", titleCase(payment.status)],
                 ["OCR screen", titleCase(payment.ocr_status)],
                 ["OCR notes", payment.ocr_notes || "None"],
@@ -100,23 +105,29 @@ export default function PaymentReviewModal({
 
             {payment.status === "pending" && canReview && (
               <div className="border-t border-neutral/10 pt-4">
+                {payment.receipt_paid_at && (
+                  <label className="mb-4 flex items-start gap-3 rounded-lg bg-base p-3 text-sm text-neutral">
+                    <input type="checkbox" checked={screenshotReviewed} onChange={(event) => onScreenshotReviewed(event.target.checked)} disabled={isSubmitting || !imageReady} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
+                    <span>I checked this is a clear original GCash screenshot. Reject photos of another screen, scans, blurred images and edited receipts.</span>
+                  </label>
+                )}
                 {decision ? (
                   <div className="space-y-3">
                     <p className="text-sm text-neutral/80">
                       {decision === "approve"
-                        ? "Approve only after confirming the amount and reference in the merchant transaction record. This confirms an initial reservation."
+                        ? "Approve only after confirming the amount, reference, recipient and receipt date in the receiving account's transaction record. This confirms an initial reservation."
                         : "Reject this payment? If it is the first payment, the reservation date will be released."}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <button type="button" onClick={() => onDecision(null)} disabled={isSubmitting} className="rounded-lg border border-neutral/20 px-4 py-2 text-sm text-neutral disabled:opacity-50">Back</button>
-                      <button type="button" onClick={onConfirm} disabled={isSubmitting} className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${decision === "approve" ? "bg-green-700" : "bg-red-700"}`}>
+                      <button type="button" onClick={onConfirm} disabled={isSubmitting || (decision === "approve" && !approvalReady)} className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${decision === "approve" ? "bg-green-700" : "bg-red-700"}`}>
                         {isSubmitting ? "Processing..." : decision === "approve" ? "Confirm approval" : "Confirm rejection"}
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => onDecision("approve")} disabled={!imageReady || isProofLoading} className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Approve</button>
+                    <button type="button" onClick={() => onDecision("approve")} disabled={!approvalReady} className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Approve</button>
                     <button type="button" onClick={() => onDecision("reject")} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Reject</button>
                   </div>
                 )}

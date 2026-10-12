@@ -99,7 +99,7 @@ test("confirmation templates include plain text, escape guest names and check SM
   process.env.EMAIL_USER = "sender@example.com"; process.env.EMAIL_PASS = "test-password";
   const messages = [];
   try {
-    const { sendGuestConfirmationEmail } = loadTsModule("lib/email.ts", { nodemailer: { default: { createTransport: () => ({ sendMail: async (message) => { messages.push(message); return { accepted: messages.length === 1 ? [message.to] : [] }; } }) } } });
+    const { sendGuestConfirmationEmail } = loadTsModule("lib/email.ts", { nodemailer: { createTransport: () => ({ sendMail: async (message) => { messages.push(message); return { accepted: messages.length === 1 ? [message.to] : [] }; } }) } });
     const payload = { email: "guest@example.com", guestName: "<Guest>", confirmationUrl: "https://resort.example/auth/confirm?token_hash=secret&type=email" };
     assert.equal(await sendGuestConfirmationEmail(payload), true);
     assert.equal(await sendGuestConfirmationEmail(payload), false);

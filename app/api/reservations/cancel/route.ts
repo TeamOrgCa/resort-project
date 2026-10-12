@@ -124,7 +124,7 @@ export async function POST(request: Request) {
           success: false,
           message: updateError.message,
         },
-        { status: updateError.code === "22023" ? 400 : 500 }
+        { status: updateError.code === "22023" ? 400 : updateError.code === "40001" ? 409 : updateError.code === "42501" ? 403 : 500 }
       );
     }
 

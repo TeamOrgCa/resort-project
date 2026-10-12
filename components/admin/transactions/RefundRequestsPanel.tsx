@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { hasPermission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 
-type Refund = { refund_id: string; reservation_id: string; amount: number; policy_snapshot: string; policy_version: number | null;
+type Refund = { refund_id: string; reservation_id: string; amount: number; request_kind: "cancellation" | "overpayment"; policy_snapshot: string; policy_version: number | null;
   status: "pending" | "approved" | "rejected" | "refunded"; requested_at: string; reviewed_at: string | null;
   review_reason: string | null; refunded_at: string | null; gcash_reference: string | null; proof_path: string | null };
 
@@ -71,12 +71,12 @@ export default function RefundRequestsPanel() {
   };
 
   return <div className="space-y-4">
-    <p className="text-sm text-neutral/70">Cancellation creates a pending refund request for verified payments when the booking policy enables review. Review its policy snapshot before approving. Record the GCash transfer and upload proof after sending it.</p>
+    <p className="text-sm text-neutral/70">Review cancellation refunds and excess-payment refunds requested in Manage Booking. Check the current bill and receiving account before approving. Record the GCash transfer and upload proof after sending it.</p>
     {message && <p role="status" className="rounded bg-green-50 p-3 text-sm">{message}</p>}
     {error && <p role="alert" className="rounded bg-red-50 p-3 text-sm">{error}</p>}
     <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="p-2">Reservation</th><th className="p-2">Amount</th><th className="p-2">Status</th><th className="p-2">Requested</th><th className="p-2">Action</th></tr></thead>
       <tbody>{refunds.map((refund) => <tr key={refund.refund_id} className="border-b">
-        <td className="p-2">{refs[refund.reservation_id] ?? refund.reservation_id}</td>
+        <td className="p-2">{refs[refund.reservation_id] ?? refund.reservation_id}<span className="mt-1 block text-xs text-neutral/60">{refund.request_kind === "overpayment" ? "Excess payment" : "Cancellation"}</span></td>
         <td className="p-2">{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(refund.amount)}</td>
         <td className="p-2 capitalize">{refund.status}</td>
         <td className="p-2">{new Date(refund.requested_at).toLocaleString("en-PH")}</td>
@@ -84,13 +84,15 @@ export default function RefundRequestsPanel() {
       </tr>)}</tbody></table>{refunds.length === 0 && <p className="p-4 text-sm text-neutral/60">No refund requests.</p>}</div>
     {selected && <div className="rounded-xl border p-4 text-sm">
       <div className="mb-3 flex justify-between"><strong>Refund for {refs[selected.reservation_id] ?? selected.reservation_id}</strong><button type="button" onClick={() => setSelected(null)}>Close</button></div>
-      <p><strong>Status:</strong> {selected.status}</p><p><strong>Policy version:</strong> {selected.policy_version ?? "Legacy"}</p><p className="whitespace-pre-wrap"><strong>Policy at cancellation:</strong> {selected.policy_snapshot}</p>
+      <p><strong>Status:</strong> {selected.status}</p><p><strong>Reason:</strong> {selected.request_kind === "overpayment" ? "Excess payment" : "Cancellation"}</p>
+      {selected.request_kind === "cancellation" && <p><strong>Policy version:</strong> {selected.policy_version ?? "Legacy"}</p>}
+      <p className="whitespace-pre-wrap"><strong>Refund terms:</strong> {selected.policy_snapshot}</p>
       {selected.review_reason && <p><strong>Decision reason:</strong> {selected.review_reason}</p>}
       {selected.gcash_reference && <p><strong>GCash reference:</strong> {selected.gcash_reference}</p>}
       {selected.proof_path && <button type="button" className="text-primary underline" onClick={() => void openProof(selected.proof_path!)}>View transfer proof</button>}
-      {selected.status === "pending" && canReview && <div className="mt-4 space-y-2">
+      {["pending", "approved"].includes(selected.status) && canReview && <div className="mt-4 space-y-2">
         <label className="block">Review notes / rejection reason<input value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
-        <div className="flex gap-2"><button disabled={busy} onClick={() => void submit("approved")} className="rounded bg-primary px-3 py-2 text-base">Approve</button>
+        <div className="flex gap-2">{selected.status === "pending" && <button disabled={busy} onClick={() => void submit("approved")} className="rounded bg-primary px-3 py-2 text-base">Approve</button>}
           <button disabled={busy || reason.trim().length < 3} onClick={() => void submit("rejected")} className="rounded border px-3 py-2">Reject</button></div>
       </div>}
       {selected.status === "approved" && canPay && <div className="mt-4 space-y-2">
