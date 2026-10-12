@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ManualBookingDialog from "@/components/admin/ManualBookingDialog";
+import ReservationEditor from "@/components/admin/ReservationEditor";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import { buildBookingWindow } from "@/lib/booking/policy";
 import { isWindowAvailable } from "@/lib/booking/availability";
@@ -76,6 +77,7 @@ const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (
 
 export default function ReservationCalendar() {
   const [month, setMonth] = useState(() => new Date());
+  const [refreshKey, setRefreshKey] = useState(0);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [ocularVisits, setOcularVisits] = useState<OcularVisit[]>([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState<MaintenanceBlock[]>([]);
@@ -168,7 +170,7 @@ export default function ReservationCalendar() {
       window.clearInterval(refresh);
       window.removeEventListener("focus", onFocus);
     };
-  }, [month]);
+  }, [month, refreshKey]);
 
   useEffect(() => {
     void (async () => {
@@ -296,21 +298,13 @@ export default function ReservationCalendar() {
   const monthLabel = month.toLocaleDateString("en-PH", { month: "long", year: "numeric" });
   const upcomingCount = new Set(calendarEvents.filter((event) => event.reservationId && event.date >= dateKey(new Date()) && !["cancelled", "rejected", "completed"].includes(event.status ?? "")).map((event) => event.reservationId)).size;
   const attentionCount = new Set(calendarEvents.filter((event) => event.kind === "attention").map((event) => event.reservationId)).size;
-  const selectedReservation = selectedEvent?.reservationId
-    ? reservations.find((reservation) => reservation.reservation_id === selectedEvent.reservationId)
-    : null;
-  const selectedGuest = selectedReservation?.guest_id
-    ? guests[selectedReservation.guest_id]
-    : selectedReservation?.walk_in_guest_id
-      ? walkInGuests[selectedReservation.walk_in_guest_id]
-      : null;
 
   return (
     <div>
       <header className="mb-6 flex flex-col gap-4 border-b border-neutral/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-neutral md:text-3xl">Reservations</h1>
-          <p className="mt-1 text-sm text-neutral/60">Plan the resort schedule and inspect every guest booking.</p>
+          <p className="mt-1 text-sm text-neutral/60">Select a booking to update its details, services and bill.</p>
         </div>
         <div className="flex items-center gap-2 self-end sm:self-start">
           {isSearchOpen ? (
@@ -448,7 +442,7 @@ export default function ReservationCalendar() {
           aria-label={`${eventStyles[selectedEvent.kind].label} details`}
           onClick={() => setSelectedEvent(null)}
         >
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+          <div className={`max-h-[90vh] w-full ${selectedEvent.reservationId ? "max-w-3xl" : "max-w-lg"} overflow-y-auto rounded-2xl bg-white p-6 shadow-xl`} onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">{eventStyles[selectedEvent.kind].label}</p>
@@ -456,24 +450,8 @@ export default function ReservationCalendar() {
               </div>
               <button type="button" autoFocus onClick={() => setSelectedEvent(null)} className="rounded-lg border border-neutral/20 px-3 py-1.5 text-sm text-neutral hover:bg-base">Close</button>
             </div>
-            {selectedReservation ? (
-              <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-                {[
-                  ["Reference", selectedReservation.reference_number],
-                  ["Status", titleCase(selectedReservation.status)],
-                  ["Guest", selectedGuest ? `${selectedGuest.first_name} ${selectedGuest.last_name}` : "Unknown guest"],
-                  ["Booking type", titleCase(selectedReservation.booking_type ?? "online")],
-                  ["Booking mode", titleCase(selectedReservation.booking_mode ?? "day")],
-                  ["Email", selectedGuest?.email || "-"],
-                  ["Phone", selectedGuest?.phone_number || "-"],
-                  ["Start", new Date(selectedReservation.start_datetime).toLocaleString("en-PH", { timeZone: "Asia/Manila" })],
-                  ["End", new Date(selectedReservation.end_datetime).toLocaleString("en-PH", { timeZone: "Asia/Manila" })],
-                  ["Guests", `${selectedReservation.adult_count} adults, ${selectedReservation.child_count} children`],
-                  ["Payment deadline", selectedReservation.payment_deadline_at ? new Date(selectedReservation.payment_deadline_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "-"],
-                  ["Created", new Date(selectedReservation.created_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" })],
-                ].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="font-medium text-neutral">{value}</dd></div>)}
-                <div className="sm:col-span-2"><dt className="text-neutral/60">Special requests</dt><dd className="font-medium text-neutral">{selectedReservation.special_requests || "None"}</dd></div>
-              </dl>
+            {selectedEvent.reservationId ? (
+              <ReservationEditor key={selectedEvent.reservationId} reservationId={selectedEvent.reservationId} onSaved={() => setRefreshKey(key => key + 1)} />
             ) : (
               <div className="mt-5 space-y-2 text-sm text-neutral/80">
                 <p>Reference: {selectedEvent.reference ?? "-"}</p>

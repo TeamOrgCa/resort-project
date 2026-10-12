@@ -7,7 +7,7 @@ create table if not exists public.role_permissions (
 );
 
 insert into public.role_permissions (role, permissions) values
-  ('staff', array['dashboard','reservations','create_reservation','cancel_reservation','reschedule_approval','ocular_approval','transactions','payment_approval','payment_entry','refund_review','refund_payout','records','reports','analytics','audit']),
+  ('staff', array['dashboard','reservations','create_reservation','edit_reservation','cancel_reservation','reschedule_approval','ocular_approval','transactions','payment_approval','payment_entry','refund_review','refund_payout','records','reports','analytics','audit']),
   ('cashier', array['transactions','payment_approval'])
 on conflict (role) do nothing;
 
