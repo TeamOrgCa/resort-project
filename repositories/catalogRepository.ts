@@ -65,11 +65,13 @@ export async function getActiveCatalog(supabase: SupabaseClient) {
   const failed = [units, services, paymentMethods, paymentAccounts, policies, ocularSlots].find((result) => result.error);
   if (failed?.error) throw new Error(failed.error.message);
 
+  const activeMethodIds = new Set((paymentMethods.data ?? []).map((method) => method.payment_method_id));
+
   return {
     units: (units.data ?? []) as UnitCatalogRecord[],
     services: (services.data ?? []) as ServiceCatalogRecord[],
     paymentMethods: (paymentMethods.data ?? []) as PaymentMethodRecord[],
-    paymentAccounts: (paymentAccounts.data ?? []) as PaymentAccountRecord[],
+    paymentAccounts: ((paymentAccounts.data ?? []) as PaymentAccountRecord[]).filter((account) => account.payment_method_id && activeMethodIds.has(account.payment_method_id)),
     policies: (policies.data ?? []) as PolicyRecord[],
     ocularSlots: (ocularSlots.data ?? []) as OcularSlotRecord[],
   };

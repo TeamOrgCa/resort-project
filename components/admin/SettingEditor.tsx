@@ -1,6 +1,7 @@
 "use client";
 
 import type { SettingDefinition, SettingValue } from "@/lib/settings/types";
+import ContentImageEditor from "./ContentImageEditor";
 
 const fieldClass = "mt-2 w-full rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral";
 const asRecord = (value: SettingValue): Record<string, unknown> =>
@@ -38,10 +39,12 @@ function TemplatesEditor({ value, onChange }: { value: Record<string, unknown>; 
   </div>;
 }
 
-export default function SettingEditor({ definition, value, onChange }: { definition: SettingDefinition; value: SettingValue; onChange: (value: SettingValue) => void }) {
+export default function SettingEditor({ definition, value, onChange, onUploadingChange }: { definition: SettingDefinition; value: SettingValue; onChange: (value: SettingValue) => void; onUploadingChange?: (uploading: boolean) => void }) {
   const record = asRecord(value);
   let control: React.ReactNode;
-  if (definition.key === "resort.contact_numbers" || definition.key === "payments.accepted_methods") {
+  if (definition.input === "image") {
+    control = <ContentImageEditor value={typeof value === "string" ? value : ""} onChange={onChange} label={definition.label} onUploadingChange={onUploadingChange} />;
+  } else if (definition.key === "resort.contact_numbers" || definition.key === "payments.accepted_methods") {
     control = <ListEditor value={asList(value)} onChange={onChange} itemLabel={definition.key === "resort.contact_numbers" ? "Phone number" : "Payment method"} />;
   } else if (definition.key === "resort.social_links") {
     control = <div className="mt-2 grid gap-3 sm:grid-cols-3">{["facebook", "instagram", "tiktok"].map((platform) => <label key={platform} className="text-xs capitalize text-neutral/70">{platform}

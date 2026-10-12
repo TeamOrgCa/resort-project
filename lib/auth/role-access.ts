@@ -40,6 +40,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/payments/manual-entry")) return "payment_entry";
   if (path.startsWith("/api/admin/payments/")) return "payment_approval";
   if (path.startsWith("/api/admin/refunds")) return "transactions";
+  if (path.startsWith("/api/admin/transactions/")) return "transactions";
   if (path.startsWith("/api/admin/analytics")) return "analytics";
   if (path.startsWith("/api/admin/reports")) return "reports";
   if (path.startsWith("/api/admin/audit")) return "audit";

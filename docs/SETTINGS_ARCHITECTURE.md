@@ -1,5 +1,24 @@
 # Configuration Management
 
+## Guest website content
+
+Configuration → Website content provides Branding, Home page, and About page editors.
+Each section saves separately; unsaved edits in other sections are retained. Content
+renders as plain text and supports line breaks. The existing Resort information
+settings supply the guest website name, contact details, and social links.
+
+Run `docs/site-content-migration.sql` once in Supabase before using image uploads
+(the bucket is also included in `updated-schema.sql` for new installations). Images
+can be uploaded as PNG, JPEG, or WebP up to 5 MB, or set using HTTPS URLs/local paths.
+Uploading creates an asset; saving the section publishes its URL.
+
+`GET /api/site-content` returns only the explicit public content allowlist. It never
+returns payment, notification, or reservation settings. Guests need no staff session.
+The site refreshes on initial load, tab focus, and every minute while visible;
+saving also refreshes open tabs on the same browser through a storage event. Existing
+page content remains the fallback when a value is missing or the network is offline.
+`PATCH /api/admin/settings` and image uploads both require an active admin session.
+
 ## Recommendation
 
 Use **Option A: one row per setting**. Each key is stable and namespaced, for example `reservation.reschedule_fee` or `payments.receipt_settings`. The JSONB value supports strings, numbers, booleans, arrays, and small structured objects without requiring a migration for every business change.

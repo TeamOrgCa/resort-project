@@ -3,6 +3,7 @@ import { createAuditLog, requireActiveStaff, requireAdminStaff } from "@/lib/ser
 import { settingDefinitions } from "@/lib/settings/catalog";
 import { getAllSettings, updateSettings } from "@/lib/settings/settingsService";
 import type { SettingValue, SettingsUpdate } from "@/lib/settings/types";
+import { isContentImageUrl } from "@/lib/settings/public-content";
 
 const isSettingValue = (value: unknown): value is SettingValue =>
   typeof value === "string" ||
@@ -16,7 +17,11 @@ const settingKeys = new Set(settingDefinitions.map((definition) => definition.ke
 const parseUpdates = (value: unknown): SettingsUpdate[] | null => {
   if (!Array.isArray(value)) return null;
   const updates = value as Array<{ key?: unknown; value?: unknown }>;
-  if (updates.some((item) => typeof item.key !== "string" || !item.key.trim() || !settingKeys.has(item.key.trim()) || !isSettingValue(item.value))) return null;
+  if (updates.some((item) => !item || typeof item.key !== "string" || !item.key.trim() || !settingKeys.has(item.key.trim()) || !isSettingValue(item.value))) return null;
+  if (updates.some((item) => {
+    const definition = settingDefinitions.find((definition) => definition.key === String(item.key).trim());
+    return definition?.category === "content" && (typeof item.value !== "string" || item.value.length > 10000 || (definition.input === "image" && !isContentImageUrl(item.value)));
+  })) return null;
   return updates.map((item) => ({ key: String(item.key).trim(), value: item.value as SettingValue }));
 };
 

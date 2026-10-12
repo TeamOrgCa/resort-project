@@ -12,6 +12,7 @@ import { buildBookingCostSummary } from "@/lib/booking/summary";
 import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 import { isValidAccountNumber, sanitizeAccountNumber } from "@/lib/helper/validation";
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
+import PaymentQr from "@/components/PaymentQr";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -51,6 +52,10 @@ function PaymentContent() {
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState("");
   const [paymentCatalogLoading, setPaymentCatalogLoading] = useState(true);
+  const [paymentCatalogError, setPaymentCatalogError] = useState<string | null>(null);
+  const [catalogVersion, setCatalogVersion] = useState(0);
+  const selectedMethodRef = useRef("");
+  useEffect(() => { selectedMethodRef.current = selectedPaymentMethodId; }, [selectedPaymentMethodId]);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -80,28 +85,39 @@ function PaymentContent() {
   useEffect(() => {
     let isMounted = true;
     const loadPaymentCatalog = async () => {
+      setPaymentCatalogLoading(true);
+      setPaymentCatalogError(null);
       try {
         const response = await fetch("/api/catalog", { cache: "no-store" });
         const result = (await response.json()) as {
+          success?: boolean;
           catalog?: { paymentMethods?: PaymentMethodOption[]; paymentAccounts?: PaymentAccountOption[] };
         };
+        if (!response.ok || !result.success) throw new Error("Catalog unavailable");
         if (!isMounted) return;
-        const methods = result.catalog?.paymentMethods ?? [];
+        const accounts = (result.catalog?.paymentAccounts ?? []).filter((account) => account.qr_image);
+        const methods = (result.catalog?.paymentMethods ?? []).filter((method) => accounts.some((account) => account.payment_method_id === method.payment_method_id));
         setPaymentMethods(methods);
-        setPaymentAccounts(result.catalog?.paymentAccounts ?? []);
-        const firstMethod = methods[0];
+        setPaymentAccounts(accounts);
+        if (!methods.length) setPaymentCatalogError("No payment QR codes are available. Please contact the resort or try loading again.");
+        const firstMethod = methods.find((method) => method.payment_method_id === selectedMethodRef.current) ?? methods[0];
         if (firstMethod) {
           setSelectedPaymentMethodId(firstMethod.payment_method_id);
           setPaymentMethod(firstMethod.type.toLowerCase().includes("bank") ? "bank" : "ewallet");
-        }
+        } else setSelectedPaymentMethodId("");
       } catch {
-        if (isMounted) setSubmitError("Unable to load payment methods. Please try again.");
+        if (isMounted) { setPaymentMethods([]); setPaymentAccounts([]); setSelectedPaymentMethodId(""); setPaymentCatalogError("Unable to load payment QR codes. Please try again."); }
       } finally {
         if (isMounted) setPaymentCatalogLoading(false);
       }
     };
     void loadPaymentCatalog();
     return () => { isMounted = false; };
+  }, [catalogVersion]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCatalogVersion((current) => current + 1), 45 * 60 * 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const [bankDetails, setBankDetails] = useState({
@@ -324,7 +340,7 @@ function PaymentContent() {
       return;
     }
 
-    if (!selectedPaymentMethodId || !selectedPaymentMethod) {
+    if (paymentCatalogLoading || !selectedPaymentMethodId || !selectedPaymentMethod || !selectedPaymentAccount?.qr_image) {
       setSubmitError("Please select an available payment method.");
       return;
     }
@@ -643,7 +659,7 @@ function PaymentContent() {
                     })}
                   </div>
                   {paymentCatalogLoading ? <p className="mt-3 text-sm text-neutral/60">Loading payment methods...</p> : null}
-                  {!paymentCatalogLoading && paymentMethods.length === 0 ? <p className="mt-3 text-sm text-neutral">No active payment methods are available.</p> : null}
+                  {paymentCatalogError ? <p role="alert" className="mt-3 text-sm text-red-700">{paymentCatalogError} <button type="button" disabled={paymentCatalogLoading} onClick={() => setCatalogVersion((current) => current + 1)} className="font-semibold underline disabled:opacity-50">Reload payment options</button></p> : null}
                 </div>
 
                 <form onSubmit={handlePaymentSubmit}>
@@ -744,7 +760,7 @@ function PaymentContent() {
                           <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">{selectedPaymentAccount?.account_name ?? "-"}</span></p>
                           <p><span className="text-neutral/70">Account Number:</span> <span className="font-semibold">{selectedPaymentAccount?.account_number ?? "-"}</span></p>
                           {selectedPaymentAccount?.instructions ? <p className="text-neutral/70">{selectedPaymentAccount.instructions}</p> : null}
-                          {selectedPaymentAccount?.qr_image ? <Image src={selectedPaymentAccount.qr_image} alt={`${selectedPaymentMethod?.name ?? "Payment"} QR code`} width={192} height={192} unoptimized className="mt-4 h-48 w-48 rounded-lg border border-neutral/10 object-contain" /> : null}
+                          {selectedPaymentAccount?.qr_image ? <PaymentQr key={`${catalogVersion}:${selectedPaymentAccount.qr_image}`} src={selectedPaymentAccount.qr_image} name={selectedPaymentMethod?.name ?? "Payment"} onRetry={() => setCatalogVersion((current) => current + 1)} /> : null}
                         </div>
                       </div>
 
@@ -834,7 +850,8 @@ function PaymentContent() {
                         <div className="space-y-2 text-sm">
                           <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">{selectedPaymentAccount?.account_name ?? "-"}</span></p>
                           <p><span className="text-neutral/70">Number:</span> <span className="font-semibold">{selectedPaymentAccount?.account_number ?? "-"}</span></p>
-                          {selectedPaymentAccount?.qr_image ? <Image src={selectedPaymentAccount.qr_image} alt={`${selectedPaymentMethod?.name ?? "Payment"} QR code`} width={192} height={192} unoptimized className="mt-4 h-48 w-48 rounded-lg border border-neutral/10 object-contain" /> : null}
+                          {selectedPaymentAccount?.instructions ? <p className="text-neutral/70">{selectedPaymentAccount.instructions}</p> : null}
+                          {selectedPaymentAccount?.qr_image ? <PaymentQr key={`${catalogVersion}:${selectedPaymentAccount.qr_image}`} src={selectedPaymentAccount.qr_image} name={selectedPaymentMethod?.name ?? "Payment"} onRetry={() => setCatalogVersion((current) => current + 1)} /> : null}
                         </div>
                       </div>
 
@@ -924,7 +941,7 @@ function PaymentContent() {
                     </Link>
                     <button
                       type="submit"
-                      disabled={isSubmitting || isCheckingPendingPayment || isCheckingVerifiedDownpayment || hasPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentMethodId}
+                      disabled={isSubmitting || isCheckingPendingPayment || isCheckingVerifiedDownpayment || hasPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentAccount?.qr_image}
                       className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {isSubmitting ? "Processing..." : "Confirm Payment"}

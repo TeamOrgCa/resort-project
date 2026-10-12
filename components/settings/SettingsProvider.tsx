@@ -63,6 +63,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setSettings(result.settings);
     localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), settings: result.settings }));
     localStorage.setItem(CHANGE_KEY, String(Date.now()));
+    window.dispatchEvent(new Event("site-content-changed"));
     setError(null);
   };
 

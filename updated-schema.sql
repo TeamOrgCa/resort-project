@@ -1382,8 +1382,9 @@ insert into storage.buckets (id, name, public)
 values ('payment-proofs', 'payment-proofs', false)
 on conflict (id) do nothing;
 
-insert into storage.buckets (id, name, public)
-values ('payment-qr-codes', 'payment-qr-codes', false)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('payment-qr-codes', 'payment-qr-codes', false, 5242880,
+        array['image/png', 'image/jpeg', 'image/webp'])
 on conflict (id) do nothing;
 
 create policy "Users can upload own payment proofs"
@@ -1728,3 +1729,11 @@ $$;
 revoke all on function public.approve_reschedule_request(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.approve_reschedule_request(uuid, uuid) to service_role;
 commit;
+
+-- Guest website media; writes are restricted to the admin upload API's service role.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('site-content', 'site-content', true, 5242880, array['image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
