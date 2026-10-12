@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
 import "./globals.css";
 import SessionWatcher from "@/components/SessionWatcher";
+import { SiteContentProvider } from "@/components/content/SiteContent";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -26,7 +27,7 @@ export default function RootLayout({
         className={`${montserrat.variable} antialiased`}
         style={{ fontFamily: "var(--font-montserrat)" }}
       >
-        {children}
+        <SiteContentProvider>{children}</SiteContentProvider>
         <SessionWatcher />
       </body>
     </html>

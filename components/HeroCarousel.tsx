@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { SiteImage, SiteText } from "@/components/content/SiteContent";
 import { useEffect, useState } from "react";
 
 const slides = [
@@ -108,8 +108,8 @@ export default function HeroCarousel() {
           }`}
           aria-hidden={index !== activeIndex}
         >
-          <Image
-            src={slide.src}
+          <SiteImage
+            contentKey={`content.home.hero_image_${index + 1}`}
             alt={slide.alt}
             fill
             priority={index === 0}
@@ -122,18 +122,18 @@ export default function HeroCarousel() {
       <div className="absolute inset-0 z-10 flex items-center justify-center px-4 pt-20 sm:pt-24">
         <div className="w-full max-w-4xl text-center sm:max-w-5xl">
           <h1 className="text-4xl font-bold leading-tight text-white sm:text-5xl md:text-7xl lg:text-8xl mb-5 sm:mb-6">
-            Where the sun<br />never sets
+            <SiteText contentKey="content.home.hero_title" />
           </h1>
           <p className="mx-auto mb-8 max-w-2xl text-white/80 sm:mb-10 sm:text-lg md:text-2xl">
-            Experience endless luxury and breathtaking moments at our exclusive beachfront resort
+            <SiteText contentKey="content.home.hero_description" />
           </p>
 
           <div className="flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
             <a href="/booking" className="rounded-full bg-primary px-6 py-3 text-base font-semibold transition-all transform hover:scale-105 hover:bg-primary/90 sm:px-8 sm:py-4 sm:text-lg">
-              Explore Our Rooms
+              <SiteText contentKey="content.home.hero_booking_label" />
             </a>
             <a href="/about" className="rounded-full bg-accent px-6 py-3 text-base font-semibold transition-all transform hover:scale-105 hover:bg-accent/90 sm:px-8 sm:py-4 sm:text-lg">
-              Learn More
+              <SiteText contentKey="content.home.hero_about_label" />
             </a>
           </div>
         </div>

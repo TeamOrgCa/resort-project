@@ -9,6 +9,7 @@ import KeyValueDetailsModal from "@/components/admin/transactions/KeyValueDetail
 import PaymentReviewModal from "@/components/admin/transactions/PaymentReviewModal";
 import TransactionsTablePanel from "@/components/admin/transactions/TransactionsTablePanel";
 import RefundRequestsPanel from "@/components/admin/transactions/RefundRequestsPanel";
+import ReportPanel from "@/components/admin/ReportPanel";
 import type {
   InvoiceDetailInvoiceRow,
   InvoiceDetailPaymentRow,
@@ -56,7 +57,7 @@ const paymentReviewLane = (status: PaymentSnapshotRow["ocr_status"]) => {
   return "Other method";
 };
 
-const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Refund Requests", "Generated Invoices", "Issued Receipts"] as const;
+const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Refund Requests", "Generated Invoices", "Issued Receipts", "Guest Report"] as const;
 
 const transactionColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reservation Ref" },
@@ -109,10 +110,12 @@ const formatDateTime = (value: string) => {
   }
 
   return `${date.toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
     year: "numeric",
     month: "short",
     day: "numeric",
   })} ${date.toLocaleTimeString("en-PH", {
+    timeZone: "Asia/Manila",
     hour: "2-digit",
     minute: "2-digit",
   })}`;
@@ -707,7 +710,7 @@ export default function AdminTransactionsPage() {
   };
 
   const handleReceiptRowAction = async (action: string, row: AdminTableRow) => {
-    if (action !== "View") {
+    if (action !== "View" && action !== "Print") {
       return;
     }
 
@@ -782,6 +785,8 @@ export default function AdminTransactionsPage() {
 
       setViewDetails({
         title: "Receipt Details",
+        kind: "receipt",
+        printOnOpen: action === "Print",
         fields: [
           { label: "Receipt No.", value: receiptRecord.receipt_number ?? "-" },
           { label: "Issued At", value: formatDateTime(receiptRecord.issued_at) },
@@ -919,6 +924,7 @@ export default function AdminTransactionsPage() {
           />
         )}
         {activeTab === "Refund Requests" && <RefundRequestsPanel />}
+        {activeTab === "Guest Report" && <ReportPanel tabs={["Guest Report"]} />}
       </section>
 
       <InvoiceDetailsModal

@@ -2,6 +2,7 @@ export type SettingValue = string | number | boolean | string[] | Record<string,
 
 export type SettingCategory =
   | "resort"
+  | "content"
   | "reservation"
   | "ocular"
   | "payments"
@@ -23,7 +24,8 @@ export interface SettingDefinition {
   category: SettingCategory;
   label: string;
   description: string;
-  input: "text" | "number" | "toggle" | "textarea" | "json";
+  input: "text" | "number" | "toggle" | "textarea" | "json" | "image";
+  group?: "Branding" | "Home page" | "About page";
   defaultValue: SettingValue;
 }
 

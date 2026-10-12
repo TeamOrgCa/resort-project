@@ -50,3 +50,28 @@ body {
     top: 0;
   }
 }
+@media print {
+  body:has(#billing-receipt-print) > :not(#billing-receipt-print) {
+    display: none !important;
+  }
+  #billing-receipt-print {
+    position: static !important;
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+  #billing-receipt-print .receipt-document {
+    max-height: none !important;
+    max-width: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 12mm !important;
+    color: black !important;
+  }
+  #billing-receipt-print .receipt-screen-only { display: none !important; }
+  #billing-receipt-print .receipt-field { break-inside: avoid; }
+}

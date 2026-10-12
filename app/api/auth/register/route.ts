@@ -3,6 +3,8 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { validateGuestRegistration } from "@/lib/auth/guest-registration";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { isEmailConfigured } from "@/lib/email";
+import { GuestConfirmationError, limitConfirmationRequests, registerGuestWithSmtp } from "@/lib/server/guest-confirmation";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -21,6 +23,11 @@ export async function POST(request: Request) {
     const { data: { user: currentUser } } = await (await createClient()).auth.getUser();
     if (currentUser) {
       return NextResponse.json({ message: "Sign out of the current account before creating another." }, { status: 409 });
+    }
+
+    if (isEmailConfigured()) {
+      limitConfirmationRequests(request, guest.email);
+      return NextResponse.json(await registerGuestWithSmtp(admin, request, guest));
     }
 
     const supabase = createSupabaseClient(
@@ -71,7 +78,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, needsEmailConfirmation: true });
   } catch (error) {
-    console.error("Guest registration failed:", error);
-    return NextResponse.json({ message: "Unable to create your account. Please try again." }, { status: 500 });
+    if (!(error instanceof GuestConfirmationError)) console.error("Guest registration failed.");
+    return NextResponse.json({ message: error instanceof GuestConfirmationError ? error.message : "Unable to create your account. Please try again." }, { status: error instanceof GuestConfirmationError ? error.status : 500 });
   }
 }

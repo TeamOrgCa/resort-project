@@ -401,14 +401,6 @@ export const reportModules = [
     description: "Revenue overview by day, week, or month with category-level income breakdown.",
   },
   {
-    title: "Financial Report",
-    description: "Track payments, pending balances, and period-level cash flow movement.",
-  },
-  {
-    title: "Guest Report",
-    description: "Monitor booking history, contact profiles, and repeat-visit patterns.",
-  },
-  {
     title: "Staff Report",
     description: "Review staff operational actions and accountability indicators.",
   },

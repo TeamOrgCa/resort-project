@@ -195,6 +195,9 @@ const createTransporter = () => {
       port,
       secure: process.env.EMAIL_SECURE === "true" || port === 465,
       auth: { user, pass },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000,
     });
   }
 
@@ -205,6 +208,7 @@ const createTransporter = () => {
 };
 
 const transporter = createTransporter();
+export const isEmailConfigured = () => Boolean(transporter && senderEmail);
 
 const sendMail = async ({
   to,
@@ -223,19 +227,27 @@ const sendMail = async ({
   }
 
   try {
-    await transporter.sendMail({
+    const result = await transporter.sendMail({
       from: `\"${senderName}\" <${senderEmail}>`,
       to,
       subject,
       html,
       text,
     });
-    return true;
+    return result.accepted.length > 0;
   } catch (error) {
-    console.error("Failed to send email.", error);
+    const failure = error as { code?: string; responseCode?: number };
+    console.error("Failed to send email.", { code: failure?.code, responseCode: failure?.responseCode });
     return false;
   }
 };
+
+export const sendGuestConfirmationEmail = async ({ email, guestName, confirmationUrl }: { email: string; guestName: string; confirmationUrl: string }) => sendMail({
+  to: email,
+  subject: `Confirm your email for ${appName}`,
+  text: [`Hi ${guestName || "Guest"},`, "", `Welcome to ${appName}. Confirm your email address before signing in:`, confirmationUrl, "", "This link can only be used once. If it expires, request another confirmation email from the registration page.", "If you did not create this account, you can ignore this email."].join("\n"),
+  html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.6;max-width:560px;margin:auto;padding:24px"><h2>Confirm your email</h2><p>Hi ${escapeHtml(guestName || "Guest")},</p><p>Welcome to ${escapeHtml(appName)}. Confirm your email address before signing in.</p><p style="margin:28px 0"><a href="${escapeHtml(confirmationUrl)}" style="display:inline-block;padding:12px 24px;background:#A9442B;color:white;text-decoration:none;border-radius:8px;font-weight:bold">Confirm email address</a></p><p>If the button does not work, open this link:</p><p style="word-break:break-all"><a href="${escapeHtml(confirmationUrl)}">${escapeHtml(confirmationUrl)}</a></p><p>This link can only be used once. If it expires, request another confirmation email from the registration page.</p><p>If you did not create this account, you can ignore this email.</p></div>`,
+});
 
 export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
   const lines = [

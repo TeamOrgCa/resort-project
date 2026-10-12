@@ -66,6 +66,14 @@ export async function loginAccess(kind: LoginKind, body: unknown) {
   }
 
   const { data, error } = await supabase.auth.signInWithPassword(credentials);
+  if (kind === "guest" && error?.code === "email_not_confirmed") {
+    await recordAttempt(admin, credentials.email, deviceId, kind, "denied");
+    return { response: finish(NextResponse.json({
+      success: false,
+      code: "EMAIL_NOT_CONFIRMED",
+      message: "Please confirm your email first. Check your inbox for the confirmation link before signing in.",
+    }, { status: 403 })) };
+  }
   if (error || !data.user) {
     const lockedUntil = await recordAttempt(admin, credentials.email, deviceId, kind, "failed");
     return { response: finish(loginError(lockedUntil ? "Too many attempts. Try again in one minute." : "Invalid credentials.", lockedUntil ? 429 : 401)) };

@@ -27,6 +27,7 @@ export default function Register() {
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
   const [resendMessage, setResendMessage] = useState("");
   const [isResending, setIsResending] = useState(false);
+  const [deliveryError, setDeliveryError] = useState("");
 
   const resendConfirmation = async () => {
     if (isResending) return;
@@ -39,6 +40,7 @@ export default function Register() {
         body: JSON.stringify({ email: formData.email }),
       });
       const result = await response.json() as { message?: string };
+      if (response.ok) setDeliveryError("");
       setResendMessage(result.message ?? (response.ok ? "Confirmation email requested." : "Unable to resend confirmation email."));
     } catch {
       setResendMessage("Unable to resend right now. Please try again later.");
@@ -77,12 +79,13 @@ export default function Register() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
-      const result = (await response.json()) as { success?: boolean; message?: string; needsEmailConfirmation?: boolean };
+      const result = (await response.json()) as { success?: boolean; message?: string; needsEmailConfirmation?: boolean; confirmationEmailSent?: boolean };
       if (!response.ok || !result.success) {
         setError(result.message || "Unable to create your account. Please try again.");
         return;
       }
       setNeedsEmailConfirmation(Boolean(result.needsEmailConfirmation));
+      setDeliveryError(result.confirmationEmailSent === false ? result.message ?? "Confirmation email could not be sent. Please try resending it." : "");
       setSuccess(true);
       if (!result.needsEmailConfirmation) {
         setTimeout(() => router.push("/auth/login"), 2000);
@@ -103,7 +106,8 @@ export default function Register() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-neutral mb-2">{needsEmailConfirmation ? "Check your email" : "Registration Successful!"}</h2>
+          <h2 className="text-2xl font-bold text-neutral mb-2">{deliveryError ? "Confirmation email delayed" : needsEmailConfirmation ? "Check your email" : "Registration Successful!"}</h2>
+          {deliveryError && <p role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{deliveryError}</p>}
           <p className="text-neutral/70 mb-4">
             {needsEmailConfirmation
               ? "If the address can be registered, you will receive a confirmation link. Confirm your email before signing in."

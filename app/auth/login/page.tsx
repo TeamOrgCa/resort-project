@@ -67,7 +67,7 @@ function LoginContent() {
             {confirmation === "invalid" && <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-neutral">This confirmation link is invalid or has expired. Request a new email from the registration page.</p>}
             {sessionReplaced && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-neutral">This account was signed in on another device. Your session here has ended. Sign in again to continue.</p>}
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+              <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
                 {error}
               </div>
             )}
