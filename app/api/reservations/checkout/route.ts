@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-rates";
-import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount, amountMeetsMinimum, isValidPaymentAmount } from "@/lib/booking/payment-policy";
+import { isGcashMethod, isVerifiedGcashReceipt, normalizeGcashReference } from "@/lib/booking/gcash-receipt";
+import { isValidAccountNumber } from "@/lib/helper/validation";
 import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
@@ -35,6 +37,7 @@ interface CheckoutPayload {
   selectedServices?: ServiceSelectionInput[];
   payment: {
     paymentMethodId: string;
+    receivingAccountId?: string;
     type?: PaymentType;
     amount: number;
     referenceNumber: string;
@@ -141,9 +144,11 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
   if (
     typeof payment.paymentMethodId !== "string" ||
     !payment.paymentMethodId.trim() ||
+    (payment.receivingAccountId !== undefined && (typeof payment.receivingAccountId !== "string" || !/^[a-f\d-]{36}$/i.test(payment.receivingAccountId))) ||
+    (payment.accountNumber != null && typeof payment.accountNumber !== "string") ||
     (payment.type !== "downpayment" && payment.type !== "full") ||
     typeof payment.amount !== "number" ||
-    !Number.isFinite(payment.amount) || payment.amount <= 0 ||
+    !isValidPaymentAmount(payment.amount) ||
     typeof payment.referenceNumber !== "string" ||
     typeof payment.accountName !== "string" ||
     typeof payment.proofPath !== "string"
@@ -184,6 +189,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
       : [],
     payment: {
       paymentMethodId: payment.paymentMethodId,
+      receivingAccountId: payment.receivingAccountId,
       type: payment.type,
       amount: payment.amount,
       referenceNumber: payment.referenceNumber.trim(),
@@ -277,6 +283,9 @@ export async function POST(request: Request) {
     if (paymentMethodError || !paymentMethod?.is_active) {
       return NextResponse.json({ success: false, message: "Selected payment method is unavailable." }, { status: 400 });
     }
+    if (!isGcashMethod(paymentMethod)) return NextResponse.json({ success: false, message: "Guest payments must use GCash." }, { status: 400 });
+    const reference = normalizeGcashReference(payload.payment.referenceNumber);
+    if (!reference || !isValidAccountNumber(payload.payment.accountNumber ?? "")) return NextResponse.json({ success: false, message: "Enter a complete numeric GCash reference (8–20 digits) and valid account number." }, { status: 400 });
 
     const { conflict: overlapReservation, error: overlapError } = await checkReservationOverlap(
       payload.startDatetime,
@@ -378,29 +387,35 @@ export async function POST(request: Request) {
     const totalAmount = pricing.total;
 
     const expectedAmount = payload.payment.type === "full" ? totalAmount : downPaymentAmount(totalAmount);
-    if (!moneyMatches(payload.payment.amount, expectedAmount)) {
+    if (!amountMeetsMinimum(payload.payment.amount, expectedAmount)) {
       return NextResponse.json(
         {
           success: false,
-          message: `Payment amount must equal the ${DOWN_PAYMENT_PERCENT}% down payment or the full reservation total.`,
+          message: `Amount sent must cover at least the selected ${DOWN_PAYMENT_PERCENT}% down payment or full reservation total (PHP ${expectedAmount.toFixed(2)}).`,
         },
         { status: 400 }
       );
     }
 
-    const { data: receivingAccount } = await supabase.from("payment_accounts")
+    let accountQuery = supabase.from("payment_accounts")
       .select("account_name, account_number")
       .eq("payment_method_id", payload.payment.paymentMethodId)
       .eq("is_active", true)
+      .not("qr_image", "is", null)
+      .order("account_name").order("account_id");
+    if (payload.payment.receivingAccountId) accountQuery = accountQuery.eq("account_id", payload.payment.receivingAccountId);
+    const { data: receivingAccount, error: receivingAccountError } = await accountQuery
       .limit(1)
       .maybeSingle<{ account_name: string; account_number: string | null }>();
+    if (receivingAccountError || !receivingAccount) return NextResponse.json({ success: false, message: "The resort's GCash receiving account is unavailable. Please try again later." }, { status: 503 });
     const ocr = await inspectPaymentProof(supabase, {
       userId: user.id,
       proofPath: payload.payment.proofPath,
       methodName: paymentMethod.name,
       methodType: paymentMethod.type,
-      amount: expectedAmount,
-      reference: payload.payment.referenceNumber,
+      amount: payload.payment.amount,
+      minimumAmount: expectedAmount,
+      reference,
       recipientName: receivingAccount?.account_name,
       recipientNumber: receivingAccount?.account_number,
     });
@@ -413,6 +428,7 @@ export async function POST(request: Request) {
     if (ocr.status === "screening_unavailable") {
       return NextResponse.json({ success: false, code: "PROOF_SCREENING_UNAVAILABLE", message: ocr.notes }, { status: 503 });
     }
+    if (!isVerifiedGcashReceipt(ocr)) return NextResponse.json({ success: false, code: "RECEIPT_VALIDATION_FAILED", message: `Payment was not submitted: ${ocr.notes}. Upload a clear, complete receipt showing today's Philippine date and time.` }, { status: 422 });
 
     const reservationReference = await generateReferenceNumber(supabase);
 
@@ -568,45 +584,54 @@ export async function POST(request: Request) {
       .from("payments")
       .insert({
         reservation_id: reservation.reservation_id,
-        amount: payload.payment.amount,
+        amount: ocr.amount,
         payment_method_id: payload.payment.paymentMethodId,
         payment_type: payload.payment.type,
         status: "pending",
-        reference_number: payload.payment.referenceNumber,
+        reference_number: ocr.reference,
+        receipt_paid_at: ocr.paidAt,
         account_name: payload.payment.accountName,
         account_number: payload.payment.accountNumber,
         proof_path: payload.payment.proofPath,
         ocr_status: ocr.status,
         ocr_notes: ocr.notes,
-        ocr_checked_at: ocr.status === "not_applicable" ? null : new Date().toISOString(),
+        ocr_checked_at: new Date().toISOString(),
       })
       .select("payment_id, status, ocr_status")
       .single();
 
     if (paymentError || !payment) {
+      await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
+      reservationId = null;
       if (paymentError?.code === "P0001" && /deadline|expired/i.test(paymentError.message)) {
         return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline passed during checkout. Please try a new reservation." }, { status: 410 });
       }
       console.error("[checkout] Failed to record payment", paymentError);
-      await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
+      if (paymentError?.code === "23505") return NextResponse.json({ success: false, message: "This GCash reference has already been used or a payment is pending." }, { status: 409 });
+      if (paymentError?.code === "22023" || paymentError?.code === "40001") return NextResponse.json({ success: false, message: paymentError.message }, { status: 409 });
+      if (paymentError?.code === "42703" || paymentError?.code === "PGRST204") return NextResponse.json({ success: false, message: "Payment processing is being updated. Please ask an administrator to apply the GCash payment validation migration." }, { status: 503 });
       return NextResponse.json(
         buildDbFailurePayload(paymentError, "Failed to record payment."),
         { status: 500 }
       );
     }
 
-    const { error: notificationError } = await createNotifications({
-      actorId: user.id,
-      guestId: user.id,
-      staffRoles: NOTIFICATION_AUDIENCES.checkout,
-      title: "Reservation checkout submitted",
-      message: `Reservation ${reservation.reference_number} and payment were submitted for review.`,
-      entityType: "payment",
-      entityId: payment.payment_id,
-      guestActionUrl: "/manage",
-      staffActionUrl: "/admin/transactions",
-    });
-    if (notificationError) console.warn("Failed to create checkout notifications:", notificationError);
+    // Once saved, notification failures must not roll back a submitted payment.
+    reservationId = null;
+    try {
+      const { error: notificationError } = await createNotifications({
+        actorId: user.id,
+        guestId: user.id,
+        staffRoles: NOTIFICATION_AUDIENCES.checkout,
+        title: "Reservation checkout submitted",
+        message: `Reservation ${reservation.reference_number} and payment were submitted for review.`,
+        entityType: "payment",
+        entityId: payment.payment_id,
+        guestActionUrl: "/manage",
+        staffActionUrl: "/admin/transactions",
+      });
+      if (notificationError) console.warn("Failed to create checkout notifications:", notificationError);
+    } catch (notificationError) { console.warn("Failed to create checkout notifications:", notificationError); }
 
     return NextResponse.json(
       {
@@ -621,7 +646,8 @@ export async function POST(request: Request) {
         payment: {
           id: payment.payment_id,
           status: payment.status,
-          amount: payload.payment.amount,
+          amount: ocr.amount,
+          receiptPaidAt: ocr.paidAt,
           proofPath: payload.payment.proofPath,
           ocrStatus: payment.ocr_status,
         },

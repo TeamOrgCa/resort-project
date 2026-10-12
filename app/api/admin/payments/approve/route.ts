@@ -7,6 +7,7 @@ import { emailBillingDocuments } from "@/lib/server/billing-email";
 
 interface ApprovePaymentPayload {
   paymentId: string;
+  screenshotReviewed: boolean;
 }
 
 interface PaymentRow {
@@ -14,6 +15,7 @@ interface PaymentRow {
   reservation_id: string;
   status: "pending" | "verified" | "rejected";
   amount: number;
+  receipt_paid_at: string | null;
 }
 
 interface ReservationRow {
@@ -53,6 +55,7 @@ const parsePayload = (value: unknown): ApprovePaymentPayload | null => {
 
   return {
     paymentId: payload.paymentId.trim(),
+    screenshotReviewed: payload.screenshotReviewed === true,
   };
 };
 
@@ -92,7 +95,7 @@ export async function POST(request: Request) {
 
     const { data: payment, error: paymentError } = await staffContext.supabase
       .from("payments")
-      .select("payment_id, reservation_id, status, amount")
+      .select("payment_id, reservation_id, status, amount, receipt_paid_at")
       .eq("payment_id", payload.paymentId)
       .maybeSingle<PaymentRow>();
 
@@ -108,6 +111,10 @@ export async function POST(request: Request) {
 
     if (payment.status !== "pending") {
       return NextResponse.json({ success: false, message: "This payment has already been reviewed." }, { status: 409 });
+    }
+
+    if (payment.receipt_paid_at && !payload.screenshotReviewed) {
+      return NextResponse.json({ success: false, message: "Check that the proof is a clear original GCash screenshot before approving. Reject photos of another screen." }, { status: 400 });
     }
 
     const { data: reservation, error: reservationError } = await staffContext.supabase

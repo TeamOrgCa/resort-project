@@ -722,6 +722,7 @@ create table public.payments (
   status text check (status in ('pending', 'verified', 'rejected')) default 'pending',
 
   paid_at timestamptz default timezone('utc', now()),
+  receipt_paid_at timestamptz,
 
   created_at timestamptz default timezone('utc', now()) not null,
   updated_at timestamptz default timezone('utc', now()) not null,
@@ -2057,3 +2058,10 @@ create policy "Guests and staff read review photos" on storage.objects for selec
 );
 notify pgrst, 'reload schema';
 commit;
+
+-- GCash receipt validation and excess-refund workflow:
+-- After installing the account-access, maintenance-refunds, booking-policy-versions,
+-- role-permissions and reservation-edit prerequisites, apply
+-- docs/gcash-payment-validation-migration.sql then docs/overpayment-refunds-migration.sql.
+-- These install the normalized reference indexes, receipt insert guard, guest refund
+-- RPCs and net-payment ledger triggers. See docs/PAYMENT_FLOW.md for deployment order.

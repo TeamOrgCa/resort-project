@@ -9,6 +9,16 @@ export function moneyMatches(actual: number, expected: number): boolean {
   return Number.isFinite(actual) && Math.abs(Math.round(actual * 100) - Math.round(expected * 100)) === 0;
 }
 
+export function isValidPaymentAmount(amount: number): boolean {
+  return Number.isFinite(amount) && amount > 0 && amount <= 99999999.99
+    && Math.abs(amount * 100 - Math.round(amount * 100)) < 0.000001;
+}
+
+export function amountMeetsMinimum(amount: number, minimum: number): boolean {
+  return isValidPaymentAmount(amount) && Number.isFinite(minimum) && minimum > 0
+    && Math.round(amount * 100) >= Math.round(minimum * 100);
+}
+
 /** A later charge is a balance payment even when the initial selector is hidden. */
 export function resolvePaymentType(
   isBalancePayment: boolean,

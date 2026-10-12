@@ -10,7 +10,7 @@ export function loadTsModule(filename, mocks = {}, cache = new Map()) {
   const loadedModule = { exports: {} };
   cache.set(absolute, loadedModule);
   const compiled = ts.transpileModule(readFileSync(absolute, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     fileName: absolute,
   }).outputText;
   const localRequire = createRequire(absolute);
