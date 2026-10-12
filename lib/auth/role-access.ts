@@ -1,10 +1,11 @@
 import type { AdminNavItem } from "@/components/admin/types";
 import type { StaffRole } from "./staff-auth";
 
-export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_review", "refund_payout", "records", "reports", "analytics", "audit", "configuration", "catalog", "users"] as const;
+export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_review", "refund_payout", "records", "reports", "analytics", "audit", "configuration", "catalog", "users"] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_LABELS: Record<Permission, string> = {
   dashboard: "Dashboard", reservations: "View reservations", create_reservation: "Add reservation",
+  edit_reservation: "Edit reservations and services",
   cancel_reservation: "Cancel reservation", reschedule_approval: "Approve or reject reschedules",
   ocular_approval: "Approve or cancel ocular visits", transactions: "View transactions",
   payment_approval: "Approve or reject payments", payment_entry: "Record payments",
@@ -35,6 +36,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/maintenance-blocks")) return method === "GET" ? "reservations" : "configuration";
   if (path.startsWith("/api/admin/reservations/create")) return "create_reservation";
   if (path.startsWith("/api/admin/reservations/cancel")) return "cancel_reservation";
+  if (/^\/api\/admin\/reservations\/[\da-f-]+$/i.test(path)) return method === "GET" ? "reservations" : "edit_reservation";
   if (path.startsWith("/api/admin/reschedule-requests")) return "reschedule_approval";
   if (path.startsWith("/api/admin/ocular-visits")) return "ocular_approval";
   if (path.startsWith("/api/admin/payments/manual-entry")) return "payment_entry";
