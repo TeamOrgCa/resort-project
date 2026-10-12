@@ -1,5 +1,6 @@
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import type { BookingMode } from "@/lib/booking/policy";
+import type { PackageRates } from "@/lib/booking/package-rates";
 import { positiveRateAdjustment, rescheduleNoticeFee } from "@/lib/booking/reschedule-charge-policy";
 
 export function calculateRescheduleCharges(input: {
@@ -11,6 +12,7 @@ export function calculateRescheduleCharges(input: {
   adultCount: number;
   childCount: number;
   now?: number;
+  rates: PackageRates;
 }) {
   const noticeFee = rescheduleNoticeFee(input.originalStart, input.now);
   const priceFor = (startDatetime: string, endDatetime: string) => computeBookingPricing({
@@ -19,7 +21,7 @@ export function calculateRescheduleCharges(input: {
     endDatetime,
     adultCount: input.adultCount,
     childCount: input.childCount,
-  }).total;
+  }, input.rates).total;
   const oldPrice = priceFor(input.originalStart, input.originalEnd);
   const newPrice = priceFor(input.newStart, input.newEnd);
   const rateAdjustment = positiveRateAdjustment(oldPrice, newPrice);

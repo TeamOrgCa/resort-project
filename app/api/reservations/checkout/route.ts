@@ -3,6 +3,7 @@ import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-rates";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount, moneyMatches } from "@/lib/booking/payment-policy";
 import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
@@ -20,6 +21,7 @@ interface ServiceSelectionInput {
 }
 
 interface CheckoutPayload {
+  packageRateVersion: number;
   bookingMode: BookingMode;
   startDatetime: string;
   endDatetime: string;
@@ -127,6 +129,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
     typeof payload.childCount !== "number" ||
+    !Number.isSafeInteger(payload.packageRateVersion) || Number(payload.packageRateVersion) < 1 ||
     !payload.payment ||
     typeof payload.payment !== "object"
   ) {
@@ -167,6 +170,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     customStartTime: typeof payload.customStartTime === "string" ? payload.customStartTime : null,
     customEndTime: typeof payload.customEndTime === "string" ? payload.customEndTime : null,
     adultCount: payload.adultCount,
+    packageRateVersion: Number(payload.packageRateVersion),
     childCount: payload.childCount,
     unitId: payload.unitId,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
@@ -362,6 +366,7 @@ export async function POST(request: Request) {
       return sum + Number(matchedService.price) * (service.quantity ?? 1);
     }, 0);
 
+    const packageSchedule = await loadQuotedPackageRates(supabase, payload.packageRateVersion);
     const pricing = computeBookingPricing({
       bookingMode: payload.bookingMode,
       startDatetime: payload.startDatetime,
@@ -369,7 +374,7 @@ export async function POST(request: Request) {
       adultCount: payload.adultCount,
       childCount: payload.childCount,
       servicesTotal,
-    });
+    }, packageSchedule.rates);
     const totalAmount = pricing.total;
 
     const expectedAmount = payload.payment.type === "full" ? totalAmount : downPaymentAmount(totalAmount);
@@ -427,6 +432,7 @@ export async function POST(request: Request) {
         guest_id: user.id,
         reference_number: reservationReference,
         booking_mode: payload.bookingMode,
+        package_rate_version: packageSchedule.version,
         start_datetime: payload.startDatetime,
         end_datetime: payload.endDatetime,
         adult_count: payload.adultCount,
@@ -438,6 +444,7 @@ export async function POST(request: Request) {
       .single();
 
     if (reservationError || !reservation) {
+      if (reservationError?.code === "40001") return NextResponse.json({ success: false, code: "RATES_CHANGED", message: "Package rates changed. Return to the booking form to review the total." }, { status: 409 });
       if (reservationError?.code === "23P01") {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
       }
@@ -622,6 +629,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "RATES_CHANGED" : "RATES_UNAVAILABLE" }, { status: error.status });
     console.error("[checkout] Unexpected error", error);
 
     if (reservationId) {

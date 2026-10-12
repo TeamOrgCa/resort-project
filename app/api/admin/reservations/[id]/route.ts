@@ -48,7 +48,7 @@ export async function PATCH(request: Request, context: Context) {
     if (unitChanged && (detail.units.length > 1 || detail.units.some(u => u.quantity !== 1))) return fail("Reservations with multiple accommodations require individual billing review.", 400);
     if (unitChanged && (!edit.unitId || !detail.catalogUnits.some(u => u.unit_id === edit.unitId && u.is_active && !u.archived_at))) return fail("Choose an available accommodation.", 400);
     if (!detail.canChangeDetails && detail.services.some(s => (edit.services.find(e => e.serviceId === s.service_id)?.quantity ?? 0) < s.quantity)) return fail("Services already booked during a stay cannot be removed or reduced.", 400);
-    const preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, edit);
+    const preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, edit, detail.packageRates);
     if (preview.total < 0) return fail("This change would produce a negative bill. Review the reservation charges.", 400);
     if (preview.total !== moneyRound(edit.expectedTotal)) return fail("Service prices or the bill changed. Reload to review the updated amount.", 409);
     const pricedServices = edit.services.map(s => ({ ...s, price: Number(detail.services.find(e => e.service_id === s.serviceId)?.price_at_time ?? detail.catalogServices.find(e => e.service_id === s.serviceId)!.price) }));

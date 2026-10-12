@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-rates";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
@@ -21,6 +22,7 @@ interface ServiceSelectionInput {
 }
 
 interface CreateReservationPayload {
+  packageRateVersion: number;
   bookingMode: BookingMode;
   startDatetime: string;
   endDatetime: string;
@@ -94,6 +96,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
     typeof payload.childCount !== "number" ||
+    !Number.isSafeInteger(payload.packageRateVersion) || Number(payload.packageRateVersion) < 1 ||
     payload.acceptedPoliciesVersion !== LEGAL_POLICY_VERSION ||
     !Number.isSafeInteger(payload.bookingPolicyVersion) || Number(payload.bookingPolicyVersion) < 1
   ) {
@@ -132,6 +135,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
       : [],
     acceptedPoliciesVersion: LEGAL_POLICY_VERSION,
     bookingPolicyVersion: Number(payload.bookingPolicyVersion),
+    packageRateVersion: Number(payload.packageRateVersion),
   };
 };
 
@@ -295,6 +299,7 @@ export async function POST(request: Request) {
       if (!matchedService) return sum;
       return sum + Number(matchedService.price) * (service.quantity ?? 1);
     }, 0);
+    const packageSchedule = await loadQuotedPackageRates(supabase, payload.packageRateVersion);
     const pricing = computeBookingPricing({
       bookingMode: payload.bookingMode,
       startDatetime: payload.startDatetime,
@@ -302,7 +307,7 @@ export async function POST(request: Request) {
       adultCount: payload.adultCount,
       childCount: payload.childCount,
       servicesTotal,
-    });
+    }, packageSchedule.rates);
     const totalAmount = pricing.total;
 
     const reservationReference = await generateReferenceNumber(supabase);
@@ -328,6 +333,7 @@ export async function POST(request: Request) {
         adult_count: payload.adultCount,
         child_count: payload.childCount,
         booking_policy_version: payload.bookingPolicyVersion,
+        package_rate_version: packageSchedule.version,
         special_requests: payload.specialRequests || null,
         status: "pending",
       })
@@ -339,6 +345,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
       }
       if (reservationError?.code === "40001") {
+        if (reservationError.message?.includes("Package rates")) return NextResponse.json({ success: false, code: "RATES_CHANGED", message: "Package rates changed. Return to the booking form to review the new total." }, { status: 409 });
         return NextResponse.json({ success: false, code: "POLICY_CHANGED", message: "The booking policy changed. Refresh this page and review it again before saving." }, { status: 409 });
       }
       return NextResponse.json(buildDbFailurePayload(reservationError, "Failed to create reservation."), { status: 500 });
@@ -433,6 +440,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "RATES_CHANGED" : "RATES_UNAVAILABLE" }, { status: error.status });
     if (reservationId) {
       const supabase = await createClient();
       await supabase.from("reservations").delete().eq("reservation_id", reservationId);

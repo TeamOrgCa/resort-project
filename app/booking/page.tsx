@@ -12,6 +12,7 @@ import { buildBookingWindow, validateBookingWindow, type BookingMode, type Whole
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { isWindowAvailable, type ReservedWindow } from "@/lib/booking/availability";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 
@@ -22,6 +23,7 @@ interface OcularAvailabilityRow {
 }
 
 export default function Booking() {
+  const { schedule: packageSchedule, error: packageRatesError } = usePackageRates();
   const router = useRouter();
   const setBookingWindow = useBookingStore((state) => state.setBookingWindow);
   const resetBookingDraft = useBookingStore((state) => state.resetBookingDraft);
@@ -203,6 +205,7 @@ export default function Booking() {
       return;
     }
 
+    if (!packageSchedule) { setStayError(packageRatesError ?? "Please wait while package prices load."); return; }
     const generatedWindow = buildBookingWindow({
       bookingMode,
       date: selectedStayDate,
@@ -520,13 +523,13 @@ export default function Booking() {
       customStartTime,
       customEndTime,
     }).valid ? { startDatetime: summaryWindow.startDatetime, endDatetime: summaryWindow.endDatetime } : null;
-  const summaryPricing = validSummaryWindow ? computeBookingPricing({
+  const summaryPricing = validSummaryWindow && packageSchedule ? computeBookingPricing({
     bookingMode,
     startDatetime: validSummaryWindow.startDatetime,
     endDatetime: validSummaryWindow.endDatetime,
     adultCount: 1,
     childCount: 0,
-  }) : null;
+  }, packageSchedule.rates) : null;
   const formatSummaryDate = (value: string) => new Date(value).toLocaleString("en-PH", {
     timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
   });
@@ -959,6 +962,7 @@ export default function Booking() {
                       ) : <p className="text-sm text-neutral/70">Select a valid date and time to see the package rate.</p>}
                     </div>
 
+                    {packageRatesError && <p role="alert" className="mb-3 text-sm text-red-700">{packageRatesError}</p>}
                     {stayError ? (
                       <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
                         {stayError}
@@ -969,7 +973,7 @@ export default function Booking() {
                       type="button"
                       onClick={handleContinueToReservation}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                      disabled={!selectedStayDate || Boolean(validSummaryWindow && !isBookingStartAllowed(validSummaryWindow.startDatetime, now))}
+                      disabled={!packageSchedule || Boolean(packageRatesError) || !selectedStayDate || Boolean(validSummaryWindow && !isBookingStartAllowed(validSummaryWindow.startDatetime, now))}
                     >
                       Continue to Reservation
                     </button>

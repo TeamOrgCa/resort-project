@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { DOWN_PAYMENT_PERCENT } from "@/lib/booking/payment-policy";
 import { isValidName, sanitizeName } from "@/lib/helper/validation";
 import { isValidGuestCounts, MAX_GUESTS, MAX_EXTRA_GUESTS } from "@/lib/booking/guest-count";
@@ -48,6 +49,7 @@ export default function BookingForm() {
 }
 
 function BookingFormContent() {
+  const { schedule: packageSchedule, error: packageRatesError } = usePackageRates();
   const router = useRouter();
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
@@ -191,6 +193,8 @@ function BookingFormContent() {
     return date;
   }, []);
 
+  if (!packageSchedule || packageRatesError) return <div className="min-h-screen bg-base"><Navigation /><main className="mx-auto max-w-3xl px-4 py-36"><p role={packageRatesError ? "alert" : "status"} className="text-neutral">{packageRatesError ?? "Loading current booking prices…"}</p>{packageRatesError && <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-lg bg-primary px-4 py-2 text-white">Try again</button>}</main><Footer /></div>;
+
   const effectiveStartDate = parseDateTime(bookingDraft.startDatetime || null) ?? fallbackStartDate;
   const effectiveEndDate = parseDateTime(bookingDraft.endDatetime || null) ?? fallbackEndDate;
 
@@ -209,7 +213,7 @@ function BookingFormContent() {
     adultCount: formData.adultCount,
     childCount: formData.childCount,
     servicesTotal: amenitiesTotal,
-  });
+  }, packageSchedule.rates);
   const subtotal = pricing.subtotal;
   const tax = pricing.tax;
   const total = pricing.total;
@@ -239,6 +243,8 @@ function BookingFormContent() {
 
     setBookingDraft({
       checkIn: effectiveStartDate.toISOString().slice(0, 10),
+      packageRates: packageSchedule.rates,
+      packageRateVersion: packageSchedule.version,
       checkOut: effectiveEndDate.toISOString().slice(0, 10),
       startDatetime: effectiveStartDate.toISOString(),
       endDatetime: effectiveEndDate.toISOString(),

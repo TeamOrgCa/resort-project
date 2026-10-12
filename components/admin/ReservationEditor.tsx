@@ -50,7 +50,7 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
     endDatetime: draft.endDatetime === localTime(detail.reservation.end_datetime) ? detail.reservation.end_datetime : isoTime(draft.endDatetime),
     version: detail.version, expectedTotal: 0 });
   let preview: ReturnType<typeof previewReservationEdit> | null = null;
-  try { preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, toEdit()); } catch { /* Incomplete datetime input: show a prompt in the bill preview. */ }
+  try { preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, toEdit(), detail.packageRates); } catch { /* Incomplete datetime input: show a prompt in the bill preview. */ }
   const visibleServices = detail.catalogServices.filter(s => s.is_active || detail.services.some(e => e.service_id === s.service_id));
   // Keep historical selections visible even if their catalog record was removed.
   for (const s of detail.services) if (!visibleServices.some(e => e.service_id === s.service_id)) visibleServices.push({ service_id: s.service_id, name: "Previously booked service", price: Number(s.price_at_time), is_active: false });

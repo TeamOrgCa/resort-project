@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { buildBookingWindow, toIsoLocalDay, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import { usePackageRates } from "@/lib/booking/use-package-rates";
+import { computeBookingPricing } from "@/lib/booking/pricing";
+import { isValidGuestCounts } from "@/lib/booking/guest-count";
 
 type Guest = { id: string; first_name: string; last_name: string; email: string };
 type Unit = { unit_id: string; name: string; capacity: number };
@@ -11,6 +14,7 @@ type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreate
 type BookingForm = { bookingDate: string; bookingMode: Exclude<BookingMode, "custom">; wholeDayVariant: WholeDayVariant; adultCount: string; childCount: string; unitId: string; specialRequests: string };
 
 export default function ManualBookingDialog({ isOpen, onClose, onCreated }: ManualBookingDialogProps) {
+  const { schedule: packageSchedule, error: packageRatesError } = usePackageRates(isOpen);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [guestType, setGuestType] = useState<"existing" | "walk_in">("existing");
@@ -38,12 +42,17 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
   }, [isOpen]);
 
   if (!isOpen) return null;
+  const previewWindow = form.bookingDate && Number.isFinite(Date.parse(`${form.bookingDate}T00:00:00+08:00`))
+    ? buildBookingWindow({ bookingMode: form.bookingMode, date: new Date(`${form.bookingDate}T00:00:00`), wholeDayVariant: form.wholeDayVariant }) : null;
+  const preview = packageSchedule && previewWindow && !("error" in previewWindow) && isValidGuestCounts(Number(form.adultCount), Number(form.childCount))
+    ? computeBookingPricing({ bookingMode: form.bookingMode, startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime, adultCount: Number(form.adultCount), childCount: Number(form.childCount) }, packageSchedule.rates) : null;
   const updateForm = (key: keyof BookingForm, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setSuccess(null);
+    if (!packageSchedule || packageRatesError) { setError(packageRatesError ?? "Please wait for booking prices to load."); return; }
     const bookingWindow = buildBookingWindow({ bookingMode: form.bookingMode, date: new Date(`${form.bookingDate}T00:00:00`), wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : undefined });
     if ("error" in bookingWindow) { setError(bookingWindow.error ?? "Invalid booking window."); return; }
     const adults = Number(form.adultCount);
@@ -53,7 +62,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     if (guestType === "walk_in" && (!walkIn.firstName || !walkIn.lastName || !walkIn.email || !walkIn.phoneNumber || !walkIn.address)) { setError("Complete all walk-in guest details."); return; }
     setIsSaving(true);
     try {
-      const response = await fetch("/api/admin/reservations/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ guestType, guestId: guestType === "existing" ? guestId : undefined, walkInGuest: guestType === "walk_in" ? walkIn : undefined, bookingMode: form.bookingMode, wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : null, startDatetime: bookingWindow.startDatetime, endDatetime: bookingWindow.endDatetime, adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests }) });
+      const response = await fetch("/api/admin/reservations/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ packageRateVersion: packageSchedule.version, guestType, guestId: guestType === "existing" ? guestId : undefined, walkInGuest: guestType === "walk_in" ? walkIn : undefined, bookingMode: form.bookingMode, wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : null, startDatetime: bookingWindow.startDatetime, endDatetime: bookingWindow.endDatetime, adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests }) });
       const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; reservation?: { referenceNumber?: string } } | null;
       if (!response.ok || !result?.success) throw new Error(result?.message ?? "Failed to create manual reservation.");
       setSuccess(`Manual reservation ${result.reservation?.referenceNumber ?? "created"}.`);
@@ -79,7 +88,8 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
           <Input label="Adults" type="number" value={form.adultCount} onChange={(value) => updateForm("adultCount", value)} /><Input label="Children" type="number" value={form.childCount} onChange={(value) => updateForm("childCount", value)} />
           <label className="text-sm text-neutral/70 md:col-span-2">Special requests<textarea value={form.specialRequests} onChange={(event) => updateForm("specialRequests", event.target.value)} rows={3} className="mt-2 w-full rounded-lg border border-neutral/20 px-3 py-2 text-sm" /></label>
         </div>
-        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral hover:bg-base">Cancel</button><button type="submit" disabled={isSaving} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
+        <div className="mt-5 rounded-xl bg-base p-4 text-sm text-neutral">{packageRatesError ? <p role="alert" className="text-red-700">{packageRatesError}</p> : preview ? <><p className="font-semibold">{preview.rateTier === "weekend" ? "Weekend" : "Weekday"} package: ₱{preview.packageRate.toLocaleString("en-PH")}</p><p className="mt-1">Extra guests: {preview.extraGuests} × ₱{preview.addOnPerHead.toLocaleString("en-PH")}</p><p className="mt-2 font-semibold text-primary">Total: ₱{preview.total.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</p></> : <p>Choose a valid date and guest count to view the current package price.</p>}</div>
+        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral hover:bg-base">Cancel</button><button type="submit" disabled={isSaving || !preview || Boolean(packageRatesError)} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
       </form>
     </div>
   </div>;

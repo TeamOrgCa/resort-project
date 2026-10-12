@@ -7,14 +7,14 @@ export function buildBookingCostSummary(draft: BookingDraft) {
   const servicesTotal = draft.services.reduce((sum, service) => sum + Number(service.price || 0), 0);
   const packageRate = Number(draft.roomPrice || 0);
   const hasDates = Boolean(draft.startDatetime && draft.endDatetime);
-  const pricing = hasDates ? computeBookingPricing({
+  const pricing = hasDates && draft.packageRates ? computeBookingPricing({
     bookingMode: draft.bookingMode,
     startDatetime: draft.startDatetime,
     endDatetime: draft.endDatetime,
     adultCount: draft.adultCount,
     childCount: draft.childCount,
     servicesTotal,
-  }) : null;
+  }, draft.packageRates) : null;
   const matchesPackagePricing = Boolean(pricing
     && Math.abs(pricing.total - total) < 0.01
     && Math.abs(pricing.packageRate - packageRate) < 0.01);

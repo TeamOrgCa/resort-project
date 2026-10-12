@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Montserrat } from "next/font/google";
 import "./globals.css";
 import SessionWatcher from "@/components/SessionWatcher";
@@ -14,6 +14,10 @@ const montserrat = Montserrat({
 export const metadata: Metadata = {
   title: "MarVille Resort Complex - Where the Sun Never Sets",
   description: "Experience paradise at MarVille Resort Complex. Luxury accommodations, world-class amenities, and unforgettable memories await.",
+};
+
+export const viewport: Viewport = {
+  colorScheme: "light",
 };
 
 export default function RootLayout({

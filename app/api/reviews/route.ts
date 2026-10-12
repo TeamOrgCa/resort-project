@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { REVIEW_IMAGE_BUCKET } from "@/lib/reviews/images";
 
 interface ReviewRow {
   review_id: string;
@@ -13,6 +14,7 @@ interface ReviewRow {
   review_text: string;
   would_recommend: boolean | null;
   created_at: string;
+  image_path: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -44,7 +46,8 @@ export async function GET(request: NextRequest) {
         review_text,
         public_display_name,
         would_recommend,
-        created_at
+        created_at,
+        image_path
       `,
         { count: "exact" }
       )
@@ -73,7 +76,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Format response
+    const paths = (reviews as ReviewRow[] | null)?.flatMap(review => review.image_path ? [review.image_path] : []) ?? [];
+    const imageUrls = new Map<string, string>();
+    if (paths.length) {
+      try {
+        const { data, error } = await supabase.storage.from(REVIEW_IMAGE_BUCKET).createSignedUrls(paths, 3600);
+        if (error) console.warn("Unable to load review photos:", error.message);
+        for (const image of data ?? []) if (image.path && image.signedUrl && !image.error) imageUrls.set(image.path, image.signedUrl);
+      } catch { console.warn("Unable to load review photos."); }
+    }
+
+    // Format response without exposing guest IDs or storage paths.
     const formattedReviews = (reviews as ReviewRow[] | null)?.map((review) => ({
       review_id: review.review_id,
       guest_name: review.public_display_name || "Verified Guest",
@@ -86,6 +99,7 @@ export async function GET(request: NextRequest) {
       review_text: review.review_text,
       would_recommend: review.would_recommend,
       created_at: review.created_at,
+      image_url: review.image_path ? imageUrls.get(review.image_path) ?? null : null,
     }));
 
     return NextResponse.json(
@@ -98,7 +112,7 @@ export async function GET(request: NextRequest) {
           returned: reviews?.length || 0,
         },
       },
-      { status: 200 }
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
     console.error("Reviews GET endpoint error:", error);

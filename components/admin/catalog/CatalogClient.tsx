@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import CatalogDialog from "./CatalogDialog";
 import CatalogEditorDialog from "./CatalogEditorDialog";
+import PackageRatesEditor from "./PackageRatesEditor";
 import { catalogResources, catalogResourceKeys, catalogRecordName, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource, type CatalogStatus } from "@/lib/catalog/catalog";
 import { validateCatalogRecord } from "@/lib/catalog/validation";
 import { isContentImageUrl } from "@/lib/settings/public-content";
@@ -26,6 +27,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "Please check your connection and try again.";
 
 export default function CatalogClient() {
+  const [showPackageRates, setShowPackageRates] = useState(false);
   const [filters, setFilters] = useState<Filters>({ resource: "services", status: "active", search: "", unitId: "", page: 1 });
   const [searchDraft, setSearchDraft] = useState("");
   const [records, setRecords] = useState<CatalogRecord[]>([]);
@@ -154,11 +156,12 @@ export default function CatalogClient() {
     {notice && <div role="status" className={`mb-5 flex items-center justify-between gap-4 rounded-xl border px-4 py-3 text-sm ${notice.warning ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}><span>{notice.text}</span><button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)} className="font-medium underline">Dismiss</button></div>}
     <section className="overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm">
       <nav aria-label="Catalog categories" className="flex flex-wrap gap-2 border-b border-neutral/10 bg-base/60 p-4 sm:px-6">
-        {catalogResourceKeys.map((resource) => <button key={resource} type="button" aria-pressed={filters.resource === resource} disabled={busy} onClick={() => {
-          setLoading(true); setSearchDraft(""); setFilters({ resource, status: "active", search: "", unitId: "", page: 1 });
-        }} className={`rounded-xl px-3.5 py-2 text-sm font-medium transition ${filters.resource === resource ? "bg-primary text-white shadow-sm" : "text-neutral/65 hover:bg-white hover:text-neutral"}`}>{catalogResources[resource].label}</button>)}
+        <button type="button" disabled={busy} aria-pressed={showPackageRates} onClick={() => setShowPackageRates(true)} className={`rounded-xl px-3.5 py-2 text-sm font-medium transition ${showPackageRates ? "bg-primary text-white shadow-sm" : "text-neutral/65 hover:bg-white hover:text-neutral"}`}>Package rates</button>
+        {catalogResourceKeys.map((resource) => <button key={resource} type="button" aria-pressed={!showPackageRates && filters.resource === resource} disabled={busy} onClick={() => {
+          setShowPackageRates(false); setLoading(true); setSearchDraft(""); setFilters({ resource, status: "active", search: "", unitId: "", page: 1 });
+        }} className={`rounded-xl px-3.5 py-2 text-sm font-medium transition ${!showPackageRates && filters.resource === resource ? "bg-primary text-white shadow-sm" : "text-neutral/65 hover:bg-white hover:text-neutral"}`}>{catalogResources[resource].label}</button>)}
       </nav>
-      <div className="p-4 sm:p-6">
+      {showPackageRates ? <PackageRatesEditor /> : <div className="p-4 sm:p-6">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div><h2 className="text-xl font-semibold text-neutral">{definition.label}</h2><p className="mt-1 text-sm text-neutral/60">{definition.description}</p></div>
           <button type="button" onClick={() => openEditor(null)} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary/90 disabled:opacity-50"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add {definition.singular}</button>
@@ -196,7 +199,7 @@ export default function CatalogClient() {
           <p>{loading ? "Loading..." : total === 0 ? "0 items" : `${(filters.page - 1) * PAGE_SIZE + 1}–${Math.min(filters.page * PAGE_SIZE, total)} of ${total} items`}</p>
           <div className="flex items-center gap-2"><button type="button" disabled={loading || filters.page <= 1} onClick={() => { setLoading(true); setFilters((current) => ({ ...current, page: current.page - 1 })); }} className="rounded-lg border border-neutral/15 px-3 py-2 text-xs font-medium hover:bg-base disabled:opacity-40">Previous</button><span className="px-2 text-xs">Page {filters.page} of {lastPage}</span><button type="button" disabled={loading || filters.page >= lastPage} onClick={() => { setLoading(true); setFilters((current) => ({ ...current, page: current.page + 1 })); }} className="rounded-lg border border-neutral/15 px-3 py-2 text-xs font-medium hover:bg-base disabled:opacity-40">Next</button></div>
         </div>
-      </div>
+      </div>}
     </section>
     {editor && <CatalogEditorDialog key={editor.resource} resource={editor.resource} record={editor.record} references={references} referencesError={referencesError} busy={busy} error={editorError} onClose={closeEditor} onSave={save} />}
     {action && <CatalogDialog title={`${action.kind === "archive" ? "Archive" : "Restore"} ${catalogResources[action.resource].singular}`} description={actionDescription} busy={busy} onClose={closeAction}>

@@ -84,6 +84,7 @@ function BookingDetailsContent() {
         },
         body: JSON.stringify({
           bookingMode: bookingDraft.bookingMode,
+          packageRateVersion: bookingDraft.packageRateVersion,
           startDatetime: bookingDraft.startDatetime,
           endDatetime: bookingDraft.endDatetime,
           wholeDayVariant: bookingDraft.wholeDayVariant,
