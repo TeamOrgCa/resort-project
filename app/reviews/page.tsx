@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import { REVIEW_IMAGE_HELP, REVIEW_IMAGE_MAX_BYTES, REVIEW_IMAGE_MIME_TYPES } from "@/lib/reviews/images";
 
 type ReviewItem = {
   review_id: string;
@@ -13,6 +14,7 @@ type ReviewItem = {
   title: string;
   review_text: string;
   created_at: string;
+  image_url?: string | null;
 };
 
 export default function Reviews() {
@@ -23,6 +25,8 @@ export default function Reviews() {
   const [hoverRating, setHoverRating] = useState(0);
   const [existingReviews, setExistingReviews] = useState<ReviewItem[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewImage, setReviewImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     overallRating: 0,
     cleanlinessRating: 0,
@@ -34,6 +38,23 @@ export default function Reviews() {
     wouldRecommend: true,
     reservationId: "",
   });
+
+  useEffect(() => () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+  }, [imagePreview]);
+
+  function selectImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.size || file.size > REVIEW_IMAGE_MAX_BYTES || !REVIEW_IMAGE_MIME_TYPES.some(type => type === file.type)) {
+      setError(REVIEW_IMAGE_HELP);
+      return;
+    }
+    setReviewImage(file);
+    setImagePreview(URL.createObjectURL(file));
+    setError(null);
+  }
 
   // Fetch reviews on mount
   useEffect(() => {
@@ -98,22 +119,22 @@ export default function Reviews() {
     setError(null);
 
     try {
+      const payload = new FormData();
+      payload.set("review", JSON.stringify({
+        overall_rating: formData.overallRating,
+        cleanliness_rating: formData.cleanlinessRating || null,
+        service_rating: formData.serviceRating || null,
+        amenities_rating: formData.amenitiesRating || null,
+        value_rating: formData.valueRating || null,
+        title: formData.title,
+        review_text: formData.review,
+        would_recommend: formData.wouldRecommend,
+        reservation_id: formData.reservationId || null,
+      }));
+      if (reviewImage) payload.set("image", reviewImage);
       const response = await fetch("/api/reviews/create", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          overall_rating: formData.overallRating,
-          cleanliness_rating: formData.cleanlinessRating || null,
-          service_rating: formData.serviceRating || null,
-          amenities_rating: formData.amenitiesRating || null,
-          value_rating: formData.valueRating || null,
-          title: formData.title,
-          review_text: formData.review,
-          would_recommend: formData.wouldRecommend,
-          reservation_id: formData.reservationId || null,
-        }),
+        body: payload,
       });
 
       if (!response.ok) {
@@ -125,6 +146,8 @@ export default function Reviews() {
 
       setSubmitted(true);
       setShowForm(false);
+      setReviewImage(null);
+      setImagePreview(null);
     } catch (err) {
       setError(
         err instanceof Error
@@ -172,7 +195,7 @@ export default function Reviews() {
           <div className="bg-base p-8 rounded-2xl mb-8">
             <p className="text-neutral/80">
               We appreciate you taking the time to share your experience. Your feedback helps us improve our services 
-              and helps future guests make informed decisions. Your review will be published after verification.
+              and helps future guests make informed decisions. Your review and any attached photo have been submitted.
             </p>
           </div>
 
@@ -268,6 +291,9 @@ export default function Reviews() {
                 <h3 className="text-2xl font-bold text-neutral">Share Your Experience</h3>
                 <button
                   onClick={() => setShowForm(false)}
+                  type="button"
+                  disabled={loading}
+                  aria-label="Close review form"
                   className="text-neutral/50 hover:text-neutral transition-colors"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -283,7 +309,7 @@ export default function Reviews() {
               )}
 
               <form onSubmit={handleSubmit}>
-                <div className="space-y-6">
+                <fieldset disabled={loading} className="space-y-6">
                   {/* Overall Rating */}
                   <div>
                     <label className="block text-sm font-medium text-neutral/70 mb-3">Overall Rating *</label>
@@ -364,6 +390,7 @@ export default function Reviews() {
                       placeholder="Summarize your experience"
                       className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       required
+                      maxLength={200}
                     />
                   </div>
 
@@ -377,8 +404,20 @@ export default function Reviews() {
                       placeholder="Share details about your stay..."
                       className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       required
+                      minLength={50}
+                      maxLength={5000}
                     ></textarea>
                     <p className="text-xs text-neutral/60 mt-2">Minimum 50 characters</p>
+                  </div>
+
+                  <div>
+                    <label htmlFor="review-photo" className="block text-sm font-medium text-neutral/70 mb-2">Add a photo (optional)</label>
+                    <p id="review-photo-help" className="mb-3 text-xs text-neutral/60">{REVIEW_IMAGE_HELP} Your photo will be shown with your published review.</p>
+                    <input id="review-photo" type="file" accept={REVIEW_IMAGE_MIME_TYPES.join(",")} onChange={selectImage} aria-describedby="review-photo-help" className="block w-full rounded-xl border border-dashed border-neutral/25 bg-base/40 p-3 text-sm text-neutral file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-4 file:py-2 file:font-semibold file:text-primary" />
+                    {imagePreview && <div className="mt-4 max-w-sm rounded-xl border border-neutral/10 p-3">
+                      <Image src={imagePreview} alt="Your selected review photo" width={480} height={320} unoptimized className="max-h-60 w-full rounded-lg object-contain" />
+                      <div className="mt-3 flex items-center justify-between gap-3"><span className="min-w-0 truncate text-xs text-neutral/60">{reviewImage?.name}</span><button type="button" onClick={() => { setReviewImage(null); setImagePreview(null); setError(null); }} className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">Remove photo</button></div>
+                    </div>}
                   </div>
 
                   {/* Optional Reservation ID */}
@@ -405,7 +444,7 @@ export default function Reviews() {
                       <span className="text-neutral">I would recommend MarVille Resort to friends and family</span>
                     </label>
                   </div>
-                </div>
+                </fieldset>
 
                 <div className="mt-8 flex gap-4">
                   <button
@@ -465,6 +504,10 @@ export default function Reviews() {
                   </div>
                   <h3 className="text-xl font-bold text-neutral mb-3">{review.title}</h3>
                   <p className="text-neutral/80 leading-relaxed">{review.review_text}</p>
+                  {review.image_url && <a href={review.image_url} target="_blank" rel="noopener noreferrer" className="mt-5 block max-w-md rounded-xl focus-visible:outline-2 focus-visible:outline-primary" aria-label={`View photo attached to ${review.title}`}>
+                    <Image src={review.image_url} alt={`Guest photo for ${review.title}`} width={640} height={420} unoptimized className="max-h-80 w-full rounded-xl object-cover" loading="lazy" />
+                    <span className="mt-2 block text-xs font-medium text-primary">View full photo</span>
+                  </a>}
                 </div>
               ))
             )}

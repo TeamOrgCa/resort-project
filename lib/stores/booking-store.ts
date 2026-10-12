@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type { PackageRates } from "@/lib/booking/package-rates";
 
 export interface BookingServiceItem {
   id: string;
@@ -8,6 +9,8 @@ export interface BookingServiceItem {
 }
 
 export interface BookingDraft {
+  packageRateVersion: number | null;
+  packageRates: PackageRates | null;
   checkIn: string;
   checkOut: string;
   bookingMode: "day" | "night" | "whole_day" | "custom";
@@ -61,6 +64,8 @@ interface BookingStoreState {
 }
 
 const initialDraft: BookingDraft = {
+  packageRateVersion: null,
+  packageRates: null,
   checkIn: "",
   checkOut: "",
   bookingMode: "day",

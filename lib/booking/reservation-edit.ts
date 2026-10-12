@@ -1,6 +1,7 @@
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { validateBookingWindow, type BookingMode } from "@/lib/booking/policy";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import type { PackageRates } from "@/lib/booking/package-rates";
 
 export const uuidPattern = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 export type ServiceChoice = { serviceId: string; quantity: number };
@@ -15,6 +16,7 @@ export type EditableReservation = {
   start_datetime: string; end_datetime: string; adult_count: number; child_count: number;
   special_requests: string | null; updated_at: string; payment_deadline_at: string | null;
   guest_id: string | null; walk_in_guest_id: string | null; booking_type: string;
+  package_rate_version: number | null;
 };
 export type SelectedService = { service_id: string; quantity: number; price_at_time: number };
 export type SelectedUnit = { unit_id: string; quantity: number; price_per_night: number };
@@ -25,6 +27,7 @@ export type EditDetail = {
   reservation: EditableReservation; guest: { first_name: string; last_name: string; email: string | null; phone_number: string | null } | null;
   services: SelectedService[]; units: SelectedUnit[]; catalogServices: CatalogService[]; catalogUnits: CatalogUnit[];
   bill: Bill; version: string; canEdit: boolean; canChangeDetails: boolean; lockedReason: string | null;
+  packageRates: PackageRates;
 };
 export const moneyRound = (n: number) => Math.round(n * 100) / 100;
 
@@ -76,11 +79,11 @@ export function validateEditWindow(edit: ReservationEdit) {
 
 // Apply the package difference to the recorded bill. This retains historical
 // discounts, reschedule fees and negotiated charges, including on service-only edits.
-export function previewReservationEdit(r: EditableReservation, bill: Bill, existing: SelectedService[], catalog: CatalogService[], edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime" | "adultCount" | "childCount" | "services">) {
+export function previewReservationEdit(r: EditableReservation, bill: Bill, existing: SelectedService[], catalog: CatalogService[], edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime" | "adultCount" | "childCount" | "services">, rates: PackageRates) {
   const priceInput = { bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count };
   const changed = priceInput.bookingMode !== edit.bookingMode || Date.parse(priceInput.startDatetime) !== Date.parse(edit.startDatetime) ||
     Date.parse(priceInput.endDatetime) !== Date.parse(edit.endDatetime) || priceInput.adultCount !== edit.adultCount || priceInput.childCount !== edit.childCount;
-  const packageDelta = changed ? moneyRound(computeBookingPricing({ ...edit, servicesTotal: 0 }).total - computeBookingPricing(priceInput).total) : 0;
+  const packageDelta = changed ? moneyRound(computeBookingPricing({ ...edit, servicesTotal: 0 }, rates).total - computeBookingPricing(priceInput, rates).total) : 0;
   const oldServices = existing.reduce((sum, s) => sum + s.quantity * Number(s.price_at_time), 0);
   const newServices = edit.services.reduce((sum, s) => {
     const old = existing.find(e => e.service_id === s.serviceId);

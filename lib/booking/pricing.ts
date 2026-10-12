@@ -2,27 +2,7 @@ import { BookingMode } from "@/lib/booking/policy";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
 import { isManilaWeekend, manilaHour } from "@/lib/booking/manila-date";
 import { INCLUDED_GUESTS } from "@/lib/booking/guest-count";
-
-type RateTier = "weekday" | "weekend";
-type PackageMode = Exclude<BookingMode, "custom">;
-
-interface PackageRate {
-  baseRate: number;
-  addOnPerHead: number;
-}
-
-const PACKAGE_RATES: Record<RateTier, Record<PackageMode, PackageRate>> = {
-  weekday: {
-    day: { baseRate: 7500, addOnPerHead: 125 },
-    night: { baseRate: 9500, addOnPerHead: 175 },
-    whole_day: { baseRate: 14500, addOnPerHead: 225 },
-  },
-  weekend: {
-    day: { baseRate: 8000, addOnPerHead: 150 },
-    night: { baseRate: 10000, addOnPerHead: 200 },
-    whole_day: { baseRate: 15000, addOnPerHead: 250 },
-  },
-};
+import type { RateTier, PackageMode, PackageRates } from "@/lib/booking/package-rates";
 
 export interface BookingPricingInput {
   bookingMode: BookingMode;
@@ -57,14 +37,14 @@ const getRateTier = (startDate: Date): RateTier => {
 
 const durationHours = (start: Date, end: Date) => (end.getTime() - start.getTime()) / (1000 * 60 * 60);
 
-const mapCustomToNearestPackage = (start: Date, end: Date, tier: RateTier): PackageMode => {
+const mapCustomToNearestPackage = (start: Date, end: Date, tier: RateTier, rates: PackageRates): PackageMode => {
   const duration = durationHours(start, end);
   const startHour = manilaHour(start);
 
   const candidates: Array<{ mode: PackageMode; score: number; baseRate: number }> = [
-    { mode: "day", score: Math.abs(duration - 8) + Math.abs(startHour - 8), baseRate: PACKAGE_RATES[tier].day.baseRate },
-    { mode: "night", score: Math.abs(duration - 12) + Math.abs(startHour - 18), baseRate: PACKAGE_RATES[tier].night.baseRate },
-    { mode: "whole_day", score: Math.abs(duration - 22) + Math.min(Math.abs(startHour - 8), Math.abs(startHour - 18)), baseRate: PACKAGE_RATES[tier].whole_day.baseRate },
+    { mode: "day", score: Math.abs(duration - 8) + Math.abs(startHour - 8), baseRate: rates[tier].day.baseRate },
+    { mode: "night", score: Math.abs(duration - 12) + Math.abs(startHour - 18), baseRate: rates[tier].night.baseRate },
+    { mode: "whole_day", score: Math.abs(duration - 22) + Math.min(Math.abs(startHour - 8), Math.abs(startHour - 18)), baseRate: rates[tier].whole_day.baseRate },
   ];
 
   candidates.sort((a, b) => {
@@ -77,17 +57,17 @@ const mapCustomToNearestPackage = (start: Date, end: Date, tier: RateTier): Pack
   return candidates[0].mode;
 };
 
-export const computeBookingPricing = (input: BookingPricingInput): BookingPricingResult => {
+export const computeBookingPricing = (input: BookingPricingInput, rates: PackageRates): BookingPricingResult => {
   const start = new Date(input.startDatetime);
   const end = new Date(input.endDatetime);
   const tier = getRateTier(start);
   const packageMode =
     input.bookingMode === "custom"
-      ? mapCustomToNearestPackage(start, end, tier)
+      ? mapCustomToNearestPackage(start, end, tier, rates)
       : input.bookingMode;
 
-  const packageRate = PACKAGE_RATES[tier][packageMode].baseRate;
-  const addOnPerHead = PACKAGE_RATES[tier][packageMode].addOnPerHead;
+  const packageRate = rates[tier][packageMode].baseRate;
+  const addOnPerHead = rates[tier][packageMode].addOnPerHead;
   const totalGuests = Math.max(0, Number(input.adultCount || 0) + Number(input.childCount || 0));
   const extraGuests = Math.max(totalGuests - INCLUDED_GUESTS, 0);
   const extraGuestTotal = extraGuests * addOnPerHead;

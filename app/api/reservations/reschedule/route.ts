@@ -6,6 +6,7 @@ import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
 import { calculateRescheduleCharges } from "@/lib/booking/reschedule-charges";
 import type { BookingMode } from "@/lib/booking/policy";
+import { loadPackageRates, PackageRatesError } from "@/lib/server/package-rates";
 
 interface ReschedulePayload {
   reservationId: string;
@@ -14,6 +15,7 @@ interface ReschedulePayload {
 }
 
 interface ReservationRow {
+  package_rate_version: number | null;
   reservation_id: string;
   guest_id: string;
   reference_number: string;
@@ -114,7 +116,7 @@ export async function POST(request: Request) {
     ------------------------------*/
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status")
+      .select("reservation_id, guest_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, package_rate_version")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -210,7 +212,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Keep the original booking duration and package when rescheduling." }, { status: 400 });
     }
 
+    if (!reservation.package_rate_version) return NextResponse.json({ success: false, message: "This reservation needs its package rate history configured. Please contact the resort." }, { status: 503 });
+    const packageSchedule = await loadPackageRates(adminSupabase, reservation.package_rate_version);
     const charges = calculateRescheduleCharges({
+      rates: packageSchedule.rates,
       originalStart: reservation.start_datetime,
       originalEnd: reservation.end_datetime,
       newStart: payload.newStartDatetime,
@@ -329,7 +334,8 @@ export async function POST(request: Request) {
       },
       { status: 201 }
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     return NextResponse.json(
       {
         success: false,

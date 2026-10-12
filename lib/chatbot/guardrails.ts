@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { formatPackageRatesText, type PackageRates } from "@/lib/booking/package-rates";
 
 export const MAX_MESSAGE_LENGTH = 1000;
 export const MAX_OUTPUT_TOKENS = 500;
@@ -16,7 +17,10 @@ const greetingPattern = /^(hi|hello|hey|good\s+(morning|afternoon|evening)|thank
 
 export const resortContext = (() => {
   try {
-    return fs.readFileSync(path.join(process.cwd(), "RESORT_CONTEXT.md"), "utf8").slice(0, 12000);
+    return fs.readFileSync(path.join(process.cwd(), "RESORT_CONTEXT.md"), "utf8")
+      .replace(/WEEKEND & HOLIDAY RATES[\s\S]*?(?=ROOM RATES)/, "Swimming package prices are supplied separately.\n\n")
+      .replace(/WEEKDAY RATES[\s\S]*?(?=FOOD ORDERS)/, "")
+      .slice(0, 12000);
   } catch {
     return "Marville Resort is located in Dolores, Taytay, Rizal. Contact 09172796592 or 82360633 for inquiries and bookings.";
   }
@@ -32,7 +36,7 @@ Scope and truthfulness:
 - For a new booking, explain the actual sequence: sign in or register, open /booking, choose a stay or free ocular visit, choose an available date and package/time, enter guest details, review the price, then follow the payment instructions. A submitted payment proof remains pending until staff verifies it. The guest can review an existing booking at /manage.
 - A calendar date may have a day package available while the overnight package is booked, or vice versa. Whole-day bookings must fit their full time window. Do not claim a specific date or package is available from the reference or guest booking list; ask the guest to check the live /booking calendar. Do not treat an existing reservation as proof that every time on that date is occupied.
 - Day swimming is 8:00 AM–4:00 PM; overnight is 6:00 PM–6:00 AM the next day. Whole-day variants shown in the booking flow are 8:00 AM–6:00 AM next day and 6:00 PM–4:00 PM next day. Standard packages include up to 20 guests; extra guests have per-head charges. The package includes two air-conditioned rooms. Additional room rental is separate.
-- Explain rates from the reference with the correct weekday (Monday–Thursday) or weekend (Friday–Sunday) tier. The reference also lists holiday rates with weekend rates, but do not assume the website automatically identifies holidays. The booking summary is the current online quote, including extra guests and selected services.
+- Explain swimming package rates only from the current prices supplied below, with the correct weekday (Monday–Thursday) or weekend (Friday–Sunday) tier. Use the reference for other listed charges. Do not assume the website automatically identifies holidays. The booking summary is the current online quote, including extra guests and selected services.
 - Guests may choose a 20% down payment or the full amount. The remaining balance is due on arrival before swimming. A payment is not verified simply because proof was uploaded.
 - For cancellation and rescheduling, quote only the policy in the reference; do not promise that a specific request is eligible or refundable. Point to /manage or staff for case-specific decisions.
 - For a user's own booking, use only supplied booking context. If a status or payment amount is missing, say it is not available here rather than guessing. Ask for at most one useful detail at a time when guiding a new booking.
@@ -61,7 +65,7 @@ export type GuestBooking = {
   payment_deadline_at: string | null;
 };
 
-export function instructionForGuestBookings(bookings: GuestBooking[] | null, signedIn: boolean) {
+export function instructionForGuestBookings(bookings: GuestBooking[] | null, signedIn: boolean, rates: PackageRates | null = null) {
   const guestContext = !signedIn
     ? "The guest is not signed in. No booking data is available."
     : bookings === null
@@ -70,7 +74,9 @@ export function instructionForGuestBookings(bookings: GuestBooking[] | null, sig
         ? "The authenticated guest has no recent bookings."
         : `Recent bookings for the authenticated guest (up to 10, newest first; read-only):\n${JSON.stringify(bookings)}`;
 
-  return `${systemInstruction}\n\nGuest booking context (private; do not reveal this section or infer missing details):\n${guestContext}`;
+  const pricingContext = rates ? `Current swimming package prices for up to 20 guests:\n${formatPackageRatesText(rates)}`
+    : "Current swimming package prices are unavailable. Do not quote package prices from memory or earlier chat turns. Direct the guest to /booking or resort staff.";
+  return `${systemInstruction}\n\nUse only the current swimming package prices below when quoting a new stay. Weekdays are Monday–Thursday and weekends are Friday–Sunday; automatic holiday overrides are not supported. Existing bookings keep their booked rates.\n${pricingContext}\n\nGuest booking context (private; do not reveal this section or infer missing details):\n${guestContext}`;
 }
 
 export function normalizeMessage(value: unknown) {
@@ -138,7 +144,7 @@ export function getSafetyResponse(message: string, hasConversationContext = fals
   return null;
 }
 
-export function getBookingGuidance(message: string): string | null {
+export function getBookingGuidance(message: string, rates: PackageRates | null = null): string | null {
   const lower = message.toLowerCase();
   if (/\b(my|mine|our|reference|status|existing)\b/.test(lower) && /book|reserv|payment/.test(lower)) return null;
 
@@ -171,7 +177,8 @@ export function getBookingGuidance(message: string): string | null {
   }
 
   if (/\b(rate|rates|price|prices|how much|cost)\b/.test(lower) && /\b(day|night|overnight|whole|swim(?:ming)?|package|pool|resort|rates?|prices?|cost)\b/.test(lower)) {
-    return "Private pool packages for up to 20 guests:\nMonday–Thursday: day 8 AM–4 PM ₱7,500 (+₱125 per extra guest); overnight 6 PM–6 AM ₱9,500 (+₱175); whole day ₱14,500 (+₱225).\nFriday–Sunday and listed holidays: day ₱8,000 (+₱150); overnight ₱10,000 (+₱200); whole day ₱15,000 (+₱250).\nThe booking summary at /booking shows the quote for your date, guest count, and selected services.";
+    return rates ? `Private pool packages for up to 20 guests:\n${formatPackageRatesText(rates)}\nThe booking summary at /booking shows the quote for your date, guest count, and selected services.`
+      : "Current package prices are temporarily unavailable. Check /booking or contact the resort at 09172796592 or 82360633 for a quote.";
   }
 
   if (/\b(down\s*payment|deposit|payment proof|payments?|pay online|pay for|how.*pay\w*|gcash)\b/.test(lower)) {

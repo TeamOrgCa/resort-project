@@ -33,6 +33,46 @@ minutes; deployments with multiple instances should enforce this limit at the
 shared ingress too. Auth's last confirmation timestamp also enforces a minute
 between issued tokens. Without app SMTP, the existing Supabase mail path remains.
 
+## Vercel production configuration
+
+Set these variables in the Vercel project's **Settings → Environment Variables**
+for **Production**, then redeploy. A local `.env` change does not update the
+deployed environment. When changing or revoking a Gmail app password, also update
+`EMAIL_PASS` in Vercel before redeploying.
+
+```dotenv
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=your-sender@gmail.com
+EMAIL_PASS=your-current-gmail-app-password
+NEXT_PUBLIC_SITE_URL=https://your-production-domain
+```
+
+Also configure the existing Supabase URL, publishable key and server-only
+`SUPABASE_SERVICE_ROLE_KEY` for the same project. Supabase **Confirm email** must
+remain enabled. Use the current Gmail app password rather than your normal
+Google account password.
+Port 465 requires `EMAIL_SECURE=true`; port 587 uses STARTTLS and requires
+`EMAIL_SECURE=false`. Registration and resend await the SMTP result before responding.
+
+For SMTP failures, look for `Failed to send email` in the Vercel function logs:
+
+| Log | Check |
+| --- | --- |
+| `Email address not authorized` in the registration response | App SMTP variables may be missing, causing registration to use Supabase's default sender |
+| `EAUTH`, SMTP 534 or 535 | Current Gmail app password, sender account and Google security activity |
+| `ETIMEDOUT`, `ECONNECTION`, `ESOCKET` | SMTP host/port, TLS and connectivity from the production server |
+| SMTP 421 or 454 | Temporary server refusal or sending limits |
+
+SMTP failure logs include error codes and response codes, without passwords,
+recipient addresses, message bodies or confirmation tokens. Successful SMTP
+acceptance does not guarantee inbox placement; check the guest's spam folder.
+
+References: [Vercel environment variables](https://vercel.com/docs/environment-variables),
+[Nodemailer Gmail guide](https://nodemailer.com/guides/using-gmail),
+[SMTP port and TLS settings](https://nodemailer.com/smtp).
+
 Supabase's built-in SMTP sender is restricted to project team addresses and has
 low sending limits. Configuring `EMAIL_*` in Next.js does not configure Supabase's
 SMTP sender. See [custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp)

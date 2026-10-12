@@ -1,3 +1,7 @@
+PRICING ADMINISTRATION
+
+The swimming package prices below are initial reference values. Current online weekday/weekend package prices and additional-guest charges are managed in Admin > Catalog > Package rates. Package times remain fixed. Existing reservations retain their booked rate schedule. See docs/PACKAGE_RATES.md and docs/package-rates-migration.sql.
+
 LOCATION & CONTACT INFO
 
 Marville Resort, Cabrera Road Hapay na Mangga Brgy. 

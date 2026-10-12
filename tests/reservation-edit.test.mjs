@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
+import { legacyRates } from "./helpers/package-rates.mjs";
 
 const helper = loadTsModule("lib/booking/reservation-edit.ts");
 const id = "11111111-1111-4111-8111-111111111111";
@@ -16,25 +17,25 @@ const existing = [{ service_id: serviceId, quantity: 1, price_at_time: 100 }];
 const catalog = [{ service_id: serviceId, name: "Old service", price: 999, is_active: false },
   { service_id: newServiceId, name: "New service", price: 250, is_active: true }];
 const bill = { total_amount: 8600, paid_amount: 8000, status: "partial" };
-const detail = () => ({ reservation, bill, services: existing, units: [{ unit_id: id, quantity: 1, price_per_night: 9000 }],
+const detail = () => ({ reservation, bill, packageRates: legacyRates, services: existing, units: [{ unit_id: id, quantity: 1, price_per_night: 9000 }],
   catalogServices: catalog, catalogUnits: [{ unit_id: id, name: "Resort", is_active: true, archived_at: null }],
   version: edit.version, snapshot: { updatedAt: reservation.updated_at }, lockedReason: null, canChangeDetails: true });
 
 test("service additions retain a negotiated package, fees, historical prices and payments", () => {
   const p = helper.previewReservationEdit(reservation, bill, existing, catalog, { ...edit,
-    services: [{ serviceId, quantity: 2 }, { serviceId: newServiceId, quantity: 3 }] });
+    services: [{ serviceId, quantity: 2 }, { serviceId: newServiceId, quantity: 3 }] }, legacyRates);
   assert.deepEqual(p, { packageDelta: 0, servicesTotal: 950, total: 9450, paid: 8000, balance: 1450, overpaid: 0 });
 });
 test("a schedule or guest-count edit applies only the package price difference", () => {
-  const p = helper.previewReservationEdit(reservation, bill, existing, catalog, { ...edit, adultCount: 22 });
+  const p = helper.previewReservationEdit(reservation, bill, existing, catalog, { ...edit, adultCount: 22 }, legacyRates);
   assert.equal(p.packageDelta, 250); assert.equal(p.total, 8850);
 });
 test("removing a future service exposes an overpayment without reducing paid amount", () => {
-  const p = helper.previewReservationEdit(reservation, { ...bill, paid_amount: 8600 }, existing, catalog, { ...edit, services: [] });
+  const p = helper.previewReservationEdit(reservation, { ...bill, paid_amount: 8600 }, existing, catalog, { ...edit, services: [] }, legacyRates);
   assert.equal(p.total, 8500); assert.equal(p.paid, 8600); assert.equal(p.balance, 0); assert.equal(p.overpaid, 100);
 });
 test("unavailable new services cannot enter the bill", () => {
-  assert.throws(() => helper.previewReservationEdit(reservation, bill, [], catalog, edit), /no longer available/);
+  assert.throws(() => helper.previewReservationEdit(reservation, bill, [], catalog, edit, legacyRates), /no longer available/);
 });
 test("payload rejects duplicate service IDs, fractions, excessive guests, untrusted prices and missing reason", () => {
   assert.ok(helper.parseReservationEdit(edit));

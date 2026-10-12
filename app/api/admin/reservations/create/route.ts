@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-rates";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
@@ -22,6 +23,7 @@ interface ServiceSelectionInput {
 }
 
 interface ManualReservationPayload {
+  packageRateVersion: number;
   guestType?: GuestType;
   guestEmail?: string;
   guestId?: string;
@@ -105,7 +107,8 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     typeof payload.endDatetime !== "string" ||
     typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
-    typeof payload.childCount !== "number"
+    typeof payload.childCount !== "number" ||
+    !Number.isSafeInteger(payload.packageRateVersion) || Number(payload.packageRateVersion) < 1
   ) {
     return null;
   }
@@ -131,6 +134,7 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
 
   return {
     guestType,
+    packageRateVersion: Number(payload.packageRateVersion),
     guestEmail: typeof payload.guestEmail === "string" ? payload.guestEmail.trim() : undefined,
     guestId: typeof payload.guestId === "string" ? payload.guestId.trim() : undefined,
     walkInGuest: walkInGuest ?? undefined,
@@ -193,6 +197,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Invalid request payload." }, { status: 400 });
     }
 
+    const packageSchedule = await loadQuotedPackageRates(staffContext.supabase, payload.packageRateVersion);
     const bookingValidation = validateBookingWindow({
       bookingMode: payload.bookingMode,
       startDatetime: payload.startDatetime,
@@ -346,7 +351,7 @@ export async function POST(request: Request) {
       adultCount: payload.adultCount,
       childCount: payload.childCount,
       servicesTotal,
-    });
+    }, packageSchedule.rates);
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
@@ -355,6 +360,7 @@ export async function POST(request: Request) {
         walk_in_guest_id: walkInGuestId,
         reference_number: reservationReference,
         booking_mode: payload.bookingMode,
+        package_rate_version: packageSchedule.version,
         start_datetime: payload.startDatetime,
         end_datetime: payload.endDatetime,
         adult_count: payload.adultCount,
@@ -367,11 +373,12 @@ export async function POST(request: Request) {
       .single();
 
     if (reservationError || !reservation) {
-      if (reservationError?.code === "23P01") {
-        return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved." }, { status: 409 });
-      }
       if (walkInGuestId) {
         await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
+      }
+      if (reservationError?.code === "40001") return NextResponse.json({ success: false, message: "Package rates changed. Reload the booking prices before saving." }, { status: 409 });
+      if (reservationError?.code === "23P01") {
+        return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved." }, { status: 409 });
       }
       return NextResponse.json(
         { success: false, message: "Failed to create manual reservation." },
@@ -473,6 +480,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     return NextResponse.json(
       {
         success: false,

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadPackageRates } from "@/lib/server/package-rates";
 import { reservationEditAccess, type EditableReservation, type SelectedService, type SelectedUnit, type Bill, type CatalogService, type CatalogUnit } from "@/lib/booking/reservation-edit";
 
 export async function loadReservationEditor(id: string) {
@@ -17,6 +18,8 @@ export async function loadReservationEditor(id: string) {
   for (const result of [r, s, u, b, cs, cu, payments, reschedules]) if (result.error) throw new Error("Unable to load reservation details.");
   if (!r.data) return null;
   if (!b.data) throw new Error("This reservation has no billing record. Resolve it before editing.");
+  if (!r.data.package_rate_version) throw new Error("This reservation needs the package-rates migration before editing.");
+  const packageSchedule = await loadPackageRates(admin, r.data.package_rate_version);
   const services = (s.data ?? []) as SelectedService[];
   const units = (u.data ?? []) as SelectedUnit[];
   const bill = { ...b.data, total_amount: Number(b.data.total_amount), paid_amount: Number(b.data.paid_amount ?? 0) };
@@ -32,7 +35,7 @@ export async function loadReservationEditor(id: string) {
     if (result.error) throw new Error("Unable to load guest details.");
     guest = result.data;
   }
-  return { reservation: r.data, guest, services, units, bill, catalogServices: (cs.data ?? []) as CatalogService[],
+  return { reservation: r.data, guest, services, units, bill, packageRates: packageSchedule.rates, catalogServices: (cs.data ?? []) as CatalogService[],
     catalogUnits: (cu.data ?? []) as CatalogUnit[], snapshot, version,
     ...reservationEditAccess(r.data, Boolean(payments.data?.length), Boolean(reschedules.data?.length)) };
 }

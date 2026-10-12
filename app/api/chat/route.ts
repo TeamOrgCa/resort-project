@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { loadPackageRates } from "@/lib/server/package-rates";
 import {
   getClientKey,
   getBookingGuidance,
@@ -50,7 +51,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ reply: safetyResponse });
     }
 
-    const bookingGuidance = getBookingGuidance(message);
+    const supabase = await createClient();
+    const schedule = await loadPackageRates(supabase).catch(() => null);
+    const bookingGuidance = getBookingGuidance(message, schedule?.rates ?? null);
     if (bookingGuidance) return NextResponse.json({ reply: bookingGuidance });
 
     if (!geminiApiKey) {
@@ -58,7 +61,6 @@ export async function POST(req: NextRequest) {
     }
 
     let bookings: GuestBooking[] | null = null;
-    const supabase = await createClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (!userError && user) {
       const { data, error } = await supabase
@@ -73,7 +75,7 @@ export async function POST(req: NextRequest) {
     const genAI = new GoogleGenerativeAI(geminiApiKey);
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
-      systemInstruction: instructionForGuestBookings(bookings, Boolean(user && !userError)),
+      systemInstruction: instructionForGuestBookings(bookings, Boolean(user && !userError), schedule?.rates ?? null),
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens: MAX_OUTPUT_TOKENS,
