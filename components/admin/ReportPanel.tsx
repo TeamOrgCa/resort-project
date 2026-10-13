@@ -1,183 +1,110 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import ReportChart, { type ChartType } from "@/components/admin/ReportChart";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
-import type { AdminTableColumn, AdminTableRow, AdminTableSort } from "@/components/admin/types";
-import ReportPeriodFilter, { defaultReportDateRange, type ReportDateRange, type ReportPeriod } from "@/components/admin/ReportPeriodFilter";
+import ReportPeriodFilter, { defaultReportDateRange } from "@/components/admin/ReportPeriodFilter";
+import ReportPrintDocument, { type ReportPrintSnapshot } from "@/components/admin/ReportPrintDocument";
+import { contentText, useSiteContent } from "@/components/content/SiteContent";
+import { downloadReportCsv } from "@/lib/reports/export";
+import { reportConfig } from "@/lib/reports/config";
+import type { ReportData, ReportDateRange, ReportPeriod, ReportRow, ReportTab } from "@/lib/reports/types";
+export type { ReportTab } from "@/lib/reports/types";
 
-export type ReportTab = "Sales Report" | "Guest Report" | "Staff Report";
-type PeriodFilter = ReportPeriod;
-
-interface ReportData {
-  trend: { label: string; value: number }[];
-  split: { label: string; value: number }[];
-  rows: AdminTableRow[];
-}
-
-interface ReportResponse {
-  success?: boolean;
-  message?: string;
-  report?: ReportData;
-}
-
-interface ReportTableConfig {
-  columns: AdminTableColumn[];
-  defaultSort: AdminTableSort;
-}
-
-const reportTabs: { title: ReportTab; description: string }[] = [
-  { title: "Sales Report", description: "Verified revenue and booking volume for the selected period." },
-  { title: "Guest Report", description: "Guest segments, visitor volume, and reservation activity." },
-  { title: "Staff Report", description: "Staff and system actions recorded in the audit log." },
-];
-
-const reportTables: Record<ReportTab, ReportTableConfig> = {
-  "Sales Report": {
-    columns: [{ key: "label", label: "Period" }, { key: "revenue", label: "Revenue" }, { key: "bookings", label: "Bookings" }],
-    defaultSort: { key: "revenue", direction: "desc" },
-  },
-  "Guest Report": {
-    columns: [{ key: "segment", label: "Segment" }, { key: "count", label: "Count" }],
-    defaultSort: { key: "count", direction: "desc" },
-  },
-  "Staff Report": {
-    columns: [{ key: "staff", label: "Staff" }, { key: "actions", label: "Actions" }],
-    defaultSort: { key: "actions", direction: "desc" },
-  },
-};
-
-const emptyReport: ReportData = { trend: [], split: [], rows: [] };
-
-/** Fetches one report from the authenticated server endpoint. */
-const fetchReport = async (tab: ReportTab, period: PeriodFilter, range: ReportDateRange): Promise<ReportData> => {
-  const params = new URLSearchParams({ tab, period });
-  if (period === "Custom") { params.set("startDate", range.startDate); params.set("endDate", range.endDate); }
-  const endpoint = tab === "Guest Report" ? "/api/admin/transactions/guest-report" : "/api/admin/reports";
-  const response = await fetch(`${endpoint}?${params.toString()}`, { cache: "no-store" });
-  const payload = (await response.json().catch(() => null)) as ReportResponse | null;
-
-  if (!response.ok || !payload?.success || !payload.report) {
-    throw new Error(payload?.message ?? "Failed to load report.");
-  }
-
-  return payload.report;
-};
-
-/** Formats chart values without coupling report calculations to the UI. */
-const formatChartValue = (value: number) => `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
+const money = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 });
 
 export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
   const [activeTab, setActiveTab] = useState<ReportTab>(tabs[0]);
   const [generation, setGeneration] = useState(0);
-  const [period, setPeriod] = useState<PeriodFilter>("Daily");
+  const [period, setPeriod] = useState<ReportPeriod>("Daily");
   const [customRange, setCustomRange] = useState<ReportDateRange>(defaultReportDateRange);
-  const [report, setReport] = useState<ReportData>(emptyReport);
-  const [isLoading, setIsLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ key: string; data: ReportData } | null>(null);
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [printSnapshot, setPrintSnapshot] = useState<ReportPrintSnapshot | null>(null);
+  const [trendType, setTrendType] = useState<ChartType>("line");
+  const [splitType, setSplitType] = useState<ChartType>("pie");
+  const content = useSiteContent();
+  const params = new URLSearchParams({ tab: activeTab, period });
+  if (period === "Custom") { params.set("startDate", customRange.startDate); params.set("endDate", customRange.endDate); }
+  const query = params.toString();
+  const key = `${query}:${generation}`;
+  // A changed filter immediately hides the previous report and disables stale exports.
+  const report = result?.key === key ? result.data : null;
+  const fetchError = failure?.key === key ? failure.message : null;
+  const isLoading = !report && !fetchError;
+  const config = reportConfig[activeTab];
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadReport = async () => {
-      setIsLoading(true);
-      setFetchError(null);
-
+    const controller = new AbortController();
+    const endpoint = activeTab === "Guest Report" ? "/api/admin/transactions/guest-report" : "/api/admin/reports";
+    const load = async () => {
       try {
-        const nextReport = await fetchReport(activeTab, period, customRange);
-        if (isMounted) setReport(nextReport);
-      } catch (error) {
-        if (!isMounted) return;
-        setReport(emptyReport);
-        setFetchError(error instanceof Error ? error.message : "Failed to load report.");
-      } finally {
-        if (isMounted) setIsLoading(false);
+        const response = await fetch(`${endpoint}?${query}`, { cache: "no-store", signal: controller.signal });
+        const payload = await response.json().catch(() => null) as { success?: boolean; message?: string; report?: ReportData } | null;
+        if (!response.ok || !payload?.success || !payload.report) throw new Error(payload?.message ?? "Unable to load the report. Please refresh to try again.");
+        if (!controller.signal.aborted) setResult({ key, data: payload.report });
+      } catch (cause) {
+        if (!controller.signal.aborted) setFailure({ key, message: cause instanceof Error ? cause.message : "Unable to load report." });
       }
     };
+    void load();
+    return () => controller.abort();
+  }, [activeTab, key, query]);
 
-    void loadReport();
-    return () => {
-      isMounted = false;
-    };
-  }, [activeTab, period, customRange, generation]);
-
-  const periodLabel = period === "Custom" ? `${customRange.startDate} through ${customRange.endDate}` : period;
-
-  const splitTotal = useMemo(() => report.split.reduce((total, item) => total + item.value, 0), [report.split]);
-  const maxTrendValue = Math.max(...report.trend.map((point) => point.value), 1);
-  const pieStops = useMemo(() => {
-    const colors = ["var(--color-secondary)", "var(--color-highlight)", "var(--color-primary)", "var(--color-accent)"];
-    if (splitTotal <= 0) return "var(--color-neutral) 0% 100%";
-
-    let offset = 0;
-    return report.split.map((item, index) => {
-      const end = offset + (item.value / splitTotal) * 100;
-      const stop = `${colors[index % colors.length]} ${offset}% ${end}%`;
-      offset = end;
-      return stop;
-    }).join(", ");
-  }, [report.split, splitTotal]);
-
-  const tableConfig = reportTables[activeTab];
-  const tabDescription = reportTabs.find((tab) => tab.title === activeTab)?.description;
-
-  const handleAction = (action: string) => {
-    if (action === "Generate Report") { setGeneration((current) => current + 1); return; }
-    if (action !== "Export CSV") return;
-    const escapeCell = (value: string) => `"${(/^[=+@-]/.test(value) ? "'" : "") + value.replace(/"/g, '\"\"')}"`;
-    const lines = [tableConfig.columns.map((column) => column.label), ...report.rows.map((row) => tableConfig.columns.map((column) => row[column.key] ?? ""))];
-    const url = URL.createObjectURL(new Blob(["\uFEFF" + lines.map((line) => line.map(escapeCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a"); link.href = url; link.download = `${activeTab.toLowerCase().replace(/ /g, "-")}-${period.toLowerCase()}.csv`;
-    link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const stopPrinting = useCallback(() => setPrintSnapshot(null), []);
+  const refresh = () => { setActionError(null); setGeneration(value => value + 1); };
+  const handleAction = (action: string, rows: ReportRow[]) => {
+    if (!report || !rows.length || printSnapshot) return;
+    setActionError(null);
+    try {
+      if (action === "Export CSV") downloadReportCsv(config.columns, rows, `${activeTab.toLowerCase().replaceAll(" ", "-")}-${report.startDate}-to-${report.endDate}.csv`);
+      if (action === "Print report") setPrintSnapshot({ tab: activeTab, report, columns: config.columns, rows, resort: contentText(content, "resort.name"), charts: [
+        { title: config.trendTitle, points: report.trend, type: trendType, format: activeTab === "Sales Report" ? "money" : "count" },
+        { title: config.splitTitle, points: report.split, type: splitType, format: activeTab === "Sales Report" ? "money" : "count" },
+      ] });
+    } catch { setActionError("Unable to prepare this document. Please try again."); }
   };
 
-  return (
-    <div>
-
-      {fetchError ? <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">{fetchError}</p> : null}
-
-      <section className="rounded-2xl border border-neutral/10 bg-white p-4">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-neutral/10 pb-4">
-          <div className="flex flex-wrap gap-2">
-            {reportTabs.filter((tab) => tabs.includes(tab.title)).map((tab) => (
-              <button key={tab.title} type="button" onClick={() => setActiveTab(tab.title)} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === tab.title ? "bg-primary text-base" : "bg-base text-neutral hover:bg-neutral/10"}`}>
-                {tab.title}
-              </button>
-            ))}
-          </div>
-
-          <ReportPeriodFilter period={period} range={customRange} onPeriodChange={setPeriod} onRangeChange={setCustomRange} />
-        </div>
-
-        <p className="mb-4 text-sm text-neutral/70">{tabDescription}</p>
-
-        <div className="grid gap-4 lg:grid-cols-3">
-          <article className="rounded-2xl border border-neutral/10 bg-base p-4 lg:col-span-2">
-            <h3 className="text-sm font-semibold text-neutral">{activeTab} Trend ({periodLabel})</h3>
-            {isLoading ? <div className="mt-6 text-sm text-neutral/60">Loading report...</div> : report.trend.length === 0 ? <div className="mt-6 text-sm text-neutral/60">No records found for this period.</div> : (
-              <div className="mt-3 grid grid-cols-7 gap-2">
-                {report.trend.map((point) => (
-                  <div key={point.label} className="flex flex-col items-center gap-2">
-                    <div className="flex h-32 w-full items-end rounded-lg bg-white px-2 py-2">
-                      <div className="w-full rounded-md bg-primary" style={{ height: `${(point.value / maxTrendValue) * 100}%` }} />
-                    </div>
-                    <div className="text-center"><p className="text-[10px] font-semibold text-neutral">{activeTab === "Sales Report" ? formatChartValue(point.value) : point.value.toLocaleString("en-PH")}</p><span className="text-xs text-neutral/70">{point.label}</span></div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </article>
-
-          <article className="rounded-2xl border border-neutral/10 bg-base p-4">
-            <h3 className="text-sm font-semibold text-neutral">Category Split</h3>
-            <div className="mx-auto mt-3 h-36 w-36 rounded-full" style={{ background: `conic-gradient(${pieStops})` }} />
-            {report.split.length === 0 ? <p className="mt-3 text-xs text-neutral/60">No records found.</p> : <ul className="mt-3 space-y-1 text-xs text-neutral/80">{report.split.map((item) => <li key={item.label}>{item.label}: {splitTotal > 0 ? Math.round((item.value / splitTotal) * 100) : 0}%</li>)}</ul>}
-          </article>
-        </div>
-
-        <div className="mt-6">
-          <AdminTablePreview title={`${activeTab} Snapshot (${periodLabel})`} columns={tableConfig.columns} rows={report.rows} defaultSort={tableConfig.defaultSort} actions={["Generate Report", "Export CSV"]} onAction={handleAction} isActionDisabled={() => isLoading || Boolean(fetchError)} />
-        </div>
-      </section>
+  return <section className="rounded-2xl border border-neutral/10 bg-white p-4 sm:p-6" aria-label="Report viewer">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      {tabs.length > 1 ? <div className="flex flex-wrap gap-2" aria-label="Report type">
+        {tabs.map(tab => <button key={tab} type="button" aria-pressed={activeTab === tab} onClick={() => { setActiveTab(tab); setActionError(null); }} className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === tab ? "bg-primary text-white" : "bg-base text-neutral hover:bg-neutral/10"}`}>{tab}</button>)}
+      </div> : <h2 className="text-xl font-semibold text-neutral">{activeTab}</h2>}
+      <button type="button" disabled={isLoading} onClick={refresh} className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral hover:bg-base disabled:opacity-50">{isLoading ? "Loading…" : "Refresh report"}</button>
     </div>
-  );
+    <p className="mt-4 text-sm leading-relaxed text-neutral/75">{config.description}</p>
+    <div className="mt-5 flex flex-wrap items-end gap-3 rounded-xl bg-base p-4">
+      <ReportPeriodFilter key={period === "Custom" ? `${customRange.startDate}:${customRange.endDate}` : "preset"} period={period} range={customRange} onPeriodChange={setPeriod} onRangeChange={setCustomRange} />
+      <button type="button" onClick={() => { setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral hover:bg-neutral/5">Reset period</button>
+    </div>
+    <p className="mt-3 text-xs text-neutral/65">Reports update automatically when dates are applied. All dates and times use Philippine time.</p>
+
+    {fetchError && <div role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{fetchError} Use Refresh report to retry.</div>}
+    {actionError && <p role="alert" className="mt-4 text-sm text-red-700">{actionError}</p>}
+    {isLoading && <p role="status" className="py-12 text-center text-sm text-neutral/65">Loading {activeTab.toLowerCase()}…</p>}
+
+    {report && <>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral/70">
+        <p className="font-semibold text-neutral">{report.startDate} through {report.endDate}</p>
+        <p>Updated {new Date(report.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</p>
+      </div>
+      <div className={`mt-4 grid gap-3 sm:grid-cols-2 ${report.metrics.length === 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
+        {report.metrics.map(metric => <article key={metric.label} className="rounded-xl border border-neutral/10 bg-base p-4">
+          <h3 className="text-sm text-neutral/70">{metric.label}</h3>
+          <p className="mt-2 text-2xl font-bold text-neutral">{metric.format === "money" ? money.format(metric.value) : metric.value.toLocaleString("en-PH")}</p>
+          <p className="mt-2 text-xs leading-relaxed text-neutral/65">{metric.help}</p>
+        </article>)}
+      </div>
+      <p className="mt-4 rounded-xl border border-neutral/10 p-4 text-sm leading-relaxed text-neutral/75">{report.note}</p>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <ReportChart title={config.trendTitle} points={report.trend} format={activeTab === "Sales Report" ? "money" : "count"} chartType={trendType} onTypeChange={setTrendType} description="Read the dates and exact values below the graph. Change View to compare chart styles." />
+        <ReportChart title={config.splitTitle} points={report.split} format={activeTab === "Sales Report" ? "money" : "count"} chartType={splitType} onTypeChange={setSplitType} />
+      </div>
+      <p className="mb-3 mt-6 text-xs leading-relaxed text-neutral/65">The summary covers the full date range. Search and table filters apply to the table, CSV and printed report. Exports include every matching page.</p>
+      <AdminTablePreview key={activeTab} title={config.tableTitle} columns={config.columns} rows={report.rows} defaultSort={config.sort} filters={config.filters} searchPlaceholder={config.search} pageSize={25} showResetFilters actions={["Export CSV", "Print report"]} onAction={handleAction} isActionDisabled={(_action, rows) => !rows.length || Boolean(printSnapshot)} />
+    </>}
+    {printSnapshot && <ReportPrintDocument snapshot={printSnapshot} onDone={stopPrinting} />}
+  </section>;
 }

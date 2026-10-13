@@ -10,6 +10,7 @@ import PaymentReviewModal from "@/components/admin/transactions/PaymentReviewMod
 import TransactionsTablePanel from "@/components/admin/transactions/TransactionsTablePanel";
 import RefundRequestsPanel from "@/components/admin/transactions/RefundRequestsPanel";
 import ReportPanel from "@/components/admin/ReportPanel";
+import { downloadReportCsv } from "@/lib/reports/export";
 import type {
   InvoiceDetailInvoiceRow,
   InvoiceDetailPaymentRow,
@@ -867,6 +868,10 @@ export default function AdminTransactionsPage() {
           })}
         </div>
 
+        {activeTab !== "Guest Report" && activeTab !== "Refund Requests" && <p className="mb-4 text-xs leading-relaxed text-neutral/65">Transaction summaries cover the latest 200 ledger records. Receipt lists show up to 200 recent receipts. CSV exports follow the table search and filters.</p>}
+        {activeTab === "Generated Invoices" && <p className="mb-4 text-sm text-neutral/70">Invoices are generated automatically from reservation billing. Refresh to load the latest documents, or select View to inspect an invoice.</p>}
+        {activeTab === "Issued Receipts" && <p className="mb-4 text-sm text-neutral/70">Receipts are issued automatically for verified payments. Select Print to print a receipt or save it as a PDF.</p>}
+
         {activeTab === "Transaction Ledger" && (
           <TransactionsTablePanel
             title={isLoading ? "Transaction Ledger (Loading...)" : "Transaction Ledger"}
@@ -874,9 +879,13 @@ export default function AdminTransactionsPage() {
             rows={transactionRows}
             defaultSort={{ key: "updatedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid"] }]}
-            actions={canRecordPayments ? ["Post Payment", "Export Ledger"] : ["Export Ledger"]}
+            actions={canRecordPayments ? ["Refresh ledger", "Post Payment", "Export Ledger"] : ["Refresh ledger", "Export Ledger"]}
             rowActions={canRecordPayments ? ["View", "Settle"] : ["View"]}
-            onAction={(action) => {
+            isLoading={isLoading}
+            hasError={Boolean(fetchError)}
+            onAction={(action, rows) => {
+              if (action === "Refresh ledger") { setRefreshRevision(revision => revision + 1); return; }
+              if (action === "Export Ledger") { downloadReportCsv(transactionColumns, rows, "transaction-ledger.csv"); return; }
               if (action !== "Post Payment" || !canRecordPayments) return;
               const first = transactions.find((transaction) => Number(transaction.balance ?? 0) > 0);
               if (!first) { setFetchError("No reservation has an outstanding balance."); return; }
@@ -895,8 +904,14 @@ export default function AdminTransactionsPage() {
             columns={invoiceColumns}
             rows={invoiceRows}
             defaultSort={{ key: "createdAt", direction: "desc" }}
-            actions={["Generate Invoice"]}
-            rowActions={["View", "Download"]}
+            actions={["Refresh invoices", "Export invoices CSV"]}
+            rowActions={["View"]}
+            isLoading={isLoading}
+            hasError={Boolean(fetchError)}
+            onAction={(action, rows) => {
+              if (action === "Refresh invoices") setRefreshRevision(revision => revision + 1);
+              if (action === "Export invoices CSV") downloadReportCsv(invoiceColumns, rows, "invoices.csv");
+            }}
             onRowAction={handleInvoiceRowAction}
           />
         )}
@@ -916,6 +931,8 @@ export default function AdminTransactionsPage() {
                 { key: "reviewLane", label: "Review Lane", options: ["Ready to reconcile", "Investigate", "Other method"] },
               ]}
               rowActions={["Review"]}
+              isLoading={isLoading}
+              hasError={Boolean(fetchError)}
               onRowAction={handlePaymentRowAction}
             />
           </div>
@@ -928,7 +945,13 @@ export default function AdminTransactionsPage() {
             rows={receiptRows}
             defaultSort={{ key: "issuedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Active", "Archived"] }]}
-            actions={["Issue Receipt"]}
+            actions={["Refresh receipts", "Export receipts CSV"]}
+            isLoading={isLoading}
+            hasError={Boolean(fetchError)}
+            onAction={(action, rows) => {
+              if (action === "Refresh receipts") setRefreshRevision(revision => revision + 1);
+              if (action === "Export receipts CSV") downloadReportCsv(receiptColumns, rows, "receipts.csv");
+            }}
             rowActions={["View", "Print"]}
             onRowAction={handleReceiptRowAction}
           />

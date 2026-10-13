@@ -19,6 +19,8 @@ export interface AdminFeatureCard {
 export interface AdminTableColumn {
   key: string;
   label: string;
+  sortType?: "number" | "date" | "text";
+  sortKey?: string;
 }
 
 export interface AdminTableRow {

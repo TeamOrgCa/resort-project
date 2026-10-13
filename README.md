@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## User Manuals
+
+See [the user manual overview](docs/USER_MANUAL.md) for the [client guide](docs/CLIENT_USER_MANUAL.md), [admin and staff guide](docs/ADMIN_USER_MANUAL.md), and [printable complete manual](docs/USER_MANUAL.html).
+
 ## Getting Started
 
 First, run the development server:

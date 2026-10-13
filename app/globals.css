@@ -52,6 +52,19 @@ body {
   }
 }
 @media print {
+  body:has(#admin-report-print) > :not(#admin-report-print) { display: none !important; }
+  #admin-report-print .admin-print-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+  #admin-report-print .admin-print-charts article { break-inside: avoid; }
+  #admin-report-print .admin-print-charts svg { min-width: 0 !important; max-width: 100%; }
+  #admin-report-print { display: block !important; position: static; padding: 0; color: black; background: white; font-family: Arial, sans-serif; font-size: 11px; page: admin-report; }
+  #admin-report-print h1 { font-size: 20px; margin-bottom: 8px; }
+  #admin-report-print h2 { font-size: 14px; font-weight: bold; margin-top: 12px; }
+  #admin-report-print p, #admin-report-print dl { margin: 10px 0; }
+  #admin-report-print dt { font-weight: bold; }
+  #admin-report-print table { width: 100%; border-collapse: collapse; }
+  #admin-report-print th, #admin-report-print td { border: 1px solid #bbb; padding: 6px; text-align: left; overflow-wrap: anywhere; }
+  #admin-report-print thead { display: table-header-group; }
+  #admin-report-print tr { break-inside: avoid; }
   body:has(#billing-receipt-print) > :not(#billing-receipt-print) {
     display: none !important;
   }
@@ -76,3 +89,4 @@ body {
   #billing-receipt-print .receipt-screen-only { display: none !important; }
   #billing-receipt-print .receipt-field { break-inside: avoid; }
 }
+@page admin-report { size: A4 landscape; margin: 12mm; }

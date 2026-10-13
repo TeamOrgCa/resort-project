@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MarVille Resort Complex - Client and Admin User Manual</title>
+<style>
+:root { color-scheme: only light; --ink: #3b2a1e; --brand: #a9442b; --green: #2f6b3f; --paper: #f8f4ec; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.7; }
+a { color: var(--brand); text-underline-offset: 3px; }
+.toolbar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px max(20px, calc((100vw - 1080px) / 2)); background: #fff; border-bottom: 1px solid #e6ddd2; }
+.toolbar nav { display: flex; flex-wrap: wrap; gap: 18px; }
+.toolbar button { border: 0; border-radius: 8px; background: var(--brand); color: #fff; padding: 11px 16px; cursor: pointer; font: inherit; font-weight: bold; }
+main { max-width: 1080px; margin: 32px auto; padding: 0 20px; }
+.cover, .manual-section { background: #fff; border: 1px solid #e6ddd2; border-radius: 16px; padding: 36px 42px; margin-bottom: 28px; }
+.cover { border-top: 6px solid var(--brand); }
+.eyebrow { color: var(--green); font-size: 12px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
+h1 { font-size: 30px; line-height: 1.25; margin: 12px 0 20px; }
+h2 { margin-top: 38px; padding-top: 16px; border-top: 1px solid #e6ddd2; font-size: 22px; line-height: 1.35; color: var(--brand); }
+h3 { font-size: 17px; line-height: 1.4; margin-top: 25px; }
+h1, h2, h3, section { scroll-margin-top: 90px; }
+p { margin: 12px 0; }
+li { margin: 5px 0; }
+ol, ul { padding-left: 24px; }
+li ul, li ol { margin-top: 6px; }
+code { background: #f5f1ec; border-radius: 4px; padding: 2px 5px; font-size: .92em; overflow-wrap: anywhere; }
+.table-wrap { width: 100%; overflow-x: auto; margin: 20px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { border: 1px solid #e6ddd2; padding: 11px 13px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th { background: #f4eee7; font-weight: bold; }
+tbody tr:nth-child(even) { background: #fcfaf7; }
+.guide-links { display: flex; flex-wrap: wrap; gap: 12px; margin: 22px 0; }
+.guide-links a { border: 1px solid #e6ddd2; border-radius: 8px; padding: 10px 16px; font-weight: bold; text-decoration: none; }
+.hint { color: #726255; font-size: 13px; }
+footer { padding: 15px 20px 35px; text-align: center; color: #726255; font-size: 12px; }
+@media (max-width: 640px) { main { margin-top: 18px; padding: 0 12px; } .cover, .manual-section { padding: 22px 18px; } h1 { font-size: 25px; } .toolbar { align-items: flex-start; padding: 12px; } .toolbar nav { gap: 10px; font-size: 13px; } .toolbar button { font-size: 12px; padding: 9px; } table { min-width: 520px; } }
+@page { size: A4; margin: 16mm; }
+@media print {
+body { background: #fff; color: #000; font-size: 10pt; line-height: 1.5; }
+.toolbar, .guide-links, .print-hint { display: none; }
+main { max-width: none; margin: 0; padding: 0; }
+.cover, .manual-section { border: 0; border-radius: 0; margin: 0; padding: 0; }
+.cover { break-after: page; padding-top: 25mm; }
+#admin { break-before: page; }
+h1 { font-size: 23pt; } h2 { font-size: 15pt; } h3 { font-size: 12pt; }
+h1, h2, h3 { break-after: avoid; color: #000; }
+a { color: #000; } .table-wrap { overflow: visible; }
+table { min-width: 0; font-size: 9pt; table-layout: fixed; }
+thead { display: table-header-group; } tr { break-inside: avoid; }
+th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
+}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <nav aria-label="Manual navigation"><a href="#manual-overview">Overview</a><a href="#client">Client guide</a><a href="#admin">Admin guide</a></nav>
+  <button type="button" onclick="window.print()">Print / Save as PDF</button>
+</div>
+<main>
+<header id="manual-overview" class="cover">
+  <p class="eyebrow">MarVille Resort Complex</p>
+  <h1>Client and Admin User Manual</h1>
+  <p>Step-by-step instructions for guests, administrators, managers and cashiers.</p>
+  <p><strong>Updated:</strong> 13 October 2026</p>
+  <div class="guide-links"><a href="#client">Open client guide</a><a href="#admin">Open admin guide</a></div>
+  <p>Use the website address provided by the resort. Follow the displayed prices, deadlines, policies and success/error messages. Booking schedules and receipt validation use Philippine time.</p>
+  <p>The guides describe the current application and identify older demonstration screens. They contain no account credentials or private configuration values.</p>
+  <p class="hint print-hint">This document works offline. Select Print / Save as PDF, then choose a printer or your browser's PDF destination.</p>
+</header>
+<section id="client" class="manual-section" aria-label="Client user manual"><h1 id="client-marville-resort-complex-client-user-manual">MarVille Resort Complex — Client User Manual</h1>
+<p><strong>Audience:</strong> Guests using the resort website.<br><strong>Updated:</strong> 13 October 2026.<br><strong>Companion guide:</strong> <a href="#admin">Admin User Manual</a>.<br><strong>Manual overview and printing:</strong> <a href="#manual-overview">User Manuals</a>.</p>
+<p>This guide explains how to create an account, book a stay, submit payment, manage a booking, schedule a resort viewing and leave a review. Screen labels shown in <strong>bold</strong> match the current website. Use the website address provided by the resort; page paths below are added to that address.</p>
+<h2 id="client-contents">Contents</h2>
+<ul>
+<li><a href="#client-1-getting-started">1. Getting started</a>
+</li>
+<li><a href="#client-2-create-and-confirm-your-account">2. Create and confirm your account</a>
+</li>
+<li><a href="#client-3-sign-in-recover-access-and-update-your-profile">3. Sign in, recover access and update your profile</a>
+</li>
+<li><a href="#client-4-book-a-resort-stay">4. Book a resort stay</a>
+</li>
+<li><a href="#client-5-pay-through-gcash">5. Pay through GCash</a>
+</li>
+<li><a href="#client-6-view-your-booking-and-pay-the-balance">6. View your booking and pay the balance</a>
+</li>
+<li><a href="#client-7-add-services-to-a-booking">7. Add services to a booking</a>
+</li>
+<li><a href="#client-8-request-a-different-booking-date">8. Request a different booking date</a>
+</li>
+<li><a href="#client-9-cancel-a-booking">9. Cancel a booking</a>
+</li>
+<li><a href="#client-10-request-an-excess-payment-refund">10. Request an excess-payment refund</a>
+</li>
+<li><a href="#client-11-schedule-and-manage-an-ocular-visit">11. Schedule and manage an ocular visit</a>
+</li>
+<li><a href="#client-12-write-a-review-with-a-photo">12. Write a review with a photo</a>
+</li>
+<li><a href="#client-13-understand-booking-and-refund-statuses">13. Understand booking and refund statuses</a>
+</li>
+<li><a href="#client-14-troubleshooting-and-support">14. Troubleshooting and support</a>
+</li>
+</ul>
+<h2 id="client-1-getting-started">1. Getting started</h2>
+<p>You need an internet connection, a browser, an email address you can open and a GCash account for online payments. Keep your booking reference and payment reference; these are different numbers.</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">Page</th><th scope="col">What you can do</th><th scope="col">Path</th></tr></thead><tbody>
+<tr><td>Home</td><td>Explore the resort and open the booking flow</td><td><code>/</code></td></tr>
+<tr><td>About</td><td>Read resort information, contact details, rates and rate/information images</td><td><code>/about</code></td></tr>
+<tr><td>Book Now</td><td>Choose a stay or an ocular visit</td><td><code>/booking</code></td></tr>
+<tr><td>Manage Booking</td><td>View your bookings, services, payment balance, requests and ocular visits</td><td><code>/manage</code></td></tr>
+<tr><td>Reviews</td><td>Read guest feedback and write a review</td><td><code>/reviews</code></td></tr>
+<tr><td>Profile Settings</td><td>Update your personal and contact information</td><td><code>/profile</code></td></tr>
+<tr><td>Sign in / Create Account</td><td>Access your guest account</td><td><code>/auth/login</code>, <code>/auth/register</code></td></tr>
+</tbody></table></div>
+<p>Booking schedules and payment receipt dates use <strong>Philippine time (Asia/Manila)</strong>. Prices may change for new bookings; use the amount displayed in your booking summary. Your saved reservation retains its booked package rates and cancellation/refund policy.</p>
+<p><strong>Quick start:</strong> Create an account → confirm your email → sign in → select dates → fill in guest details → save the booking → pay and upload your original GCash screenshot → wait for staff verification → check Manage Booking.</p>
+<h2 id="client-2-create-and-confirm-your-account">2. Create and confirm your account</h2>
+<ol>
+<li>Open <strong>Create Account</strong>.
+</li>
+<li>Enter the required personal and contact information. Use an email address you can access.
+</li>
+<li>Enter your password and repeat it in <strong>Confirm Password</strong>. Follow the form&#x27;s password requirements.
+</li>
+<li>Submit the registration form.
+</li>
+<li>Open the resort&#x27;s confirmation email. Check Spam or Junk if necessary.
+</li>
+<li>Follow the confirmation link in the newest email.
+</li>
+<li>Go to the sign-in page and sign in normally. Confirming an email does not automatically sign you in.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Your email is confirmed and you can access your guest account. Correct login credentials on an unconfirmed account produce <strong>Please confirm your email first</strong>.</p>
+<p>If the email does not arrive, use <strong>Resend confirmation email</strong> on the registration result screen. Wait at least one minute between requests and use the newest link. If the link is invalid or expired, request a new one. Ask resort support for help if delivery continues to fail.</p>
+<h2 id="client-3-sign-in-recover-access-and-update-your-profile">3. Sign in, recover access and update your profile</h2>
+<h3 id="client-sign-in-and-sign-out">Sign in and sign out</h3>
+<ol>
+<li>Open the guest sign-in page.
+</li>
+<li>Enter your registered email and password, then submit.
+</li>
+<li>Use the account menu to open your profile or sign out when finished.
+</li>
+</ol>
+<p>Only one device session is active per account. Signing in on another device ends the previous session; sign in again on the device you intend to use. Separate guests should use their own accounts.</p>
+<h3 id="client-forgot-your-password">Forgot your password?</h3>
+<ol>
+<li>Select <strong>Forgot password?</strong> on the sign-in page.
+</li>
+<li>Enter your registered email and submit the request.
+</li>
+<li>Follow the recovery instructions in the email.
+</li>
+<li>Set your new password, then return to sign in.
+</li>
+</ol>
+<h3 id="client-update-your-profile">Update your profile</h3>
+<ol>
+<li>Open <strong>Profile Settings</strong> from the account menu.
+</li>
+<li>Update the editable name, phone and address fields.
+</li>
+<li>Select <strong>Save Changes</strong> and wait for the result.
+</li>
+</ol>
+<p>The email field is read-only on this screen. Contact the resort if you need help with an account email change. Changing your profile does not change a reservation&#x27;s dates, selected services or bill.</p>
+<h2 id="client-4-book-a-resort-stay">4. Book a resort stay</h2>
+<h3 id="client-step-a-choose-a-date-and-package">Step A — Choose a date and package</h3>
+<ol>
+<li>Open <strong>Book Now</strong> and choose <strong>Full Stay Booking</strong>.
+</li>
+<li>Select a booking mode and an available date in the calendar.
+</li>
+<li>For <strong>Whole Day</strong>, choose the required variant. For a custom schedule, fill in the available custom date/time fields and follow the validation messages.
+</li>
+<li>Review the displayed check-in, check-out and package rate.
+</li>
+<li>Select <strong>Continue to Reservation</strong>.
+</li>
+</ol>
+<div class="table-wrap"><table><thead><tr><th scope="col">Package</th><th scope="col">Fixed schedule in Philippine time</th></tr></thead><tbody>
+<tr><td>Day</td><td>8:00 AM–4:00 PM</td></tr>
+<tr><td>Night</td><td>6:00 PM–6:00 AM the next day</td></tr>
+<tr><td>Whole Day — Variant A</td><td>8:00 AM–6:00 AM the next day</td></tr>
+<tr><td>Whole Day — Variant B</td><td>6:00 PM–4:00 PM the next day</td></tr>
+</tbody></table></div>
+<p>Guest bookings must start at least 30 minutes from the current time. Dates or package starts may be unavailable because of another booking, a temporary unpaid hold or maintenance. Availability is checked again when saving; selecting a date does not reserve it.</p>
+<p>Weekday prices apply Monday–Thursday and weekend prices Friday–Sunday, based on the start date. The standard packages include 20 guests, with additional-person charges above that count and a maximum of 30 guests. Follow any additional unit/form limits shown. Automatic holiday price overrides are not currently included.</p>
+<h3 id="client-step-b-enter-guest-details-and-services">Step B — Enter guest details and services</h3>
+<ol>
+<li>Check your personal and contact information.
+</li>
+<li>Enter the number of adults and children accurately.
+</li>
+<li>Select a <strong>Room Type</strong> from the available options.
+</li>
+<li>Choose any additional services and quantities offered by the form.
+</li>
+<li>Enter special requests, if needed.
+</li>
+<li>Check <strong>Billing Summary</strong>, then select <strong>Review Full Details</strong>.
+</li>
+</ol>
+<h3 id="client-step-c-review-and-save">Step C — Review and save</h3>
+<ol>
+<li>Review the guest information, dates, package, room, guest counts, selected services and bill.
+</li>
+<li>Use <strong>Back to Edit</strong> if a detail is wrong.
+</li>
+<li>Select <strong>Save Booking</strong> once the details are correct.
+</li>
+<li>Keep the generated booking reference and note the displayed payment deadline.
+</li>
+<li>Select <strong>Continue to Payment</strong>.
+</li>
+</ol>
+<p><strong>Expected result:</strong> The booking is saved with a temporary hold. Saving alone does not confirm a paid reservation. A new unpaid hold normally lasts <strong>30 minutes</strong>; submit valid payment proof before the displayed deadline. Payment submission then waits for staff review.</p>
+<p>If prices changed while you were filling in the form, return to the booking form and review the refreshed total before saving. If saving reports an unavailable date, choose another available date/package.</p>
+<h2 id="client-5-pay-through-gcash">5. Pay through GCash</h2>
+<h3 id="client-step-a-select-what-to-pay">Step A — Select what to pay</h3>
+<ol>
+<li>Confirm that your booking reference and total are correct.
+</li>
+<li>Select <strong>GCash</strong> and the available provider/account.
+</li>
+<li>For your first payment, choose the displayed minimum <strong>Down Payment</strong> or <strong>Full Payment</strong>. The current minimum down payment is 20% of the reservation total.
+</li>
+<li>After a verified payment, use <strong>Full Balance</strong> for the outstanding amount.
+</li>
+<li>Review <strong>Amount due now</strong>, <strong>Already paid</strong> and the balance preview.
+</li>
+</ol>
+<h3 id="client-step-b-send-the-payment">Step B — Send the payment</h3>
+<ol>
+<li>Use the displayed resort QR code and recipient details. Use its image link if you need a larger view.
+</li>
+<li>Open GCash and use the displayed QR/account to send payment.
+</li>
+<li>Confirm the recipient and amount in GCash before completing the transfer.
+</li>
+<li>Save an <strong>original screenshot taken directly in GCash</strong> of the successful transaction.
+</li>
+</ol>
+<p>If no usable QR/account is available, select <strong>Reload payment options</strong>. Contact the resort if it remains unavailable; do not send money to an account guessed from an old image or brochure.</p>
+<h3 id="client-step-c-submit-the-proof">Step C — Submit the proof</h3>
+<ol>
+<li>Enter <strong>Amount sent (PHP)</strong> exactly as shown on the GCash receipt.
+</li>
+<li>Fill in <strong>Account Name</strong>, <strong>Your Account Number</strong> and <strong>Reference Number</strong>.
+</li>
+<li>Upload your original screenshot under <strong>Upload original GCash screenshot</strong>. Check the preview; replace or remove an incorrect file.
+</li>
+<li>Read the booking agreement, terms, privacy and cancellation/refund information. Confirm the required agreement.
+</li>
+<li>Select <strong>Confirm Payment</strong> once and wait for the result.
+</li>
+<li>On <strong>Payment Submitted!</strong>, keep your booking reference and open <strong>Manage Booking</strong> to monitor the review.
+</li>
+</ol>
+<p><strong>Receipt requirements</strong></p>
+<ul>
+<li>Upload PNG, JPEG or WebP, up to 8 MB. Use the original, full-size screenshot from your gallery.
+</li>
+<li>Keep the successful transaction status, amount sent, recipient, full reference number and payment date/time visible and readable.
+</li>
+<li>The receipt date must be <strong>today in Philippine time</strong>, including for balance payments.
+</li>
+<li>The amount and reference you enter must match the screenshot. The reference must be a complete supported numeric reference, not a phone number; do not remove leading zeros.
+</li>
+<li>The amount must meet the selected minimum. A fee or total including fees cannot replace the actual amount sent.
+</li>
+<li>Photos of another phone&#x27;s screen, scans, blurred images and edited receipts are not accepted. Do not crop away required details.
+</li>
+<li>A previously used payment reference cannot be reused for another payment.
+</li>
+</ul>
+<p>The website checks receipt readability and consistency. <strong>Staff must still verify that the money arrived.</strong> A successful upload is not payment approval. Do not submit a second payment while a payment is awaiting review.</p>
+<h3 id="client-paying-more-than-requested">Paying more than requested</h3>
+<p>Larger payments are recorded at their actual verified amount. For example, with a PHP 5,000 bill and PHP 1,000 minimum down payment:</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">Amount actually sent</th><th scope="col">Result after staff approval</th></tr></thead><tbody>
+<tr><td>PHP 800</td><td>Below the minimum; cannot be submitted as the required down payment</td></tr>
+<tr><td>PHP 1,500</td><td>PHP 1,500 is credited; PHP 3,500 remains payable</td></tr>
+<tr><td>PHP 5,000</td><td>The bill is fully paid</td></tr>
+<tr><td>PHP 5,500</td><td>The bill is fully paid and PHP 500 is excess; request its refund in Manage Booking</td></tr>
+</tbody></table></div>
+<p>These are examples, not the resort&#x27;s package prices. Refunds need a separate request and staff processing.</p>
+<h2 id="client-6-view-your-booking-and-pay-the-balance">6. View your booking and pay the balance</h2>
+<ol>
+<li>Sign in with the account used for the booking.
+</li>
+<li>Open <strong>Manage Booking</strong> and select the booking-records tab.
+</li>
+<li>Find your booking reference and select <strong>View</strong>.
+</li>
+<li>Check the schedule, status, booked policy, services and remaining balance.
+</li>
+<li>When payment is available, use <strong>Pay Balance</strong> on the row or <strong>Continue to Payment</strong> in the detail view.
+</li>
+<li>Complete the GCash payment and proof steps using today&#x27;s original receipt.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Staff approval credits the actual amount received and updates the balance. Your reservation can be <strong>Confirmed</strong> after a verified down payment and still have a balance to pay.</p>
+<p>If resort staff entered your booking through Messenger, a phone call or a walk-in, it may be linked to a staff-created walk-in profile rather than your website account. Ask staff to identify the record if it does not appear in your account; do not create another booking to replace it without checking.</p>
+<h2 id="client-7-add-services-to-a-booking">7. Add services to a booking</h2>
+<ol>
+<li>Open <strong>Manage Booking</strong> and select <strong>Edit</strong> beside the reservation.
+</li>
+<li>In <strong>Edit Booking Services</strong>, update the quantities allowed by the form. Existing booked quantities have a displayed minimum.
+</li>
+<li>Under <strong>Add New Service</strong>, select an available service and quantity, then select <strong>Add Service</strong>.
+</li>
+<li>Select <strong>Save Service Changes</strong>.
+</li>
+<li>Reopen <strong>View</strong> to check the updated bill and outstanding balance. Pay additional charges through the payment flow when available.
+</li>
+</ol>
+<p><strong>Expected result:</strong> The selected services are saved and billing is recalculated. The guest Edit screen edits services; it does not change the reservation package, accommodation, guest count or contact details. Contact staff for those reservation changes.</p>
+<p>Closed reservations and bookings under payment review cannot be edited through this screen. If the form refuses a change, follow its message or contact staff rather than creating a duplicate reservation.</p>
+<h2 id="client-8-request-a-different-booking-date">8. Request a different booking date</h2>
+<ol>
+<li>Find a <strong>Confirmed</strong> reservation in <strong>Manage Booking</strong>.
+</li>
+<li>Select <strong>Resched</strong>.
+</li>
+<li>Choose the new date offered by the form and review the retained package time/duration.
+</li>
+<li>Submit the request and read the notice showing the additional charge if approved.
+</li>
+<li>Wait for staff review and check the result in Manage Booking.
+</li>
+<li>If approved, check the new schedule and use <strong>Pay Balance</strong> for additional charges when required.
+</li>
+</ol>
+<p><strong>Expected result:</strong> A pending request does not immediately move the reservation. The original dates remain reserved while staff reviews it. Approval can add a notice fee and a higher-date-rate adjustment; moving to a cheaper date does not automatically refund the difference.</p>
+<p>Rescheduling requires a confirmed payment, an eligible available date and the applicable booking rules. The new start must remain at least 30 minutes away. Contact staff if <strong>Resched</strong> is disabled or your requested change is outside the available options.</p>
+<h2 id="client-9-cancel-a-booking">9. Cancel a booking</h2>
+<ol>
+<li>Open the booking in <strong>Manage Booking</strong> and read its cancellation/refund policy.
+</li>
+<li>Select <strong>Cancel</strong> beside the reservation.
+</li>
+<li>Read the cancellation confirmation and confirm only if you want to cancel.
+</li>
+<li>Check the updated booking status.
+</li>
+<li>If a refund review was created, check the <strong>Refunds</strong> section for its decision and payout status.
+</li>
+</ol>
+<p><strong>Expected result:</strong> A successful cancellation releases the reservation&#x27;s dates. It does not automatically send a refund. Eligibility follows the policy attached when the booking was saved.</p>
+<p>Guest cancellation can close before check-in according to the booked notice period. Payments awaiting review must be resolved first. Closed or completed reservations cannot be cancelled again. Contact staff if the self-service action is unavailable.</p>
+<h2 id="client-10-request-an-excess-payment-refund">10. Request an excess-payment refund</h2>
+<ol>
+<li>Wait until staff has verified the payment.
+</li>
+<li>Open <strong>Manage Booking</strong> and find the <strong>Refunds</strong> section on the booking-records tab.
+</li>
+<li>Check the eligible booking reference and displayed excess amount.
+</li>
+<li>Select <strong>Request excess refund</strong> once.
+</li>
+<li>Monitor the request: <strong>Pending</strong> means awaiting review; <strong>Approved</strong> means awaiting GCash payout; <strong>Refunded</strong> means staff recorded a completed payout.
+</li>
+<li>Read any review note and retain the GCash payout reference when shown.
+</li>
+</ol>
+<p><strong>Expected result:</strong> The resort reviews the calculated excess. This request does not cancel your booking. The system calculates eligibility from the current bill, verified payments and completed refunds; you do not type a refund amount.</p>
+<p>An open refund, a payment awaiting review or a pending reschedule can block another excess-refund request. Adding services may reduce or remove an excess before payout. Contact staff if a recorded payout is not visible in your GCash account.</p>
+<h2 id="client-11-schedule-and-manage-an-ocular-visit">11. Schedule and manage an ocular visit</h2>
+<p>An ocular visit is a resort viewing, not a paid stay reservation.</p>
+<h3 id="client-schedule-through-the-working-booking-flow">Schedule through the working booking flow</h3>
+<ol>
+<li>Open <strong>Book Now</strong> at <code>/booking</code> and choose <strong>Ocular Visit</strong>.
+</li>
+<li>Select an available date and time slot.
+</li>
+<li>Sign in if requested.
+</li>
+<li>Select <strong>Schedule Visit</strong> and wait for the saved result.
+</li>
+<li>Open <strong>Manage Booking</strong>, select the ocular-records tab and confirm the visit appears.
+</li>
+<li>Wait for staff approval before treating the visit as confirmed.
+</li>
+</ol>
+<p>Visits are free and require approval. Slots starting in less than 30 minutes are unavailable.</p>
+<h3 id="client-view-change-or-cancel">View, change or cancel</h3>
+<ol>
+<li>Open the ocular-records tab in <strong>Manage Booking</strong>.
+</li>
+<li>Use <strong>View</strong> to inspect the visit.
+</li>
+<li>Use <strong>Edit</strong> to choose an available date/slot and save the change. Check the updated status and await approval when required.
+</li>
+<li>Use <strong>Cancel</strong> and confirm if you no longer need the visit.
+</li>
+</ol>
+<p><strong>Current screen note:</strong> The separate <code>/ocular</code> page is an older demonstration screen that displays a local success message without saving a visit. Use <strong>Book Now → Ocular Visit</strong> and verify the saved record in Manage Booking, including if a link takes you to the older page.</p>
+<h2 id="client-12-write-a-review-with-a-photo">12. Write a review with a photo</h2>
+<ol>
+<li>Sign in to your registered guest account and open <strong>Reviews</strong> after your visit.
+</li>
+<li>Select <strong>Write a Review</strong>.
+</li>
+<li>Choose your <strong>Overall Rating</strong>, and fill in any other rating categories you want to provide.
+</li>
+<li>Enter a <strong>Review Title</strong> and <strong>Your Review</strong>. Write at least 50 characters.
+</li>
+<li>Optionally select one photo under <strong>Add a photo (optional)</strong>. Use JPEG, PNG or WebP, up to 3 MB.
+</li>
+<li>Check the photo preview; replace it or use <strong>Remove photo</strong> if needed.
+</li>
+<li>Optionally enter a reservation ID and select the recommendation checkbox.
+</li>
+<li>Submit and wait for the success message.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Your review is saved. The current system automatically publishes newly submitted reviews; public photos are shown for approved reviews. Use <strong>View full photo</strong> on a review to open its image.</p>
+<p>The system currently permits <strong>one review per guest account</strong>. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.</p>
+<h2 id="client-13-understand-booking-and-refund-statuses">13. Understand booking and refund statuses</h2>
+<h3 id="client-reservation-status">Reservation status</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Status shown or described</th><th scope="col">What it means</th><th scope="col">What to do</th></tr></thead><tbody>
+<tr><td>Pending / Awaiting payment</td><td>Saved unpaid booking with a temporary hold</td><td>Submit valid proof before the displayed deadline</td></tr>
+<tr><td>Payment Submitted / Payment under review</td><td>Proof was accepted for staff review</td><td>Wait for the review; do not submit another payment</td></tr>
+<tr><td>Confirmed</td><td>A payment was verified</td><td>Check whether a balance is still due</td></tr>
+<tr><td>Reschedule Requested</td><td>New dates are awaiting staff review</td><td>Keep the original schedule until approval</td></tr>
+<tr><td>Completed</td><td>The record has been marked completed</td><td>Keep the reference for your records</td></tr>
+<tr><td>Cancelled</td><td>Booking was cancelled</td><td>Check any refund review separately</td></tr>
+<tr><td>Expired</td><td>The unpaid hold ended</td><td>Contact staff if you already transferred money; otherwise choose a new available booking</td></tr>
+<tr><td>Rejected</td><td>The initial payment/reservation was rejected</td><td>Read the notice and contact staff if you sent money</td></tr>
+</tbody></table></div>
+<p>A rejected later balance payment does not itself cancel an already confirmed reservation.</p>
+<h3 id="client-refund-status">Refund status</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Status</th><th scope="col">Meaning</th></tr></thead><tbody>
+<tr><td>Pending</td><td>Staff has not finished the review</td></tr>
+<tr><td>Approved</td><td>Accepted for payout; money has not yet been recorded as refunded</td></tr>
+<tr><td>Rejected</td><td>Not approved; read the review reason</td></tr>
+<tr><td>Refunded</td><td>Staff recorded the GCash payout and its reference/proof</td></tr>
+</tbody></table></div>
+<h2 id="client-14-troubleshooting-and-support">14. Troubleshooting and support</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Problem</th><th scope="col">What to do</th></tr></thead><tbody>
+<tr><td>Cannot sign in because email is unconfirmed</td><td>Open the newest confirmation email or resend from registration</td></tr>
+<tr><td>Confirmation link is invalid or expired</td><td>Request a new email, wait for it and use its newest link</td></tr>
+<tr><td>Session ended after using another device</td><td>Sign in again on the device you intend to use</td></tr>
+<tr><td>Selected date becomes unavailable</td><td>Refresh availability and choose another available date/package</td></tr>
+<tr><td>Booking prices changed before saving</td><td>Return to the form and review the updated total</td></tr>
+<tr><td>QR does not load</td><td>Use Reload payment options; contact staff if no valid account appears</td></tr>
+<tr><td>Confirm Payment is disabled</td><td>Check that the booking was saved, an account/QR is loaded, no payment is pending and the required agreement is accepted</td></tr>
+<tr><td>Receipt is unreadable or rejected</td><td>Use the original full-resolution GCash screenshot; check amount, recipient, reference and today&#x27;s Philippine date/time</td></tr>
+<tr><td>Receipt-screening service is unavailable</td><td>Wait and retry. Keep the receipt; do not transfer money again just because an upload failed</td></tr>
+<tr><td>Payment is still under review</td><td>Check Manage Booking and contact staff with both references</td></tr>
+<tr><td>A paid booking expired or an initial payment was rejected</td><td>Contact staff to reconcile the existing transfer before paying or creating another booking</td></tr>
+<tr><td>Edit, Resched or Cancel is disabled</td><td>Check the reservation status and policy; contact staff for assistance</td></tr>
+<tr><td>Excess refund option is missing</td><td>Wait for payment verification and resolution of open payment/refund/reschedule requests; verify that there is still an excess</td></tr>
+<tr><td>Review photo cannot be uploaded</td><td>Use one supported image up to 3 MB; remove it to submit a text-only review</td></tr>
+<tr><td>A manual booking is missing from your account</td><td>Ask staff to look up the reference and check which guest profile it belongs to</td></tr>
+</tbody></table></div>
+<p>For support, use the resort&#x27;s current phone, email or social contact details on <strong>About</strong>. Give your booking reference, affected screen, exact message and approximate Philippine date/time. Include a screenshot of the error when useful. Send payment details privately to staff, and never share passwords or verification codes.</p>
+<p>The chatbot can explain resort information and the general booking flow. A chat reply does not save a booking, approve a payment, change dates or issue a refund; verify those actions on the relevant screen.</p></section>
+<section id="admin" class="manual-section" aria-label="Admin and staff user manual"><h1 id="admin-marville-resort-complex-admin-and-staff-user-manual">MarVille Resort Complex — Admin and Staff User Manual</h1>
+<p><strong>Audience:</strong> Administrators, managers and cashiers using the staff portal.<br><strong>Updated:</strong> 13 October 2026.<br><strong>Companion guide:</strong> <a href="#client">Client User Manual</a>.<br><strong>Manual overview and printing:</strong> <a href="#manual-overview">User Manuals</a>.</p>
+<p>This guide explains daily booking, billing and management tasks. Use the resort website address supplied by the owner; add the page paths below to that address. Buttons and modules depend on your account&#x27;s permissions. Follow success/error messages before considering an action complete.</p>
+<h2 id="admin-contents">Contents</h2>
+<ul>
+<li><a href="#admin-1-access-the-staff-portal">1. Access the staff portal</a>
+</li>
+<li><a href="#admin-2-understand-roles-and-navigation">2. Understand roles and navigation</a>
+</li>
+<li><a href="#admin-3-daily-operating-checklist">3. Daily operating checklist</a>
+</li>
+<li><a href="#admin-4-find-a-reservation-in-the-calendar">4. Find a reservation in the calendar</a>
+</li>
+<li><a href="#admin-5-enter-a-phone-messenger-or-walk-in-reservation">5. Enter a phone, Messenger or walk-in reservation</a>
+</li>
+<li><a href="#admin-6-edit-reservation-details-and-add-services">6. Edit reservation details and add services</a>
+</li>
+<li><a href="#admin-7-review-a-reschedule-request">7. Review a reschedule request</a>
+</li>
+<li><a href="#admin-8-approve-an-ocular-visit">8. Approve an ocular visit</a>
+</li>
+<li><a href="#admin-9-create-or-release-a-maintenance-block">9. Create or release a maintenance block</a>
+</li>
+<li><a href="#admin-10-use-the-transaction-ledger">10. Use the transaction ledger</a>
+</li>
+<li><a href="#admin-11-verify-a-guest-gcash-payment">11. Verify a guest GCash payment</a>
+</li>
+<li><a href="#admin-12-record-a-cash-payment">12. Record a cash payment</a>
+</li>
+<li><a href="#admin-13-review-and-pay-a-refund">13. Review and pay a refund</a>
+</li>
+<li><a href="#admin-14-view-invoices-and-print-receipts">14. View invoices and print receipts</a>
+</li>
+<li><a href="#admin-15-run-sales-staff-and-guest-reports">15. Run sales, staff and guest reports</a>
+</li>
+<li><a href="#admin-16-understand-analytics">16. Understand analytics</a>
+</li>
+<li><a href="#admin-17-manage-catalog-items-and-payment-qr-codes">17. Manage catalog items and payment QR codes</a>
+</li>
+<li><a href="#admin-18-change-weekday-and-weekend-package-rates">18. Change weekday and weekend package rates</a>
+</li>
+<li><a href="#admin-19-change-website-content-and-booking-policies">19. Change website content and booking policies</a>
+</li>
+<li><a href="#admin-20-manage-staff-accounts-and-permissions">20. Manage staff accounts and permissions</a>
+</li>
+<li><a href="#admin-21-inspect-the-audit-log">21. Inspect the audit log</a>
+</li>
+<li><a href="#admin-22-troubleshooting-and-current-screen-limitations">22. Troubleshooting and current screen limitations</a>
+</li>
+</ul>
+<h2 id="admin-1-access-the-staff-portal">1. Access the staff portal</h2>
+<ol>
+<li>Open <code>/staff/login</code> or <code>/admin/login</code>.
+</li>
+<li>Enter your <strong>Staff Email</strong> and password.
+</li>
+<li>Select <strong>Sign In to Staff Portal</strong>.
+</li>
+<li>If prompted, open your staff email, enter the <strong>Verification Code</strong> and select <strong>Verify Code</strong>.
+</li>
+<li>If prompted to change a temporary password, enter and confirm a personal password and submit. The staff password form requires at least eight characters.
+</li>
+<li>Open the required module from the sidebar.
+</li>
+</ol>
+<p><strong>Expected result:</strong> You enter the portal with the modules allowed for your role. Use <strong>Forgot your password?</strong> for email recovery, or ask an administrator to reset your password if you cannot recover access.</p>
+<p>One session is active per account. Signing in on another device ends the previous session. Use individual staff accounts so actions are attributed to the correct person, and sign out at the end of your shift.</p>
+<h2 id="admin-2-understand-roles-and-navigation">2. Understand roles and navigation</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Role</th><th scope="col">Access</th></tr></thead><tbody>
+<tr><td>Admin</td><td>Full portal access, including Users, Configuration and Business Catalog</td></tr>
+<tr><td>Manager</td><td>Operational modules and actions granted in the Role Permission Matrix</td></tr>
+<tr><td>Cashier</td><td>Transaction modules and actions granted in the Role Permission Matrix</td></tr>
+</tbody></table></div>
+<p>Managers are displayed as Manager in the permission editor; some older role controls may show <strong>Staff</strong> for the same role. Manager and cashier access can be customized. Opening a module does not automatically grant permission to approve payments, edit reservations or pay refunds.</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">Sidebar module</th><th scope="col">Main use</th><th scope="col">Path</th></tr></thead><tbody>
+<tr><td>Dashboard</td><td>Landing page and reservation listing; see current limitations before using its summary cards</td><td><code>/admin</code></td></tr>
+<tr><td>Reservations</td><td>Calendar, manual reservations, reservation editor and maintenance blocks</td><td><code>/admin/reservations</code></td></tr>
+<tr><td>Records</td><td>Reservation records, reschedule requests and ocular approvals</td><td><code>/admin/records</code></td></tr>
+<tr><td>Transactions</td><td>Ledger, payment verification, refunds, invoices, receipts and guest reports</td><td><code>/admin/transactions</code></td></tr>
+<tr><td>Reports</td><td>Sales Report and Staff Report</td><td><code>/admin/reports</code></td></tr>
+<tr><td>Analytics</td><td>Booking activity, collection estimates, operational tasks and guest feedback</td><td><code>/admin/analytics</code></td></tr>
+<tr><td>Users</td><td>Staff accounts and role permissions; admin only</td><td><code>/admin/users</code></td></tr>
+<tr><td>Configuration</td><td>Website content, resort information and policy settings; admin only</td><td><code>/admin/configuration</code></td></tr>
+<tr><td>Business Catalog</td><td>Services, units, rates, payment accounts and ocular slots; admin only</td><td><code>/admin/catalog</code></td></tr>
+<tr><td>Audit Log</td><td>Recorded actions and account access activity</td><td><code>/admin/audit</code></td></tr>
+</tbody></table></div>
+<p>In tables, use search, available dropdown filters and sortable column headings to find records. Paging controls appear where provided. Use each module&#x27;s own export/refresh controls; not every screen has the same actions.</p>
+<h2 id="admin-3-daily-operating-checklist">3. Daily operating checklist</h2>
+<p>At the start of a shift:</p>
+<ol>
+<li>Open <strong>Reservations</strong> and review the current calendar period, arrivals and maintenance blocks.
+</li>
+<li>Open <strong>Transactions → Payment Verification Queue</strong> and reconcile pending proofs with the resort&#x27;s receiving account.
+</li>
+<li>Open <strong>Records → Reschedule Requests</strong> and <strong>Ocular Visit Records</strong> for pending decisions.
+</li>
+<li>Open <strong>Transactions → Refund Requests</strong> for requests awaiting review or payout.
+</li>
+<li>Check balances for arriving guests and record money received through the correct payment workflow.
+</li>
+</ol>
+<p>During a stay, record added services through the reservation editor and check the resulting payable amount. Before leaving, use <strong>Reports</strong> for date-based collection/activity totals, inspect unresolved items and sign out.</p>
+<h2 id="admin-4-find-a-reservation-in-the-calendar">4. Find a reservation in the calendar</h2>
+<ol>
+<li>Open <strong>Reservations</strong>.
+</li>
+<li>Navigate to the required month using the calendar controls.
+</li>
+<li>Use the search icon and <strong>Search calendar</strong> to look up a reference or guest name within the loaded calendar period.
+</li>
+<li>Select the booking event or its date marker to open the reservation dialog.
+</li>
+<li>Read its schedule, guest details, services, bill and any read-only explanation.
+</li>
+<li>Select <strong>Close</strong> when finished, or follow the editing steps below.
+</li>
+</ol>
+<p>Calendar indicators distinguish reservations, items needing attention, ocular visits and maintenance. A date selected in the calendar is not proof that a bill is paid; check the verified payments and transaction balance.</p>
+<h2 id="admin-5-enter-a-phone-messenger-or-walk-in-reservation">5. Enter a phone, Messenger or walk-in reservation</h2>
+<p><strong>Required permission:</strong> Add reservation.</p>
+<ol>
+<li>Open <strong>Reservations</strong> and select <strong>+ New Reservation</strong>.
+</li>
+<li>In <strong>New Manual Reservation</strong>, select <strong>Guest type</strong>:
+<ul>
+<li><strong>Existing account:</strong> Select the correct registered guest.
+</li>
+<li><strong>Walk-in guest:</strong> Enter the first name, last name, email, phone and address required by the form. This option also supports people booking by phone or Messenger without a website account.
+</li>
+</ul>
+</li>
+<li>Choose the <strong>Booking date</strong>, <strong>Booking package</strong> and, if applicable, <strong>Whole-day variant</strong>.
+</li>
+<li>Select the <strong>Unit</strong>, and enter the adults and children counts.
+</li>
+<li>Add special requests. Include the booking channel or relevant guest instructions when helpful.
+</li>
+<li>Review the current package-price preview.
+</li>
+<li>Select <strong>Create Manual Reservation</strong> and wait for the calendar to reload.
+</li>
+<li>Find the new reference in the calendar and Transactions. Record any money actually received through the appropriate payment workflow promptly.
+</li>
+</ol>
+<p><strong>Expected result:</strong> A reservation, guest association and initial bill are recorded. The entry starts unpaid/pending; creating a manual booking does not itself record money or issue a payment receipt. Observe its payment hold/deadline and current status.</p>
+<p>The creation dialog does not offer service selection. Open the saved reservation editor to add services. A walk-in profile is separate from a registered website account, so its reservation may not appear in a guest&#x27;s personal Manage Booking page.</p>
+<p>If a save reports that a booking was created but a follow-up action failed, look up the reference before retrying. Avoid duplicating the booking.</p>
+<h2 id="admin-6-edit-reservation-details-and-add-services">6. Edit reservation details and add services</h2>
+<p><strong>Required permission:</strong> Edit reservations and services.</p>
+<h3 id="admin-before-arrival">Before arrival</h3>
+<ol>
+<li>Select the reservation in <strong>Reservations</strong>.
+</li>
+<li>Review the original schedule and <strong>Updated bill</strong> preview.
+</li>
+<li>Change the allowed package, arrival, guest counts, accommodation or services. Fixed packages calculate departure from their duration; custom schedules expose the relevant departure fields.
+</li>
+<li>Adjust service selections/quantities and special requests as required.
+</li>
+<li>Review <strong>Previous total</strong>, <strong>Package adjustment</strong>, <strong>Services total</strong>, <strong>New total</strong>, <strong>Already paid</strong>, <strong>Amount payable</strong> and any <strong>Overpayment</strong>.
+</li>
+<li>Enter a specific <strong>Reason for change</strong>, such as “Guest requested a date change through Messenger.”
+</li>
+<li>Select <strong>Save reservation</strong>.
+</li>
+<li>Check the success result, refreshed calendar and saved bill. Open <strong>View transactions and receipts</strong> if you need billing records.
+</li>
+</ol>
+<h3 id="admin-during-a-stay">During a stay</h3>
+<ol>
+<li>Open the active reservation in the same way.
+</li>
+<li>Add available services or increase existing quantities. Update notes/special requests as needed.
+</li>
+<li>Review the additional charge and amount payable.
+</li>
+<li>Enter the reason and select <strong>Save reservation</strong>.
+</li>
+<li>Collect and record additional payment through Transactions when required.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Reservation details and the current bill/invoice update together, with a recorded reason. Existing payments and issued receipts keep their original amounts.</p>
+<p>Once the stay starts, schedule/details changes are restricted and previously booked services cannot be removed or reduced. Ended, closed or expired bookings and bookings awaiting payment/reschedule review can be read-only. An unavailable date or a concurrent change can also stop saving; reload and inspect the current record before trying again.</p>
+<p>Existing reservations use their booked package-rate schedule for package differences. Existing services retain their booked prices; newly added services use their available catalog prices. A later Catalog price change does not reprice all existing bookings. Changing accommodation still follows package-based billing; inspect the preview rather than assuming a unit rate replaces the package bill.</p>
+<p>Reservation editing does not automatically pay a refund or send a new billing email. Handle an exposed overpayment in <strong>Refund Requests</strong>, and check the revised invoice separately.</p>
+<h2 id="admin-7-review-a-reschedule-request">7. Review a reschedule request</h2>
+<p><strong>Required permissions:</strong> Records access and reschedule approval.</p>
+<ol>
+<li>Open <strong>Records → Reschedule Requests</strong>.
+</li>
+<li>Find a <strong>Pending</strong> request by reference, guest or status.
+</li>
+<li>Review the old/new dates and the displayed additional charge.
+</li>
+<li>To accept, select <strong>Approve</strong>, read the confirmation and confirm the charge/date change.
+</li>
+<li>To decline, select <strong>Reject</strong> and enter the requested rejection reason.
+</li>
+<li>Read the result and check the refreshed request status.
+</li>
+<li>For an approval, verify the new dates in Reservations and the additional payable amount in Transactions.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Approval updates the schedule and adds the notice fee plus any higher-date-rate adjustment to billing. A rejection leaves the original reservation schedule in place. The original booking remains occupied while the request is pending.</p>
+<p>Approval can fail if another booking/maintenance block conflicts or the requested start is too near/past. A lower-date rate does not automatically create a refund. Explain any additional balance to the guest; they can pay through Manage Booking when eligible.</p>
+<h2 id="admin-8-approve-an-ocular-visit">8. Approve an ocular visit</h2>
+<p><strong>Required permissions:</strong> Records access and ocular approval.</p>
+<ol>
+<li>Open <strong>Records → Ocular Visit Records</strong>.
+</li>
+<li>Find the <strong>Pending</strong> visit and review its reference, guest, date and slot.
+</li>
+<li>Confirm that the visit can be accommodated and has not started.
+</li>
+<li>Select <strong>Approve</strong>, confirm, then check the updated status.
+</li>
+</ol>
+<p><strong>Expected result:</strong> The visit is confirmed and the existing guest notification/email workflow is attempted. A viewing is free and does not create a paid stay reservation.</p>
+<p>The current Records screen offers ocular approval, not an ocular rejection button. Guests can change or cancel eligible visits through their own Manage Booking screen. Contact the guest if other arrangements are needed.</p>
+<h2 id="admin-9-create-or-release-a-maintenance-block">9. Create or release a maintenance block</h2>
+<p><strong>Required role:</strong> Admin.</p>
+<ol>
+<li>Open <strong>Reservations</strong> and select <strong>+ Maintenance Block</strong>.
+</li>
+<li>Enter <strong>Name</strong>, <strong>Reason / guest announcement</strong>, <strong>Start date</strong> and <strong>End date</strong>.
+</li>
+<li>Review the affected dates. Existing active reservations prevent creating a conflicting block.
+</li>
+<li>Select <strong>Block dates and alert guests</strong>.
+</li>
+<li>Check the result and calendar indicator. Registered guests receive an in-app alert through the existing notification workflow.
+</li>
+</ol>
+<p>To reopen the dates, select the maintenance event, choose <strong>Release block</strong> and check the result. The released block no longer blocks new bookings. Do not use maintenance as a substitute for reviewing existing guest cancellations/refunds.</p>
+<h2 id="admin-10-use-the-transaction-ledger">10. Use the transaction ledger</h2>
+<ol>
+<li>Open <strong>Transactions → Transaction Ledger</strong>.
+</li>
+<li>Search/filter for the booking reference.
+</li>
+<li>Select <strong>View</strong> to inspect the transaction.
+</li>
+<li>Check total amount, paid amount, balance and any excess amount.
+</li>
+<li>Use <strong>Refresh ledger</strong> to reload or <strong>Export Ledger</strong> to download the table&#x27;s matching rows.
+</li>
+</ol>
+<div class="table-wrap"><table><thead><tr><th scope="col">Billing term</th><th scope="col">Meaning</th></tr></thead><tbody>
+<tr><td>Total amount</td><td>Current reservation bill, including saved services/adjustments</td></tr>
+<tr><td>Paid amount</td><td>Verified payments, reduced by completed refunds</td></tr>
+<tr><td>Balance</td><td>Amount still payable; an unverified proof does not settle it</td></tr>
+<tr><td>Excess / overpaid amount</td><td>Verified net payments above the current bill</td></tr>
+<tr><td>Invoice</td><td>A billing document showing the reservation charges</td></tr>
+<tr><td>Receipt</td><td>A record of a particular payment received</td></tr>
+</tbody></table></div>
+<p>The transaction summary and ledger use the latest <strong>200 loaded ledger records</strong>, not all historical transactions. The receipt list also has a recent-record limit. Use date-based Reports for full-period collection totals. Ledger/document CSV exports include the matching rows loaded in that module and follow its table filters.</p>
+<h2 id="admin-11-verify-a-guest-gcash-payment">11. Verify a guest GCash payment</h2>
+<p><strong>Required permissions:</strong> Transactions access and payment approval.</p>
+<ol>
+<li>Open <strong>Transactions → Payment Verification Queue</strong>.
+</li>
+<li>Filter to <strong>Pending</strong> and select <strong>Review</strong> for the correct payment.
+</li>
+<li>Read the reservation reference, payment reference, amount, sender, payment type, receipt time and receipt-screening notes.
+</li>
+<li>Open the proof at full size. Check that it is a clear, complete original GCash screenshot.
+</li>
+<li>Independently check the resort&#x27;s receiving GCash account. Match the actual transaction&#x27;s <strong>amount, reference, recipient and date/time</strong> with the proof.
+</li>
+<li>For new guest receipts, select the required original-screenshot acknowledgement only after the image loads and you have checked it.
+</li>
+<li>Select <strong>Approve</strong> and then <strong>Confirm approval</strong>, or <strong>Reject</strong> and then <strong>Confirm rejection</strong>.
+</li>
+<li>Check the review result, reservation status, ledger balance and generated receipt.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Approval credits the actual submitted payment and confirms an eligible initial reservation. Rejection of an initial payment can reject the reservation and release its dates. Rejection of a later balance payment leaves an already confirmed reservation active.</p>
+<p>The receipt-reading check is not proof that money arrived. Reject photographed screens, altered receipts or inconsistencies rather than approving solely because the text was recognized. New guest receipts must use the current Philippine payment date; older/manual records can have no extracted receipt time and use their existing review workflow.</p>
+<p>If a payment decision succeeds but an email/notification follow-up fails, refresh and inspect its saved status before retrying. Do not approve the same payment twice. If money arrived but a proof was rejected, reconcile the transfer with the guest before requesting another transfer.</p>
+<h2 id="admin-12-record-a-cash-payment">12. Record a cash payment</h2>
+<p><strong>Required permissions:</strong> Transactions access and manual payment entry.</p>
+<p>This is the staff cash workflow. Online guest payment submission remains GCash only.</p>
+<ol>
+<li>Open <strong>Transaction Ledger</strong> and find the reservation.
+</li>
+<li>Select <strong>Settle</strong> on its row, or use <strong>Post Payment</strong> and then select the correct reservation in the dialog.
+</li>
+<li>Check the reservation reference and balance in <strong>Record cash payment</strong>.
+</li>
+<li>Enter the actual <strong>Amount received</strong> and required <strong>Cash reference</strong>.
+</li>
+<li>Select <strong>Record payment and issue receipt</strong>.
+</li>
+<li>Verify the updated balance and corresponding receipt.
+</li>
+</ol>
+<p><strong>Expected result:</strong> The received cash is recorded and a separate receipt is issued for that payment. The form caps the amount at the current outstanding balance. Record money already received; this button does not collect money from the guest.</p>
+<h2 id="admin-13-review-and-pay-a-refund">13. Review and pay a refund</h2>
+<p><strong>Required permissions:</strong> Transactions access, refund review for decisions, and refund payout for completion. These are separate permissions.</p>
+<h3 id="admin-review-a-request">Review a request</h3>
+<ol>
+<li>Open <strong>Transactions → Refund Requests</strong>.
+</li>
+<li>Check whether the row is an <strong>Excess payment</strong> or <strong>Cancellation</strong> request.
+</li>
+<li>Select <strong>Review</strong> and inspect its amount, status, policy and existing review notes.
+</li>
+<li>Check the current bill, verified payments and prior refunds before deciding.
+</li>
+<li>Enter review notes as needed and select <strong>Approve</strong>, or enter the required reason and select <strong>Reject</strong>.
+</li>
+<li>Check the saved status.
+</li>
+</ol>
+<p><strong>Expected result:</strong> An approved request awaits payout. Approval alone does not transfer money. Cancellation decisions follow the policy attached to that reservation; excess refunds apply to verified payments above the current bill and do not cancel the reservation.</p>
+<h3 id="admin-record-the-payout">Record the payout</h3>
+<ol>
+<li>Open the <strong>Approved</strong> request and recheck the available refund amount.
+</li>
+<li>Confirm the guest&#x27;s payout details through the resort&#x27;s normal process.
+</li>
+<li>Complete the GCash transfer outside the website.
+</li>
+<li>Enter the real <strong>GCash transfer reference</strong> and upload <strong>Transfer proof</strong>.
+</li>
+<li>Select <strong>Mark refunded</strong> after the transfer has succeeded.
+</li>
+<li>Check the recorded reference, proof and <strong>Refunded</strong> status.
+</li>
+</ol>
+<p><strong>Expected result:</strong> The completed refund reduces net paid billing; original payments and receipts retain their historical amounts. <strong>View transfer proof</strong> opens the stored payout evidence.</p>
+<p>The system recalculates eligibility before approval/payout. Added services or another billing change can remove an excess; read the error and review the current bill instead of forcing an outdated amount. References cannot be reused. Only one open pending/approved refund is allowed per reservation.</p>
+<h2 id="admin-14-view-invoices-and-print-receipts">14. View invoices and print receipts</h2>
+<h3 id="admin-invoices">Invoices</h3>
+<ol>
+<li>Open <strong>Transactions → Generated Invoices</strong>.
+</li>
+<li>Select <strong>Refresh invoices</strong> to load the latest available documents.
+</li>
+<li>Search/filter for a reservation and select <strong>View</strong>.
+</li>
+<li>Review charges, services and totals in the invoice dialog.
+</li>
+<li>Use <strong>Export invoices CSV</strong> for the table&#x27;s matching rows.
+</li>
+</ol>
+<p>Invoices are generated from reservation billing; there is no manual Generate Invoice action on this screen.</p>
+<h3 id="admin-receipts">Receipts</h3>
+<ol>
+<li>Open <strong>Transactions → Issued Receipts</strong>.
+</li>
+<li>Select <strong>Refresh receipts</strong> and find the payment/reservation receipt.
+</li>
+<li>Use <strong>View</strong> to inspect it, or <strong>Print</strong> on the row to open the printable receipt.
+</li>
+<li>Use the browser&#x27;s print dialog to choose a printer or <strong>Save as PDF</strong>. Allow the print window if your browser blocks it.
+</li>
+<li>Use <strong>Export receipts CSV</strong> for the matching loaded receipt rows when needed.
+</li>
+</ol>
+<p>Receipts are issued by payment workflows. Each payment can have its own receipt; it does not replace earlier receipts. Original receipt amounts remain unchanged when a reservation is edited or an excess is refunded. An invoice is not proof of payment.</p>
+<h2 id="admin-15-run-sales-staff-and-guest-reports">15. Run sales, staff and guest reports</h2>
+<div class="table-wrap"><table><thead><tr><th scope="col">Report</th><th scope="col">Where to open it</th><th scope="col">What it measures</th></tr></thead><tbody>
+<tr><td>Sales Report</td><td>Reports</td><td>Gross verified collections and reservations created during the selected dates</td></tr>
+<tr><td>Staff Report</td><td>Reports</td><td>Logged actions and identified staff activity during the selected dates</td></tr>
+<tr><td>Guest Report</td><td>Transactions → Guest Report</td><td>Reservations created, guest contacts, group sizes, sources and booking history</td></tr>
+</tbody></table></div>
+<p>There is no separate Financial Report tab in Reports. Guest reporting belongs to Transactions.</p>
+<h3 id="admin-select-dates-and-read-the-summary">Select dates and read the summary</h3>
+<ol>
+<li>Open the report and choose its tab if provided.
+</li>
+<li>Select a <strong>Period</strong>:
+<ul>
+<li><strong>Last 7 days · daily:</strong> Seven Philippine calendar days, including today.
+</li>
+<li><strong>Last 4 weeks · weekly:</strong> Twenty-eight days in four seven-day groups.
+</li>
+<li><strong>Last 6 months · monthly:</strong> Six calendar months, including the current month to date.
+</li>
+<li><strong>Custom date range:</strong> Choose From and Through, then select <strong>Apply dates</strong>. Both dates are included; the maximum range is five years.
+</li>
+</ul>
+</li>
+<li>Read the date range, update time, summary-card explanations and calculation note.
+</li>
+<li>Use <strong>Refresh report</strong> to reload or retry an error. <strong>Reset period</strong> returns to the seven-day view.
+</li>
+</ol>
+<h3 id="admin-change-chart-styles">Change chart styles</h3>
+<ol>
+<li>Find <strong>View</strong> above either chart.
+</li>
+<li>Choose <strong>Line graph</strong>, <strong>Bar chart</strong>, <strong>Pie chart</strong> or <strong>Progress bars</strong>.
+</li>
+<li>Read the exact values below the chart. Graph point numbers match the numbered dates/categories in that list.
+</li>
+</ol>
+<p>Trends initially use a line graph; breakdowns initially use a pie. Switching chart styles keeps the same totals and dates. Pie percentages show each category&#x27;s share of that chart&#x27;s total. Your selections remain while changing tabs/dates until the page is reloaded.</p>
+<h3 id="admin-filter-export-and-print">Filter, export and print</h3>
+<ol>
+<li>Search the report table or apply its available filters. Guest filters include booking source, status and booking history.
+</li>
+<li>Sort using a column heading. Use <strong>First</strong>, <strong>Previous</strong>, <strong>Next</strong> and <strong>Last</strong> for 25-row pages.
+</li>
+<li>Use <strong>Clear table filters</strong> to reset search, filters and sorting.
+</li>
+<li>Select <strong>Export CSV</strong> to download every matching table row across all pages.
+</li>
+<li>Select <strong>Print report</strong> to print or save a PDF containing the selected charts, full-period summary and every matching table row.
+</li>
+</ol>
+<p><strong>How to interpret the numbers</strong></p>
+<ul>
+<li>Sales counts money by payment verification date; older records without that date use submission date. Collections are <strong>before refunds</strong>, so they can differ from the ledger&#x27;s net paid amount.
+</li>
+<li>Guest reporting uses reservation creation dates, not arrival dates or guest registration dates. The table separately shows scheduled arrival. Headcount is booked adults plus children, including all reservation statuses.
+</li>
+<li>First-time bookers have no reservation before the selected period; returning bookers have an earlier reservation. Each guest profile is counted once in those summary cards. These labels do not prove actual attendance.
+</li>
+<li>Staff totals come from audit records, including separately described guest/system activity. Logged-action counts do not measure staff productivity.
+</li>
+<li>Summary cards and charts cover the full date range. Table search/filters narrow the table, CSV and printed table; they do not change the summary totals.
+</li>
+</ul>
+<h2 id="admin-16-understand-analytics">16. Understand analytics</h2>
+<ol>
+<li>Open <strong>Analytics</strong>.
+</li>
+<li>Choose <strong>Bookings</strong>, <strong>Collection forecast</strong>, <strong>Operations</strong> or <strong>Guest feedback</strong>.
+</li>
+<li>Select the period or apply custom dates as in Reports.
+</li>
+<li>Read the summary explanations and calculation note before interpreting a chart.
+</li>
+<li>Use chart <strong>View</strong> selectors, <strong>Export CSV</strong>, <strong>Print report</strong>, <strong>Refresh analytics</strong> and <strong>Reset period</strong> as needed.
+</li>
+</ol>
+<div class="table-wrap"><table><thead><tr><th scope="col">Tab</th><th scope="col">Meaning</th></tr></thead><tbody>
+<tr><td>Bookings</td><td>Reservations created and their sources; includes all statuses, not occupancy or arrivals</td></tr>
+<tr><td>Collection forecast</td><td>Actual verified collections plus a separately labelled estimate from historical averages</td></tr>
+<tr><td>Operations</td><td>Payment submissions/pending reviews within the selected dates and logged activity</td></tr>
+<tr><td>Guest feedback</td><td>An on-demand AI summary of up to 100 latest approved reviews created within the dates</td></tr>
+</tbody></table></div>
+<h3 id="admin-collection-forecast">Collection forecast</h3>
+<p>The formula is <strong>actual gross collections ÷ selected calendar days × forecast days</strong>. Days with no payments are included. Forecast length is one day for Daily/Custom, seven days for Weekly and 30 days for Monthly. The forecast starts after the selected end date; a past range produces a historical estimate.</p>
+<p>For example, PHP 28,000 collected across 28 selected days averages PHP 1,000 per day and estimates PHP 7,000 for the next seven days. The estimate is not money received, does not adjust for seasonality/holidays and has no statistical confidence score. Today&#x27;s incomplete payments and limited history can affect it. Estimated new reservations use the same daily-average approach and include all statuses.</p>
+<p>Collection charts contain actual amounts by date/payment type; estimates are not mixed into their pie total. Approval dates and gross/refund treatment match Sales Report.</p>
+<h3 id="admin-operations">Operations</h3>
+<p>Pending submissions count only payments submitted within the selected dates, not all outstanding payments. The payment-status pie compares payments with payments; the activity graph counts audit entries separately. Follow the task explanation to open Transactions or Audit Log for details.</p>
+<h3 id="admin-guest-feedback">Guest feedback</h3>
+<ol>
+<li>Select <strong>Guest feedback</strong>, then <strong>Analyze feedback</strong>.
+</li>
+<li>Wait for the analysis and read the review sample size, sentiment percentages, summary and themes.
+</li>
+<li>Change chart style or export/print the result if needed.
+</li>
+<li>Use <strong>Analyze again</strong> to refresh the analysis.
+</li>
+</ol>
+<p>These are AI-generated interpretations of the sampled reviews, not a survey of every guest. No approved reviews produces a no-data result. If analysis is unavailable, ask the administrator to check the service. Changing dates or refreshing analytics clears the previous analysis so results are not reused for the wrong period.</p>
+<h2 id="admin-17-manage-catalog-items-and-payment-qr-codes">17. Manage catalog items and payment QR codes</h2>
+<p><strong>Required role:</strong> Admin.</p>
+<h3 id="admin-add-or-edit-an-item">Add or edit an item</h3>
+<ol>
+<li>Open <strong>Business Catalog</strong> and select the required category: services, units, unit rates, guest rates, payment methods, payment accounts, general policies or ocular slots.
+</li>
+<li>Search/filter to find the item, or select the category&#x27;s Add button.
+</li>
+<li>Select <strong>Edit</strong> for an existing item.
+</li>
+<li>Fill in the required name, description, price, capacity, schedule or linked item fields offered for that category.
+</li>
+<li>Use valid whole numbers for quantities/capacities and valid amounts for prices. Clear an optional field when you intend to remove its value.
+</li>
+<li>Save through the dialog and check the result/list.
+</li>
+</ol>
+<h3 id="admin-archive-or-restore">Archive or restore</h3>
+<ol>
+<li>Select <strong>Archive</strong> on an active item.
+</li>
+<li>Review the confirmation and select <strong>Archive item</strong>.
+</li>
+<li>Use the <strong>Archived</strong> or <strong>All</strong> filter to find it later.
+</li>
+<li>Select <strong>Restore</strong>, then <strong>Restore item</strong>, when it should be offered again.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Archiving removes an item from new active selections while retaining historical records. Editing an archived item does not automatically restore it. Restoring linked rates/accounts requires their parent unit/payment method to be active. Only one guest-rate record can be active; activating another replaces the previously active record.</p>
+<h3 id="admin-set-up-a-gcash-qr-account">Set up a GCash QR account</h3>
+<ol>
+<li>Make sure the relevant GCash payment method is active.
+</li>
+<li>Open <strong>Payment accounts</strong> and add/edit the resort&#x27;s account.
+</li>
+<li>Enter the account name and number accurately. Preserve leading zeros.
+</li>
+<li>Attach the correct QR image: PNG, JPEG or WebP, up to 5 MB. A QR image is required, including when editing an older account without one.
+</li>
+<li>Save and check that the list shows a QR attached.
+</li>
+<li>Open the guest payment screen to check the displayed account name, number and QR.
+</li>
+</ol>
+<p>Replacing a QR and saving the account publishes them together. Upload/save failures do not mean the new QR was published. Archiving a payment method also hides its linked accounts from guest selection. The current online flow accepts GCash only; adding a non-GCash method does not enable a different checkout flow.</p>
+<h2 id="admin-18-change-weekday-and-weekend-package-rates">18. Change weekday and weekend package rates</h2>
+<p><strong>Required role:</strong> Admin.</p>
+<ol>
+<li>Open <strong>Business Catalog → Package rates</strong>.
+</li>
+<li>For <strong>Weekday · Monday–Thursday</strong>, edit the package price and additional-guest charge for Day, Night and Whole Day.
+</li>
+<li>Do the same for <strong>Weekend · Friday–Sunday</strong>.
+</li>
+<li>Review all six package prices and six additional-guest charges.
+</li>
+<li>Select <strong>Save package rates</strong> and wait for success.
+</li>
+<li>Start a new booking preview to verify the current amounts.
+</li>
+</ol>
+<p>Package prices must be positive; additional-guest charges may be zero. Amounts support cents. Times remain fixed, packages include 20 guests and the maximum is 30. The booking start date determines the weekday/weekend tier; automatic holiday overrides are not implemented.</p>
+<p><strong>Expected result:</strong> New bookings use the published prices. Existing bookings retain their booked rate schedule, totals and payment history. If another administrator changes rates while you are editing, use <strong>Reload rates</strong>, check the current schedule and save again.</p>
+<h3 id="admin-restore-original-rates-for-testing">Restore original rates for testing</h3>
+<ol>
+<li>Select <strong>Restore defaults</strong>.
+</li>
+<li>Review the filled-in original rates.
+</li>
+<li>Select <strong>Save package rates</strong> to publish them.
+</li>
+<li>Create a new test booking for payment/receipt testing.
+</li>
+</ol>
+<p>Restore defaults changes the form first; it is not published until saved. It does not undo past bookings or their payments. On a production site, saving defaults also changes prices for new real bookings, so coordinate the change with the owner.</p>
+<h2 id="admin-19-change-website-content-and-booking-policies">19. Change website content and booking policies</h2>
+<p><strong>Required role:</strong> Admin.</p>
+<h3 id="admin-change-the-logo-landing-page-or-about-page">Change the logo, landing page or About page</h3>
+<ol>
+<li>Open <strong>Configuration → Website content</strong>.
+</li>
+<li>Select <strong>Branding</strong>, <strong>Home page</strong> or <strong>About page</strong>.
+</li>
+<li>Edit the relevant logo/image and text fields.
+</li>
+<li>Upload PNG, JPEG or WebP up to 5 MB, or use the supported image URL/path field. Wait for an upload to finish.
+</li>
+<li>Select <strong>Save branding</strong>, <strong>Save home page</strong> or <strong>Save about page</strong> for the section you edited.
+</li>
+<li>Select <strong>Open guest page</strong> to inspect the published result. Reload/focus the guest page if needed.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Saving publishes that section. Uploading an image alone does not publish it. Save each section separately; unsaved edits elsewhere are not published with it.</p>
+<p>Use <strong>Resort information</strong> for the resort name, address, phone/email and social links, then save that category&#x27;s settings. Keep text readable and check logo/image visibility on a phone. If a rates image contains prices, update the image separately when required; changing live package rates does not rewrite text inside an uploaded picture.</p>
+<h3 id="admin-publish-cancellation-and-refund-rules">Publish cancellation and refund rules</h3>
+<ol>
+<li>Open <strong>Configuration → Reservation settings</strong>.
+</li>
+<li>In <strong>Cancellation and refund policy</strong>, review the current version.
+</li>
+<li>Edit the guest cancellation notice hours, cancellation text and refund text.
+</li>
+<li>Choose whether cancellation of a paid booking creates a refund review request. Staff still decide whether a refund is approved.
+</li>
+<li>Select <strong>Publish new version</strong> and check the confirmation.
+</li>
+<li>Use <strong>Previous versions</strong> to inspect retained policies.
+</li>
+</ol>
+<p><strong>Expected result:</strong> New reservations use the new policy. Existing reservations retain the policy attached when booked. Policy text should clearly explain the resort&#x27;s actual process; publishing text does not automatically implement a new payment method, package time or reschedule algorithm.</p>
+<p>Other Configuration categories include ocular, payment and notification settings. Use their field descriptions and save buttons, but see the current limitations below: some general settings are stored preferences and are not wired into every workflow.</p>
+<h2 id="admin-20-manage-staff-accounts-and-permissions">20. Manage staff accounts and permissions</h2>
+<p><strong>Required role:</strong> Admin.</p>
+<h3 id="admin-create-an-account">Create an account</h3>
+<ol>
+<li>Open <strong>Users</strong> and select <strong>Add Staff User</strong>.
+</li>
+<li>Enter <strong>Full Name</strong>, <strong>Email</strong>, <strong>Role</strong> and a <strong>Temporary Password</strong>.
+</li>
+<li>Choose whether the staff member is active.
+</li>
+<li>Select <strong>Create Staff User</strong> and confirm the account appears.
+</li>
+<li>Give the staff member the login instructions and temporary credentials privately. They must complete any email/code/password-change prompts.
+</li>
+</ol>
+<h3 id="admin-update-deactivate-or-reset-access">Update, deactivate or reset access</h3>
+<ol>
+<li>Find the staff account in <strong>Staff Accounts</strong>.
+</li>
+<li>Use <strong>Edit</strong> to change the offered name, email, role or active fields, then <strong>Save Changes</strong>.
+</li>
+<li>Use <strong>Toggle Status</strong> when enabling/disabling account access, and check the resulting status.
+</li>
+<li>Use <strong>Reset Password</strong> to set a temporary password when needed. The staff member changes it on next access when prompted.
+</li>
+</ol>
+<p>Your own admin role cannot be removed through this workflow. Check that the staff member has the appropriate role before sharing access.</p>
+<h3 id="admin-change-role-permissions">Change role permissions</h3>
+<ol>
+<li>Open <strong>Role Permission Matrix</strong> on Users.
+</li>
+<li>Select the required Manager or Cashier permissions.
+</li>
+<li>Grant module access and the specific action permissions needed for the work. For example, refund review and refund payout are separate.
+</li>
+<li>Select <strong>Save manager</strong> or <strong>Save cashier</strong> for the role you changed. Save each role separately.
+</li>
+<li>Ask the staff member to refresh/reopen the relevant module and confirm the permitted actions.
+</li>
+</ol>
+<p><strong>Expected result:</strong> Permissions apply to the role on subsequent requests. Admin keeps full access; Users, Configuration and Business Catalog remain admin-only. Removing all module access can leave a role with no portal pages.</p>
+<h2 id="admin-21-inspect-the-audit-log">21. Inspect the audit log</h2>
+<ol>
+<li>Open <strong>Audit Log</strong>.
+</li>
+<li>Search for the reference, action or actor.
+</li>
+<li>Use <strong>Module</strong> and <strong>Actor / Email</strong> filters to narrow activity.
+</li>
+<li>Select <strong>View Details</strong> on an entry.
+</li>
+<li>Read the actor, affected record, time and change summary. Expand <strong>Technical details</strong> only if needed for support.
+</li>
+</ol>
+<p><strong>Expected result:</strong> You can review recorded guest, staff and system actions, including relevant reservation changes and access attempts. Audit records document actions; they are not payment receipts.</p>
+<p>The visible <strong>Export Log</strong> control currently has no connected download action. Do not rely on it for an export; see the limitations below.</p>
+<h2 id="admin-22-troubleshooting-and-current-screen-limitations">22. Troubleshooting and current screen limitations</h2>
+<h3 id="admin-troubleshooting">Troubleshooting</h3>
+<div class="table-wrap"><table><thead><tr><th scope="col">Problem</th><th scope="col">What to do</th></tr></thead><tbody>
+<tr><td>Module or action missing/forbidden</td><td>Check active account status and Role Permission Matrix; module access and action rights are separate</td></tr>
+<tr><td>Verification email/code not received</td><td>Check Spam/Junk and the staff email; ask the administrator to check email delivery if it persists</td></tr>
+<tr><td>Session replaced</td><td>Sign in on the device to be used; another device accessed the same account</td></tr>
+<tr><td>Reservation is read-only</td><td>Read its lock message; check status, payment/reschedule review, stay end and edit permission</td></tr>
+<tr><td>Reservation changed while editing</td><td>Select Reload reservation and review the current details/bill before saving again</td></tr>
+<tr><td>Date change/save conflicts</td><td>Check other active reservations and maintenance; choose an available schedule</td></tr>
+<tr><td>Approve payment is disabled</td><td>Check payment permission, pending status, loaded proof and the required screenshot acknowledgement</td></tr>
+<tr><td>A payment changed status but email failed</td><td>Refresh status and billing first; do not duplicate the payment decision</td></tr>
+<tr><td>Cash amount is rejected</td><td>Check that it is positive and does not exceed the current outstanding balance</td></tr>
+<tr><td>Refund amount is no longer available</td><td>Inspect the latest bill, payments and completed refunds; review/reject the outdated request as appropriate</td></tr>
+<tr><td>Receipt print window is blocked</td><td>Allow the site&#x27;s print window, then retry Print</td></tr>
+<tr><td>Report/analytics fails to load</td><td>Use Refresh report / Refresh analytics; check access and the displayed error</td></tr>
+<tr><td>Reports differ from ledger summaries</td><td>Check full-date-range vs recent-record scope, gross collections vs net paid amounts, and verification vs submission dates</td></tr>
+<tr><td>Package rates changed while saving</td><td>Reload rates or the booking price preview, review all amounts and save again</td></tr>
+<tr><td>Catalog restore fails</td><td>Restore its required parent item first and check the validation message</td></tr>
+<tr><td>QR or content image upload fails</td><td>Use the supported format/size and retry; contact the administrator if uploads remain unavailable</td></tr>
+</tbody></table></div>
+<p>For technical help, record the module, affected booking/payment reference, action, exact error and approximate time. Include a screenshot when useful. Ask the system administrator to investigate configuration, database or email errors; do not expose passwords, keys or verification codes in a report.</p>
+<h3 id="admin-current-screen-limitations">Current screen limitations</h3>
+<p>These notes describe the current application and prevent users from treating demonstration controls or stored preferences as completed operational actions.</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">Screen or feature</th><th scope="col">Current behavior and working alternative</th></tr></thead><tbody>
+<tr><td>Dashboard metrics/charts</td><td>Summary values/charts are still illustrative. Its reservation table reads records but is limited and should not be treated as a complete future-arrivals list. Use Reservations, Transactions, Reports and Analytics for operational decisions</td></tr>
+<tr><td>Dashboard Export, Refresh and View</td><td>These displayed controls have no connected handlers. Use the corresponding working module controls</td></tr>
+<tr><td>Audit Log → Export Log</td><td>Displayed without a download handler; View Details, search and filters work</td></tr>
+<tr><td>Separate guest <code>/ocular</code> page</td><td>Demonstration success is not a saved visit. Direct guests to Book Now → Ocular Visit and confirm it appears in Manage Booking/Records</td></tr>
+<tr><td>Staff cancellation/completion</td><td>The current calendar/Records UI does not expose dedicated staff Cancel or Complete buttons. Do not infer that editing a reservation changes its lifecycle status; eligible guests have cancellation in Manage Booking. Escalate other cases to the administrator&#x27;s approved operating process</td></tr>
+<tr><td>Some general Configuration settings</td><td>Saving a stored preference does not necessarily change all booking/payment/notification workflows. Use the dedicated package-rate and policy editors for implemented pricing/policy changes; online guest payment remains GCash and package times remain fixed</td></tr>
+<tr><td>Review moderation</td><td>The current portal has no dedicated review-moderation screen. Review submission currently publishes automatically; do not look for an admin review approval button in Records</td></tr>
+<tr><td>Older records</td><td>Historical/manual entries may lack fields found on newer bookings or receipts. Inspect the displayed record and supporting history before acting</td></tr>
+</tbody></table></div>
+<p>Application updates can change these limitations. Recheck this manual when new screens or workflows are deployed.</p></section>
+</main>
+<footer>MarVille Resort Complex · User Manual · Updated 13 October 2026</footer>
+</body>
+</html>
