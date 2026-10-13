@@ -36,6 +36,8 @@ import { createClient } from "@/lib/supabase/client";
 import { PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 import { hasPermission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
+import { useModuleTab } from "@/lib/admin/use-module-tab";
+import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
 
 interface PaymentSnapshotRow {
   payment_id: string;
@@ -161,7 +163,10 @@ const deriveTransactionStatus = (totalAmount: number, paidAmount: number, balanc
 };
 
 export default function AdminTransactionsPage() {
-  const [activeTab, setActiveTab] = useState<(typeof transactionTabs)[number]>("Transaction Ledger");
+  const [activeTab, setActiveTab] = useModuleTab<(typeof transactionTabs)[number]>("Transaction Ledger", {
+    payments: "Payment Verification Queue", refunds: "Refund Requests", ledger: "Transaction Ledger",
+    invoices: "Generated Invoices", receipts: "Issued Receipts", guests: "Guest Report",
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -236,24 +241,26 @@ export default function AdminTransactionsPage() {
         }
 
         const transactionList = (transactionsData as TransactionRow[] | null) ?? [];
-        const reservationIds = [...new Set(transactionList.map((row) => row.reservation_id))];
+        // The review queue must include older submissions outside the recent ledger.
+        const pendingPayments = await fetchAllPages<PaymentSnapshotRow>((from, to) => supabase.from("payments")
+          .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes")
+          .eq("status", "pending").order("created_at").order("payment_id").range(from, to));
+        const reservationIds = [...new Set([...transactionList.map(row => row.reservation_id), ...pendingPayments.map(row => row.reservation_id)])];
+        const recentReservationIds = [...new Set(transactionList.map(row => row.reservation_id))];
 
         const [{ data: reservationsData, error: reservationsError }, { data: invoicesData, error: invoicesError }, { data: paymentsData, error: paymentsError }, { data: receiptsData, error: receiptsError }] =
           await Promise.all([
-            reservationIds.length
-              ? supabase
-                  .from("reservations")
-                  .select("reservation_id, reference_number, booking_type")
-                  .in("reservation_id", reservationIds)
+            fetchByIds<ReservationRow>(reservationIds, (ids, from, to) => supabase.from("reservations")
+              .select("reservation_id, reference_number, booking_type").in("reservation_id", ids)
+              .order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
+            recentReservationIds.length
+              ? supabase.from("invoices").select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", recentReservationIds)
               : Promise.resolve({ data: [], error: null }),
-            reservationIds.length
-              ? supabase.from("invoices").select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", reservationIds)
-              : Promise.resolve({ data: [], error: null }),
-            reservationIds.length
+            recentReservationIds.length
               ? supabase
                   .from("payments")
                   .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes")
-                  .in("reservation_id", reservationIds)
+                  .in("reservation_id", recentReservationIds)
               : Promise.resolve({ data: [], error: null }),
             supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name").order("issued_at", { ascending: false }).limit(200),
           ]);
@@ -281,7 +288,7 @@ export default function AdminTransactionsPage() {
           {}
         );
 
-        const paymentRows = (paymentsData as PaymentSnapshotRow[] | null) ?? [];
+        const paymentRows = [...new Map([...((paymentsData as PaymentSnapshotRow[] | null) ?? []), ...pendingPayments].map(payment => [payment.payment_id, payment])).values()];
         const nextPaymentReferencesById = paymentRows.reduce<Record<string, string>>((accumulator, payment) => {
           accumulator[payment.payment_id] = payment.reference_number;
           return accumulator;
@@ -409,7 +416,7 @@ export default function AdminTransactionsPage() {
       { label: "Collected", value: formatCurrency(collected), trend: `${totalDue > 0 ? ((collected / totalDue) * 100).toFixed(1) : 0}% collected` },
       { label: "Outstanding", value: formatCurrency(outstanding), trend: "Requires follow-up" },
       { label: "Overpaid", value: formatCurrency(overpaid), trend: "Above billed totals" },
-      { label: "Pending Verifications", value: String(pendingVerifications), trend: "Queued records" },
+      { label: "Pending Verifications", value: String(pendingVerifications), trend: "All unresolved payment proofs" },
     ],
     [collected, outstanding, overpaid, pendingVerifications, totalDue]
   );

@@ -75,8 +75,8 @@ const addDaysUtc = (date: Date, amount: number) => new Date(date.getTime() + amo
 const formatTime = (value: string) => new Date(value).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" });
 const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-export default function ReservationCalendar() {
-  const [month, setMonth] = useState(() => new Date());
+export default function ReservationCalendar({ initialReservationId, initialDate, openNew = false }: { initialReservationId?: string; initialDate?: string; openNew?: boolean }) {
+  const [month, setMonth] = useState(() => initialDate ? new Date(`${initialDate}T12:00:00`) : new Date());
   const [refreshKey, setRefreshKey] = useState(0);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [ocularVisits, setOcularVisits] = useState<OcularVisit[]>([]);
@@ -93,10 +93,10 @@ export default function ReservationCalendar() {
   const [walkInGuests, setWalkInGuests] = useState<Record<string, WalkInGuest>>({});
   const [searchTerm, setSearchTerm] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
+  const [isManualBookingOpen, setIsManualBookingOpen] = useState(openNew);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(() => initialReservationId ? { id: initialReservationId, kind: "reservation", date: initialDate ?? "", label: "Reservation details", reservationId: initialReservationId } : null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {

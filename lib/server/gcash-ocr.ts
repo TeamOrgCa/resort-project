@@ -2,7 +2,9 @@
 import { join } from "node:path";
 import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 import { assessGcashText, screenReceiptText, isGcashMethod, type OcrAssessment } from "@/lib/booking/gcash-receipt";
-import { inspectReceiptImage, inspectReceiptReadability } from "@/lib/server/receipt-image-quality";
+import { hasGcashSuccessCheck, inspectReceiptImage, inspectReceiptReadability } from "@/lib/server/receipt-image-quality";
+import { maskedGcashPhoneCrop } from "@/lib/server/gcash-phone-ocr";
+import { retryGcashNumericLines } from "@/lib/server/gcash-readability";
 
 export type ProofInspection = OcrAssessment | { status: "rejected" | "screening_unavailable"; notes: string };
 
@@ -36,7 +38,7 @@ export async function inspectPaymentProof(
       const quality = await inspectReceiptImage(bytes);
       if (!quality.accepted) return { status: "rejected", notes: quality.reason };
     }
-    const { createWorker } = await import("tesseract.js");
+    const { createWorker, PSM } = await import("tesseract.js");
     const worker = await createWorker("eng", 1, {
       // Next bundles Tesseract's default __dirname as C:\ROOT; workers need a real file path.
       workerPath: join(process.cwd(), "node_modules", "tesseract.js", "src", "worker-script", "node", "index.js"),
@@ -44,16 +46,37 @@ export async function inspectPaymentProof(
       gzip: false,
       cacheMethod: "none",
     });
-    const result = await worker.recognize(bytes, {}, { text: true, blocks: true }).finally(() => worker.terminate());
-    if (isGcash) {
-      const readability = inspectReceiptReadability(result.data);
-      if (!readability.accepted) return { status: "rejected", notes: readability.reason };
-    }
-    const screen = screenReceiptText(result.data.text, isGcash);
-    if (!screen.plausible) return { status: "rejected", notes: screen.reason ?? "The uploaded image is not a payment receipt." };
-    return isGcash
-      ? assessGcashText(result.data.text, input)
-      : { status: "not_applicable", notes: "The image has payment details. Cashier must reconcile the transaction in the receiving account." };
+    try {
+      const result = await worker.recognize(bytes, {}, { text: true, blocks: true });
+      let page = result.data;
+      if (isGcash) {
+        if (!inspectReceiptReadability(page, { gcash: true }).accepted) {
+          await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+          page = { ...page, ...await retryGcashNumericLines(bytes, page, worker) };
+        }
+        const readability = inspectReceiptReadability(page, { gcash: true });
+        if (!readability.accepted) return { status: "rejected", notes: readability.reason };
+      }
+      const screen = screenReceiptText(page.text, isGcash);
+      if (!screen.plausible) return { status: "rejected", notes: screen.reason ?? "The uploaded image is not a payment receipt." };
+      if (!isGcash) return { status: "not_applicable", notes: "The image has payment details. Cashier must reconcile the transaction in the receiving account." };
+      const expected = { ...input, successCheckSeen: await hasGcashSuccessCheck(bytes) };
+      const assessment = assessGcashText(page.text, expected);
+      if (assessment.notes.includes("resort recipient could not be matched")) {
+        const crop = await maskedGcashPhoneCrop(bytes, page);
+        if (crop) {
+          await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+          const prefix = await worker.recognize(crop.prefix, {}, { text: true, blocks: true });
+          const suffix = await worker.recognize(crop.suffix, {}, { text: true, blocks: true });
+          const start = prefix.data.text.trim(), end = suffix.data.text.trim();
+          if (inspectReceiptReadability(prefix.data).accepted && inspectReceiptReadability(suffix.data).accepted && /^\+?63\s*\d[\d\s]*$/.test(start) && /^\d[\d\s]*$/.test(end)) {
+            const phone = `${start}${"*".repeat(crop.maskCount)}${end}`;
+            return assessGcashText(page.text.replace(crop.originalLine, phone), expected);
+          }
+        }
+      }
+      return assessment;
+    } finally { await worker.terminate(); }
   } catch (error) {
     console.error("[payment proof] OCR screening failed", error);
     return { status: "screening_unavailable", notes: "Receipt screening is temporarily unavailable. Please try again later." };

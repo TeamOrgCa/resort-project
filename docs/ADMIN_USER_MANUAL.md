@@ -57,7 +57,7 @@ Managers are displayed as Manager in the permission editor; some older role cont
 
 | Sidebar module | Main use | Path |
 | --- | --- | --- |
-| Dashboard | Landing page and reservation listing; see current limitations before using its summary cards | `/admin` |
+| Dashboard | Live arrivals, verified collections, booking charts and unresolved review queues | `/admin` |
 | Reservations | Calendar, manual reservations, reservation editor and maintenance blocks | `/admin/reservations` |
 | Records | Reservation records, reschedule requests and ocular approvals | `/admin/records` |
 | Transactions | Ledger, payment verification, refunds, invoices, receipts and guest reports | `/admin/transactions` |
@@ -74,13 +74,30 @@ In tables, use search, available dropdown filters and sortable column headings t
 
 At the start of a shift:
 
-1. Open **Reservations** and review the current calendar period, arrivals and maintenance blocks.
+1. Open **Dashboard** for today's arrivals, verified collections and unresolved requests. Open **Reservations** to review the calendar and maintenance blocks.
 2. Open **Transactions → Payment Verification Queue** and reconcile pending proofs with the resort's receiving account.
 3. Open **Records → Reschedule Requests** and **Ocular Visit Records** for pending decisions.
 4. Open **Transactions → Refund Requests** for requests awaiting review or payout.
 5. Check balances for arriving guests and record money received through the correct payment workflow.
 
 During a stay, record added services through the reservation editor and check the resulting payable amount. Before leaving, use **Reports** for date-based collection/activity totals, inspect unresolved items and sign out.
+
+### Read and use the live dashboard
+
+The dashboard reads saved records and refreshes every minute while the page is visible, when you return to the window, and when you select **Refresh dashboard** or the arrivals table's **Refresh**. The last successful update is displayed in Philippine time. A failed refresh shows an error and identifies the older data; do not treat it as a successful update.
+
+- **Arrivals today:** Active reservations starting on today's Philippine calendar date, including payment holds that are still valid.
+- **Scheduled now:** Confirmed/reschedule-requested bookings within their scheduled stay times. This is a schedule count, not evidence that the guests have checked in.
+- **Collections today:** Verified payments dated today, before refunds. Verification date is used; older records without it use creation date.
+- **Bookings created:** All reservations created in the last seven days, including today and cancelled/expired bookings.
+
+**Needs attention** shows all unresolved payment proofs, reschedules, ocular requests, refund reviews and approved refunds awaiting payout, including older requests. Select a queue card to open the corresponding tab in Transactions or Records. Links only appear for modules your role can access; permission to view a queue does not grant permission to approve its records.
+
+The **Last 7 days** charts show verified collections and the current recorded status/source of bookings created during those dates. Use **Booking status**/**Booking source** to change the breakdown, and each **View** dropdown to select a line graph, bar chart, pie chart or progress bars. Staff entry includes phone, Messenger and walk-in reservations.
+
+In **Arrivals & stays**, select **Today**, **Next 7 days**, **Next 30 days** or **Scheduled now**. Arrival periods include today. Closed reservations and expired payment holds are excluded. Search by guest/reference, filter status/source, sort columns and use the paging controls. **Export CSV** downloads all matching rows across pages. Table filters do not change the cards or charts. Export is disabled when there are no matching rows, while refreshing, or after a failed refresh.
+
+Select a row's **View** to open that reservation directly in the calendar editor. **+ New reservation** opens the staff booking dialog when your account has both View reservations and Add reservation permissions. The calendar, Reports and Analytics shortcuts open their respective modules. Use the calendar for reservations beyond the next 30 days.
 
 ## 4. Find a reservation in the calendar
 
@@ -203,7 +220,7 @@ To reopen the dates, select the maintenance event, choose **Release block** and 
 | Invoice | A billing document showing the reservation charges |
 | Receipt | A record of a particular payment received |
 
-The transaction summary and ledger use the latest **200 loaded ledger records**, not all historical transactions. The receipt list also has a recent-record limit. Use date-based Reports for full-period collection totals. Ledger/document CSV exports include the matching rows loaded in that module and follow its table filters.
+The financial summary and ledger use the latest **200 loaded ledger records**, not all historical transactions. The receipt list also has a recent-record limit. **Pending Verifications** and the payment queue additionally include all unresolved payment proofs, even when their reservations are outside the recent ledger. Refund Requests and Records load all available records with paging/batched lookups. Use date-based Reports for full-period collection totals. Ledger/document CSV exports include the matching rows loaded in that module and follow its table filters.
 
 ## 11. Verify a guest GCash payment
 
@@ -531,8 +548,6 @@ These notes describe the current application and prevent users from treating dem
 
 | Screen or feature | Current behavior and working alternative |
 | --- | --- |
-| Dashboard metrics/charts | Summary values/charts are still illustrative. Its reservation table reads records but is limited and should not be treated as a complete future-arrivals list. Use Reservations, Transactions, Reports and Analytics for operational decisions |
-| Dashboard Export, Refresh and View | These displayed controls have no connected handlers. Use the corresponding working module controls |
 | Audit Log → Export Log | Displayed without a download handler; View Details, search and filters work |
 | Separate guest `/ocular` page | Demonstration success is not a saved visit. Direct guests to Book Now → Ocular Visit and confirm it appears in Manage Booking/Records |
 | Staff cancellation/completion | The current calendar/Records UI does not expose dedicated staff Cancel or Complete buttons. Do not infer that editing a reservation changes its lifecycle status; eligible guests have cancellation in Manage Booking. Escalate other cases to the administrator's approved operating process |
