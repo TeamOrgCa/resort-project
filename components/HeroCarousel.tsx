@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 const slides = [
   {
     src: "/resort-images/resort_img2.jpg",
-    alt: "Elegant resort lounge",
+    alt: "MarVille swimming pool lit up in the evening",
     eyebrow: "Welcome to MarVille",
     title: "A brighter way to arrive",
     description:
@@ -22,7 +22,7 @@ const slides = [
 //   },
   {
     src: "/resort-images/resort_img8.jpg",
-    alt: "Relaxing resort space",
+    alt: "MarVille poolside decorated for a celebration",
     eyebrow: "Relax and Unwind",
     title: "Spaces designed to slow time down",
     description:
@@ -30,7 +30,7 @@ const slides = [
   },
   {
     src: "/resort-images/resort_img11.jpg",
-    alt: "Poolside resort view",
+    alt: "MarVille swimming pool and cottages in the daytime",
     eyebrow: "Poolside Escape",
     title: "Sunlit moments by the water",
     description:
