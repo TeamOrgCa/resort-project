@@ -2,6 +2,7 @@ import { SiteText, SiteImage, SiteContact, SiteSocialLink } from "@/components/c
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import ResortRates from "@/components/content/ResortRates";
 
 export default function About() {
   return (
@@ -19,7 +20,7 @@ export default function About() {
         />
         <div className="absolute inset-0 bg-neutral/40"></div>
         <div className="relative z-10 text-center px-4">
-          <h1 className="text-6xl font-bold text-base mb-4"><SiteText contentKey="content.about.about_us" /></h1>
+          <h1 className="text-4xl sm:text-6xl font-bold text-base mb-4"><SiteText contentKey="content.about.about_us" /></h1>
           <p className="text-xl text-base/90"><SiteText contentKey="content.about.discover_the_story_behind_paradise" /></p>
         </div>
       </section>
@@ -27,7 +28,7 @@ export default function About() {
       {/* History Section */}
       <section className="py-20 px-4 bg-base">
         <div className="max-w-6xl mx-auto">
-          <div className="grid md:grid-cols-2 gap-12 items-center mb-20">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
             <div>
               <h2 className="text-4xl font-bold text-neutral mb-6"><SiteText contentKey="content.about.our_story" /></h2>
               <p className="text-lg text-neutral/80 mb-4"><SiteText contentKey="content.about.since_1995_marville_resort_has_been_a_beacon_" /></p>
@@ -45,6 +46,8 @@ export default function About() {
           </div>
         </div>
       </section>
+
+      <ResortRates />
 
       {/* Location Section */}
       <section className="py-20 px-4 bg-neutral/5">
@@ -132,7 +135,7 @@ export default function About() {
               </div>
               <h3 className="text-xl font-bold text-neutral mb-2"><SiteText contentKey="content.about.live_chat" /></h3>
               <p className="text-neutral/70 mb-2"><SiteText contentKey="content.about.chat_with_our_team" /></p>
-              <p className="text-accent font-semibold"><SiteText contentKey="content.about.start_chat" /></p>
+              <SiteSocialLink platform="facebook" target="_blank" rel="noopener noreferrer" className="text-secondary font-semibold underline underline-offset-4"><SiteText contentKey="content.about.start_chat" /></SiteSocialLink>
             </div>
           </div>
         </div>

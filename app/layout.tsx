@@ -13,7 +13,7 @@ const montserrat = Montserrat({
 
 export const metadata: Metadata = {
   title: "MarVille Resort Complex - Where the Sun Never Sets",
-  description: "Experience paradise at MarVille Resort Complex. Luxury accommodations, world-class amenities, and unforgettable memories await.",
+  description: "Plan a pool day, family celebration or barkada outing at MarVille Resort Complex in Taytay, Rizal. Explore day, night and whole-day private swimming packages.",
 };
 
 export const viewport: Viewport = {

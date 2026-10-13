@@ -5,6 +5,13 @@ import Footer from "@/components/Footer";
 import ChatBotMars from "@/components/ChatBotMars";
 import HeroCarousel from "@/components/HeroCarousel";
 
+const experiences = [
+  { image: "content.home.experience_day_image", title: "content.home.sunset_sailing", description: "content.home.private_yacht_tours_along_the_coast", alt: "MarVille swimming pool and cottages in the daytime" },
+  { image: "content.home.experience_celebration_image", title: "content.home.culinary_journey", description: "content.home.chef_led_cooking_classes_and_tastings", alt: "MarVille poolside decorated for a celebration" },
+  { image: "content.home.experience_gathering_image", title: "content.home.island_adventures", description: "content.home.guided_tours_and_eco_experiences", alt: "Poolside gathering spaces at MarVille Resort" },
+  { image: "content.home.experience_night_image", title: "content.home.wellness_retreats", description: "content.home.yoga_meditation_and_mindfulness", alt: "MarVille swimming pool in the evening" },
+];
+
 export default function Home() {
   return (
     <div className="min-h-screen bg-base">
@@ -18,10 +25,10 @@ export default function Home() {
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-2 gap-12 items-center">
             <div>
-              <h2 className="text-5xl font-bold text-neutral mb-6"><SiteText contentKey="content.home.your_paradise_awaits" /></h2>
+              <h2 className="text-3xl sm:text-5xl font-bold text-neutral mb-6"><SiteText contentKey="content.home.your_paradise_awaits" /></h2>
               <p className="text-lg text-neutral/80 mb-6"><SiteText contentKey="content.home.nestled_along_pristine_golden_shores_our_reso" /></p>
               <p className="text-lg text-neutral/80 mb-8"><SiteText contentKey="content.home.from_sunrise_to_sunset_and_beyond_immerse_you" /></p>
-              <div className="flex gap-6">
+              <div className="grid grid-cols-3 gap-3 rounded-2xl border border-neutral/10 bg-white/60 p-4 sm:gap-6 sm:p-6">
                 <div className="text-center">
                   <div className="text-4xl font-bold text-primary mb-2"><SiteText contentKey="content.home.250" /></div>
                   <div className="text-sm text-neutral/70"><SiteText contentKey="content.home.luxury_rooms" /></div>
@@ -52,7 +59,7 @@ export default function Home() {
       <section id="amenities" className="py-24 px-4 bg-neutral/5">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-5xl font-bold text-neutral mb-4"><SiteText contentKey="content.home.world_class_amenities" /></h2>
+            <h2 className="text-3xl sm:text-5xl font-bold text-neutral mb-4"><SiteText contentKey="content.home.world_class_amenities" /></h2>
             <p className="text-xl text-neutral/70"><SiteText contentKey="content.home.everything_you_need_for_an_unforgettable_stay" /></p>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
@@ -69,7 +76,7 @@ export default function Home() {
             <div className="bg-base p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
               <div className="w-16 h-16 bg-secondary/20 rounded-2xl flex items-center justify-center mb-6">
                 <svg className="w-8 h-8 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17c3-3 6 3 9 0s6 3 9 0M3 21c3-3 6 3 9 0s6 3 9 0M6 14V5a2 2 0 014 0m-4 3h8m0 6V5a2 2 0 014 0" />
                 </svg>
               </div>
               <h3 className="text-2xl font-bold text-neutral mb-3"><SiteText contentKey="content.home.spa_wellness" /></h3>
@@ -89,7 +96,7 @@ export default function Home() {
             <div className="bg-base p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
               <div className="w-16 h-16 bg-highlight/20 rounded-2xl flex items-center justify-center mb-6">
                 <svg className="w-8 h-8 text-highlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3zm-6-4v1a6 6 0 0012 0v-1m-6 7v4m-3 0h6" />
                 </svg>
               </div>
               <h3 className="text-2xl font-bold text-neutral mb-3"><SiteText contentKey="content.home.beach_activities" /></h3>
@@ -109,7 +116,7 @@ export default function Home() {
             <div className="bg-base p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
               <div className="w-16 h-16 bg-secondary/20 rounded-2xl flex items-center justify-center mb-6">
                 <svg className="w-8 h-8 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 17H5a2 2 0 01-2-2v-4l3-6h12l3 6v4a2 2 0 01-2 2h-1M6 17v2m12-2v2M6 17h12M4 11h16M7 14h.01M17 14h.01" />
                 </svg>
               </div>
               <h3 className="text-2xl font-bold text-neutral mb-3"><SiteText contentKey="content.home.24_7_concierge" /></h3>
@@ -123,38 +130,20 @@ export default function Home() {
       <section id="experiences" className="py-24 px-4 bg-base">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-5xl font-bold text-neutral mb-4"><SiteText contentKey="content.home.unforgettable_experiences" /></h2>
+            <h2 className="text-3xl sm:text-5xl font-bold text-neutral mb-4"><SiteText contentKey="content.home.unforgettable_experiences" /></h2>
             <p className="text-xl text-neutral/70"><SiteText contentKey="content.home.create_moments_that_last_forever" /></p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="relative h-80 bg-linear-to-br from-primary/30 to-highlight/30 rounded-3xl overflow-hidden group cursor-pointer">
-              <div className="absolute inset-0 bg-neutral/20 group-hover:bg-neutral/10 transition-colors"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-neutral/90 to-transparent">
-                <h3 className="text-3xl font-bold text-base mb-2"><SiteText contentKey="content.home.sunset_sailing" /></h3>
-                <p className="text-base/90"><SiteText contentKey="content.home.private_yacht_tours_along_the_coast" /></p>
-              </div>
-            </div>
-            <div className="relative h-80 bg-linear-to-br from-secondary/30 to-accent/30 rounded-3xl overflow-hidden group cursor-pointer">
-              <div className="absolute inset-0 bg-neutral/20 group-hover:bg-neutral/10 transition-colors"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-neutral/90 to-transparent">
-                <h3 className="text-3xl font-bold text-base mb-2"><SiteText contentKey="content.home.culinary_journey" /></h3>
-                <p className="text-base/90"><SiteText contentKey="content.home.chef_led_cooking_classes_and_tastings" /></p>
-              </div>
-            </div>
-            <div className="relative h-80 bg-linear-to-br from-accent/30 to-secondary/30 rounded-3xl overflow-hidden group cursor-pointer">
-              <div className="absolute inset-0 bg-neutral/20 group-hover:bg-neutral/10 transition-colors"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-neutral/90 to-transparent">
-                <h3 className="text-3xl font-bold text-base mb-2"><SiteText contentKey="content.home.island_adventures" /></h3>
-                <p className="text-base/90"><SiteText contentKey="content.home.guided_tours_and_eco_experiences" /></p>
-              </div>
-            </div>
-            <div className="relative h-80 bg-linear-to-br from-highlight/30 to-primary/30 rounded-3xl overflow-hidden group cursor-pointer">
-              <div className="absolute inset-0 bg-neutral/20 group-hover:bg-neutral/10 transition-colors"></div>
-              <div className="absolute bottom-0 left-0 right-0 p-8 bg-linear-to-t from-neutral/90 to-transparent">
-                <h3 className="text-3xl font-bold text-base mb-2"><SiteText contentKey="content.home.wellness_retreats" /></h3>
-                <p className="text-base/90"><SiteText contentKey="content.home.yoga_meditation_and_mindfulness" /></p>
-              </div>
-            </div>
+            {experiences.map(experience => (
+              <article key={experience.image} className="relative h-80 overflow-hidden rounded-3xl">
+                <SiteImage contentKey={experience.image} alt={experience.alt} fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
+                <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
+                  <h3 className="mb-2 text-2xl font-bold text-white sm:text-3xl"><SiteText contentKey={experience.title} /></h3>
+                  <p className="text-white/90"><SiteText contentKey={experience.description} /></p>
+                </div>
+              </article>
+            ))}
           </div>
         </div>
       </section>
@@ -162,7 +151,7 @@ export default function Home() {
       {/* CTA Section */}
       <section className="py-24 px-4 bg-linear-to-r from-primary to-primary/80">
         <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-5xl font-bold text-base mb-6"><SiteText contentKey="content.home.ready_for_your_escape" /></h2>
+          <h2 className="text-3xl sm:text-5xl font-bold text-base mb-6"><SiteText contentKey="content.home.ready_for_your_escape" /></h2>
           <p className="text-xl text-base/90 mb-10"><SiteText contentKey="content.home.book_your_dream_vacation_today_and_experience" /></p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/booking">
