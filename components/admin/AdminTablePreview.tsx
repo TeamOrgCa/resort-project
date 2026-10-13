@@ -18,8 +18,10 @@ interface AdminTablePreviewProps {
   defaultSort?: AdminTableSort;
   sortable?: boolean;
   actions?: string[];
-  onAction?: (action: string) => void | Promise<void>;
-  isActionDisabled?: (action: string) => boolean;
+  onAction?: (action: string, rows: AdminTableRow[]) => void | Promise<void>;
+  isActionDisabled?: (action: string, rows: AdminTableRow[]) => boolean;
+  pageSize?: number;
+  showResetFilters?: boolean;
   rowActions?: string[];
   getRowActionLabel?: (action: string, row: AdminTableRow) => string;
   onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
@@ -60,6 +62,8 @@ export default function AdminTablePreview({
   actions = [],
   onAction,
   isActionDisabled,
+  pageSize,
+  showResetFilters = false,
   rowActions = [],
   getRowActionLabel,
   onRowAction,
@@ -73,6 +77,7 @@ export default function AdminTablePreview({
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [sortState, setSortState] = useState<AdminTableSort | null>(defaultSort ?? null);
   const [internalSelectedRowIds, setInternalSelectedRowIds] = useState<string[]>([]);
+  const [page, setPage] = useState(0);
 
   const resolvedSelectedRowIds = selectedRowIds ?? internalSelectedRowIds;
 
@@ -130,18 +135,29 @@ export default function AdminTablePreview({
     }
 
     return [...filteredRows].sort((left, right) => {
-      const leftValue = left[sortState.key] ?? "";
-      const rightValue = right[sortState.key] ?? "";
-      const compared = compareValues(leftValue, rightValue);
+      const column = columns.find(column => column.key === sortState.key);
+      const key = column?.sortKey ?? sortState.key;
+      const leftValue = left[key] ?? "", rightValue = right[key] ?? "";
+      const compared = column?.sortType === "number"
+        ? (Number(leftValue.replace(/[^\d.-]/g, "")) || 0) - (Number(rightValue.replace(/[^\d.-]/g, "")) || 0)
+        : column?.sortType === "text" ? leftValue.localeCompare(rightValue, undefined, { sensitivity: "base", numeric: true })
+        : column?.sortType === "date" ? (Date.parse(leftValue) || 0) - (Date.parse(rightValue) || 0)
+        : compareValues(leftValue, rightValue);
 
       return sortState.direction === "asc" ? compared : -compared;
     });
-  }, [filteredRows, sortState]);
+  }, [columns, filteredRows, sortState]);
+
+  const size = pageSize && pageSize > 0 ? pageSize : Math.max(sortedRows.length, 1);
+  const pages = Math.max(1, Math.ceil(sortedRows.length / size));
+  const currentPage = Math.min(page, pages - 1);
+  const displayedRows = sortedRows.slice(currentPage * size, (currentPage + 1) * size);
 
   const handleSort = (key: string) => {
     if (!sortable) {
       return;
     }
+    setPage(0);
 
     setSortState((current) => {
       if (!current || current.key !== key) {
@@ -167,8 +183,8 @@ export default function AdminTablePreview({
               <button
                 key={action}
                 type="button"
-                onClick={() => onAction?.(action)}
-                disabled={isActionDisabled?.(action)}
+                onClick={() => onAction?.(action, sortedRows)}
+                disabled={isActionDisabled?.(action, sortedRows)}
                 className="rounded-lg border border-neutral/20 px-3 py-2 text-xs font-semibold text-neutral transition-colors hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
               >
                 {action}
@@ -183,8 +199,9 @@ export default function AdminTablePreview({
           {enableSearch ? (
             <input
               value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              onChange={(event) => { setSearchTerm(event.target.value); setPage(0); }}
               placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
               className="w-full min-w-0 flex-1 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none sm:min-w-55"
             />
           ) : null}
@@ -194,12 +211,13 @@ export default function AdminTablePreview({
               <span>{filter.label}</span>
               <select
                 value={activeFilters[filter.key] ?? "all"}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setPage(0);
                   setActiveFilters((current) => ({
                     ...current,
                     [filter.key]: event.target.value,
-                  }))
-                }
+                  }));
+                }}
                 className="w-40 rounded-lg border border-neutral/20 bg-white px-2 py-2 text-xs text-neutral sm:w-auto"
               >
                 <option value="all">All</option>
@@ -211,6 +229,7 @@ export default function AdminTablePreview({
               </select>
             </label>
           ))}
+          {showResetFilters && <button type="button" onClick={() => { setSearchTerm(""); setActiveFilters({}); setSortState(defaultSort ?? null); setPage(0); }} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral hover:bg-neutral/5">Clear table filters</button>}
         </div>
       )}
 
@@ -242,7 +261,7 @@ export default function AdminTablePreview({
             </tr>
           </thead>
           <tbody>
-            {sortedRows.map((row) => (
+            {displayedRows.map((row) => (
               <tr key={row.id} className="border-b border-neutral/10 last:border-none">
                 {selectableRows ? (
                   <td className="px-3 py-3 text-neutral/90">
@@ -295,6 +314,16 @@ export default function AdminTablePreview({
           </tbody>
         </table>
       </div>
+      {pageSize && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral/70">
+        <p>{sortedRows.length ? `Showing ${currentPage * size + 1}–${Math.min((currentPage + 1) * size, sortedRows.length)} of ${sortedRows.length} matching records` : "0 matching records"}</p>
+        <div className="flex items-center gap-2">
+          <button type="button" aria-label="First page" disabled={currentPage === 0} onClick={() => setPage(0)} className="rounded-lg border border-neutral/20 px-3 py-2 disabled:opacity-40">First</button>
+          <button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} className="rounded-lg border border-neutral/20 px-3 py-2 disabled:opacity-40">Previous</button>
+          <span>Page {currentPage + 1} of {pages}</span>
+          <button type="button" disabled={currentPage >= pages - 1} onClick={() => setPage(currentPage + 1)} className="rounded-lg border border-neutral/20 px-3 py-2 disabled:opacity-40">Next</button>
+          <button type="button" aria-label="Last page" disabled={currentPage >= pages - 1} onClick={() => setPage(pages - 1)} className="rounded-lg border border-neutral/20 px-3 py-2 disabled:opacity-40">Last</button>
+        </div>
+      </div>}
     </section>
   );
 }

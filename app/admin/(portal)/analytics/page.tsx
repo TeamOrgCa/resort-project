@@ -1,202 +1,136 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
-import type { AdminTableColumn, AdminTableRow, AdminTableSort } from "@/components/admin/types";
-import ReportPeriodFilter, { defaultReportDateRange, type ReportDateRange, type ReportPeriod } from "@/components/admin/ReportPeriodFilter";
+import ReportChart, { type ChartType } from "@/components/admin/ReportChart";
+import ReportPeriodFilter, { defaultReportDateRange } from "@/components/admin/ReportPeriodFilter";
+import ReportPrintDocument, { type ReportPrintSnapshot } from "@/components/admin/ReportPrintDocument";
+import { contentText, useSiteContent } from "@/components/content/SiteContent";
+import { downloadReportCsv } from "@/lib/reports/export";
+import type { AnalyticsReport, AnalyticsReports, SentimentData } from "@/lib/reports/analytics-types";
+import type { ReportDateRange, ReportPeriod, ReportRow } from "@/lib/reports/types";
+import type { AdminTableColumn, AdminTableSort } from "@/components/admin/types";
 
-type AnalyticsTab = "Booking Trend Analysis" | "Revenue Forecasting" | "Performance Signals" | "Guest Feedback Sentiment";
-type PeriodFilter = ReportPeriod;
-
-type ChartData = { trend: { label: string; value: number }[]; split: { label: string; value: number }[]; rows: AdminTableRow[] };
-type SentimentData = { overallSentiment: string; positivePercent: number; neutralPercent: number; negativePercent: number; themes: string[]; summary: string };
-
-interface AnalyticsResponse {
-  success?: boolean;
-  message?: string;
-  reports?: { booking: ChartData; revenue: ChartData; performance: ChartData };
-}
-
-interface ActionResponse {
-  success?: boolean;
-  message?: string;
-  report?: ChartData;
-  sentiment?: SentimentData;
-}
-
-interface AnalyticsTableConfig {
-  columns: AdminTableColumn[];
-  defaultSort: AdminTableSort;
-}
-
-const analyticsTabs: { title: AnalyticsTab; description: string }[] = [
-  { title: "Booking Trend Analysis", description: "Live booking volume and channel mix from reservation records." },
-  { title: "Revenue Forecasting", description: "A transparent projection based on verified payment history." },
-  { title: "Performance Signals", description: "Operational indicators from payment queues and staff activity." },
-  { title: "Guest Feedback Sentiment", description: "Gemini analysis of approved guest reviews and feedback themes." },
+type Tab = "Bookings" | "Collection forecast" | "Operations" | "Guest feedback";
+const tabs: { title: Tab; description: string }[] = [
+  { title: "Bookings", description: "See how many reservations were created and where those bookings came from." },
+  { title: "Collection forecast", description: "Compare actual verified collections with a simple estimate based on your historical daily average." },
+  { title: "Operations", description: "Check payment submissions awaiting review and recorded system activity within these dates." },
+  { title: "Guest feedback", description: "Analyze the latest 100 approved reviews created within these dates. AI-generated feedback summaries should be checked against the reviews." },
 ];
-
-const tableConfigs: Record<AnalyticsTab, AnalyticsTableConfig> = {
-  "Booking Trend Analysis": { columns: [{ key: "periodLabel", label: "Period" }, { key: "bookings", label: "Bookings" }, { key: "channel", label: "Channel" }], defaultSort: { key: "bookings", direction: "desc" } },
-  "Revenue Forecasting": { columns: [{ key: "periodLabel", label: "Forecast Window" }, { key: "projectedBookings", label: "Projected Bookings" }, { key: "projectedRevenue", label: "Projected Revenue" }, { key: "confidence", label: "Confidence" }], defaultSort: { key: "projectedRevenue", direction: "desc" } },
-  "Performance Signals": { columns: [{ key: "signal", label: "Signal" }, { key: "value", label: "Current Value" }, { key: "threshold", label: "Threshold" }, { key: "severity", label: "Severity" }], defaultSort: { key: "severity", direction: "desc" } },
-  "Guest Feedback Sentiment": { columns: [{ key: "metric", label: "Metric" }, { key: "value", label: "Value" }], defaultSort: { key: "metric", direction: "asc" } },
+const tableConfigs: Record<Tab, { columns: AdminTableColumn[]; sort: AdminTableSort }> = {
+  Bookings: { columns: [{ key: "periodLabel", label: "Booking dates (PH)", sortType: "date", sortKey: "periodStart" }, { key: "bookings", label: "Reservations created", sortType: "number" }], sort: { key: "periodLabel", direction: "asc" } },
+  "Collection forecast": { columns: [{ key: "periodLabel", label: "Forecast dates (PH)", sortType: "text" }, { key: "projectedBookings", label: "Estimated new reservations", sortType: "number" }, { key: "projectedRevenue", label: "Estimated collections", sortType: "number" }, { key: "evidence", label: "Source history", sortType: "text" }, { key: "method", label: "Calculation method", sortType: "text" }], sort: { key: "projectedRevenue", direction: "desc" } },
+  Operations: { columns: [{ key: "signal", label: "Task", sortType: "text" }, { key: "value", label: "Count", sortType: "number" }, { key: "meaning", label: "What this means / next step", sortType: "text" }], sort: { key: "signal", direction: "asc" } },
+  "Guest feedback": { columns: [{ key: "metric", label: "Feedback measure", sortType: "text" }, { key: "value", label: "Result", sortType: "text" }], sort: { key: "metric", direction: "asc" } },
 };
-
-const emptyChart: ChartData = { trend: [], split: [], rows: [] };
-const emptySentiment: SentimentData = { overallSentiment: "Not analyzed", positivePercent: 0, neutralPercent: 0, negativePercent: 0, themes: [], summary: "Run sentiment analysis to evaluate approved guest feedback." };
-
-/** Requests the live analytics snapshot for the selected time window. */
-const fetchAnalytics = async (period: PeriodFilter, range: ReportDateRange) => {
-  const params = new URLSearchParams({ period });
-  if (period === "Custom") { params.set("startDate", range.startDate); params.set("endDate", range.endDate); }
-  const response = await fetch(`/api/admin/analytics?${params}`, { cache: "no-store" });
-  const payload = (await response.json().catch(() => null)) as AnalyticsResponse | null;
-  if (!response.ok || !payload?.success || !payload.reports) throw new Error(payload?.message ?? "Failed to load analytics.");
-  return payload.reports;
-};
-
-/** Converts the visible table into a portable CSV download. */
-const exportRows = (tab: AnalyticsTab, rows: AdminTableRow[], columns: AdminTableColumn[]) => {
-  const escapeCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
-  const csv = [columns.map((column) => escapeCell(column.label)).join(","), ...rows.map((row) => columns.map((column) => escapeCell(row[column.key] ?? "")).join(","))].join("\n");
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-  link.download = `${tab.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-summary.csv`;
-  link.click();
-  URL.revokeObjectURL(link.href);
-};
-
-/** Builds a print-friendly report so the browser can save the current view as a PDF. */
-const exportPdf = (
-  tab: AnalyticsTab,
-  period: string,
-  rows: AdminTableRow[],
-  columns: AdminTableColumn[],
-  sentiment: SentimentData
-) => {
-  const escapeHtml = (value: string) =>
-    value.replace(/[&<>'"]/g, (character) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      "'": "&#39;",
-      '"': "&quot;",
-    })[character] ?? character);
-  const title = escapeHtml(`${tab} - ${period}`);
-  const tableHeader = columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
-  const tableBody = rows.map((row) => `<tr>${columns.map((column) => `<td>${escapeHtml(row[column.key] ?? "-")}</td>`).join("")}</tr>`).join("");
-  const sentimentSummary = tab === "Guest Feedback Sentiment"
-    ? `<section><h2>Sentiment Summary</h2><p><strong>Overall:</strong> ${escapeHtml(sentiment.overallSentiment)}</p><p>${escapeHtml(sentiment.summary)}</p><p><strong>Themes:</strong> ${escapeHtml(sentiment.themes.join(", ") || "None identified")}</p></section>`
-    : "";
-  const printWindow = window.open("", "_blank", "width=900,height=700");
-
-  if (!printWindow) {
-    throw new Error("Allow pop-ups to export the report as a PDF.");
-  }
-
-  printWindow.document.write(`<!doctype html><html><head><title>${title}</title><style>
-    body { font-family: Arial, sans-serif; color: #20242b; margin: 40px; }
-    h1 { margin-bottom: 4px; } .meta { color: #606873; margin-bottom: 28px; }
-    section { margin: 22px 0; } table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #d7dbe0; padding: 9px; text-align: left; }
-    th { background: #f1f3f5; } @media print { body { margin: 18mm; } }
-  </style></head><body><h1>${title}</h1><p class="meta">MarVille Resort Complex | Generated ${escapeHtml(new Date().toLocaleString("en-PH"))}</p>${sentimentSummary}<section><h2>Data Summary</h2><table><thead><tr>${tableHeader}</tr></thead><tbody>${tableBody || `<tr><td colspan="${columns.length}">No records found.</td></tr>`}</tbody></table></section></body></html>`);
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.addEventListener("load", () => printWindow.print(), { once: true });
-};
-
-const formatValue = (value: number) => `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
-
+const money = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" });
 export default function AdminAnalyticsPage() {
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>("Booking Trend Analysis");
-  const [period, setPeriod] = useState<PeriodFilter>("Daily");
+  const [activeTab, setActiveTab] = useState<Tab>("Bookings");
+  const [period, setPeriod] = useState<ReportPeriod>("Daily");
   const [customRange, setCustomRange] = useState<ReportDateRange>(defaultReportDateRange);
-  const [reports, setReports] = useState<{ booking: ChartData; revenue: ChartData; performance: ChartData }>({ booking: emptyChart, revenue: emptyChart, performance: emptyChart });
-  const [sentiment, setSentiment] = useState<SentimentData>(emptySentiment);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isActionRunning, setIsActionRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [generation, setGeneration] = useState(0);
+  const [result, setResult] = useState<{ key: string; reports: AnalyticsReports } | null>(null);
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ key: string; data: SentimentData } | null>(null);
+  const [actionFailure, setActionFailure] = useState<{ key: string; message: string } | null>(null);
+  const [running, setRunning] = useState<{ key: string; controller: AbortController } | null>(null);
+  const [printSnapshot, setPrintSnapshot] = useState<ReportPrintSnapshot | null>(null);
+  const [trendType, setTrendType] = useState<ChartType>("line");
+  const [splitType, setSplitType] = useState<ChartType>("pie");
+  const feedbackController = useRef<AbortController | null>(null);
+  const content = useSiteContent();
+  const params = new URLSearchParams({ period });
+  if (period === "Custom") { params.set("startDate", customRange.startDate); params.set("endDate", customRange.endDate); }
+  const query = params.toString(), key = `${query}:${generation}`;
+  const reports = result?.key === key ? result.reports : null;
+  const error = failure?.key === key ? failure.message : null;
+  const actionError = actionFailure?.key === key ? actionFailure.message : null;
+  const sentiment = feedback?.key === key ? feedback.data : null;
+  const loading = !reports && !error;
+  const analyzing = running?.key === key && !running.controller.signal.aborted;
 
   useEffect(() => {
-    let mounted = true;
-    setIsLoading(true);
-    setError(null);
-    setSentiment(emptySentiment);
-    void fetchAnalytics(period, customRange)
-      .then((nextReports) => { if (mounted) setReports(nextReports); })
-      .catch((loadError: unknown) => { if (mounted) setError(loadError instanceof Error ? loadError.message : "Failed to load analytics."); })
-      .finally(() => { if (mounted) setIsLoading(false); });
-    return () => { mounted = false; };
-  }, [period, customRange]);
-
-  const periodLabel = period === "Custom" ? `${customRange.startDate} through ${customRange.endDate}` : period;
-
-  const chartData = activeTab === "Booking Trend Analysis" ? reports.booking : activeTab === "Revenue Forecasting" ? reports.revenue : activeTab === "Performance Signals" ? reports.performance : emptyChart;
-  const sentimentRows: AdminTableRow[] = [
-    { id: "sentiment-overall", metric: "Overall sentiment", value: sentiment.overallSentiment },
-    { id: "sentiment-positive", metric: "Positive feedback", value: `${sentiment.positivePercent}%` },
-    { id: "sentiment-neutral", metric: "Neutral feedback", value: `${sentiment.neutralPercent}%` },
-    { id: "sentiment-negative", metric: "Negative feedback", value: `${sentiment.negativePercent}%` },
-    { id: "sentiment-themes", metric: "Key themes", value: sentiment.themes.join("; ") || "None identified" },
-  ];
-  const visibleRows = activeTab === "Guest Feedback Sentiment" ? sentimentRows : chartData.rows;
-  const tableConfig = tableConfigs[activeTab];
-  const splitTotal = useMemo(() => chartData.split.reduce((total, item) => total + item.value, 0), [chartData.split]);
-  const maxTrend = Math.max(...chartData.trend.map((point) => point.value), 1);
-  const pieStops = useMemo(() => {
-    if (!splitTotal) return "var(--color-neutral) 0% 100%";
-    const colors = ["var(--color-accent)", "var(--color-highlight)", "var(--color-primary)", "var(--color-secondary)"];
-    let offset = 0;
-    return chartData.split.map((item, index) => { const end = offset + (item.value / splitTotal) * 100; const stop = `${colors[index % colors.length]} ${offset}% ${end}%`; offset = end; return stop; }).join(", ");
-  }, [chartData.split, splitTotal]);
-
-  const runAction = async (action: "forecast" | "sentiment") => {
-    setIsActionRunning(true);
-    setError(null);
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/admin/analytics?${query}`, { cache: "no-store", signal: controller.signal });
+        const payload = await response.json().catch(() => null) as { success?: boolean; reports?: AnalyticsReports; message?: string } | null;
+        if (!response.ok || !payload?.success || !payload.reports) throw new Error(payload?.message ?? "Unable to load analytics. Refresh to try again.");
+        if (!controller.signal.aborted) setResult({ key, reports: payload.reports });
+      } catch (cause) { if (!controller.signal.aborted) setFailure({ key, message: cause instanceof Error ? cause.message : "Unable to load analytics." }); }
+    };
+    void load();
+    return () => { controller.abort(); feedbackController.current?.abort(); };
+  }, [key, query]);
+  const stopPrinting = useCallback(() => setPrintSnapshot(null), []);
+  const refresh = () => setGeneration(value => value + 1);
+  const analyzeFeedback = async () => {
+    if (!reports || analyzing) return;
+    const controller = new AbortController(); feedbackController.current = controller;
+    setRunning({ key, controller }); setActionFailure(null);
     try {
-      const response = await fetch("/api/admin/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, period, ...(period === "Custom" ? customRange : {}) }) });
-      const payload = (await response.json().catch(() => null)) as ActionResponse | null;
-      if (!response.ok || !payload?.success) throw new Error(payload?.message ?? "Analytics action failed.");
-      if (action === "forecast" && payload.report) setReports((current) => ({ ...current, revenue: payload.report as ChartData }));
-      if (action === "sentiment" && payload.sentiment) setSentiment(payload.sentiment);
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Analytics action failed.");
-    } finally {
-      setIsActionRunning(false);
-    }
+      const response = await fetch("/api/admin/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal, body: JSON.stringify({ action: "sentiment", period, ...(period === "Custom" ? customRange : {}) }) });
+      const payload = await response.json().catch(() => null) as { success?: boolean; sentiment?: SentimentData; message?: string } | null;
+      if (!response.ok || !payload?.success || !payload.sentiment) throw new Error(payload?.message ?? "Unable to analyze feedback. Please try again.");
+      if (!controller.signal.aborted) setFeedback({ key, data: payload.sentiment });
+    } catch (cause) { if (!controller.signal.aborted) setActionFailure({ key, message: cause instanceof Error ? cause.message : "Unable to analyze feedback." }); }
+    finally { setRunning(current => current?.controller === controller ? null : current); }
   };
-
-  const handleAction = async (action: string) => {
-    if (action === "Export Summary") {
-      exportRows(activeTab, visibleRows, tableConfig.columns);
-      return;
-    }
-    if (action === "Export PDF") {
-      exportPdf(activeTab, periodLabel, visibleRows, tableConfig.columns, sentiment);
-      return;
-    }
-    if (action === "Run Forecast") await runAction("forecast");
-    if (action === "Analyze Feedback") await runAction("sentiment");
+  let report: AnalyticsReport | null = !reports ? null : activeTab === "Bookings" ? reports.booking : activeTab === "Collection forecast" ? reports.revenue : activeTab === "Operations" ? reports.performance : null;
+  if (activeTab === "Guest feedback" && sentiment) report = {
+    ...sentiment, trend: [], split: [{ label: "Positive", value: sentiment.positivePercent }, { label: "Neutral", value: sentiment.neutralPercent }, { label: "Negative", value: sentiment.negativePercent }],
+    trendTitle: "Feedback analysis", splitTitle: "Share of analyzed feedback", tableTitle: "Feedback results",
+    metrics: [{ label: "Reviews analyzed", value: sentiment.sampleSize, format: "count", help: "Up to 100 latest approved reviews in the selected dates." }],
+    note: `${sentiment.summary} Themes: ${sentiment.themes.join(", ") || "None identified"}. AI-generated summary of ${sentiment.sampleSize} reviews; this may not represent all guests.`,
+    rows: [{ id: "overall", metric: "Overall feedback", value: sentiment.overallSentiment }, { id: "positive", metric: "Positive", value: `${sentiment.positivePercent}%` }, { id: "neutral", metric: "Neutral", value: `${sentiment.neutralPercent}%` }, { id: "negative", metric: "Negative", value: `${sentiment.negativePercent}%` }, { id: "themes", metric: "Themes", value: sentiment.themes.join("; ") || "None identified" }],
   };
-
-  return (
-    <div>
-      <AdminSectionHeader title="Business Analytics and Sales Forecasting" subtitle="Use live resort activity and Gemini-assisted guest feedback analysis for operational decisions." />
-      {error ? <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">{error}</p> : null}
-      <section className="rounded-2xl border border-neutral/10 bg-white p-4">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-neutral/10 pb-4">
-          <div className="flex flex-wrap gap-2">{analyticsTabs.map((tab) => <button key={tab.title} type="button" onClick={() => setActiveTab(tab.title)} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === tab.title ? "bg-primary text-base" : "bg-base text-neutral hover:bg-neutral/10"}`}>{tab.title}</button>)}</div>
-          <ReportPeriodFilter period={period} range={customRange} onPeriodChange={setPeriod} onRangeChange={setCustomRange} />
+  const config = tableConfigs[activeTab];
+  const format: "money" | "count" | "percent" = activeTab === "Collection forecast" ? "money" : activeTab === "Guest feedback" ? "percent" : "count";
+  const handleAction = (action: string, rows: ReportRow[]) => {
+    if (!report || !rows.length || printSnapshot) return;
+    setActionFailure(null);
+    try {
+      if (action === "Export CSV") downloadReportCsv(config.columns, rows, `analytics-${activeTab.toLowerCase().replaceAll(" ", "-")}-${report.startDate}-to-${report.endDate}.csv`);
+      if (action === "Print report") setPrintSnapshot({ tab: `Analytics: ${activeTab}`, report, columns: config.columns, rows, resort: contentText(content, "resort.name"), charts: [
+        ...(activeTab === "Guest feedback" ? [] : [{ title: report.trendTitle, points: report.trend, format, type: trendType }]),
+        { title: report.splitTitle, points: report.split, format, type: splitType },
+      ] });
+    } catch { setActionFailure({ key, message: "Unable to prepare the document. Please try again." }); }
+  };
+  return <div>
+    <AdminSectionHeader title="Resort Analytics" subtitle="Understand bookings, collections and tasks to follow up. All dates use Philippine time." />
+    <section className="rounded-2xl border border-neutral/10 bg-white p-4 sm:p-6" aria-label="Analytics viewer">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">{tabs.map(tab => <button key={tab.title} type="button" aria-pressed={activeTab === tab.title} onClick={() => setActiveTab(tab.title)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === tab.title ? "bg-primary text-white" : "bg-base text-neutral hover:bg-neutral/10"}`}>{tab.title}</button>)}</div>
+        <button type="button" onClick={refresh} disabled={loading || analyzing} className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold disabled:opacity-50">{loading ? "Loading..." : "Refresh analytics"}</button>
+      </div>
+      <p className="mt-4 text-sm text-neutral/75">{tabs.find(tab => tab.title === activeTab)?.description}</p>
+      <div className="mt-5 flex flex-wrap items-end gap-3 rounded-xl bg-base p-4">
+        <ReportPeriodFilter key={period === "Custom" ? `${customRange.startDate}:${customRange.endDate}` : "preset"} period={period} range={customRange} onPeriodChange={value => { setPeriod(value); refresh(); }} onRangeChange={value => { setCustomRange(value); refresh(); }} />
+        <button type="button" onClick={() => { setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm">Reset period</button>
+      </div>
+      <p className="mt-3 text-xs text-neutral/65">Dates update automatically when applied. Chart selectors change how the same values are displayed.</p>
+      {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-800">{error} Use Refresh analytics to retry.</p>}
+      {actionError && <p role="alert" className="mt-4 text-sm text-red-700">{actionError}</p>}
+      {loading && <p role="status" className="py-12 text-center text-sm text-neutral/65">Loading analytics...</p>}
+      {reports && <p className="mt-5 text-sm text-neutral/70">{reports.booking.startDate} through {reports.booking.endDate} | Updated {new Date(reports.booking.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</p>}
+      {activeTab === "Guest feedback" && reports && <article className="mt-4 rounded-xl bg-base p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">{sentiment?.overallSentiment ?? "Feedback has not been analyzed"}</h2><button type="button" disabled={analyzing} onClick={() => void analyzeFeedback()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{analyzing ? "Analyzing..." : sentiment ? "Analyze again" : "Analyze feedback"}</button></div>
+        {!sentiment && <p className="mt-3 text-sm text-neutral/70">Select dates, then analyze feedback to see review sentiment and common themes.</p>}
+      </article>}
+      {report && <>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">{report.metrics.map(metric => <article key={metric.label} className="rounded-xl border border-neutral/10 bg-base p-4"><h3 className="text-sm text-neutral/70">{metric.label}</h3><p className="mt-2 text-2xl font-bold">{metric.format === "money" ? money.format(metric.value) : metric.value.toLocaleString("en-PH")}</p><p className="mt-2 text-xs leading-relaxed text-neutral/65">{metric.help}</p></article>)}</div>
+        <p className="mt-4 rounded-xl border border-neutral/10 p-4 text-sm leading-relaxed text-neutral/75">{report.note}</p>
+        <div className="mt-5 grid gap-5 xl:grid-cols-2">
+          {activeTab !== "Guest feedback" && <ReportChart title={report.trendTitle} points={report.trend} format={format} chartType={trendType} onTypeChange={setTrendType} />}
+          <ReportChart title={report.splitTitle} points={report.split} format={format} chartType={splitType} onTypeChange={setSplitType} />
         </div>
-        <p className="mb-4 text-sm text-neutral/70">{analyticsTabs.find((tab) => tab.title === activeTab)?.description}</p>
-
-        {activeTab === "Guest Feedback Sentiment" ? <article className="rounded-2xl border border-neutral/10 bg-base p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm text-neutral/70">Overall sentiment</p><p className="mt-1 text-3xl font-bold text-primary">{sentiment.overallSentiment}</p></div><button type="button" onClick={() => void runAction("sentiment")} disabled={isActionRunning} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base disabled:opacity-50">{isActionRunning ? "Analyzing..." : "Analyze Feedback"}</button></div><p className="mt-4 text-sm text-neutral/80">{sentiment.summary}</p><div className="mt-4 flex flex-wrap gap-2">{sentiment.themes.map((theme) => <span key={theme} className="rounded-full bg-white px-3 py-1 text-xs text-neutral">{theme}</span>)}</div></article> : <div className="grid gap-4 lg:grid-cols-3"><article className="rounded-2xl border border-neutral/10 bg-base p-4 lg:col-span-2"><h3 className="text-sm font-semibold text-neutral">{activeTab} Trend ({periodLabel})</h3>{isLoading ? <div className="mt-6 text-sm text-neutral/60">Loading analytics...</div> : chartData.trend.length === 0 ? <div className="mt-6 text-sm text-neutral/60">No records found for this period.</div> : <div className="mt-3 grid grid-cols-7 gap-2">{chartData.trend.map((point) => <div key={point.label} className="flex flex-col items-center gap-2"><div className="flex h-32 w-full items-end rounded-lg bg-white px-2 py-2"><div className="w-full rounded-md bg-accent" style={{ height: `${(point.value / maxTrend) * 100}%` }} /></div><p className="text-center text-xs text-neutral/70">{formatValue(point.value)}<br />{point.label}</p></div>)}</div>}</article><article className="rounded-2xl border border-neutral/10 bg-base p-4"><h3 className="text-sm font-semibold text-neutral">Signal Split</h3><div className="mx-auto mt-3 h-36 w-36 rounded-full" style={{ background: `conic-gradient(${pieStops})` }} />{chartData.split.length === 0 ? <p className="mt-3 text-xs text-neutral/60">No records found.</p> : <ul className="mt-3 space-y-1 text-xs text-neutral/80">{chartData.split.map((item) => <li key={item.label}>{item.label}: {Math.round((item.value / splitTotal) * 100)}%</li>)}</ul>}</article></div>}
-
-        <div className="mt-6"><AdminTablePreview title={`${activeTab} Snapshot (${periodLabel})`} columns={tableConfig.columns} rows={visibleRows} defaultSort={tableConfig.defaultSort} actions={activeTab === "Guest Feedback Sentiment" ? ["Analyze Feedback", "Export Summary", "Export PDF"] : ["Run Forecast", "Export Summary", "Export PDF"]} onAction={(action) => void handleAction(action)} isActionDisabled={(action) => action === "Run Forecast" && activeTab !== "Revenue Forecasting" || isActionRunning} rowActions={[]} /></div>
-      </section>
-    </div>
-  );
+        <p className="mb-3 mt-6 text-xs text-neutral/65">The summary covers the full period. Search affects table rows, CSV and printing; exports include every matching page. Use Print report to print or save a PDF.</p>
+        <AdminTablePreview key={activeTab} title={report.tableTitle} columns={config.columns} rows={report.rows} defaultSort={config.sort} pageSize={25} showResetFilters actions={["Export CSV", "Print report"]} onAction={handleAction} isActionDisabled={(_action, rows) => !rows.length || Boolean(printSnapshot) || analyzing} />
+      </>}
+      {printSnapshot && <ReportPrintDocument snapshot={printSnapshot} onDone={stopPrinting} />}
+    </section>
+  </div>;
 }

@@ -11,9 +11,10 @@ interface TransactionsTablePanelProps {
   filters?: AdminTableFilter[];
   actions?: string[];
   rowActions?: string[];
-  onAction?: (action: string) => void | Promise<void>;
+  onAction?: (action: string, rows: AdminTableRow[]) => void | Promise<void>;
   onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
   isLoading?: boolean;
+  hasError?: boolean;
 }
 
 export default function TransactionsTablePanel({
@@ -26,6 +27,8 @@ export default function TransactionsTablePanel({
   rowActions,
   onAction,
   onRowAction,
+  isLoading = false,
+  hasError = false,
 }: TransactionsTablePanelProps) {
   return (
     <AdminTablePreview
@@ -38,6 +41,8 @@ export default function TransactionsTablePanel({
       rowActions={rowActions}
       onAction={onAction}
       onRowAction={onRowAction}
+      isActionDisabled={(action, matchingRows) => isLoading || (!action.startsWith("Refresh") && (hasError || (action.startsWith("Export") && matchingRows.length === 0)))}
+      isRowActionDisabled={() => isLoading || hasError}
     />
   );
 }
