@@ -29,6 +29,7 @@ export function routePermission(path: string): Permission | null {
 
 export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/auth/")) return null;
+  if (path === "/api/admin/dashboard") return "dashboard";
   if (path.startsWith("/api/admin/permissions") || path.startsWith("/api/admin/users")) return "users";
   if (path === "/api/admin/settings" && method === "GET") return null;
   if (path.startsWith("/api/admin/settings") || path.startsWith("/api/admin/booking-policy")) return "configuration";

@@ -533,7 +533,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </tbody></table></div>
 <p>Managers are displayed as Manager in the permission editor; some older role controls may show <strong>Staff</strong> for the same role. Manager and cashier access can be customized. Opening a module does not automatically grant permission to approve payments, edit reservations or pay refunds.</p>
 <div class="table-wrap"><table><thead><tr><th scope="col">Sidebar module</th><th scope="col">Main use</th><th scope="col">Path</th></tr></thead><tbody>
-<tr><td>Dashboard</td><td>Landing page and reservation listing; see current limitations before using its summary cards</td><td><code>/admin</code></td></tr>
+<tr><td>Dashboard</td><td>Live arrivals, verified collections, booking charts and unresolved review queues</td><td><code>/admin</code></td></tr>
 <tr><td>Reservations</td><td>Calendar, manual reservations, reservation editor and maintenance blocks</td><td><code>/admin/reservations</code></td></tr>
 <tr><td>Records</td><td>Reservation records, reschedule requests and ocular approvals</td><td><code>/admin/records</code></td></tr>
 <tr><td>Transactions</td><td>Ledger, payment verification, refunds, invoices, receipts and guest reports</td><td><code>/admin/transactions</code></td></tr>
@@ -548,7 +548,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <h2 id="admin-3-daily-operating-checklist">3. Daily operating checklist</h2>
 <p>At the start of a shift:</p>
 <ol>
-<li>Open <strong>Reservations</strong> and review the current calendar period, arrivals and maintenance blocks.
+<li>Open <strong>Dashboard</strong> for today&#x27;s arrivals, verified collections and unresolved requests. Open <strong>Reservations</strong> to review the calendar and maintenance blocks.
 </li>
 <li>Open <strong>Transactions → Payment Verification Queue</strong> and reconcile pending proofs with the resort&#x27;s receiving account.
 </li>
@@ -560,6 +560,22 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p>During a stay, record added services through the reservation editor and check the resulting payable amount. Before leaving, use <strong>Reports</strong> for date-based collection/activity totals, inspect unresolved items and sign out.</p>
+<h3 id="admin-read-and-use-the-live-dashboard">Read and use the live dashboard</h3>
+<p>The dashboard reads saved records and refreshes every minute while the page is visible, when you return to the window, and when you select <strong>Refresh dashboard</strong> or the arrivals table&#x27;s <strong>Refresh</strong>. The last successful update is displayed in Philippine time. A failed refresh shows an error and identifies the older data; do not treat it as a successful update.</p>
+<ul>
+<li><strong>Arrivals today:</strong> Active reservations starting on today&#x27;s Philippine calendar date, including payment holds that are still valid.
+</li>
+<li><strong>Scheduled now:</strong> Confirmed/reschedule-requested bookings within their scheduled stay times. This is a schedule count, not evidence that the guests have checked in.
+</li>
+<li><strong>Collections today:</strong> Verified payments dated today, before refunds. Verification date is used; older records without it use creation date.
+</li>
+<li><strong>Bookings created:</strong> All reservations created in the last seven days, including today and cancelled/expired bookings.
+</li>
+</ul>
+<p><strong>Needs attention</strong> shows all unresolved payment proofs, reschedules, ocular requests, refund reviews and approved refunds awaiting payout, including older requests. Select a queue card to open the corresponding tab in Transactions or Records. Links only appear for modules your role can access; permission to view a queue does not grant permission to approve its records.</p>
+<p>The <strong>Last 7 days</strong> charts show verified collections and the current recorded status/source of bookings created during those dates. Use <strong>Booking status</strong>/<strong>Booking source</strong> to change the breakdown, and each <strong>View</strong> dropdown to select a line graph, bar chart, pie chart or progress bars. Staff entry includes phone, Messenger and walk-in reservations.</p>
+<p>In <strong>Arrivals &amp; stays</strong>, select <strong>Today</strong>, <strong>Next 7 days</strong>, <strong>Next 30 days</strong> or <strong>Scheduled now</strong>. Arrival periods include today. Closed reservations and expired payment holds are excluded. Search by guest/reference, filter status/source, sort columns and use the paging controls. <strong>Export CSV</strong> downloads all matching rows across pages. Table filters do not change the cards or charts. Export is disabled when there are no matching rows, while refreshing, or after a failed refresh.</p>
+<p>Select a row&#x27;s <strong>View</strong> to open that reservation directly in the calendar editor. <strong>+ New reservation</strong> opens the staff booking dialog when your account has both View reservations and Add reservation permissions. The calendar, Reports and Analytics shortcuts open their respective modules. Use the calendar for reservations beyond the next 30 days.</p>
 <h2 id="admin-4-find-a-reservation-in-the-calendar">4. Find a reservation in the calendar</h2>
 <ol>
 <li>Open <strong>Reservations</strong>.
@@ -713,7 +729,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <tr><td>Invoice</td><td>A billing document showing the reservation charges</td></tr>
 <tr><td>Receipt</td><td>A record of a particular payment received</td></tr>
 </tbody></table></div>
-<p>The transaction summary and ledger use the latest <strong>200 loaded ledger records</strong>, not all historical transactions. The receipt list also has a recent-record limit. Use date-based Reports for full-period collection totals. Ledger/document CSV exports include the matching rows loaded in that module and follow its table filters.</p>
+<p>The financial summary and ledger use the latest <strong>200 loaded ledger records</strong>, not all historical transactions. The receipt list also has a recent-record limit. <strong>Pending Verifications</strong> and the payment queue additionally include all unresolved payment proofs, even when their reservations are outside the recent ledger. Refund Requests and Records load all available records with paging/batched lookups. Use date-based Reports for full-period collection totals. Ledger/document CSV exports include the matching rows loaded in that module and follow its table filters.</p>
 <h2 id="admin-11-verify-a-guest-gcash-payment">11. Verify a guest GCash payment</h2>
 <p><strong>Required permissions:</strong> Transactions access and payment approval.</p>
 <ol>
@@ -1111,8 +1127,6 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <h3 id="admin-current-screen-limitations">Current screen limitations</h3>
 <p>These notes describe the current application and prevent users from treating demonstration controls or stored preferences as completed operational actions.</p>
 <div class="table-wrap"><table><thead><tr><th scope="col">Screen or feature</th><th scope="col">Current behavior and working alternative</th></tr></thead><tbody>
-<tr><td>Dashboard metrics/charts</td><td>Summary values/charts are still illustrative. Its reservation table reads records but is limited and should not be treated as a complete future-arrivals list. Use Reservations, Transactions, Reports and Analytics for operational decisions</td></tr>
-<tr><td>Dashboard Export, Refresh and View</td><td>These displayed controls have no connected handlers. Use the corresponding working module controls</td></tr>
 <tr><td>Audit Log → Export Log</td><td>Displayed without a download handler; View Details, search and filters work</td></tr>
 <tr><td>Separate guest <code>/ocular</code> page</td><td>Demonstration success is not a saved visit. Direct guests to Book Now → Ocular Visit and confirm it appears in Manage Booking/Records</td></tr>
 <tr><td>Staff cancellation/completion</td><td>The current calendar/Records UI does not expose dedicated staff Cancel or Complete buttons. Do not infer that editing a reservation changes its lifecycle status; eligible guests have cancellation in Manage Booking. Escalate other cases to the administrator&#x27;s approved operating process</td></tr>

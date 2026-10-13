@@ -3,18 +3,23 @@ import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { createNotifications } from "@/lib/notifications";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { staffHasPermission } from "@/lib/server/role-permissions";
+import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
 
 export async function GET() {
   const staff = await requireActiveStaff();
   if (!staff) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
-  const { data, error } = await staff.supabase.from("refund_requests")
-    .select("refund_id, reservation_id, guest_id, amount, request_kind, policy_snapshot, policy_version, status, requested_at, reviewed_by, reviewed_at, review_reason, refunded_by, refunded_at, gcash_reference, proof_path")
-    .order("requested_at", { ascending: false }).limit(200);
-  if (error) return NextResponse.json({ message: error.message }, { status: 500 });
-  const ids = [...new Set((data ?? []).map((row) => row.reservation_id))];
-  const { data: reservations } = ids.length ? await staff.supabase.from("reservations")
-    .select("reservation_id, reference_number").in("reservation_id", ids) : { data: [] };
-  return NextResponse.json({ refunds: data, reservations });
+  if (!(await staffHasPermission(staff.supabase, staff.staffUser.role, "transactions"))) return NextResponse.json({ message: "Permission required." }, { status: 403 });
+  try {
+    const data = await fetchAllPages((from, to) => staff.supabase.from("refund_requests")
+      .select("refund_id, reservation_id, guest_id, amount, request_kind, policy_snapshot, policy_version, status, requested_at, reviewed_by, reviewed_at, review_reason, refunded_by, refunded_at, gcash_reference, proof_path")
+      .order("requested_at", { ascending: false }).order("refund_id").range(from, to));
+    const ids = [...new Set(data.map(row => row.reservation_id as string))];
+    const reservations = await fetchByIds<{ reservation_id: string; reference_number: string }>(ids, (batch, from, to) => staff.supabase.from("reservations")
+      .select("reservation_id, reference_number").in("reservation_id", batch).order("reservation_id").range(from, to));
+    return NextResponse.json({ refunds: data, reservations }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return NextResponse.json({ message: "Unable to load refund requests. Please refresh and try again." }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {

@@ -16,9 +16,13 @@ const hasFailedTransactionStatus = (text: string) =>
   /\b(?:payment|transaction|transfer|send money)\s+(?:was\s+)?(?:failed|unsuccessful|cancelled|canceled|reversed)\b|\b(?:failed|unsuccessful|cancelled|canceled|reversed)\s+(?:payment|transaction|transfer)\b|^\s*(?:failed|unsuccessful|cancelled|canceled|reversed)\s*$/im.test(
     text.split(/\r?\n/).filter((line) => !/^\s*(?:if|when|in case)\b/i.test(line)).join("\n"));
 
+const hasPendingTransactionStatus = (text: string) =>
+  /\b(?:payment|transaction|transfer)\s+(?:(?:is|was)\s+)?(?:pending|processing|on hold|in progress)\b|\b(?:pending|processing)\s+(?:payment|transaction|transfer)\b|^\s*(?:pending|processing|on hold|in progress)\s*$/im.test(text);
+
 /** A preliminary screen only. GCash submissions must also pass every field check below. */
 export function screenReceiptText(text: string, isGcash: boolean): { plausible: boolean; reason?: string } {
   if (hasFailedTransactionStatus(text)) return { plausible: false, reason: "The uploaded image shows a failed or reversed transaction. Upload proof of a successful payment." };
+  if (hasPendingTransactionStatus(text)) return { plausible: false, reason: "The uploaded image shows a pending transaction. Upload the completed payment receipt." };
   const action = /\b(payment|paid|transaction|receipt|transfer(?:red)?|sent|received|deposit(?:ed)?)\b/i.test(text);
   const outcome = /\b(successful|success|completed|confirmed|sent|received|transferred)\b/i.test(text);
   const amount = /(?:PHP|₱|P)\s*[\d,]+(?:\.\d{1,2})?/i.test(text);
@@ -29,7 +33,7 @@ export function screenReceiptText(text: string, isGcash: boolean): { plausible: 
 }
 
 const referenceLabel = /^(?:reference(?:\s*(?:number|no\.?))?|ref\.?\s*(?:number|no\.?)?|transaction\s*(?:id|number|no\.?))\s*[:#-]?\s*/i;
-const amountLabel = /^(?:(?:amount\s*(?:sent|paid)|payment amount|you sent|amount)|total amount)\s*[:=-]?\s*/i;
+const amountLabel = /^(?:(?:amount\s*(?:sent|paid)|payment amount|you sent|amount)|total amount(?:\s*sent)?)\s*[:=-]?\s*/i;
 const money = /^(?:(?:PHP|₱|P)\s*)?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s*(?:PHP)?$/i;
 const normalizedName = (value: string) => value.toUpperCase().replace(/[^A-Z]/g, "");
 
@@ -52,13 +56,14 @@ function receiptAmounts(lines: string[]): number[] {
 const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const monthPattern = "(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
 const timePattern = "(?:\\s*,?\\s*(?:at\\s+|Time\\s*:\\s*)?)(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(AM|PM)?\\b";
+const dateStart = new RegExp(`\\b(?:${monthPattern}\\.?\\s*\\d{1,2}|\\d{1,2}\\s*${monthPattern}|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}/\\d{1,2}/\\d{4})`, "i");
 
 /** GCash displays local Philippine time. Never let the server's timezone interpret it. */
 export function readGcashReceiptDates(text: string): string[] {
   const candidates: string[] = [];
   const patterns = [
-    { regex: new RegExp(`\\b${monthPattern}\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})${timePattern}`, "gi"), order: "mdy" },
-    { regex: new RegExp(`\\b(\\d{1,2})\\s+${monthPattern}\\.?[,]?\\s+(\\d{4})${timePattern}`, "gi"), order: "dmy" },
+    { regex: new RegExp(`\\b${monthPattern}\\.?\\s*(\\d{1,2}),?\\s*(\\d{4})${timePattern}`, "gi"), order: "mdy" },
+    { regex: new RegExp(`\\b(\\d{1,2})\\s*${monthPattern}\\.?[,]?\\s*(\\d{4})${timePattern}`, "gi"), order: "dmy" },
     { regex: new RegExp(`\\b(\\d{4})-(\\d{2})-(\\d{2})${timePattern}`, "gi"), order: "ymd" },
     { regex: new RegExp(`\\b(\\d{1,2})/(\\d{1,2})/(\\d{4})${timePattern}`, "gi"), order: "numeric" },
   ];
@@ -81,7 +86,7 @@ export function readGcashReceiptDates(text: string): string[] {
 }
 
 function recipientMatches(lines: string[], name?: string | null, number?: string | null): boolean {
-  const label = /^(?:sent to|paid to|payment to|recipient|receiver|to|merchant|account name)\s*:?\s*/i;
+  const label = /^(?:sent to|paid to|payment to|recipient|receiver|to|merchant|account name)\b\s*:?\s*/i;
   const stop = /^(?:amount|total|reference|ref\b|transaction|date|time|from|sender|fee|balance)/i;
   const parts: string[] = [];
   for (let i = 0; i < lines.length; i++) if (label.test(lines[i])) {
@@ -94,10 +99,10 @@ function recipientMatches(lines: string[], name?: string | null, number?: string
     if (end >= 0) parts.push(...lines.slice(0, end));
   }
   const wantedNumber = (number ?? "").replace(/\D/g, "").replace(/^63(?=9\d{9}$)/, "0");
-  const phones = parts.flatMap((part) => [...part.matchAll(/(?:\+?63|0)\s*[\d*xX•●][\d*xX•●\s-]{7,18}/g)]
-    .map((match) => match[0].replace(/[\s+-]/g, "").replace(/^63/, "0")));
+  const phones = parts.flatMap((part) => [...part.matchAll(/(?:\+?63|0)\s*[\d*xX•●·∙⋅.…][\d*xX•●·∙⋅.…\s-]{7,24}/g)]
+    .map((match) => match[0].replaceAll("…", "...").replace(/[\s+-]/g, "").replace(/^63/, "0")));
   if (phones.length && wantedNumber) {
-    return phones.some((phone) => phone.length === wantedNumber.length && phone.split("").every((char, index) => /[*xX•●]/.test(char) || char === wantedNumber[index]));
+    return phones.some((phone) => phone.length === wantedNumber.length && phone.replace(/\D/g, "").length >= 6 && phone.split("").every((char, index) => /[*xX•●·∙⋅.]/.test(char) || char === wantedNumber[index]));
   }
   const wantedName = normalizedName(name ?? "");
   return wantedName.length >= 6 && parts.some((part) => normalizedName(part) === wantedName);
@@ -106,13 +111,16 @@ function recipientMatches(lines: string[], name?: string | null, number?: string
 export function assessGcashText(text: string, expected: {
   amount: number; minimumAmount?: number; reference: string; recipientName?: string | null;
   recipientNumber?: string | null; now?: number;
+  successCheckSeen?: boolean;
 }): OcrAssessment {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const findings: string[] = [];
   let mismatch = false;
   if (!/g\s*cash/i.test(text)) findings.push("GCash label could not be read");
   if (hasFailedTransactionStatus(text)) { mismatch = true; findings.push("receipt shows a failed or reversed status"); }
-  else if (!/\b(successful|success|completed|payment sent|you sent|you have sent|successfully sent|sent successfully)\b/i.test(text)) findings.push("successful transaction status could not be read");
+  else if (hasPendingTransactionStatus(text)) { mismatch = true; findings.push("receipt shows a pending transaction"); }
+  else if (!/\b(successful|success|completed|payment sent|you sent|you have sent|successfully sent|sent successfully)\b/i.test(text)
+    && !(expected.successCheckSeen && /^sent\s+via\s+g\s*cash\s*$/im.test(text) && /^total\s+amount\s+sent\b/im.test(text))) findings.push("successful transaction status could not be read");
 
   const amounts = receiptAmounts(lines);
   const amount = amounts.length === 1 ? amounts[0] : undefined;
@@ -129,7 +137,11 @@ export function assessGcashText(text: string, expected: {
     const label = lines[i].match(referenceLabel);
     if (!label) continue;
     const value = lines[i].slice((label.index ?? 0) + label[0].length) || lines[i + 1] || "";
-    const reference = normalizeGcashReference(value);
+    // Send Money puts Ref No. and the timestamp in adjacent columns. OCR may join them.
+    const footerDate = value.match(dateStart);
+    const referenceValue = footerDate?.index !== undefined && readGcashReceiptDates(value.slice(footerDate.index)).length === 1
+      ? value.slice(0, footerDate.index).trim() : value;
+    const reference = normalizeGcashReference(referenceValue);
     if (reference) references.push(reference);
   }
   const uniqueReferences = [...new Set(references)];

@@ -141,6 +141,7 @@ test("Transactions ledger and document refresh/export controls work, invoice Vie
     const query = { select: () => query, order: () => query, limit: () => query,
       eq: (key, expected) => { filters.push(row => row[key] === expected); return query; },
       in: (key, expected) => { filters.push(row => expected.includes(row[key])); return query; },
+      range: async (from, to) => { const response = result(); return { ...response, data: response.data.slice(from, to + 1) }; },
       maybeSingle: async () => { const value = result(); return { ...value, data: value.data[0] ?? null }; },
       then: (resolve, reject) => Promise.resolve(result()).then(resolve, reject) };
     return query;

@@ -7,6 +7,8 @@ import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
 import { createClient } from "@/lib/supabase/client";
 import { hasPermission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
+import { useModuleTab } from "@/lib/admin/use-module-tab";
+import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
 
 const tabs = ["Reservation Records", "Reschedule Requests", "Ocular Visit Records"] as const;
 const reservationColumns: AdminTableColumn[] = [
@@ -33,7 +35,9 @@ const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (
 type Guest = { id: string; first_name: string; last_name: string };
 
 export default function AdminRecordsPage() {
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("Reservation Records");
+  const [activeTab, setActiveTab] = useModuleTab<(typeof tabs)[number]>("Reservation Records", {
+    reschedules: "Reschedule Requests", ocular: "Ocular Visit Records", reservations: "Reservation Records",
+  });
   const [reservations, setReservations] = useState<AdminTableRow[]>([]);
   const [reschedules, setReschedules] = useState<AdminTableRow[]>([]);
   const [ocularVisits, setOcularVisits] = useState<AdminTableRow[]>([]);
@@ -51,16 +55,16 @@ export default function AdminRecordsPage() {
       try {
         const supabase = createClient();
         const [{ data: reservationData, error: reservationError }, { data: rescheduleData, error: rescheduleError }, { data: ocularData, error: ocularError }, { data: slotData, error: slotError }] = await Promise.all([
-          supabase.from("reservations").select("reservation_id, reference_number, guest_id, start_datetime, end_datetime, adult_count, child_count, status, created_at").order("created_at", { ascending: false }).limit(300),
-          supabase.from("reservation_reschedules").select("reschedule_id, reservation_id, requested_by, old_start, old_end, new_start, new_end, reschedule_fee, rate_adjustment, status, created_at").order("created_at", { ascending: false }).limit(300),
-          supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, time_slot_id, status, created_at").order("created_at", { ascending: false }).limit(300),
+          fetchAllPages((from, to) => supabase.from("reservations").select("reservation_id, reference_number, guest_id, start_datetime, end_datetime, adult_count, child_count, status, created_at").order("created_at", { ascending: false }).order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
+          fetchAllPages((from, to) => supabase.from("reservation_reschedules").select("reschedule_id, reservation_id, requested_by, old_start, old_end, new_start, new_end, reschedule_fee, rate_adjustment, status, created_at").order("created_at", { ascending: false }).order("reschedule_id").range(from, to)).then(data => ({ data, error: null })),
+          fetchAllPages((from, to) => supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, time_slot_id, status, created_at").order("created_at", { ascending: false }).order("visit_id").range(from, to)).then(data => ({ data, error: null })),
           supabase.from("ocular_time_slots").select("slot_id, start_time, end_time"),
         ]);
         if (reservationError || rescheduleError || ocularError || slotError) throw reservationError ?? rescheduleError ?? ocularError ?? slotError;
         const reservationRows = (reservationData as Array<Record<string, string | number | null>> | null) ?? [];
         const guestIds = [...new Set([...reservationRows, ...((ocularData as Array<Record<string, string | number | null>> | null) ?? []), ...((rescheduleData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ guest_id: row.requested_by }))].map((row) => String(row.guest_id ?? "")).filter(Boolean))];
-        const { data: guestData, error: guestError } = guestIds.length ? await supabase.from("guests").select("id, first_name, last_name").in("id", guestIds) : { data: [], error: null };
-        if (guestError) throw guestError;
+        const guestData = await fetchByIds<Guest>(guestIds, (ids, from, to) => supabase.from("guests")
+          .select("id, first_name, last_name").in("id", ids).order("id").range(from, to));
         if (!mounted) return;
         const guestMap = ((guestData as Guest[] | null) ?? []).reduce<Record<string, Guest>>((map, guest) => ({ ...map, [guest.id]: guest }), {});
         const guestName = (id: string | number | null) => guestMap[String(id ?? "")] ? `${guestMap[String(id)].first_name} ${guestMap[String(id)].last_name}` : "-";
@@ -129,6 +133,8 @@ export default function AdminRecordsPage() {
           title={isLoading ? `${activeTab} (Loading...)` : activeTab}
           columns={activeTab === "Reservation Records" ? reservationColumns : activeTab === "Reschedule Requests" ? rescheduleColumns : ocularColumns}
           rows={activeRows}
+          pageSize={25}
+          showResetFilters
           defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule Requests" ? "requestedAt" : "scheduledDate", direction: "desc" }}
           filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
           rowActions={activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" && canApproveOcular ? ["Approve"] : []}

@@ -37,13 +37,58 @@ test("reference verification uses the whole labelled field, never a matching pho
   assert.equal(assessGcashText(receipt.replace("1234567890123", "9876543210987") + "\nSender account 1234567890123", expected).status, "mismatch");
   assert.equal(assessGcashText(receipt.replace("Reference Number: 1234567890123", "Reference No.\n1234 5678 90123"), expected).status, "consistent");
 });
+
+const sendMoney = `A*****B C.\n+63 9** *** 5095\nSent via GCash\nAmount 100.00\nTotal Amount Sent PHP100.00\nRef No. 6046080000001 Oct 13, 2026 6:22 PM`;
+const sendMoneyExpected = { amount: 100, minimumAmount: 100, reference: "6046080000001", recipientNumber: "09171235095", now: Date.parse("2026-10-13T10:30:00Z"), successCheckSeen: true };
+
+test("Send Money graphic success and a reference/date sharing a footer are supported", () => {
+  const result = assessGcashText(sendMoney, sendMoneyExpected);
+  assert.equal(result.status, "consistent", result.notes); assert.equal(result.amount, 100); assert.equal(result.reference, sendMoneyExpected.reference); assert.equal(result.paidAt, "2026-10-13T10:22:00.000Z");
+  assert.equal(assessGcashText(sendMoney, { ...sendMoneyExpected, successCheckSeen: false }).status, "unreadable");
+  assert.equal(assessGcashText(sendMoney.replace("Total Amount Sent", "Total Amount"), sendMoneyExpected).status, "unreadable");
+  assert.equal(assessGcashText(sendMoney.replace("6046080000001", "6046080000002"), sendMoneyExpected).status, "mismatch");
+  assert.equal(assessGcashText(sendMoney.replace("6046080000001", "6046080000001extra"), sendMoneyExpected).status, "unreadable");
+  assert.equal(assessGcashText(sendMoney.replace("6046080000001", "6046080000001123"), sendMoneyExpected).status, "mismatch");
+  assert.equal(assessGcashText(sendMoney + "\nRef No. 6046080000002", sendMoneyExpected).status, "unreadable");
+});
+
+test("masked recipient dots preserve every visible digit and need the complete phone shape", () => {
+  for (const phone of ["+63 9•• ••• 5095", "+63 9.. ... 5095", "+63 9·· ··· 5095", "+63 9** *** 5095"]) {
+    const result = assessGcashText(sendMoney.replace("+63 9** *** 5095", phone), sendMoneyExpected); assert.equal(result.status, "consistent", result.notes);
+  }
+  for (const phone of ["+63 9** *** 5094", "+63 8** *** 5095", "+63 9* *** 5095", "+63 *** *** ****"]) assert.notEqual(assessGcashText(sendMoney.replace("+63 9** *** 5095", phone), sendMoneyExpected).status, "consistent");
+});
+
+test("Android-style full recipient and spaced reference preserve leading zeroes and every account digit", () => {
+  const text = `A••B C•••••D E.\n+63 917 123 5095\nSent via GCash\nAmount 200.00\nTotal Amount Sent ₱200.00\nRef No. 0046 080 000001 Oct 13, 2026 5:53 PM`;
+  const input = { ...sendMoneyExpected, amount: 200, minimumAmount: 100, reference: "0046 080 000001" };
+  const result = assessGcashText(text, input);
+  assert.equal(result.status, "consistent", result.notes);
+  assert.equal(result.reference, "0046080000001"); assert.equal(result.amount, 200);
+  assert.equal(result.paidAt, "2026-10-13T09:53:00.000Z");
+  assert.equal(assessGcashText(text, { ...input, reference: "46080000001" }).status, "mismatch");
+  assert.equal(assessGcashText(text, { ...input, reference: "0046080000001" }).status, "consistent");
+  assert.notEqual(assessGcashText(text, { ...input, recipientNumber: "09991235095" }).status, "consistent");
+  assert.equal(assessGcashText(text, { ...input, amount: 100 }).status, "mismatch");
+  assert.equal(assessGcashText(text, { ...input, minimumAmount: 201 }).status, "mismatch");
+  assert.equal(assessGcashText(text.replace("Oct 13", "Oct 12"), input).status, "mismatch");
+});
+
+test("Send Money layout does not bypass amount, today, recipient or incomplete-status checks", () => {
+  assert.equal(assessGcashText(sendMoney, { ...sendMoneyExpected, minimumAmount: 101 }).status, "mismatch");
+  assert.equal(assessGcashText(sendMoney, { ...sendMoneyExpected, amount: 99 }).status, "mismatch");
+  assert.equal(assessGcashText(sendMoney.replace("Oct 13", "Oct 12"), sendMoneyExpected).status, "mismatch");
+  assert.equal(assessGcashText(sendMoney.replace("6:22 PM", "7:22 PM"), sendMoneyExpected).status, "mismatch");
+  assert.equal(assessGcashText(sendMoney, { ...sendMoneyExpected, recipientNumber: "09991235094" }).status, "unreadable");
+  for (const status of ["Transaction failed", "Transfer pending", "Processing", "Transaction reversed"]) assert.equal(assessGcashText(`${sendMoney}\n${status}`, sendMoneyExpected).status, "mismatch");
+});
 test("recipient phone digits must agree even if the name or last four digits match", () => {
   assert.notEqual(assessGcashText(receipt.replace("0917***1234", "0999***1234"), expected).status, "consistent");
   assert.notEqual(assessGcashText(receipt.replace("0917***1234", "09179991234"), expected).status, "consistent");
   assert.equal(assessGcashText(receipt.replace("0917***1234", "+63 917 123 1234"), expected).status, "consistent");
 });
 test("receipt dates parse in Manila independently of server timezone", () => {
-  for (const value of ["Oct 13, 2026 09:15 AM", "13 October 2026 9:15:00 AM", "2026-10-13 09:15", "10/13/2026 09:15 AM", "Oct 13, 2026\nTime: 09:15 AM"]) {
+  for (const value of ["Oct 13, 2026 09:15 AM", "13 October 2026 9:15:00 AM", "2026-10-13 09:15", "10/13/2026 09:15 AM", "Oct 13, 2026\nTime: 09:15 AM", "Oct13,2026 9:15AM", "Oct 13,20269:15 AM"]) {
     assert.deepEqual(readGcashReceiptDates(value), ["2026-10-13T01:15:00.000Z"]);
   }
   assert.deepEqual(readGcashReceiptDates("Feb 30, 2026 09:15 AM"), []);
