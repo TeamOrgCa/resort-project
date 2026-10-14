@@ -2065,3 +2065,5 @@ commit;
 -- docs/gcash-payment-validation-migration.sql then docs/overpayment-refunds-migration.sql.
 -- These install the normalized reference indexes, receipt insert guard, guest refund
 -- RPCs and net-payment ledger triggers. See docs/PAYMENT_FLOW.md for deployment order.
+-- Then apply docs/cancellation-refund-workflow-migration.sql for cancellation
+-- deductions, automatic requests, independent payout verification and alerts.

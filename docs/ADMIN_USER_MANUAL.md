@@ -91,7 +91,7 @@ The dashboard reads saved records and refreshes every minute while the page is v
 - **Collections today:** Verified payments dated today, before refunds. Verification date is used; older records without it use creation date.
 - **Bookings created:** All reservations created in the last seven days, including today and cancelled/expired bookings.
 
-**Needs attention** shows all unresolved payment proofs, reschedules, ocular requests, refund reviews and approved refunds awaiting payout, including older requests. Select a queue card to open the corresponding tab in Transactions or Records. Links only appear for modules your role can access; permission to view a queue does not grant permission to approve its records.
+**Needs attention** shows all unresolved payment proofs, reschedules, ocular requests, refund reviews and approved transfers or submitted payouts awaiting verification, including older requests. Select a queue card to open the corresponding tab in Transactions or Records. Links only appear for modules your role can access; permission to view a queue does not grant permission to approve its records.
 
 The **Last 7 days** charts show verified collections and the current recorded status/source of bookings created during those dates. Use **Booking status**/**Booking source** to change the breakdown, and each **View** dropdown to select a line graph, bar chart, pie chart or progress bars. Staff entry includes phone, Messenger and walk-in reservations.
 
@@ -258,31 +258,39 @@ This is the staff cash workflow. Online guest payment submission remains GCash o
 
 ## 13. Review and pay a refund
 
-**Required permissions:** Transactions access, refund review for decisions, and refund payout for completion. These are separate permissions.
+### Cancel a reservation and preview its refund
 
-### Review a request
+1. In **Reservations**, select the reservation from the calendar and choose **Cancel reservation / review refund**.
+2. Choose **Guest request** when staff is acting on the guest's request. Only an administrator may select **Resort-attributable reason**.
+3. Enter a documented cancellation reason and inspect the verified payments, prior refunds, initial deposit basis, deduction and refundable amount.
+4. A guest cancellation retains the initial 20% deposit: no refund for deposit-only bookings, the remaining 80% for fully paid bookings, and the verified amount above the deposit for partial payments. A resort-attributable cancellation refunds all remaining verified payments.
+5. Acknowledge the preview and confirm. No verified payment or no eligible amount produces **Cancelled - No Refund**. Eligible amounts create **Pending refund review** automatically, without a guest request.
+6. Read the success/alert message. Guest/finance in-app alerts are recorded with the cancellation. Guest email is attempted, including staff-entered guests with email addresses.
 
-1. Open **Transactions → Refund Requests**.
-2. Check whether the row is an **Excess payment** or **Cancellation** request.
-3. Select **Review** and inspect its amount, status, policy and existing review notes.
-4. Check the current bill, verified payments and prior refunds before deciding.
-5. Enter review notes as needed and select **Approve**, or enter the required reason and select **Reject**.
-6. Check the saved status.
+Pending payment proofs must be reviewed first. Staff handling a guest request can help outside the self-service notice window, while the deposit rule remains unchanged. The reservation stays **Cancelled** throughout refund processing. Do not collect the historical cancelled booking balance.
 
-**Expected result:** An approved request awaits payout. Approval alone does not transfer money. Cancellation decisions follow the policy attached to that reservation; excess refunds apply to verified payments above the current bill and do not cancel the reservation.
+### Review and approve
 
-### Record the payout
+1. Open **Transactions > Refund Requests** and select **View / process**.
+2. Check the verified payment records, references/proofs, previous refunds, policy snapshot and computed deduction. The amount is fixed; staff cannot type a replacement amount.
+3. The cashier enters review notes, checks the payment-record acknowledgement and selects **Submit payment review**.
+4. The request becomes **Awaiting administrator approval**. An active administrator selects **Approve refund**, or supplies a reason and selects **Reject with reason**.
+5. For an unprocessed legacy cancellation, an administrator first documents guest/resort responsibility and chooses **Recalculate legacy cancellation refund**. Any previous approval is reset for a fresh cashier review and recorded in the audit log. Completed refunds are preserved.
 
-1. Open the **Approved** request and recheck the available refund amount.
-2. Confirm the guest's payout details through the resort's normal process.
-3. Complete the GCash transfer outside the website.
-4. Enter the real **GCash transfer reference** and upload **Transfer proof**.
-5. Select **Mark refunded** after the transfer has succeeded.
-6. Check the recorded reference, proof and **Refunded** status.
+Review, payout and payout verification are separate configurable permissions. Approval/rejection is administrator-only. Module access alone grants no financial action rights.
 
-**Expected result:** The completed refund reduces net paid billing; original payments and receipts retain their historical amounts. **View transfer proof** opens the stored payout evidence.
+### Record and verify the payout
 
-The system recalculates eligibility before approval/payout. Added services or another billing change can remove an excess; read the error and review the current bill instead of forcing an outdated amount. References cannot be reused. Only one open pending/approved refund is allowed per reservation.
+1. Open the **Approved - awaiting transfer** request and recheck the approved amount and guest payout details.
+2. Send the money manually through GCash or another active approved payment method in Business Catalog. The website does not release money.
+3. Select the payout method, enter the real transfer reference and upload image/PDF evidence up to 8 MB.
+4. Select **Submit transfer for verification**. The status becomes **Transfer submitted - awaiting verification**; uploading proof does not mark the refund completed or reduce net paid totals.
+5. An authorized verifier opens the proof, matches amount, recipient and reference against provider transaction records, adds notes and checks the verification acknowledgement. An active administrator can perform this step for their own payout; other staff need a different verifier.
+6. Select **Verify transfer and complete refund**. Only this step sets **Refunded** and deducts the payout from net paid billing. An active administrator may review, approve, submit and verify using their own account; proof, reference, notes and explicit verification remain mandatory.
+
+Every stage creates guest/finance in-app alerts and audit entries. Guest email is attempted; an email failure does not undo a saved action. References cannot be reused, one open request allocates funds per reservation, and stale/changed funds stop processing. Cancellation converts an existing excess request and resets review. An existing transfer awaiting verification must be verified before cancellation.
+
+**Expected result:** Payments and issued receipts remain historical records. The verified refund updates net paid financial totals and refreshes the ledger. Cancelled balances are not shown as outstanding debt.
 
 ## 14. View invoices and print receipts
 
@@ -466,7 +474,7 @@ Use **Resort information** for the resort name, address, phone/email and social 
 1. Open **Configuration → Reservation settings**.
 2. In **Cancellation and refund policy**, review the current version.
 3. Edit the guest cancellation notice hours, cancellation text and refund text.
-4. Choose whether cancellation of a paid booking creates a refund review request. Staff still decide whether a refund is approved.
+4. Eligible cancellation refunds are always created automatically; the previous enable/disable preference no longer suppresses them. Review the enforced guest/resort deduction rules. Administrators decide approval after payment review.
 5. Select **Publish new version** and check the confirmation.
 6. Use **Previous versions** to inspect retained policies.
 
@@ -550,7 +558,7 @@ These notes describe the current application and prevent users from treating dem
 | --- | --- |
 | Audit Log → Export Log | Displayed without a download handler; View Details, search and filters work |
 | Separate guest `/ocular` page | Demonstration success is not a saved visit. Direct guests to Book Now → Ocular Visit and confirm it appears in Manage Booking/Records |
-| Staff cancellation/completion | The current calendar/Records UI does not expose dedicated staff Cancel or Complete buttons. Do not infer that editing a reservation changes its lifecycle status; eligible guests have cancellation in Manage Booking. Escalate other cases to the administrator's approved operating process |
+| Staff cancellation/completion | Cancellation with a refund preview is available from a reservation selected in the calendar, subject to permission. A dedicated Complete button is not exposed; editing a reservation does not complete it |
 | Some general Configuration settings | Saving a stored preference does not necessarily change all booking/payment/notification workflows. Use the dedicated package-rate and policy editors for implemented pricing/policy changes; online guest payment remains GCash and package times remain fixed |
 | Review moderation | The current portal has no dedicated review-moderation screen. Review submission currently publishes automatically; do not look for an admin review approval button in Records |
 | Older records | Historical/manual entries may lack fields found on newer bookings or receipts. Inspect the displayed record and supporting history before acting |

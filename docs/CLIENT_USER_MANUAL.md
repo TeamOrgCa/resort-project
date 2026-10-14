@@ -174,16 +174,18 @@ Larger payments are recorded at their actual verified amount. For example, with 
 | PHP 5,000 | The bill is fully paid |
 | PHP 5,500 | The bill is fully paid and PHP 500 is excess; request its refund in Manage Booking |
 
-These are examples, not the resort's package prices. Refunds need a separate request and staff processing.
+These are examples, not the resort's package prices. Active-booking excess refunds need a request; eligible cancellation refunds are created automatically. All payouts require manual staff processing and verification.
 
 ## 6. View your booking and pay the balance
 
 1. Sign in with the account used for the booking.
-2. Open **Manage Booking** and select the booking-records tab.
-3. Find your booking reference and select **View**.
+2. Open **Manage Booking** and select the **Bookings** tab.
+3. Find your booking reference, open its **three-dot options menu**, and select **View**. Details open in a dialog over the records.
 4. Check the schedule, status, booked policy, services and remaining balance.
-5. When payment is available, use **Pay Balance** on the row or **Continue to Payment** in the detail view.
+5. When payment is available, use **Pay balance** in the options menu or **Continue to Payment** in the details dialog.
 6. Complete the GCash payment and proof steps using today's original receipt.
+
+You can search by booking reference. Close a dialog with **Close**, its top-right close icon, or **Escape**. The page stays in place while the dialog is open; saving temporarily disables closing. Unavailable menu options explain the restriction.
 
 **Expected result:** Staff approval credits the actual amount received and updates the balance. Your reservation can be **Confirmed** after a verified down payment and still have a balance to pay.
 
@@ -191,11 +193,11 @@ If resort staff entered your booking through Messenger, a phone call or a walk-i
 
 ## 7. Add services to a booking
 
-1. Open **Manage Booking** and select **Edit** beside the reservation.
+1. Open **Manage Booking** and open the reservation's **three-dot options menu** and select **Edit services**.
 2. In **Edit Booking Services**, update the quantities allowed by the form. Existing booked quantities have a displayed minimum.
 3. Under **Add New Service**, select an available service and quantity, then select **Add Service**.
 4. Select **Save Service Changes**.
-5. Reopen **View** to check the updated bill and outstanding balance. Pay additional charges through the payment flow when available.
+5. After saving, the dialog shows the updated bill, outstanding balance and confirmation message. Pay additional charges through the payment flow when available.
 
 **Expected result:** The selected services are saved and billing is recalculated. The guest Edit screen edits services; it does not change the reservation package, accommodation, guest count or contact details. Contact staff for those reservation changes.
 
@@ -204,35 +206,37 @@ Closed reservations and bookings under payment review cannot be edited through t
 ## 8. Request a different booking date
 
 1. Find a **Confirmed** reservation in **Manage Booking**.
-2. Select **Resched**.
-3. Choose the new date offered by the form and review the retained package time/duration.
+2. Open the **three-dot options menu** and select **Reschedule**. Choose your date in the dialog.
+3. Use **Previous month** or **Next month** in the custom calendar, select a new check-in date, and review the retained package time/duration. Past dates, dates too early for the original start time, and the current reservation date are disabled. Availability is checked when you submit.
 4. Submit the request and read the notice showing the additional charge if approved.
 5. Wait for staff review and check the result in Manage Booking.
 6. If approved, check the new schedule and use **Pay Balance** for additional charges when required.
 
 **Expected result:** A pending request does not immediately move the reservation. The original dates remain reserved while staff reviews it. Approval can add a notice fee and a higher-date-rate adjustment; moving to a cheaper date does not automatically refund the difference.
 
-Rescheduling requires a confirmed payment, an eligible available date and the applicable booking rules. The new start must remain at least 30 minutes away. Contact staff if **Resched** is disabled or your requested change is outside the available options.
+Rescheduling requires a confirmed payment, an eligible available date and the applicable booking rules. The new start must remain at least 30 minutes away. Contact staff if **Reschedule** is disabled or your requested change is outside the available options.
 
 ## 9. Cancel a booking
 
-1. Open the booking in **Manage Booking** and read its cancellation/refund policy.
-2. Select **Cancel** beside the reservation.
-3. Read the cancellation confirmation and confirm only if you want to cancel.
-4. Check the updated booking status.
-5. If a refund review was created, check the **Refunds** section for its decision and payout status.
+1. Open **Manage Booking** and open the reservation's **three-dot options menu** and select **Cancel reservation**.
+2. Review the server-calculated preview: verified payments, previous refunds, initial deposit basis, retained deposit and refundable amount.
+3. Check the acknowledgement and select **Confirm cancellation**. If the bill or payments changed, reload the preview and review it again.
+4. Read the success alert and updated booking status. Eligible cancellations create a refund request automatically; you do not submit another request.
+5. Open the **Refunds** tab for payment review, administrator approval, manual transfer and staff verification.
 
-**Expected result:** A successful cancellation releases the reservation's dates. It does not automatically send a refund. Eligibility follows the policy attached when the booking was saved.
+Guest cancellation retains the initial 20% deposit. A downpayment-only booking has no refund; a fully paid booking receives the remaining 80%. Partial payments above the required deposit can be refunded after deducting that deposit and prior completed refunds. No payment means no request. A documented cancellation attributable to the resort refunds all remaining verified payments, including the deposit.
 
-Guest cancellation can close before check-in according to the booked notice period. Payments awaiting review must be resolved first. Closed or completed reservations cannot be cancelled again. Contact staff if the self-service action is unavailable.
+**Expected result:** The reservation becomes **Cancelled** and releases its dates. It is shown as **Cancelled - No Refund** when nothing is refundable; refund processing otherwise proceeds separately. No money is transferred automatically. Refunds are sent manually through GCash or another approved method and become **Refunded** only after authorized staff verify the transfer.
+
+Guest cancellation retains the booked notice period. Pending payment proofs must be reviewed before cancellation. Closed/completed bookings cannot be cancelled again. Contact staff if self-service is unavailable. Read in-app alerts and email updates; email delivery issues do not undo a saved cancellation.
 
 ## 10. Request an excess-payment refund
 
 1. Wait until staff has verified the payment.
-2. Open **Manage Booking** and find the **Refunds** section on the booking-records tab.
+2. Open **Manage Booking** and select the **Refunds** tab. You can also select **View refunds** in a booking's details dialog to open the tab filtered to that booking reference. Clear the reference search to see all requests.
 3. Check the eligible booking reference and displayed excess amount.
 4. Select **Request excess refund** once.
-5. Monitor the request: **Pending** means awaiting review; **Approved** means awaiting GCash payout; **Refunded** means staff recorded a completed payout.
+5. Monitor the request: **Pending** means awaiting review; **Approved** means awaiting GCash payout; **Transfer submitted** means evidence is awaiting staff verification; **Refunded** means the transfer was verified.
 6. Read any review note and retain the GCash payout reference when shown.
 
 **Expected result:** The resort reviews the calculated excess. This request does not cancel your booking. The system calculates eligibility from the current bill, verified payments and completed refunds; you do not type a refund amount.
@@ -249,17 +253,17 @@ An ocular visit is a resort viewing, not a paid stay reservation.
 2. Select an available date and time slot.
 3. Sign in if requested.
 4. Select **Schedule Visit** and wait for the saved result.
-5. Open **Manage Booking**, select the ocular-records tab and confirm the visit appears.
+5. Open **Manage Booking**, select the **Ocular visits** tab and confirm the visit appears.
 6. Wait for staff approval before treating the visit as confirmed.
 
 Visits are free and require approval. Slots starting in less than 30 minutes are unavailable.
 
 ### View, change or cancel
 
-1. Open the ocular-records tab in **Manage Booking**.
-2. Use **View** to inspect the visit.
-3. Use **Edit** to choose an available date/slot and save the change. Check the updated status and await approval when required.
-4. Use **Cancel** and confirm if you no longer need the visit.
+1. Open the **Ocular visits** tab in **Manage Booking**.
+2. Open the visit's **three-dot options menu** and select **View** to inspect it in a dialog.
+3. Use **Edit visit** in the same menu to choose an available date/slot in the dialog and save the change. Check the updated status and await approval when required.
+4. Use **Cancel visit** in the menu and confirm if you no longer need the visit.
 
 **Current screen note:** The separate `/ocular` page is an older demonstration screen that displays a local success message without saving a visit. Use **Book Now → Ocular Visit** and verify the saved record in Manage Booking, including if a link takes you to the older page.
 
@@ -299,10 +303,12 @@ A rejected later balance payment does not itself cancel an already confirmed res
 
 | Status | Meaning |
 | --- | --- |
-| Pending | Staff has not finished the review |
-| Approved | Accepted for payout; money has not yet been recorded as refunded |
+| Pending refund review | Cashier is checking verified payment records |
+| Awaiting administrator approval | Payment records reviewed; waiting for the administrator's decision |
+| Approved - awaiting transfer | Accepted; staff must transfer the money manually |
+| Transfer submitted - awaiting verification | Payout evidence was uploaded; the refund is not yet completed |
 | Rejected | Not approved; read the review reason |
-| Refunded | Staff recorded the GCash payout and its reference/proof |
+| Refunded | Authorized staff verified the transfer and net financial records were updated |
 
 ## 14. Troubleshooting and support
 
@@ -319,7 +325,7 @@ A rejected later balance payment does not itself cancel an already confirmed res
 | Receipt-screening service is unavailable | Wait and retry. Keep the receipt; do not transfer money again just because an upload failed |
 | Payment is still under review | Check Manage Booking and contact staff with both references |
 | A paid booking expired or an initial payment was rejected | Contact staff to reconcile the existing transfer before paying or creating another booking |
-| Edit, Resched or Cancel is disabled | Check the reservation status and policy; contact staff for assistance |
+| Edit services, Reschedule or Cancel reservation is disabled | Check the reservation status and policy; contact staff for assistance |
 | Excess refund option is missing | Wait for payment verification and resolution of open payment/refund/reschedule requests; verify that there is still an excess |
 | Review photo cannot be uploaded | Use one supported image up to 3 MB; remove it to submit a text-only review |
 | A manual booking is missing from your account | Ask staff to look up the reference and check which guest profile it belongs to |

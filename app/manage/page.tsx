@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
@@ -12,8 +12,13 @@ import { downPaymentAmount } from "@/lib/booking/payment-policy";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import GuestRefundStatus from "@/components/GuestRefundStatus";
+import CancellationDialog from "@/components/CancellationDialog";
+import ManageIcon from "@/components/manage/ManageIcon";
+import RecordActionsMenu from "@/components/manage/RecordActionsMenu";
+import RecordDialog from "@/components/manage/RecordDialog";
+import RescheduleCalendar from "@/components/manage/RescheduleCalendar";
 
-type ManageTab = "bookings" | "ocular";
+type ManageTab = "bookings" | "ocular" | "refunds";
 type RecordMode = "view" | "edit" | "reschedule" | null;
 
 interface BookingRecord {
@@ -30,6 +35,7 @@ interface BookingRecord {
   remainingBalance: number;
   status: string;
   paymentDeadlineAt: string | null;
+  cancellationOutcome?: string;
   email: string;
   phone: string;
 }
@@ -66,6 +72,7 @@ interface ReservationRow {
   child_count: number;
   status: string;
   payment_deadline_at: string | null;
+  cancellation_snapshot?: { outcome?: string } | null;
 }
 
 interface TransactionRow {
@@ -131,6 +138,7 @@ const formatDate = (value: string) => {
   if (Number.isNaN(date.getTime())) return value;
 
   return date.toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -143,6 +151,7 @@ const formatDateTime = (value: string) => {
   if (Number.isNaN(date.getTime())) return value;
 
   return date.toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -211,13 +220,18 @@ const getMinRescheduleDate = (booking: BookingRecord | null) => {
 
 export default function ManageBooking() {
   const router = useRouter();
+  const recordsPanel = useRef<HTMLDivElement>(null);
+  const refundsTab = useRef<HTMLButtonElement>(null);
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [activeTab, setActiveTab] = useState<ManageTab>("bookings");
+  const [search, setSearch] = useState("");
+  const [ocularMessage, setOcularMessage] = useState<string | null>(null);
   const [recordMode, setRecordMode] = useState<RecordMode>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
-  const [isCancellingBooking, setIsCancellingBooking] = useState(false);
+  const [cancellationMessage, setCancellationMessage] = useState<string | null>(null);
+  const [refundRefresh, setRefundRefresh] = useState(0);
   const [pendingCancellation, setPendingCancellation] = useState<{ id: string; reference: string; checkIn: string } | null>(null);
   const [pendingOcularCancellation, setPendingOcularCancellation] = useState<{
   id: string;
@@ -284,6 +298,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             timeSlot: slot ? `${slot.start_time}-${slot.end_time}` : visit.timeSlot }
         : visit));
       setRecordMode("view");
+      setOcularMessage(result.message ?? "Your ocular visit schedule has been updated.");
     } catch {
       setOcularEditError("Could not update this ocular visit.");
     } finally {
@@ -364,6 +379,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       );
 
       setPendingOcularCancellation(null);
+      setOcularMessage("Your ocular visit has been cancelled.");
     } catch {
       setOcularCancelError("Failed to cancel ocular visit.");
     } finally {
@@ -372,55 +388,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   };
 
 
-
-  const handleCancelReservation = async (reservationId: string) => {
-    const bookingToCancel = bookings.find((item) => item.id === reservationId);
-
-    if (!bookingToCancel) {
-      setCancelError("No booking selected for cancellation.");
-      return;
-    }
-
-    setCancelError(null);
-    setIsCancellingBooking(true);
-
-    try {
-      const response = await fetch("/api/reservations/cancel", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          reservationId,
-        }),
-      });
-
-      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
-
-      if (!response.ok || !result?.success) {
-        setCancelError(result?.message ?? "Failed to cancel booking.");
-        return;
-      }
-
-      setBookings((prev) =>
-        prev.map((item) =>
-          item.id === reservationId
-            ? {
-                ...item,
-                status: "Cancelled",
-              }
-            : item
-        )
-      );
-
-      setRecordMode("view");
-      setPendingCancellation(null);
-    } catch {
-      setCancelError("Failed to cancel booking.");
-    } finally {
-      setIsCancellingBooking(false);
-    }
-  };
 
   const handleSaveServices = async () => {
     if (!selectedBooking) {
@@ -631,7 +598,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           supabase.from("guests").select("email, phone_number").eq("id", user.id).maybeSingle<GuestRow>(),
           supabase
             .from("reservations")
-            .select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at")
+            .select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot")
             .eq("guest_id", user.id)
             .order("created_at", { ascending: false }),
           supabase
@@ -704,6 +671,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           paidAmount: transactionByReservationId[reservation.reservation_id]?.paid ?? 0,
           remainingBalance: transactionByReservationId[reservation.reservation_id]?.balance ?? 0,
           status: toTitleCase(reservation.status),
+          cancellationOutcome: reservation.cancellation_snapshot?.outcome,
           paymentDeadlineAt: reservation.payment_deadline_at,
           email: guestData?.email ?? user.email ?? "-",
           phone: guestData?.phone_number ?? "-",
@@ -829,683 +797,450 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     };
   }, [bookings]);
 
+
+  const dialogBusy = isSavingServices || isSubmittingReschedule || isSavingOcular;
+  const closeRecord = () => {
+    if (dialogBusy) return;
+    setRecordMode(null); setSelectedBookingId(null); setSelectedOcularId(null);
+  };
+  const openBookingRecord = (record: BookingRecord, mode: Exclude<RecordMode, null>) => {
+    setSelectedBookingId(record.id); setSelectedOcularId(null); setRecordMode(mode);
+    setServiceEditError(null); setServiceEditMessage(null); setRescheduleFormError(null); setRescheduleMessage(null);
+    if (mode === "edit") {
+      setSelectedAddServiceId(""); setAddServiceQuantity("1");
+      setEditableServices((reservationServicesById[record.id] ?? []).map(service => ({ ...service })));
+    }
+    if (mode === "reschedule") {
+      setRescheduleForm({ checkIn: "" });
+    }
+  };
+  const openOcularRecord = (record: OcularRecord, mode: "view" | "edit") => {
+    setSelectedOcularId(record.id); setSelectedBookingId(null); setRecordMode(mode); setOcularEditError(null); setOcularMessage(null);
+    setOcularEdit({ scheduledDate: record.scheduledDate, timeSlotId: record.timeSlotId });
+  };
+  const statusStyle = (status: string) => {
+    const normalized = status.toLowerCase();
+    return normalized === "confirmed" || normalized === "completed" ? "bg-secondary/10 text-teal-800"
+      : isClosedReservation(status) ? "bg-neutral/5 text-neutral/60" : "bg-amber-50 text-amber-800";
+  };
+  const bookingStatus = (record: BookingRecord) => record.cancellationOutcome === "no_refund" ? "Cancelled - No Refund" : record.status;
+  const visibleBookings = bookings.filter(record => record.reference.toLowerCase().includes(search.trim().toLowerCase()));
+  const visibleOcular = ocularBookings.filter(record => record.reference.toLowerCase().includes(search.trim().toLowerCase()));
+  const currentRecord = activeTab === "bookings" ? selectedBooking : activeTab === "ocular" ? selectedOcular : null;
+  const showRefunds = (reference: string) => {
+    closeRecord(); setActiveTab("refunds"); setSearch(reference);
+    window.requestAnimationFrame(() => {
+      refundsTab.current?.focus({ preventScroll: true });
+      recordsPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    });
+  };
+
   return (
     <div className="min-h-screen bg-base">
       <Navigation />
-
-      <section className="relative h-80 flex items-center justify-center overflow-hidden mt-20">
-        <Image
-          src="/website_cover.jpg"
-          alt="Manage Booking"
-          fill
-          className="object-cover brightness-75"
-          priority
-        />
-        <div className="absolute inset-0 bg-neutral/40" />
-        <div className="relative z-10 text-center px-4">
-          <h1 className="text-6xl font-bold text-base mb-4">Manage Booking</h1>
-          <p className="text-xl text-base/90">Manage your bookings and ocular visit records in one place</p>
+      <section className="relative mt-20 flex h-56 items-center justify-center overflow-hidden sm:h-64">
+        <Image src="/website_cover.jpg" alt="Marville Resort" fill className="object-cover" priority />
+        <div className="absolute inset-0 bg-neutral/55" />
+        <div className="relative z-10 px-5 text-center">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/75">Your Marville stay</p>
+          <h1 className="text-3xl font-bold text-white sm:text-5xl">Manage Booking</h1>
+          <p className="mt-3 max-w-xl text-sm text-white/85 sm:text-base">Your schedules, payments and requests, all in one place.</p>
         </div>
       </section>
 
-      <section className="py-20 px-4">
-        <div className="max-w-6xl mx-auto">
-          <div className="bg-white rounded-3xl shadow-xl p-8">
-            {fetchError ? (
-              <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                {fetchError}
-              </p>
-            ) : null}
-
-            <div className="mb-6 flex flex-wrap gap-2 border-b border-neutral/10 pb-4">
-              <button
-                onClick={() => {
-                  setActiveTab("bookings");
-                  setRecordMode(null);
-                  setSelectedBookingId(null);
-                }}
-                className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                  activeTab === "bookings" ? "bg-primary text-base" : "bg-base text-neutral hover:bg-neutral/10"
-                }`}
-              >
-                Booking Records
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab("ocular");
-                  setRecordMode(null);
-                  setSelectedOcularId(null);
-                }}
-                className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                  activeTab === "ocular" ? "bg-primary text-base" : "bg-base text-neutral hover:bg-neutral/10"
-                }`}
-              >
-                Ocular Booking Records
-              </button>
+      <main className="relative mx-auto max-w-6xl px-3 pb-16 pt-6 sm:px-6 sm:pt-8">
+        <div ref={recordsPanel} className="scroll-mt-24 rounded-3xl border border-neutral/10 bg-white p-4 shadow-sm sm:p-7">
+          <div className="flex flex-col justify-between gap-4 border-b border-neutral/10 pb-5 md:flex-row md:items-center">
+            <div className="grid grid-cols-3 gap-1 rounded-2xl bg-base p-1 md:flex" role="group" aria-label="Record type">
+              {(["bookings", "ocular", "refunds"] as const).map(tab => <button key={tab} ref={tab === "refunds" ? refundsTab : undefined} type="button" aria-pressed={activeTab === tab}
+                onClick={() => { closeRecord(); setActiveTab(tab); setSearch(""); }}
+                className={`flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-3 text-xs font-semibold transition sm:px-3 sm:text-sm ${activeTab === tab ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:text-neutral"}`}>
+                <ManageIcon name={tab === "bookings" ? "calendar" : tab === "ocular" ? "view" : "wallet"} className="hidden h-4 w-4 shrink-0 sm:block" />
+                {tab === "bookings" ? "Bookings" : tab === "ocular" ? "Ocular visits" : "Refunds"}
+                {tab !== "refunds" && <span className="hidden rounded-full bg-neutral/5 px-2 py-0.5 text-xs sm:inline">{tab === "bookings" ? bookings.length : ocularBookings.length}</span>}
+              </button>)}
             </div>
-
-            {activeTab === "bookings" && (
-              <>
-                <h2 className="text-2xl font-bold text-neutral mb-4">Your Booking Records</h2>
-                <GuestRefundStatus />
-                {cancelError ? (
-                  <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                    {cancelError}
-                  </p>
-                ) : null}
-                {isLoading ? <p className="mb-4 text-sm text-neutral/70">Loading booking records...</p> : null}
-                <div className="overflow-x-auto rounded-2xl border border-neutral/10">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-neutral/10 bg-base text-neutral/70">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Reference</th>
-                        <th className="px-4 py-3 font-medium">Check-in</th>
-                        <th className="px-4 py-3 font-medium">Check-out</th>
-                        <th className="px-4 py-3 font-medium">Guests</th>
-                        <th className="px-4 py-3 font-medium">Amount</th>
-                        <th className="px-4 py-3 font-medium">Status</th>
-                        <th className="px-4 py-3 font-medium">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!isLoading && bookings.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="px-4 py-6 text-center text-neutral/60">
-                            No booking records found.
-                          </td>
-                        </tr>
-                      ) : null}
-                      {bookings.map((record) => (
-                        <tr key={record.id} className="border-b border-neutral/10 last:border-none">
-                          <td className="px-4 py-3 font-semibold text-neutral">{record.reference}</td>
-                          <td className="px-4 py-3 text-neutral/80">{formatDateTime(record.checkIn)}</td>
-                          <td className="px-4 py-3 text-neutral/80">{formatDateTime(record.checkOut)}</td>
-                          <td className="px-4 py-3 text-neutral/80">{record.guests}</td>
-                          <td className="px-4 py-3 text-neutral/80">₱{record.totalAmount.toFixed(2)}</td>
-                          <td className="px-4 py-3 text-neutral/80">{record.status}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  setSelectedBookingId(record.id);
-                                  setRecordMode("view");
-                                }}
-                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
-                              >
-                                View
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedBookingId(record.id);
-                                  setRecordMode("edit");
-                                  setServiceEditError(null);
-                                  setServiceEditMessage(null);
-                                  setSelectedAddServiceId("");
-                                  setAddServiceQuantity("1");
-                                  setEditableServices(
-                                    (reservationServicesById[record.id] ?? []).map((service) => ({
-                                      ...service,
-                                    }))
-                                  );
-                                }}
-                                disabled={isClosedReservation(record.status) || record.status.toLowerCase() === "payment submitted"}
-                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const normalizedStatus = record.status.toLowerCase();
-
-                                  if (normalizedStatus !== "confirmed") {
-                                    setCancelError("Payment must be approved before this reservation can be rescheduled.");
-                                    return;
-                                  }
-
-                                  setSelectedBookingId(record.id);
-                                  setRecordMode("reschedule");
-                                  setRescheduleFormError(null);
-                                  setRescheduleForm({
-                                        checkIn: (() => {
-                                          const defaultDate = manilaDateKey(record.startDatetime);
-                                          const minDate = getMinRescheduleDate(record);
-                                          const defaultParsed = parseDateValue(defaultDate);
-                                          const minParsed = parseDateValue(minDate);
-                                          if (defaultParsed && minParsed && defaultParsed < minParsed) {
-                                            return minDate;
-                                          }
-                                          return defaultDate;
-                                        })(),
-                                  });
-                                }}
-                                disabled={
-                                  record.status.toLowerCase() !== "confirmed"
-                                }
-                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
-                              >
-                                Resched
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (
-                                    record.remainingBalance <= 0 ||
-                                    isClosedReservation(record.status) ||
-                                    record.status.toLowerCase() === "payment submitted"
-                                  ) {
-                                    return;
-                                  }
-
-                                  openPaymentPortal(record);
-                                }}
-                                disabled={
-                                  record.remainingBalance <= 0 ||
-                                  isClosedReservation(record.status) ||
-                                  record.status.toLowerCase() === "payment submitted"
-                                }
-                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Pay Balance
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setCancelError(null);
-
-                                  if (record.status.toLowerCase() === "cancelled") {
-                                    setCancelError("This reservation is already cancelled.");
-                                    return;
-                                  }
-                                  if (record.status.toLowerCase() === "completed") {
-                                    setCancelError("Completed reservations cannot be cancelled.");
-                                    return;
-                                  }
-
-                                  setPendingCancellation({
-                                    id: record.id,
-                                    reference: record.reference,
-                                    checkIn: record.checkIn,
-                                  });
-                                  
-                                }}
-                                disabled={isClosedReservation(record.status)}
-                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {recordMode === "view" && selectedBooking && (
-                  <div className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5">
-                    {serviceEditMessage && <p role="status" className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-neutral">{serviceEditMessage}</p>}
-                    {rescheduleMessage && <p role="status" className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-neutral">{rescheduleMessage}</p>}
-                    <h3 className="text-lg font-semibold text-neutral mb-3">Booking Details</h3>
-                    <div className="grid gap-3 md:grid-cols-2 text-sm text-neutral/80">
-                      <p>
-                        Reference: <span className="font-semibold text-neutral">{selectedBooking.reference}</span>
-                      </p>
-                      <p>
-                        Status: <span className="font-semibold text-neutral">{selectedBooking.status}</span>
-                      </p>
-                      {selectedBooking.status.toLowerCase() === "pending" && selectedBooking.paymentDeadlineAt ? (
-                        <p>Submit payment by <span className="font-semibold text-neutral">{formatDateTime(selectedBooking.paymentDeadlineAt)}</span>.</p>
-                      ) : null}
-                      <p>
-                        Check-in: <span className="font-semibold text-neutral">{formatDateTime(selectedBooking.checkIn)}</span>
-                      </p>
-                      <p>
-                        Check-out: <span className="font-semibold text-neutral">{formatDateTime(selectedBooking.checkOut)}</span>
-                      </p>
-                      <p>
-                        Guests: <span className="font-semibold text-neutral">{selectedBooking.guests}</span>
-                      </p>
-                      <p>
-                        Total Amount: <span className="font-semibold text-neutral">₱{selectedBooking.totalAmount.toFixed(2)}</span>
-                      </p>
-                      <p>
-                        Paid Amount: <span className="font-semibold text-neutral">₱{selectedBooking.paidAmount.toFixed(2)}</span>
-                      </p>
-                      <p>
-                        Remaining Balance: <span className="font-semibold text-neutral">₱{selectedBooking.remainingBalance.toFixed(2)}</span>
-                      </p>
-                      <div className="md:col-span-2">
-                        <p className="font-medium text-neutral">Booked Services</p>
-                        {(reservationServicesById[selectedBooking.id] ?? []).length === 0 ? (
-                          <p className="mt-1">No services selected.</p>
-                        ) : (
-                          <div className="mt-2 space-y-1">
-                            {(reservationServicesById[selectedBooking.id] ?? []).map((service) => (
-                              <p key={service.serviceId}>
-                                {service.name} x {service.quantity} ({formatCurrency(service.priceAtTime)} each)
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {selectedBooking.remainingBalance > 0 &&
-                    !isClosedReservation(selectedBooking.status) &&
-                    selectedBooking.status.toLowerCase() !== "payment submitted" ? (
-                      <div className="mt-5 rounded-xl border border-neutral/10 bg-white p-4">
-                        <h4 className="font-semibold text-neutral">Continue Payment</h4>
-                        <p className="mt-1 text-sm text-neutral/70">
-                          Outstanding balance: <span className="font-semibold text-neutral">{formatCurrency(selectedBooking.remainingBalance)}</span>.
-                          Continue to the payment page to submit proof for the outstanding balance.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => openPaymentPortal(selectedBooking)}
-                          className="mt-4 rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90"
-                        >
-                          Continue to Payment
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-
-                {recordMode === "edit" && selectedBooking && (
-                  <form
-                    className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void handleSaveServices();
-                    }}
-                  >
-                    <h3 className="text-lg font-semibold text-neutral">Edit Booking Services</h3>
-                    <p className="text-sm text-neutral/70">
-                      You can add new services or increase quantities. Existing services cannot be reduced or removed.
-                    </p>
-
-                    {serviceEditError ? (
-                      <p className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                        {serviceEditError}
-                      </p>
-                    ) : null}
-
-                    <div className="space-y-3">
-                      {editableServices.length === 0 ? (
-                        <p className="text-sm text-neutral/70">No services yet. Add one below to continue.</p>
-                      ) : null}
-
-                      {editableServices.map((service) => (
-                        <div key={service.serviceId} className="grid gap-3 rounded-xl border border-neutral/10 bg-white p-3 md:grid-cols-3">
-                          <p className="text-sm text-neutral">
-                            <span className="font-semibold">{service.name}</span>
-                            <span className="block text-neutral/70">{formatCurrency(service.priceAtTime)} each</span>
-                          </p>
-                          <div>
-                            <label className="mb-1 block text-xs text-neutral/70">Quantity</label>
-                            <input
-                              type="number"
-                              min={service.minQuantity}
-                              step={1}
-                              value={service.quantity}
-                              onChange={(event) => {
-                                const parsedValue = Number.parseInt(event.target.value, 10);
-                                const nextQuantity = Number.isNaN(parsedValue)
-                                  ? service.minQuantity
-                                  : Math.max(service.minQuantity, parsedValue);
-
-                                setEditableServices((current) =>
-                                  current.map((currentService) =>
-                                    currentService.serviceId === service.serviceId
-                                      ? {
-                                          ...currentService,
-                                          quantity: nextQuantity,
-                                        }
-                                      : currentService
-                                  )
-                                );
-                              }}
-                              className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                            />
-                          </div>
-                          <p className="text-xs text-neutral/70 md:text-sm">Minimum allowed: {service.minQuantity}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="rounded-xl border border-neutral/10 bg-white p-3">
-                      <p className="mb-3 text-sm font-semibold text-neutral">Add New Service</p>
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <select
-                          value={selectedAddServiceId}
-                          onChange={(event) => setSelectedAddServiceId(event.target.value)}
-                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                        >
-                          <option value="">Select a service</option>
-                          {availableServices
-                            .filter((service) => !editableServices.some((entry) => entry.serviceId === service.service_id))
-                            .map((service) => (
-                              <option key={service.service_id} value={service.service_id}>
-                                {service.name} ({formatCurrency(Number(service.price ?? 0))})
-                              </option>
-                            ))}
-                        </select>
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={addServiceQuantity}
-                          onChange={(event) => setAddServiceQuantity(event.target.value)}
-                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setServiceEditError(null);
-
-                            if (!selectedAddServiceId) {
-                              setServiceEditError("Select a service to add.");
-                              return;
-                            }
-
-                            const selectedService = availableServices.find(
-                              (service) => service.service_id === selectedAddServiceId
-                            );
-
-                            if (!selectedService) {
-                              setServiceEditError("Selected service is no longer available.");
-                              return;
-                            }
-
-                            const parsedQuantity = Number.parseInt(addServiceQuantity, 10);
-                            const nextQuantity = Number.isNaN(parsedQuantity) ? 1 : Math.max(1, parsedQuantity);
-
-                            setEditableServices((current) => [
-                              ...current,
-                              {
-                                serviceId: selectedService.service_id,
-                                name: selectedService.name,
-                                quantity: nextQuantity,
-                                minQuantity: 1,
-                                priceAtTime: Number(selectedService.price ?? 0),
-                              },
-                            ]);
-                            setSelectedAddServiceId("");
-                            setAddServiceQuantity("1");
-                          }}
-                          className="rounded-lg border border-neutral/20 px-3 py-2 text-sm font-medium text-neutral hover:bg-base"
-                        >
-                          Add Service
-                        </button>
-                      </div>
-                    </div>
-
-                    <button
-                      disabled={isSavingServices}
-                      className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isSavingServices ? "Saving..." : "Save Service Changes"}
-                    </button>
-                  </form>
-                )}
-
-                {recordMode === "reschedule" && selectedBooking && (
-                  <form
-                    className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void handleSubmitReschedule(event);
-                    }}
-                  >
-                    <h3 className="text-lg font-semibold text-neutral">Reschedule Booking</h3>
-
-                    {rescheduleFormError ? (
-                      <p className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                        {rescheduleFormError}
-                      </p>
-                    ) : null}
-
-                    <div className="rounded-lg bg-neutral/5 p-4 space-y-2 text-sm">
-                      <p><span className="text-neutral/70">Booking Mode:</span> <span className="font-semibold text-neutral capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Unknown"}</span></p>
-                      <p><span className="text-neutral/70">Current Check-in:</span> <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkIn)}</span></p>
-                      <p><span className="text-neutral/70">Current Check-out:</span> <span className="font-semibold text-neutral">{formatDate(selectedBooking.checkOut)}</span></p>
-                      {selectedBooking.startDatetime && selectedBooking.endDatetime && (
-                        <>
-                          <p><span className="text-neutral/70">Start Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.startDatetime).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" })}</span></p>
-                          <p><span className="text-neutral/70">End Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.endDatetime).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" })}</span></p>
-                        </>
-                      )}
-                    </div>
-
-                    <div className="grid gap-4">
-                      <div>
-                        <label className="mb-2 block text-sm text-neutral/70">New Check-in Date</label>
-                        <input
-                          type="date"
-                          value={rescheduleForm.checkIn}
-                          min={minRescheduleDate}
-                          onChange={(event) =>
-                            setRescheduleForm((current) => ({
-                              ...current,
-                              checkIn: event.target.value,
-                            }))
-                          }
-                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                        />
-                        <p className="mt-1 text-xs text-neutral/60">Earlier or later dates are allowed if available. The original Manila start time and duration stay the same. An additional notice fee and any higher date rate are charged after approval.</p>
-                      </div>
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={isSubmittingReschedule}
-                      className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isSubmittingReschedule ? "Submitting Request..." : "Submit Reschedule Request"}
-                    </button>
-                  </form>
-                )}
-
-              </>
-            )}
-
-            {activeTab === "ocular" && (
-              <>
-                <h2 className="text-2xl font-bold text-neutral mb-4">Your Ocular Booking Records</h2>
-                {ocularCancelError ? (
-                  <p className="mb-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                    {ocularCancelError}
-                  </p>
-                ) : null}
-
-                {isLoading ? <p className="mb-4 text-sm text-neutral/70">Loading ocular visit records...</p> : null}
-                <div className="overflow-x-auto rounded-2xl border border-neutral/10">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-neutral/10 bg-base text-neutral/70">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Reference</th>
-                        <th className="px-4 py-3 font-medium">Scheduled Date</th>
-                        <th className="px-4 py-3 font-medium">Time Slot</th>
-                        <th className="px-4 py-3 font-medium">Status</th>
-                        <th className="px-4 py-3 font-medium">Notes</th>
-                        <th className="px-4 py-3 font-medium">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!isLoading && ocularBookings.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-6 text-center text-neutral/60">
-                            No ocular visit records found.
-                          </td>
-                        </tr>
-                      ) : null}
-                      {ocularBookings.map((record) => (
-                        <tr key={record.id} className="border-b border-neutral/10 last:border-none">
-                          <td className="px-4 py-3 font-semibold text-neutral">{record.reference}</td>
-                          <td className="px-4 py-3 text-neutral/80">{formatDate(record.scheduledDate)}</td>
-                          <td className="px-4 py-3 text-neutral/80">{formatTimeSlot(record.timeSlot)}</td>
-                          <td className="px-4 py-3 text-neutral/80">{record.status}</td>
-                          <td className="px-4 py-3 text-neutral/80">{record.notes}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  setSelectedOcularId(record.id);
-                                  setRecordMode("view");
-                                }}
-                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
-                              >
-                                View
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedOcularId(record.id);
-                                  setRecordMode("edit");
-                                  setOcularEdit({ scheduledDate: record.scheduledDate, timeSlotId: record.timeSlotId });
-                                  setOcularEditError(null);
-                                }}
-                                disabled={record.status.toLowerCase() === "cancelled" || record.status.toLowerCase() === "completed"}
-                                className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base"
-                              >
-                                Edit
-                              </button>
-                                <button
-                                  onClick={() => {
-                                    if (record.status.toLowerCase() === "cancelled") {
-                                      setOcularCancelError("This ocular visit is already cancelled.");
-                                      return;
-                                    }
-
-                                    setPendingOcularCancellation({
-                                      id: record.id,
-                                      reference: record.reference,
-                                    });
-                                  }}
-                                  disabled={record.status.toLowerCase() === "cancelled" || record.status.toLowerCase() === "completed"}
-                                  className="rounded-md border border-neutral/20 px-3 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  Cancel
-                                </button>
-
-
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {recordMode === "view" && selectedOcular && (
-                  <div className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5">
-                    <h3 className="text-lg font-semibold text-neutral mb-3">Ocular Visit Details</h3>
-                    <div className="grid gap-3 md:grid-cols-2 text-sm text-neutral/80">
-                      <p>
-                        Reference: <span className="font-semibold text-neutral">{selectedOcular.reference}</span>
-                      </p>
-                      <p>
-                        Scheduled Date: <span className="font-semibold text-neutral">{formatDate(selectedOcular.scheduledDate)}</span>
-                      </p>
-                      <p>
-                        Time Slot: <span className="font-semibold text-neutral">{formatTimeSlot(selectedOcular.timeSlot)}</span>
-                      </p>
-                      <p>
-                        Status: <span className="font-semibold text-neutral">{selectedOcular.status}</span>
-                      </p>
-                      <p>
-                        Notes: <span className="font-semibold text-neutral">{selectedOcular.notes}</span>
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {recordMode === "edit" && selectedOcular && (
-                  <form
-                    className="mt-6 rounded-2xl border border-neutral/10 bg-base p-5 space-y-4"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void saveOcularEdit();
-                    }}
-                  >
-                    <h3 className="text-lg font-semibold text-neutral">Edit Ocular Visit</h3>
-                    {ocularEditError && <p role="alert" className="text-sm text-red-700">{ocularEditError}</p>}
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div>
-                        <label className="mb-2 block text-sm text-neutral/70">Scheduled Date</label>
-                        <input
-                          type="date"
-                          required
-                          min={manilaDateKey(new Date(now))}
-                          value={ocularEdit.scheduledDate}
-                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                          onChange={(event) => setOcularEdit((current) => ({ ...current, scheduledDate: event.target.value }))}
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-sm text-neutral/70">Time Slot</label>
-                        <select
-                          required
-                          value={ocularEdit.timeSlotId}
-                          onChange={(event) => setOcularEdit((current) => ({ ...current, timeSlotId: event.target.value }))}
-                          className="w-full rounded-lg border border-neutral/20 px-3 py-2"
-                        >
-                          {Object.values(ocularSlotsById).map((slot) => {
-                            const slotValue = `${slot.start_time}-${slot.end_time}`;
-                            return <option key={slot.slot_id} value={slot.slot_id} disabled={!isOcularSlotStartAllowed(ocularEdit.scheduledDate, slot.start_time, now)}>{formatTimeSlot(slotValue)}</option>;
-                          })}
-                        </select>
-                        <p className="mt-1 text-xs text-neutral/60">Manila time. Slots starting in less than 30 minutes are unavailable.</p>
-                      </div>
-                    </div>
-                    <button type="submit" disabled={isSavingOcular} className="rounded-full bg-primary px-6 py-3 font-semibold text-base hover:bg-primary/90 disabled:opacity-50">
-                      {isSavingOcular ? "Saving..." : "Save Changes"}
-                    </button>
-                  </form>
-                )}
-              </>
-            )}
+            <label className="flex items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2.5 md:w-56">
+              <ManageIcon name="search" className="h-4 w-4 text-neutral/45" />
+              <input type="search" aria-label="Search booking reference" value={search} onChange={event => setSearch(event.target.value)}
+                placeholder="Search reference" className="min-w-0 w-full bg-transparent text-base text-neutral outline-none sm:text-sm" />
+            </label>
           </div>
+          <div className="mb-5 mt-5 flex items-start justify-between gap-3">
+            <div><h2 className="text-xl font-semibold text-neutral">{activeTab === "bookings" ? "Your reservations" : activeTab === "ocular" ? "Your ocular visits" : "Your refunds"}</h2>
+              <p className="mt-1 text-sm text-neutral/60">{activeTab === "refunds" ? "Track refund progress and request eligible excess-payment refunds here." : "Open the three-dot options menu to view details or make changes."}</p></div>
+            <span className="hidden shrink-0 rounded-full bg-base px-3 py-2 text-xs text-neutral/55 sm:inline-flex">Philippine time</span>
+          </div>
+          {fetchError && activeTab !== "refunds" && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{fetchError}</p>}
+          {activeTab === "bookings" && <>
+            {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{cancellationMessage}</p>}
+            {cancelError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{cancelError}</p>}
+          </>}
+          {activeTab === "ocular" && <>
+            {ocularMessage && !recordMode && <p role="status" className="mb-4 rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{ocularMessage}</p>}
+            {ocularCancelError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{ocularCancelError}</p>}
+          </>}
+          {activeTab !== "refunds" && (isLoading ? <div role="status" className="rounded-2xl bg-base p-8 text-center text-sm text-neutral/60">Loading your records...</div>
+            : ((activeTab === "bookings" ? visibleBookings : visibleOcular).length === 0) ?
+              <div className="rounded-2xl border border-dashed border-neutral/15 bg-base/50 p-10 text-center">
+                <ManageIcon name="calendar" className="mx-auto mb-3 h-8 w-8 text-neutral/35" />
+                <p className="font-semibold text-neutral">{search ? "No matching references" : activeTab === "bookings" ? "No reservations yet" : "No ocular visits yet"}</p>
+                <p className="mt-2 text-sm text-neutral/60">{search ? "Try another reference or clear your search." : "Your saved records will appear here."}</p>
+              </div>
+            : <div className="space-y-4">
+              {activeTab === "bookings" && visibleBookings.map(record => {
+                const closed = isClosedReservation(record.status), reviewing = record.status.toLowerCase() === "payment submitted";
+                return <article key={record.id} aria-label={`Booking ${record.reference}`} className="overflow-hidden rounded-2xl border border-neutral/10 transition hover:border-primary/25 hover:shadow-sm">
+                  <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
+                    <div className="min-w-0"><p className="break-all text-base font-semibold text-neutral">{record.reference}</p>
+                      <p className="mt-1 flex items-center gap-2 text-xs text-neutral/60"><span className="capitalize">{record.bookingMode?.replace(/_/g, " ") || "Reservation"}</span><span aria-hidden="true">&middot;</span><ManageIcon name="guests" className="h-4 w-4" />{record.guests} guests</p>
+                      <span className={`mt-3 inline-block rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{bookingStatus(record)}</span>
+                    </div>
+                    <RecordActionsMenu reference={record.reference} actions={[
+                      { label: "View", icon: "view", explanation: "Details, payment and refund updates", onSelect: () => openBookingRecord(record, "view") },
+                      { label: "Edit services", icon: "edit", disabled: closed || reviewing, explanation: closed ? "This reservation is closed" : reviewing ? "Available after payment review" : "Add services or increase quantities", onSelect: () => openBookingRecord(record, "edit") },
+                      { label: "Reschedule", icon: "calendar", disabled: record.status.toLowerCase() !== "confirmed", explanation: record.status.toLowerCase() === "confirmed" ? "Request a new date for staff approval" : "Available for confirmed reservations", onSelect: () => openBookingRecord(record, "reschedule") },
+                      { label: "Pay balance", icon: "wallet", disabled: closed || reviewing || record.remainingBalance <= 0, explanation: closed ? "This reservation is closed" : reviewing ? "Your payment is being reviewed" : record.remainingBalance <= 0 ? "No outstanding balance" : "Continue to GCash payment", onSelect: () => openPaymentPortal(record) },
+                      { label: "Cancel reservation", icon: "cancel", danger: true, disabled: closed, explanation: closed ? "This reservation is closed" : "Review the refund calculation first", onSelect: () => { setCancelError(null); setPendingCancellation({ id: record.id, reference: record.reference, checkIn: record.checkIn }); } },
+                    ]} />
+                  </div>
+                  <div className="grid min-w-0 gap-4 border-t border-neutral/5 px-4 py-4 [overflow-wrap:anywhere] sm:grid-cols-2 sm:px-5 lg:grid-cols-4">
+                    <div><p className="mb-1 text-xs text-neutral/55">Check-in</p><p className="text-sm font-medium text-neutral">{formatDateTime(record.startDatetime)}</p></div>
+                    <div><p className="mb-1 text-xs text-neutral/55">Check-out</p><p className="text-sm font-medium text-neutral">{formatDateTime(record.endDatetime)}</p></div>
+                    <div><p className="mb-1 text-xs text-neutral/55">Reservation total</p><p className="text-sm font-semibold text-neutral">{formatCurrency(record.totalAmount)}</p><p className="mt-1 text-xs text-neutral/55">Net paid {formatCurrency(record.paidAmount)}</p></div>
+                    <div><p className="mb-1 text-xs text-neutral/55">{record.status.toLowerCase() === "cancelled" ? "Payment collection" : "Remaining balance"}</p>
+                      <p className="text-sm font-semibold text-primary">{record.status.toLowerCase() === "cancelled" ? "Closed" : formatCurrency(record.remainingBalance)}</p>
+                      {record.cancellationOutcome === "pending_refund" && <button type="button" onClick={() => showRefunds(record.reference)} className="mt-1 text-xs text-primary underline">View refund updates</button>}
+                      {record.status.toLowerCase() === "pending" && record.paymentDeadlineAt && <p className="mt-1 text-xs text-amber-800">Payment due {formatDateTime(record.paymentDeadlineAt)}</p>}
+                    </div>
+                  </div>
+                </article>;
+              })}
+              {activeTab === "ocular" && visibleOcular.map(record => {
+                const closed = isClosedReservation(record.status);
+                return <article key={record.id} aria-label={`Ocular visit ${record.reference}`} className="rounded-2xl border border-neutral/10 p-4 transition hover:border-primary/25 hover:shadow-sm sm:p-5">
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-all font-semibold text-neutral">{record.reference}</p><span className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{record.status}</span></div>
+                    <RecordActionsMenu reference={record.reference} actions={[
+                      { label: "View", icon: "view", explanation: "Visit schedule and status", onSelect: () => openOcularRecord(record, "view") },
+                      { label: "Edit visit", icon: "edit", disabled: closed, explanation: closed ? "This visit is closed" : "Change the date or time slot", onSelect: () => openOcularRecord(record, "edit") },
+                      { label: "Cancel visit", icon: "cancel", danger: true, disabled: closed, explanation: closed ? "This visit is closed" : "Cancel your scheduled resort visit", onSelect: () => { setOcularCancelError(null); setOcularMessage(null); setPendingOcularCancellation({ id: record.id, reference: record.reference }); } },
+                    ]} />
+                  </div>
+                  <div className="mt-4 grid gap-3 border-t border-neutral/5 pt-4 text-sm sm:grid-cols-3">
+                    <div><p className="mb-1 text-xs text-neutral/55">Scheduled date</p><p className="font-medium">{formatDate(record.scheduledDate)}</p></div>
+                    <div><p className="mb-1 text-xs text-neutral/55">Time slot</p><p className="font-medium">{formatTimeSlot(record.timeSlot)}</p></div>
+                    <div><p className="mb-1 text-xs text-neutral/55">Record note</p><p className="text-neutral/65">{record.notes}</p></div>
+                  </div>
+                </article>;
+              })}
+            </div>)}
+          {activeTab === "refunds" && <GuestRefundStatus refreshKey={refundRefresh} referenceSearch={search} standalone />}
         </div>
-      </section>
+      </main>
 
-      <ConfirmationDialog
-        isOpen={Boolean(pendingCancellation)}
-        title="Cancel Booking"
-        message={`Cancel booking ${pendingCancellation?.reference ?? ""}? Your booking's cancellation notice window applies. If a payment was verified, a refund review request may be created under the policy attached to your booking.`}
-        confirmText="Confirm Cancel"
-        cancelText="Keep Booking"
-        isConfirming={isCancellingBooking}
-        onCancel={() => {
-          if (!isCancellingBooking) {
-            setPendingCancellation(null);
-          }
-        }}
-        onConfirm={() => {
-          if (pendingCancellation) {
-            void handleCancelReservation(pendingCancellation.id);
-          }
-        }}
-      />
+      {recordMode && currentRecord && <RecordDialog reference={currentRecord.reference} busy={dialogBusy} onClose={closeRecord}
+        title={activeTab === "ocular" ? recordMode === "view" ? "Ocular visit details" : "Edit ocular visit" : recordMode === "view" ? "Booking details" : recordMode === "edit" ? "Edit booking services" : "Reschedule booking"}>
+        {activeTab === "bookings" && <>
+          {recordMode === "view" && selectedBooking && <div className="space-y-5">
+            {serviceEditMessage && <p role="status" className="rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{serviceEditMessage}</p>}
+            {rescheduleMessage && <p role="status" className="rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{rescheduleMessage}</p>}
+            {selectedBooking.cancellationOutcome === "no_refund" && <p className="rounded-xl bg-base p-4 text-sm text-neutral/70">This reservation is cancelled. No refundable payment remains under the cancellation policy.</p>}
+            {selectedBooking.cancellationOutcome === "pending_refund" && <p className="rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">This reservation is cancelled. Your refund request was created automatically. Follow its progress in the Refunds tab.</p>}
+            <div className="flex flex-wrap items-center justify-between gap-3"><span className={`rounded-full px-3 py-1 text-sm font-medium ${statusStyle(selectedBooking.status)}`}>{bookingStatus(selectedBooking)}</span><span className="flex items-center gap-2 text-sm text-neutral/65"><ManageIcon name="guests" />{selectedBooking.guests} guests</span></div>
+            {selectedBooking.status.toLowerCase() === "pending" && selectedBooking.paymentDeadlineAt && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Submit payment by {formatDateTime(selectedBooking.paymentDeadlineAt)}.</p>}
+            <dl className="grid gap-4 rounded-2xl bg-base p-5 text-sm sm:grid-cols-2">
+              <div><dt className="text-neutral/55">Check-in</dt><dd className="mt-1 font-semibold">{formatDateTime(selectedBooking.startDatetime)}</dd></div>
+              <div><dt className="text-neutral/55">Check-out</dt><dd className="mt-1 font-semibold">{formatDateTime(selectedBooking.endDatetime)}</dd></div>
+              <div><dt className="text-neutral/55">Package</dt><dd className="mt-1 font-medium capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Reservation"}</dd></div>
+              <div><dt className="text-neutral/55">Contact email</dt><dd className="mt-1 break-all font-medium">{selectedBooking.email}</dd></div>
+            </dl>
+            <div className="grid gap-3 rounded-2xl border border-neutral/10 p-5 text-sm sm:grid-cols-3">
+              <div><p className="text-neutral/55">Reservation total</p><p className="mt-1 text-lg font-semibold">{formatCurrency(selectedBooking.totalAmount)}</p></div>
+              <div><p className="text-neutral/55">Net verified paid</p><p className="mt-1 text-lg font-semibold">{formatCurrency(selectedBooking.paidAmount)}</p></div>
+              <div><p className="text-neutral/55">{selectedBooking.status.toLowerCase() === "cancelled" ? "Payment collection" : "Remaining balance"}</p><p className="mt-1 text-lg font-semibold text-primary">{selectedBooking.status.toLowerCase() === "cancelled" ? "Closed" : formatCurrency(selectedBooking.remainingBalance)}</p></div>
+            </div>
+            <div><h3 className="mb-3 font-semibold">Booked services</h3>
+              {(reservationServicesById[selectedBooking.id] ?? []).length === 0 ? <p className="text-sm text-neutral/60">No services selected.</p>
+                : <div className="divide-y divide-neutral/10 rounded-xl border border-neutral/10 px-4">{(reservationServicesById[selectedBooking.id] ?? []).map(service => <div key={service.serviceId} className="flex justify-between gap-3 py-3 text-sm"><div className="min-w-0"><p className="font-medium">{service.name} &times; {service.quantity}</p><p className="mt-1 text-xs text-neutral/55">{formatCurrency(service.priceAtTime)} each</p></div><p className="shrink-0 font-medium">{formatCurrency(service.priceAtTime * service.quantity)}</p></div>)}</div>}
+            </div>
+            {selectedBooking.remainingBalance > 0 && !isClosedReservation(selectedBooking.status) && selectedBooking.status.toLowerCase() !== "payment submitted" && <div className="rounded-2xl bg-primary/5 p-5">
+              <h3 className="font-semibold">Continue payment</h3><p className="mt-1 text-sm text-neutral/65">Submit your GCash receipt for the outstanding balance.</p>
+              <button type="button" onClick={() => openPaymentPortal(selectedBooking)} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl sm:w-auto bg-primary px-5 py-3 text-sm font-semibold text-white hover:bg-primary/90">Continue to Payment<ManageIcon name="arrow" className="h-4 w-4" /></button>
+            </div>}
+            <button type="button" onClick={() => showRefunds(selectedBooking.reference)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-neutral/10 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5"><span className="flex items-center gap-2"><ManageIcon name="wallet" />View refunds</span><ManageIcon name="arrow" /></button>
+          </div>}
+          {recordMode === "edit" && selectedBooking && (
+            <form
+              className="min-w-0 rounded-2xl border border-neutral/10 bg-base p-3 space-y-4 sm:p-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSaveServices();
+              }}
+            >
+              <h3 className="text-lg font-semibold text-neutral">Edit Booking Services</h3>
+              <p className="text-sm text-neutral/70">
+                You can add new services or increase quantities. Existing services cannot be reduced or removed.
+              </p>
+
+              {serviceEditError ? (
+                <p role="alert" className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                  {serviceEditError}
+                </p>
+              ) : null}
+
+              <div className="space-y-3">
+                {editableServices.length === 0 ? (
+                  <p className="text-sm text-neutral/70">No services yet. Add one below to continue.</p>
+                ) : null}
+
+                {editableServices.map((service) => (
+                  <div key={service.serviceId} className="grid gap-3 rounded-xl border border-neutral/10 bg-white p-3 md:grid-cols-3">
+                    <p className="text-sm text-neutral">
+                      <span className="font-semibold">{service.name}</span>
+                      <span className="block text-neutral/70">{formatCurrency(service.priceAtTime)} each</span>
+                    </p>
+                    <div>
+                      <label className="mb-1 block text-xs text-neutral/70">Quantity</label>
+                      <input
+                        type="number"
+                        aria-label={`Quantity for ${service.name}`}
+                        min={service.minQuantity}
+                        step={1}
+                        value={service.quantity}
+                        onChange={(event) => {
+                          const parsedValue = Number.parseInt(event.target.value, 10);
+                          const nextQuantity = Number.isNaN(parsedValue)
+                            ? service.minQuantity
+                            : Math.max(service.minQuantity, parsedValue);
+
+                          setEditableServices((current) =>
+                            current.map((currentService) =>
+                              currentService.serviceId === service.serviceId
+                                ? {
+                                    ...currentService,
+                                    quantity: nextQuantity,
+                                  }
+                                : currentService
+                            )
+                          );
+                        }}
+                        className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                      />
+                    </div>
+                    <p className="text-xs text-neutral/70 md:text-sm">Minimum allowed: {service.minQuantity}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-xl border border-neutral/10 bg-white p-3">
+                <p className="mb-3 text-sm font-semibold text-neutral">Add New Service</p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <select
+                    aria-label="New service"
+                    value={selectedAddServiceId}
+                    onChange={(event) => setSelectedAddServiceId(event.target.value)}
+                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                  >
+                    <option value="">Select a service</option>
+                    {availableServices
+                      .filter((service) => !editableServices.some((entry) => entry.serviceId === service.service_id))
+                      .map((service) => (
+                        <option key={service.service_id} value={service.service_id}>
+                          {service.name} ({formatCurrency(Number(service.price ?? 0))})
+                        </option>
+                      ))}
+                  </select>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    aria-label="New service quantity"
+                    value={addServiceQuantity}
+                    onChange={(event) => setAddServiceQuantity(event.target.value)}
+                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setServiceEditError(null);
+
+                      if (!selectedAddServiceId) {
+                        setServiceEditError("Select a service to add.");
+                        return;
+                      }
+
+                      const selectedService = availableServices.find(
+                        (service) => service.service_id === selectedAddServiceId
+                      );
+
+                      if (!selectedService) {
+                        setServiceEditError("Selected service is no longer available.");
+                        return;
+                      }
+
+                      const parsedQuantity = Number.parseInt(addServiceQuantity, 10);
+                      const nextQuantity = Number.isNaN(parsedQuantity) ? 1 : Math.max(1, parsedQuantity);
+
+                      setEditableServices((current) => [
+                        ...current,
+                        {
+                          serviceId: selectedService.service_id,
+                          name: selectedService.name,
+                          quantity: nextQuantity,
+                          minQuantity: 1,
+                          priceAtTime: Number(selectedService.price ?? 0),
+                        },
+                      ]);
+                      setSelectedAddServiceId("");
+                      setAddServiceQuantity("1");
+                    }}
+                    className="min-h-11 rounded-lg border border-neutral/20 px-3 py-2 text-sm font-medium text-neutral hover:bg-base"
+                  >
+                    Add Service
+                  </button>
+                </div>
+              </div>
+
+              <button
+                disabled={isSavingServices}
+                className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-base text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSavingServices ? "Saving..." : "Save Service Changes"}
+              </button>
+            </form>
+          )}
+
+          {recordMode === "reschedule" && selectedBooking && (
+            <form
+              className="min-w-0 rounded-2xl border border-neutral/10 bg-base p-3 space-y-4 sm:p-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSubmitReschedule(event);
+              }}
+            >
+              <h3 className="text-lg font-semibold text-neutral">Reschedule Booking</h3>
+
+              {rescheduleFormError ? (
+                <p role="alert" className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
+                  {rescheduleFormError}
+                </p>
+              ) : null}
+
+              <div className="rounded-lg bg-neutral/5 p-4 space-y-2 text-sm">
+                <p><span className="text-neutral/70">Booking Mode:</span> <span className="font-semibold text-neutral capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Unknown"}</span></p>
+                <p><span className="text-neutral/70">Current Check-in:</span> <span className="font-semibold text-neutral">{formatDate(selectedBooking.startDatetime)}</span></p>
+                <p><span className="text-neutral/70">Current Check-out:</span> <span className="font-semibold text-neutral">{formatDate(selectedBooking.endDatetime)}</span></p>
+                {selectedBooking.startDatetime && selectedBooking.endDatetime && (
+                  <>
+                    <p><span className="text-neutral/70">Start Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.startDatetime).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" })}</span></p>
+                    <p><span className="text-neutral/70">End Time:</span> <span className="font-semibold text-neutral">{new Date(selectedBooking.endDatetime).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" })}</span></p>
+                  </>
+                )}
+              </div>
+
+              <RescheduleCalendar
+                value={rescheduleForm.checkIn}
+                onChange={date => { setRescheduleForm({ checkIn: date }); setRescheduleFormError(null); }}
+                minDate={minRescheduleDate}
+                originalDate={manilaDateKey(selectedBooking.startDatetime)}
+              />
+              <p className="text-xs text-neutral/60">An additional notice fee and any higher date rate are charged after approval.</p>
+              <button
+                type="submit"
+                disabled={isSubmittingReschedule || !rescheduleForm.checkIn || rescheduleForm.checkIn < minRescheduleDate}
+                className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-base text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmittingReschedule ? "Submitting Request..." : "Submit Reschedule Request"}
+              </button>
+            </form>
+          )}
 
 
-    <ConfirmationDialog
-      isOpen={Boolean(pendingOcularCancellation)}
-      title="Cancel Ocular Visit"
-      message={`Cancel ocular visit ${pendingOcularCancellation?.reference ?? ""}?`}
-      confirmText="Confirm Cancel"
-      cancelText="Keep Visit"
-      isConfirming={isCancellingOcular}
-      onCancel={() => {
-        if (!isCancellingOcular) {
-          setPendingOcularCancellation(null);
-        }
-      }}
-      onConfirm={() => {
-        if (pendingOcularCancellation) {
-          void handleCancelOcularVisit(pendingOcularCancellation.id);
-        }
-      }}
-    />
+        </>}
+        {activeTab === "ocular" && <>
+          {ocularMessage && <p role="status" className="mb-4 rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{ocularMessage}</p>}
+          {recordMode === "view" && selectedOcular && (
+            <div className="rounded-2xl border border-neutral/10 bg-base p-5">
+              <h3 className="text-lg font-semibold text-neutral mb-3">Ocular Visit Details</h3>
+              <div className="grid gap-3 md:grid-cols-2 text-sm text-neutral/80">
+                <p>
+                  Reference: <span className="font-semibold text-neutral">{selectedOcular.reference}</span>
+                </p>
+                <p>
+                  Scheduled Date: <span className="font-semibold text-neutral">{formatDate(selectedOcular.scheduledDate)}</span>
+                </p>
+                <p>
+                  Time Slot: <span className="font-semibold text-neutral">{formatTimeSlot(selectedOcular.timeSlot)}</span>
+                </p>
+                <p>
+                  Status: <span className="font-semibold text-neutral">{selectedOcular.status}</span>
+                </p>
+                <p>
+                  Notes: <span className="font-semibold text-neutral">{selectedOcular.notes}</span>
+                </p>
+              </div>
+            </div>
+          )}
 
+          {recordMode === "edit" && selectedOcular && (
+            <form
+              className="min-w-0 rounded-2xl border border-neutral/10 bg-base p-3 space-y-4 sm:p-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveOcularEdit();
+              }}
+            >
+              <h3 className="text-lg font-semibold text-neutral">Edit Ocular Visit</h3>
+              {ocularEditError && <p role="alert" className="text-sm text-red-700">{ocularEditError}</p>}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm text-neutral/70">Scheduled Date</label>
+                  <input
+                    type="date"
+                    required
+                    min={manilaDateKey(new Date(now))}
+                    aria-label="Scheduled Date"
+                    value={ocularEdit.scheduledDate}
+                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                    onChange={(event) => setOcularEdit((current) => ({ ...current, scheduledDate: event.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm text-neutral/70">Time Slot</label>
+                  <select
+                    required
+                    aria-label="Time Slot"
+                    value={ocularEdit.timeSlotId}
+                    onChange={(event) => setOcularEdit((current) => ({ ...current, timeSlotId: event.target.value }))}
+                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                  >
+                    {Object.values(ocularSlotsById).map((slot) => {
+                      const slotValue = `${slot.start_time}-${slot.end_time}`;
+                      return <option key={slot.slot_id} value={slot.slot_id} disabled={!isOcularSlotStartAllowed(ocularEdit.scheduledDate, slot.start_time, now)}>{formatTimeSlot(slotValue)}</option>;
+                    })}
+                  </select>
+                  <p className="mt-1 text-xs text-neutral/60">Manila time. Slots starting in less than 30 minutes are unavailable.</p>
+                </div>
+              </div>
+              <button type="submit" disabled={isSavingOcular} className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-base text-white hover:bg-primary/90 disabled:opacity-50">
+                {isSavingOcular ? "Saving..." : "Save Changes"}
+              </button>
+            </form>
+          )}
 
+        </>}
+      </RecordDialog>}
 
+      {pendingCancellation && <CancellationDialog reservationId={pendingCancellation.id} onClose={() => setPendingCancellation(null)} onCancelled={result => {
+        const id = pendingCancellation.id;
+        setServiceEditMessage(null); setRescheduleMessage(null);
+        setBookings(current => current.map(item => item.id === id ? { ...item, status: "Cancelled", cancellationOutcome: result.outcome } : item));
+        setCancellationMessage(result.message); setPendingCancellation(null); setSelectedBookingId(id); setSelectedOcularId(null); setRecordMode("view"); setRefundRefresh(n => n + 1);
+      }} />}
+      <ConfirmationDialog isOpen={Boolean(pendingOcularCancellation)} title="Cancel Ocular Visit"
+        message={ocularCancelError ?? `Cancel ocular visit ${pendingOcularCancellation?.reference ?? ""}?`} confirmText="Confirm Cancel" cancelText="Keep Visit"
+        isConfirming={isCancellingOcular} onCancel={() => { if (!isCancellingOcular) setPendingOcularCancellation(null); }}
+        onConfirm={() => { if (pendingOcularCancellation) void handleCancelOcularVisit(pendingOcularCancellation.id); }} />
       <Footer />
     </div>
   );

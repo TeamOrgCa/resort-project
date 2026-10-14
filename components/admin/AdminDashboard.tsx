@@ -78,7 +78,7 @@ export default function AdminDashboard() {
     { title: "Reschedule requests", count: dashboard.queues.reschedules, help: "Awaiting a decision", href: "/admin/records?tab=reschedules", permission: "records" as const },
     { title: "Ocular visit requests", count: dashboard.queues.ocular, help: "Awaiting confirmation", href: "/admin/records?tab=ocular", permission: "records" as const },
     { title: "Refund reviews", count: dashboard.queues.refundReview, help: "Awaiting a decision", href: "/admin/transactions?tab=refunds", permission: "transactions" as const },
-    { title: "Refund payouts", count: dashboard.queues.refundPayout, help: "Approved, awaiting payout", href: "/admin/transactions?tab=refunds", permission: "transactions" as const },
+    { title: "Refund payouts", count: dashboard.queues.refundPayout, help: "Awaiting transfer or verification", href: "/admin/transactions?tab=refunds", permission: "transactions" as const },
   ].filter(item => can(item.permission)) : [];
 
   return <div className="space-y-6 text-neutral" aria-busy={loading}>

@@ -1,7 +1,7 @@
 import type { AdminNavItem } from "@/components/admin/types";
 import type { StaffRole } from "./staff-auth";
 
-export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_review", "refund_payout", "records", "reports", "analytics", "audit", "configuration", "catalog", "users"] as const;
+export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_review", "refund_payout", "refund_verify", "records", "reports", "analytics", "audit", "configuration", "catalog", "users"] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_LABELS: Record<Permission, string> = {
   dashboard: "Dashboard", reservations: "View reservations", create_reservation: "Add reservation",
@@ -9,7 +9,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   cancel_reservation: "Cancel reservation", reschedule_approval: "Approve or reject reschedules",
   ocular_approval: "Approve or cancel ocular visits", transactions: "View transactions",
   payment_approval: "Approve or reject payments", payment_entry: "Record payments",
-  refund_review: "Approve or reject refunds", refund_payout: "Record refund payout",
+  refund_review: "Review refund payment records (approval is admin-only)", refund_payout: "Record refund payout", refund_verify: "Verify refund payout",
   records: "View records", reports: "View and export reports", analytics: "View analytics",
   audit: "View audit log", configuration: "Resort configuration", catalog: "Manage catalog",
   users: "Manage staff users",

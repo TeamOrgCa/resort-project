@@ -109,7 +109,7 @@ test("refund queues paginate all requests and references, fail visibly and enfor
     "@/lib/server/role-permissions": { staffHasPermission: async (_client, _role, permission) => allowed && permission === "transactions" },
     "@/lib/notifications": {}, "@/lib/supabase/admin": {},
   });
-  const response = await GET(); assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
+  const response = await GET(); assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "private, no-store");
   const result = await response.json(); assert.equal(result.refunds.length, 1001); assert.equal(result.reservations.length, 1001);
   assert.ok(db.calls.some(c => c.table === "refund_requests" && c.from === 1000)); assert.ok(db.calls.filter(c => c.table === "reservations").every(c => c.batches[0].length <= 200));
   allowed = false; const reads = db.calls.length; assert.equal((await GET()).status, 403); assert.equal(db.calls.length, reads);
@@ -118,5 +118,5 @@ test("refund queues paginate all requests and references, fail visibly and enfor
     "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: failed.client, staffUser: { role: "admin" } }) },
     "@/lib/server/role-permissions": { staffHasPermission: async () => true }, "@/lib/notifications": {}, "@/lib/supabase/admin": {},
   });
-  assert.equal((await failure.GET()).status, 500);
+  assert.equal((await failure.GET()).status, 503);
 });

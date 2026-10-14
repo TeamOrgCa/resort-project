@@ -30,8 +30,9 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
   const todayStart = new Date(`${today}T00:00:00+08:00`);
   const arrivalEnd = new Date(todayStart.getTime() + 30 * DAY);
   const start = window.start.toISOString(), end = window.end.toISOString();
-  const count = async (table: string, status: string) => {
-    const { count, error } = await client.from(table).select("*", { count: "exact", head: true }).eq("status", status);
+  const count = async (table: string, status: string | string[]) => {
+    const query = client.from(table).select("*", { count: "exact", head: true });
+    const { count, error } = await (Array.isArray(status) ? query.in("status", status) : query.eq("status", status));
     if (error) throw new Error(error.message);
     if (count == null) throw new Error(`Unable to count ${table}`);
     return count;
@@ -48,7 +49,7 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
       .eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`)
       .order("created_at").order("payment_id").range(from, to)),
     count("payments", "pending"), count("reservation_reschedules", "pending"), count("ocular_visits", "pending"),
-    count("refund_requests", "pending"), count("refund_requests", "approved"),
+    count("refund_requests", ["pending", "reviewed"]), count("refund_requests", ["approved", "payout_submitted"]),
   ]);
 
   // An overdue unpaid hold is not a usable reservation, even before the expiry job runs.

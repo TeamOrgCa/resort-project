@@ -251,7 +251,7 @@ export default function AdminTransactionsPage() {
         const [{ data: reservationsData, error: reservationsError }, { data: invoicesData, error: invoicesError }, { data: paymentsData, error: paymentsError }, { data: receiptsData, error: receiptsError }] =
           await Promise.all([
             fetchByIds<ReservationRow>(reservationIds, (ids, from, to) => supabase.from("reservations")
-              .select("reservation_id, reference_number, booking_type").in("reservation_id", ids)
+              .select("reservation_id, reference_number, booking_type, status").in("reservation_id", ids)
               .order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
             recentReservationIds.length
               ? supabase.from("invoices").select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", recentReservationIds)
@@ -299,7 +299,8 @@ export default function AdminTransactionsPage() {
           return accumulator;
         }, {});
 
-        setTransactions(transactionList);
+        const cancelledIds = new Set((reservationsData ?? []).filter(row => row.status === "cancelled").map(row => row.reservation_id));
+        setTransactions(transactionList.map(row => cancelledIds.has(row.reservation_id) ? { ...row, balance: 0, status: "cancelled" } : row));
         setInvoices((invoicesData as InvoiceRow[] | null) ?? []);
         setReceipts((receiptsData as ReceiptRow[] | null) ?? []);
         setReservationReferencesById(nextReservationReferencesById);
@@ -340,7 +341,7 @@ export default function AdminTransactionsPage() {
           paid: formatCurrency(paidAmount),
           balance: formatCurrency(balanceAmount),
           overpaid: formatCurrency(Number(transaction.overpaid_amount ?? 0)),
-          status: toTitleCase(deriveTransactionStatus(totalAmount, paidAmount, balanceAmount)),
+          status: transaction.status === "cancelled" ? "Cancelled" : toTitleCase(deriveTransactionStatus(totalAmount, paidAmount, balanceAmount)),
           updatedAt: formatDateTime(transaction.updated_at),
         };
       }),
@@ -412,7 +413,7 @@ export default function AdminTransactionsPage() {
 
   const liveTransactionMetrics = useMemo(
     () => [
-      { label: "Total Due", value: formatCurrency(totalDue), trend: "Current billing cycle" },
+      { label: "Recorded Bills", value: formatCurrency(totalDue), trend: "Historical totals; cancelled balances are not collectible" },
       { label: "Collected", value: formatCurrency(collected), trend: `${totalDue > 0 ? ((collected / totalDue) * 100).toFixed(1) : 0}% collected` },
       { label: "Outstanding", value: formatCurrency(outstanding), trend: "Requires follow-up" },
       { label: "Overpaid", value: formatCurrency(overpaid), trend: "Above billed totals" },
@@ -885,7 +886,7 @@ export default function AdminTransactionsPage() {
             columns={transactionColumns}
             rows={transactionRows}
             defaultSort={{ key: "updatedAt", direction: "desc" }}
-            filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid"] }]}
+            filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid", "Cancelled"] }]}
             actions={canRecordPayments ? ["Refresh ledger", "Post Payment", "Export Ledger"] : ["Refresh ledger", "Export Ledger"]}
             rowActions={canRecordPayments ? ["View", "Settle"] : ["View"]}
             isLoading={isLoading}
@@ -963,7 +964,7 @@ export default function AdminTransactionsPage() {
             onRowAction={handleReceiptRowAction}
           />
         )}
-        {activeTab === "Refund Requests" && <RefundRequestsPanel />}
+        {activeTab === "Refund Requests" && <RefundRequestsPanel onUpdated={() => setRefreshRevision(n => n + 1)} />}
         {activeTab === "Guest Report" && <ReportPanel tabs={["Guest Report"]} />}
       </section>
 

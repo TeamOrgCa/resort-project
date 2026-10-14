@@ -1,105 +1,122 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { hasPermission } from "@/lib/auth/role-access";
-import type { StaffRole } from "@/lib/auth/staff-auth";
+import { refundStatusLabels, type CancellationPreview } from "@/lib/booking/cancellation";
 
-type Refund = { refund_id: string; reservation_id: string; amount: number; request_kind: "cancellation" | "overpayment"; policy_snapshot: string; policy_version: number | null;
-  status: "pending" | "approved" | "rejected" | "refunded"; requested_at: string; reviewed_at: string | null;
-  review_reason: string | null; refunded_at: string | null; gcash_reference: string | null; proof_path: string | null };
+type Refund = { refund_id: string; reservation_id: string; amount: number; request_kind: string; policy_snapshot: string;
+  policy_version: number | null; calculation_snapshot: CancellationPreview | null; workflow_version: number; status: string; requested_at: string;
+  review_reason: string | null; payment_review_notes: string | null; payment_reviewed_at: string | null;
+  payout_submitted_by: string | null; payout_submitted_at: string | null; payout_verification_notes: string | null;
+  refunded_at: string | null; gcash_reference: string | null; proof_path: string | null };
+type Payment = { payment_id: string; reservation_id: string; amount: number; status: string; reference_number: string; payment_type: string; verified_at: string | null; proof_path: string | null };
+type Bill = { reservation_id: string; total_amount: number; paid_amount: number };
+type Permissions = { canReview: boolean; canApprove: boolean; canPay: boolean; canVerify: boolean; canVerifyOwnPayout: boolean; staffId: string };
+const money = (n: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(n));
+const at = (value: string) => new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila" });
+const button = "rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50";
 
-export default function RefundRequestsPanel() {
-  const [refunds, setRefunds] = useState<Refund[]>([]);
+export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => void }) {
+  const [refunds, setRefunds] = useState<Refund[]>([]), [payments, setPayments] = useState<Payment[]>([]), [bills, setBills] = useState<Bill[]>([]);
   const [refs, setRefs] = useState<Record<string, string>>({});
-  const [canReview, setCanReview] = useState(false);
-  const [canPay, setCanPay] = useState(false);
-  const [selected, setSelected] = useState<Refund | null>(null);
-  const [reason, setReason] = useState("");
-  const [reference, setReference] = useState("");
-  const [proof, setProof] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const load = async () => {
+  const [permissions, setPermissions] = useState<Permissions>({ canReview: false, canApprove: false, canPay: false, canVerify: false, canVerifyOwnPayout: false, staffId: "" });
+  const [selectedId, setSelectedId] = useState<string | null>(null), [filter, setFilter] = useState("all");
+  const [reason, setReason] = useState(""), [reference, setReference] = useState(""), [proof, setProof] = useState<File | null>(null), [verified, setVerified] = useState(false);
+  const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState<string | null>(null), [message, setMessage] = useState<string | null>(null);
+  const [proofLink, setProofLink] = useState<string | null>(null);
+  const [legacyInitiator, setLegacyInitiator] = useState("guest");
+  const [methods, setMethods] = useState<{ payment_method_id: string; name: string }[]>([]), [method, setMethod] = useState("GCash");
+  const selected = refunds.find(f => f.refund_id === selectedId) ?? null;
+  const legacy = selected?.workflow_version === 1 && selected.request_kind === "cancellation";
+  const load = useCallback(async () => {
     const response = await fetch("/api/admin/refunds", { cache: "no-store" });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message ?? "Unable to load refunds.");
-    setRefunds(data.refunds ?? []);
-    setRefs(Object.fromEntries((data.reservations ?? []).map((row: { reservation_id: string; reference_number: string }) => [row.reservation_id, row.reference_number])));
-  };
-  useEffect(() => {
-    void load().catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load refunds."));
-    void (async () => {
-      const client = createClient();
-      const { data: { user } } = await client.auth.getUser();
-      if (!user) return;
-      const { data } = await client.from("staff_users").select("role").eq("id", user.id).maybeSingle();
-      if (!data?.role) return;
-      const role = data.role as StaffRole;
-      const { data: grants } = role === "admin" ? { data: null } : await client.from("role_permissions").select("permissions").eq("role", role).maybeSingle();
-      const permissions = grants?.permissions ?? [];
-      setCanReview(hasPermission(role, permissions, "refund_review"));
-      setCanPay(hasPermission(role, permissions, "refund_payout"));
-    })();
+    const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "Unable to load refunds.");
+    setRefunds(data.refunds ?? []); setPayments(data.payments ?? []); setBills(data.bills ?? []); setPermissions(data.permissions ?? { canReview: false, canApprove: false, canPay: false, canVerify: false, canVerifyOwnPayout: false, staffId: "" });
+    setRefs(Object.fromEntries((data.reservations ?? []).map((r: { reservation_id: string; reference_number: string }) => [r.reservation_id, r.reference_number])));
+    setMethods(data.paymentMethods ?? []);
+    setMethod(current => (data.paymentMethods ?? []).some((m: { name: string }) => m.name === current) ? current : data.paymentMethods?.[0]?.name ?? "");
   }, []);
-
-  const submit = async (action: "approved" | "rejected" | "refunded") => {
-    if (!selected) return;
+  useEffect(() => { void load().catch(cause => setError(cause instanceof Error ? cause.message : "Unable to load refunds.")).finally(() => setLoading(false)); }, [load]);
+  const refresh = async () => { setLoading(true); setError(null); try { await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to refresh refunds."); } finally { setLoading(false); } };
+  async function submit(action: string) {
+    if (!selected || busy) return;
     setBusy(true); setError(null); setMessage(null);
     try {
-      const form = new FormData();
-      form.set("refundId", selected.refund_id); form.set("action", action);
-      form.set("reason", reason); form.set("reference", reference);
-      if (proof) form.set("proof", proof);
-      const response = await fetch("/api/admin/refunds", { method: "POST", body: form });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message ?? "Unable to update refund.");
-      setMessage(result.notificationError ? `Refund updated. Guest alert failed: ${result.notificationError}` : `Refund ${action}.`);
-      setSelected(null); setReason(""); setReference(""); setProof(null);
+      const form = new FormData(); form.set("refundId", selected.refund_id); form.set("action", action);
+      form.set("reason", reason); form.set("reference", reference); form.set("verified", String(verified)); form.set("initiator", legacyInitiator); form.set("method", method || "GCash"); if (proof) form.set("proof", proof);
+      const response = await fetch("/api/admin/refunds", { method: "POST", body: form }); const data = await response.json();
+      if (!response.ok) throw new Error(data.message ?? "Unable to update refund.");
+      setMessage(data.message + (!data.emailSent ? " In-app alerts were recorded; email delivery could not be confirmed." : ""));
+      setSelectedId(null); setReason(""); setReference(""); setProof(null); setVerified(false); setProofLink(null);
+      onUpdated?.();
       await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to update refund."); }
     finally { setBusy(false); }
-  };
-
-  const openProof = async (path: string) => {
+  }
+  async function openProof(path: string, bucket = "refund-proofs") {
     setError(null);
-    const { data, error: signedError } = await createClient().storage.from("refund-proofs").createSignedUrl(path, 300);
-    if (signedError || !data?.signedUrl) { setError("Unable to open refund proof."); return; }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-  };
-
-  return <div className="space-y-4">
-    <p className="text-sm text-neutral/70">Review cancellation refunds and excess-payment refunds requested in Manage Booking. Check the current bill and receiving account before approving. Record the GCash transfer and upload proof after sending it.</p>
-    {message && <p role="status" className="rounded bg-green-50 p-3 text-sm">{message}</p>}
-    {error && <p role="alert" className="rounded bg-red-50 p-3 text-sm">{error}</p>}
-    <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b"><th className="p-2">Reservation</th><th className="p-2">Amount</th><th className="p-2">Status</th><th className="p-2">Requested</th><th className="p-2">Action</th></tr></thead>
-      <tbody>{refunds.map((refund) => <tr key={refund.refund_id} className="border-b">
-        <td className="p-2">{refs[refund.reservation_id] ?? refund.reservation_id}<span className="mt-1 block text-xs text-neutral/60">{refund.request_kind === "overpayment" ? "Excess payment" : "Cancellation"}</span></td>
-        <td className="p-2">{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(refund.amount)}</td>
-        <td className="p-2 capitalize">{refund.status}</td>
-        <td className="p-2">{new Date(refund.requested_at).toLocaleString("en-PH")}</td>
-        <td className="p-2"><button type="button" className="text-primary underline" onClick={() => { setSelected(refund); setError(null); }}>Review</button></td>
-      </tr>)}</tbody></table>{refunds.length === 0 && <p className="p-4 text-sm text-neutral/60">No refund requests.</p>}</div>
-    {selected && <div className="rounded-xl border p-4 text-sm">
-      <div className="mb-3 flex justify-between"><strong>Refund for {refs[selected.reservation_id] ?? selected.reservation_id}</strong><button type="button" onClick={() => setSelected(null)}>Close</button></div>
-      <p><strong>Status:</strong> {selected.status}</p><p><strong>Reason:</strong> {selected.request_kind === "overpayment" ? "Excess payment" : "Cancellation"}</p>
-      {selected.request_kind === "cancellation" && <p><strong>Policy version:</strong> {selected.policy_version ?? "Legacy"}</p>}
-      <p className="whitespace-pre-wrap"><strong>Refund terms:</strong> {selected.policy_snapshot}</p>
-      {selected.review_reason && <p><strong>Decision reason:</strong> {selected.review_reason}</p>}
-      {selected.gcash_reference && <p><strong>GCash reference:</strong> {selected.gcash_reference}</p>}
-      {selected.proof_path && <button type="button" className="text-primary underline" onClick={() => void openProof(selected.proof_path!)}>View transfer proof</button>}
-      {["pending", "approved"].includes(selected.status) && canReview && <div className="mt-4 space-y-2">
-        <label className="block">Review notes / rejection reason<input value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
-        <div className="flex gap-2">{selected.status === "pending" && <button disabled={busy} onClick={() => void submit("approved")} className="rounded bg-primary px-3 py-2 text-base">Approve</button>}
-          <button disabled={busy || reason.trim().length < 3} onClick={() => void submit("rejected")} className="rounded border px-3 py-2">Reject</button></div>
+    const { data, error } = await createClient().storage.from(bucket).createSignedUrl(path, 300);
+    if (error || !data?.signedUrl) { setError("Unable to open proof. Check your permission and retry."); return; }
+    setProofLink(data.signedUrl); window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+  const selectedPayments = payments.filter(p => p.reservation_id === selected?.reservation_id);
+  const bill = bills.find(b => b.reservation_id === selected?.reservation_id);
+  return <div className="space-y-5">
+    <div className="flex flex-wrap items-start justify-between gap-3"><p className="max-w-3xl text-sm text-neutral/70">Cancellation refunds are created automatically. Staff review verified payments, administrators approve or reject, then the manual transfer is documented and verified. Administrators can verify their own documented payout; other staff need a different authorized verifier. Uploading proof does not complete a refund.</p><button disabled={busy || loading} className={button} onClick={() => void refresh()}>Refresh</button></div>
+    {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm">{message}</p>}
+    {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    <label className="block text-sm font-medium">Show requests<select value={filter} onChange={e => setFilter(e.target.value)} className="ml-3 rounded-lg border p-2"><option value="all">All statuses</option>{Object.entries(refundStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    {loading && <p role="status" className="text-sm">Loading refund records...</p>}
+    <div className="overflow-x-auto rounded-xl border"><table className="w-full text-left text-sm"><thead className="bg-base"><tr>{["Reservation / type", "Refund amount", "Processing status", "Requested (PH)", "Action"].map(label => <th key={label} className="p-3">{label}</th>)}</tr></thead>
+      <tbody>{refunds.filter(f => filter === "all" || f.status === filter).map(f => <tr key={f.refund_id} className="border-t"><td className="p-3">{refs[f.reservation_id] ?? f.reservation_id}<span className="block text-xs text-neutral/60">{f.request_kind === "overpayment" ? "Excess payment" : "Cancelled reservation"}</span></td>
+        <td className="p-3 font-semibold">{money(f.amount)}</td><td className="p-3">{refundStatusLabels[f.status] ?? f.status}</td><td className="p-3">{at(f.requested_at)}</td>
+        <td className="p-3"><button className="text-primary underline" disabled={busy} onClick={() => { setSelectedId(f.refund_id); setReason(""); setReference(""); setProof(null); setVerified(false); setProofLink(null); setError(null); }}>View / process</button></td></tr>)}</tbody></table>
+      {!loading && !refunds.some(f => filter === "all" || f.status === filter) && <p className="p-5 text-sm text-neutral/65">No requests match this status.</p>}</div>
+    {selected && <section className="space-y-4 rounded-xl border p-4 sm:p-5">
+      <div className="flex justify-between gap-3"><h3 className="font-semibold">Refund for {refs[selected.reservation_id] ?? selected.reservation_id}</h3><button disabled={busy} className="text-sm underline" onClick={() => setSelectedId(null)}>Close</button></div>
+      <p className="text-sm">{refundStatusLabels[selected.status]} <strong className="ml-2">{money(selected.amount)}</strong></p>
+      <p className="text-sm">{selected.policy_snapshot}</p>
+      {selected.workflow_version === 1 && selected.request_kind === "cancellation" && !["refunded", "rejected"].includes(selected.status) && <div className="space-y-3 rounded-lg bg-amber-50 p-3 text-sm">
+        <p>This legacy request needs an administrator to document whether the guest or resort initiated cancellation and recalculate the refund before processing. Previous approvals will be reset and recorded in the audit log.</p>
+        {permissions.canApprove && <><select value={legacyInitiator} onChange={e => setLegacyInitiator(e.target.value)} className="rounded-lg border p-2"><option value="guest">Guest initiated</option><option value="resort">Resort attributable</option></select>
+          <button disabled={busy || reason.trim().length < 5} className={button} onClick={() => void submit("recalculate")}>Recalculate legacy cancellation refund</button></>}
       </div>}
-      {selected.status === "approved" && canPay && <div className="mt-4 space-y-2">
-        <label className="block">GCash transfer reference<input required value={reference} onChange={(event) => setReference(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
-        <label className="block">Transfer proof<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setProof(event.target.files?.[0] ?? null)} className="mt-1 block w-full" /></label>
-        <button disabled={busy || reference.trim().length < 6 || !proof} onClick={() => void submit("refunded")} className="rounded bg-primary px-3 py-2 text-base disabled:opacity-50">Mark refunded</button>
-      </div>}
-    </div>}
+      {selected.calculation_snapshot && <dl className="grid grid-cols-2 gap-2 rounded-lg bg-base p-3 text-sm">
+        <dt>Verified payments at cancellation</dt><dd className="text-right">{money(selected.calculation_snapshot.verifiedPaid)}</dd>
+        <dt>Previous refunds</dt><dd className="text-right">{money(selected.calculation_snapshot.previousRefunds)}</dd>
+        <dt>Retained deposit</dt><dd className="text-right">{money(selected.calculation_snapshot.deduction)}</dd>
+        <dt>Refund calculated automatically</dt><dd className="text-right font-semibold">{money(selected.amount)}</dd></dl>}
+      <p className="text-sm">Recorded bill: {money(bill?.total_amount ?? 0)}; net verified payments after completed refunds: {money(bill?.paid_amount ?? 0)}. A cancelled reservation has no active booking balance to collect.</p>
+      <h4 className="font-medium">Payment records</h4>
+      <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr>{["Amount", "Status", "Type", "Reference", "Verified (PH)", "Proof"].map(t => <th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>{selectedPayments.map(p => <tr key={p.payment_id} className="border-t">
+        <td className="p-2">{money(p.amount)}</td><td className="p-2">{p.status}</td><td className="p-2">{p.payment_type}</td><td className="p-2">{p.reference_number}</td><td className="p-2">{p.verified_at ? at(p.verified_at) : "-"}</td><td className="p-2">{p.proof_path && <button onClick={() => void openProof(p.proof_path!, "payment-proofs")} className="text-primary underline">View</button>}</td></tr>)}</tbody></table></div>
+      {selected.payment_review_notes && <p className="text-sm">Cashier review: {selected.payment_review_notes}</p>}
+      {selected.review_reason && <p className="text-sm">Administrator decision: {selected.review_reason}</p>}
+      {selected.payout_submitted_at && <p className="text-sm">Transfer submitted {at(selected.payout_submitted_at)}. Reference: {selected.gcash_reference}</p>}
+      {selected.payout_verification_notes && <p className="text-sm">Verification: {selected.payout_verification_notes}</p>}
+      {selected.refunded_at && <p className="text-sm">Refund completed {at(selected.refunded_at)}.</p>}
+      {selected.proof_path && <button className="text-sm text-primary underline" onClick={() => void openProof(selected.proof_path!)}>View transfer proof</button>}
+      {proofLink && <p className="text-sm"><a href={proofLink} target="_blank" rel="noopener noreferrer" className="text-primary underline">Open proof (if the browser blocked the new tab)</a></p>}
+      {!["rejected", "refunded"].includes(selected.status) && <label className="block text-sm font-medium">Review / decision / verification notes<textarea rows={2} maxLength={2000} value={reason} disabled={busy} onChange={e => setReason(e.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label>}
+      {selected.status === "pending" && permissions.canReview && !legacy && <div className="space-y-3">
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={verified} onChange={e => setVerified(e.target.checked)} />I checked actual verified payments, previous refunds and the calculated deduction against the payment records.</label>
+        <button className={button} disabled={busy || !verified || reason.trim().length < 5} onClick={() => void submit("reviewed")}>Submit payment review</button></div>}
+      {permissions.canApprove && ["pending", "reviewed", "approved"].includes(selected.status) && <div className="flex gap-3">
+        {selected.status === "reviewed" && !legacy && <button className={button} disabled={busy} onClick={() => void submit("approved")}>Approve refund</button>}
+        <button className={button} disabled={busy || reason.trim().length < 5} onClick={() => void submit("rejected")}>Reject with reason</button></div>}
+      {selected.status === "approved" && permissions.canPay && !legacy && <div className="space-y-3 rounded-lg bg-base p-3">
+        <p className="text-sm font-medium">Transfer {money(selected.amount)} manually through an approved payment method before submitting this evidence.</p>
+        <label className="block text-sm">Payout method<select value={method} disabled={busy} onChange={e => setMethod(e.target.value)} className="mt-1 w-full rounded-lg border p-2">{methods.map(m => <option key={m.payment_method_id} value={m.name}>{m.name}</option>)}</select></label>
+        {!methods.length && <p role="alert" className="text-sm text-red-700">An administrator must activate a payment method in Business Catalog before a payout can be recorded.</p>}
+        <label className="block text-sm">Transfer reference<input maxLength={100} value={reference} disabled={busy} onChange={e => setReference(e.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label>
+        <label className="block text-sm">Transfer proof (image or PDF, up to 8 MB)<input type="file" disabled={busy} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={e => setProof(e.target.files?.[0] ?? null)} className="mt-2 block" /></label>
+        <button className={button} disabled={busy || !method || reference.trim().length < 6 || !proof} onClick={() => void submit("payout_submitted")}>Submit transfer for verification</button></div>}
+      {selected.status === "payout_submitted" && <div className="space-y-3 rounded-lg bg-amber-50 p-3">
+        {selected.payout_submitted_by === permissions.staffId && !permissions.canVerifyOwnPayout ? <p className="text-sm">Another authorized staff member must verify your transfer. You cannot verify your own payout.</p> : permissions.canVerify ? <>
+          {selected.payout_submitted_by === permissions.staffId && permissions.canVerifyOwnPayout && <p className="text-sm">As the administrator, you can verify this transfer yourself after checking the provider transaction records.</p>}
+          <label className="flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={verified} onChange={e => setVerified(e.target.checked)} />I checked the transfer amount, recipient, reference and proof against the payment-provider transaction records.</label>
+          <button className={button} disabled={busy || !verified || reason.trim().length < 5} onClick={() => void submit("refunded")}>Verify transfer and complete refund</button>
+        </> : <p className="text-sm">Awaiting verification by authorized staff.</p>}</div>}
+    </section>}
   </div>;
 }
