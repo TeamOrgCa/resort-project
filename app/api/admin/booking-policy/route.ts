@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   if (cancellationText.length < 20 || cancellationText.length > 5000 ||
       refundText.length < 20 || refundText.length > 5000 ||
       !Number.isInteger(noticeHours) || Number(noticeHours) < 0 || Number(noticeHours) > 8760 ||
-      typeof refundReviewEnabled !== "boolean" ||
+      refundReviewEnabled !== true ||
       !Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 1) {
     return NextResponse.json({ message: "Enter both policy descriptions and a valid cancellation notice window." }, { status: 400 });
   }

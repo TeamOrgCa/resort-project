@@ -38,6 +38,7 @@ interface InvoiceEmailPayload extends BillingEmailBase {
 
 interface ReservationCancelledEmailPayload extends ReservationEmailBase {
   cancellationReason: string;
+  refundSummary?: string;
 }
 
 interface OcularVisitCancelledEmailPayload extends OcularVisitEmailPayload {
@@ -377,6 +378,7 @@ export const sendReservationCancelledEmail = async ({
   checkInDate,
   checkOutDate,
   cancellationReason,
+  refundSummary,
 }: ReservationCancelledEmailPayload) => {
   const safeName = escapeHtml(guestName || "Guest");
   const safeReference = escapeHtml(reservationReference);
@@ -393,6 +395,7 @@ export const sendReservationCancelledEmail = async ({
     `Check-in: ${formattedCheckIn}`,
     `Check-out: ${formattedCheckOut}`,
     `Reason: ${cancellationReason}`,
+    ...(refundSummary ? [refundSummary] : []),
     "",
     "If this is unexpected, please contact support.",
   ].join("\n");
@@ -420,6 +423,7 @@ export const sendReservationCancelledEmail = async ({
           <td style="padding: 8px 0;">${safeReason}</td>
         </tr>
       </table>
+      ${refundSummary ? `<p>${escapeHtml(refundSummary)}</p>` : ""}
       <p style="margin: 16px 0 0;">If this is unexpected, please contact support.</p>
     </div>
   `;
@@ -430,6 +434,17 @@ export const sendReservationCancelledEmail = async ({
     html,
     text,
   });
+};
+
+export const sendRefundStatusEmail = async (payload: {
+  guestEmail: string; guestName: string; reservationReference: string; amount: number; status: string; notes: string;
+}) => {
+  const labels: Record<string, string> = { reviewed: "Awaiting administrator approval", approved: "Approved - awaiting transfer", rejected: "Rejected",
+    payout_submitted: "Transfer submitted - awaiting verification", refunded: "Refunded" };
+  const status = labels[payload.status] ?? payload.status;
+  const text = `Hi ${payload.guestName},\nReservation ${payload.reservationReference}\nRefund: PHP ${Number(payload.amount).toFixed(2)}\nStatus: ${status}\n${payload.notes}\nView updates in Manage Booking. Money is transferred manually; only verified payouts are marked Refunded.`;
+  return sendMail({ to: payload.guestEmail, subject: `Refund ${status} - ${payload.reservationReference}`,
+    text, html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>Refund update</h2><p style="white-space:pre-wrap">${escapeHtml(text)}</p></div>` });
 };
 
 export const sendOcularVisitScheduledEmail = async ({

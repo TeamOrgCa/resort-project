@@ -118,7 +118,7 @@ test("transaction links open payment/refund tabs and pending payments outside th
   try {
     assert.match(h.container.textContent, /MV-OLD/); assert.match(h.container.textContent, /1234567890123/);
     await click(button(h.container, "Transaction Ledger")); assert.match(h.container.querySelector("tbody").textContent, /MV-RECENT/);
-    await h.navigate("?tab=refunds"); assert.match(h.container.textContent, /No refund requests/); assert.ok(h.requests.some(r => r.url === "/api/admin/refunds"));
+    await h.navigate("?tab=refunds"); assert.match(h.container.textContent, /No requests match this status/); assert.ok(h.requests.some(r => r.url === "/api/admin/refunds"));
     await click(button(h.container, "Payment Verification Queue")); assert.match(h.container.querySelector("tbody").textContent, /MV-OLD/);
   } finally { await h.close(); }
 });

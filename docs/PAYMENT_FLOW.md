@@ -40,7 +40,7 @@ Staff reviews requests in **Transactions → Refund Requests**, where excess-pay
 
 Completed refunds reduce `transactions.paid_amount` to net verified payments. Original payments and issued receipts retain their historical amounts. This prevents refunded excess from paying for services added later. Payout references cannot be reused, and only one pending/approved refund can exist per reservation; completed/rejected requests remain in the history.
 
-Cancellation retains the booked policy and notice window. Pending payments must be reviewed before cancellation so their proof remains reviewable. If cancellation refunds are enabled, an open excess request becomes a pending cancellation review and its prior approval is reset. Completed payouts are deducted before creating a later cancellation request. Disabling cancellation refund reviews does not remove an otherwise eligible excess refund. An obsolete pending reschedule cannot block refunding a cancelled booking.
+Cancellation now uses the workflow in [CANCELLATION_REFUNDS.md](CANCELLATION_REFUNDS.md): guest cancellations retain the initial 20% deposit, resort-attributable cancellations refund all remaining verified payments, and eligible requests are automatic. Review, administrator approval, manual payout and payout verification are distinct steps. Apply the cancellation-refund-workflow migration after the migrations below. Completed refunds alone reduce net paid totals.
 
 ## Apply before deployment
 
@@ -48,6 +48,7 @@ Existing booking, billing, account-access/OCR, maintenance-refunds, booking-poli
 
 1. `docs/gcash-payment-validation-migration.sql`
 2. `docs/overpayment-refunds-migration.sql`
+3. `docs/cancellation-refund-workflow-migration.sql`
 
 Both reload PostgREST's schema cache. They do not rewrite historical receipts. The refund migration recalculates net billing for reservations with completed refunds. `updated-schema.sql` includes the new payment timestamp column; use these feature migrations after installing its prerequisite tables and policies.
 

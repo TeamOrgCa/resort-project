@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import ManualBookingDialog from "@/components/admin/ManualBookingDialog";
 import ReservationEditor from "@/components/admin/ReservationEditor";
+import CancellationDialog from "@/components/CancellationDialog";
+import { hasPermission } from "@/lib/auth/role-access";
+import type { StaffRole } from "@/lib/auth/staff-auth";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import { buildBookingWindow } from "@/lib/booking/policy";
 import { isWindowAvailable } from "@/lib/booking/availability";
@@ -82,6 +85,9 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [ocularVisits, setOcularVisits] = useState<OcularVisit[]>([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState<MaintenanceBlock[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canCancel, setCanCancel] = useState(false);
+  const [cancelId, setCancelId] = useState<string | null>(null);
+  const [cancellationMessage, setCancellationMessage] = useState<string | null>(null);
   const [showBlockForm, setShowBlockForm] = useState(false);
   const [blockName, setBlockName] = useState("");
   const [blockReason, setBlockReason] = useState("");
@@ -179,6 +185,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       if (!user) return;
       const { data } = await client.from("staff_users").select("role, is_active").eq("id", user.id).maybeSingle();
       setIsAdmin(data?.role === "admin" && data.is_active === true);
+      if (data?.role && data.is_active) {
+        const { data: grants } = await client.from("role_permissions").select("permissions").eq("role", data.role).maybeSingle();
+        setCanCancel(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "cancel_reservation"));
+      }
     })();
   }, []);
 
@@ -325,6 +335,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         </div>
       </header>
 
+      {cancellationMessage && <p role="status" className="mb-4 rounded-lg bg-green-50 p-3 text-sm">{cancellationMessage}</p>}
       {blockMessage && <p role="status" className="mb-4 rounded-lg bg-orange-50 p-3 text-sm text-neutral">{blockMessage}</p>}
       {showBlockForm && <form className="mb-5 grid gap-3 rounded-xl border border-neutral/10 bg-white p-4 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); void saveBlock(); }}>
         <label className="text-sm">Name<input required maxLength={120} value={blockName} onChange={(event) => setBlockName(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
@@ -451,7 +462,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
               <button type="button" autoFocus onClick={() => setSelectedEvent(null)} className="rounded-lg border border-neutral/20 px-3 py-1.5 text-sm text-neutral hover:bg-base">Close</button>
             </div>
             {selectedEvent.reservationId ? (
-              <ReservationEditor key={selectedEvent.reservationId} reservationId={selectedEvent.reservationId} onSaved={() => setRefreshKey(key => key + 1)} />
+              <>
+                <ReservationEditor key={selectedEvent.reservationId} reservationId={selectedEvent.reservationId} onSaved={() => setRefreshKey(key => key + 1)} />
+                {canCancel && !["cancelled", "completed", "expired", "rejected"].includes(selectedEvent.status ?? "") && <button type="button" onClick={() => setCancelId(selectedEvent.reservationId!)} className="mt-5 rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700">Cancel reservation / review refund</button>}
+              </>
             ) : (
               <div className="mt-5 space-y-2 text-sm text-neutral/80">
                 <p>Reference: {selectedEvent.reference ?? "-"}</p>
@@ -465,6 +479,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         </div>
       )}
 
+      {cancelId && <CancellationDialog staff isAdmin={isAdmin} reservationId={cancelId} onClose={() => setCancelId(null)} onCancelled={result => {
+        setCancellationMessage(result.message + (!result.emailSent ? " In-app alerts were recorded; email delivery could not be confirmed." : ""));
+        setCancelId(null); setSelectedEvent(null); setRefreshKey(n => n + 1);
+      }} />}
       <ManualBookingDialog
         isOpen={isManualBookingOpen}
         onClose={() => setIsManualBookingOpen(false)}

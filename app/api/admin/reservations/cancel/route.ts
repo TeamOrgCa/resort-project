@@ -1,216 +1,38 @@
 import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
-import { createNotifications } from "@/lib/notifications";
-import { sendReservationCancelledEmail } from "@/lib/email";
+import { staffHasPermission } from "@/lib/server/role-permissions";
+import { uuidPattern } from "@/lib/booking/reservation-edit";
+import { cancellationMessage, type CancellationPreview } from "@/lib/booking/cancellation";
+import { cancellationEmail, workflowErrorMessage, workflowErrorStatus } from "@/lib/server/cancellation";
 
-const cancellationReasons = [
-  "Guest requested for cancellation",
-  "Maintenance",
-  "Emergency Situation",
-] as const;
-
-type CancellationReason = (typeof cancellationReasons)[number];
-
-interface CancelReservationPayload {
-  reservationId: string;
-  cancellationReason: CancellationReason;
+async function authorized() {
+  const staff = await requireActiveStaff();
+  if (!staff) return { error: NextResponse.json({ message: "Sign in as active staff." }, { status: 401 }) };
+  if (!await staffHasPermission(staff.supabase, staff.staffUser.role, "cancel_reservation")) return { error: NextResponse.json({ message: "Cancellation permission required." }, { status: 403 }) };
+  return { staff };
 }
-
-interface ReservationRow {
-  reservation_id: string;
-  guest_id: string | null;
-  walk_in_guest_id?: string | null;
-  reference_number: string;
-  start_datetime: string;
-  end_datetime: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | "reschedule_requested";
+export async function GET(request: Request) {
+  const context = await authorized(); if (context.error) return context.error;
+  const { staff } = context;
+  const params = new URL(request.url).searchParams, id = params.get("reservationId") ?? "", initiator = params.get("initiator") ?? "guest";
+  if (!uuidPattern.test(id) || !["guest", "resort"].includes(initiator)) return NextResponse.json({ message: "Select a valid cancellation." }, { status: 400 });
+  if (initiator === "resort" && staff.staffUser.role !== "admin") return NextResponse.json({ message: "Only administrators can cancel for resort-attributable reasons." }, { status: 403 });
+  const { data, error } = await staff.supabase.rpc("get_cancellation_preview", { p_reservation: id, p_initiator: initiator });
+  if (error) return NextResponse.json({ message: workflowErrorMessage(error) }, { status: workflowErrorStatus(error.code) });
+  return NextResponse.json({ preview: data }, { headers: { "Cache-Control": "private, no-store" } });
 }
-
-interface GuestEmailRow {
-  email: string;
-  first_name: string | null;
-  last_name: string | null;
-}
-
-const parsePayload = (value: unknown): CancelReservationPayload | null => {
-  if (typeof value !== "object" || value === null) {
-    return null;
-  }
-
-  const payload = value as Partial<CancelReservationPayload>;
-
-  if (typeof payload.reservationId !== "string" || !payload.reservationId.trim()) {
-    return null;
-  }
-
-  if (
-    typeof payload.cancellationReason !== "string" ||
-    !cancellationReasons.includes(payload.cancellationReason as CancellationReason)
-  ) {
-    return null;
-  }
-
-  return {
-    reservationId: payload.reservationId.trim(),
-    cancellationReason: payload.cancellationReason as CancellationReason,
-  };
-};
-
 export async function POST(request: Request) {
-  try {
-    const staffContext = await requireActiveStaff();
-
-    if (!staffContext) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized.",
-        },
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
-    const payload = parsePayload(body);
-
-    if (!payload) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid cancellation payload.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const { data: reservation, error: reservationError } = await staffContext.supabase
-      .from("reservations")
-      .select("reservation_id, guest_id, walk_in_guest_id, reference_number, start_datetime, end_datetime, status")
-      .eq("reservation_id", payload.reservationId)
-      .maybeSingle<ReservationRow>();
-
-    if (reservationError || !reservation) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Reservation not found.",
-        },
-        { status: 404 }
-      );
-    }
-
-    if (reservation.status === "cancelled") {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Reservation is already cancelled.",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (reservation.status === "completed") {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Completed reservations can no longer be cancelled.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const { data: refundId, error: cancelError } = await staffContext.supabase.rpc("cancel_reservation_with_refund", {
-      p_reservation: reservation.reservation_id,
-      p_reason: payload.cancellationReason,
-      p_admin: true,
-    });
-
-    if (cancelError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: cancelError.message,
-        },
-        { status: 500 }
-      );
-    }
-
-    let emailSent = false;
-
-    const guestLookup = reservation.guest_id
-      ? staffContext.supabase
-          .from("guests")
-          .select("email, first_name, last_name")
-          .eq("id", reservation.guest_id)
-          .maybeSingle<GuestEmailRow>()
-      : reservation.walk_in_guest_id
-        ? staffContext.supabase
-            .from("walk_in_guests")
-            .select("email, first_name, last_name")
-            .eq("walk_in_guest_id", reservation.walk_in_guest_id)
-            .maybeSingle<GuestEmailRow>()
-        : Promise.resolve({ data: null, error: null });
-
-    const { data: guest, error: guestLookupError } = await guestLookup;
-
-    if (guestLookupError) {
-      console.error("Failed to read guest email for cancellation notice.", guestLookupError);
-    } else if (guest?.email) {
-      emailSent = await sendReservationCancelledEmail({
-        guestEmail: guest.email,
-        guestName: `${guest.first_name ?? ""} ${guest.last_name ?? ""}`.replace(/\s+/g, " ").trim() || "Guest",
-        reservationReference: reservation.reference_number,
-        checkInDate: reservation.start_datetime,
-        checkOutDate: reservation.end_datetime,
-        cancellationReason: payload.cancellationReason,
-      });
-    }
-
-    if (reservation.guest_id) {
-      const { error: notificationError } = await createNotifications({
-        actorId: staffContext.staffUser.id,
-        guestId: reservation.guest_id,
-        title: "Reservation cancelled",
-        message: `Reservation ${reservation.reference_number} was cancelled.`,
-        entityType: "reservation",
-        entityId: reservation.reservation_id,
-        guestActionUrl: "/manage",
-      });
-      if (notificationError) console.warn("Failed to notify guest of reservation cancellation:", notificationError);
-    }
-
-    if (refundId) {
-      const { error: refundNoticeError } = await createNotifications({
-        actorId: staffContext.staffUser.id, guestId: reservation.guest_id,
-        staffRoles: ["admin", "cashier"], title: "Refund request pending",
-        message: `A refund request for reservation ${reservation.reference_number} is awaiting review.`,
-        entityType: "refund_request", entityId: refundId,
-        guestActionUrl: "/manage", staffActionUrl: "/admin/transactions",
-      });
-      if (refundNoticeError) console.warn("Failed to create refund notifications:", refundNoticeError);
-    }
-
-    return NextResponse.json(
-      {
-        success: true,
-        reservationId: reservation.reservation_id,
-        status: "cancelled",
-        cancellationReason: payload.cancellationReason,
-        refundId,
-        message: emailSent
-          ? "Reservation cancelled successfully and cancellation email sent."
-          : "Reservation cancelled successfully. Email delivery could not be confirmed.",
-        emailSent,
-      },
-      { status: 200 }
-    );
-  } catch {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Unexpected error while cancelling reservation.",
-      },
-      { status: 500 }
-    );
-  }
+  const context = await authorized(); if (context.error) return context.error;
+  const { staff } = context;
+  const body = await request.json().catch(() => null);
+  if (!uuidPattern.test(body?.reservationId ?? "") || !["guest", "resort"].includes(body?.initiator) ||
+    typeof body?.cancellationReason !== "string" || body.cancellationReason.trim().length < 5 || body.cancellationReason.length > 2000 ||
+    typeof body?.quote !== "string" || !/^[a-f0-9]{32}$/.test(body.quote)) return NextResponse.json({ message: "Choose who initiated cancellation, enter a reason and review the refund preview." }, { status: 400 });
+  if (body.initiator === "resort" && staff.staffUser.role !== "admin") return NextResponse.json({ message: "Only administrators can cancel for resort-attributable reasons." }, { status: 403 });
+  const { data, error } = await staff.supabase.rpc("cancel_reservation_evaluated", { p_reservation: body.reservationId,
+    p_reason: body.cancellationReason.trim(), p_initiator: body.initiator, p_expected_quote: body.quote });
+  if (error) return NextResponse.json({ message: workflowErrorMessage(error) }, { status: workflowErrorStatus(error.code) });
+  const result = data as CancellationPreview & { refundId: string | null };
+  const emailSent = await cancellationEmail(staff.supabase, body.reservationId, body.cancellationReason.trim(), result);
+  return NextResponse.json({ success: true, ...result, emailSent, message: cancellationMessage(result) });
 }

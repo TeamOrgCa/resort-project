@@ -5,7 +5,7 @@ export interface TransactionRow {
   paid_amount: number | null;
   balance: number | null;
   overpaid_amount: number | null;
-  status: "unpaid" | "partial" | "paid";
+  status: "unpaid" | "partial" | "paid" | "cancelled"; // Cancelled is a ledger display state, not a stored transaction status.
   created_at: string;
   updated_at: string;
 }
@@ -14,6 +14,7 @@ export interface ReservationRow {
   reservation_id: string;
   reference_number: string;
   booking_type: "online" | "walk_in" | null;
+  status?: string;
 }
 
 export interface InvoiceRow {

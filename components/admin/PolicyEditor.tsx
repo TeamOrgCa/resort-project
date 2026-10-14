@@ -32,7 +32,7 @@ export default function PolicyEditor() {
     setCancellationText(result.policy.cancellation_text);
     setRefundText(result.policy.refund_text);
     setNoticeHours(String(result.policy.guest_cancellation_notice_hours));
-    setRefundReviewEnabled(result.policy.refund_review_enabled);
+    setRefundReviewEnabled(true);
   };
 
   useEffect(() => {
@@ -83,10 +83,7 @@ export default function PolicyEditor() {
         <label className="block text-sm font-semibold text-neutral">Refund policy shown to guests and reviewers
           <textarea rows={5} maxLength={5000} value={refundText} onChange={(event) => setRefundText(event.target.value)} className="mt-2 block w-full rounded-lg border border-neutral/20 bg-white px-3 py-2 font-normal" />
         </label>
-        <label className="flex items-start gap-2 text-sm text-neutral">
-          <input type="checkbox" checked={refundReviewEnabled} onChange={(event) => setRefundReviewEnabled(event.target.checked)} className="mt-1" />
-          <span>Create a refund review request when a cancelled reservation has verified payments. Staff still decide whether to approve it.</span>
-        </label>
+        <p className="rounded-lg bg-white p-3 text-sm">Eligible cancellation refunds are always created automatically. Guest cancellations retain the initial 20% deposit; resort-attributable cancellations refund all remaining verified payments. Administrators approve requests, and payouts are manual and independently verified. The previous enable/disable setting does not suppress eligible refunds.</p>
         <button type="button" disabled={saving || !changed || cancellationText.trim().length < 20 || refundText.trim().length < 20 || noticeHours.trim() === "" || !Number.isInteger(Number(noticeHours)) || Number(noticeHours) < 0 || Number(noticeHours) > 8760} onClick={() => void publish()} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-base disabled:opacity-50">{saving ? "Publishing..." : "Publish new version"}</button>
         <div className="border-t border-neutral/10 pt-4">
           <h3 className="mb-2 font-semibold text-neutral">Previous versions</h3>
