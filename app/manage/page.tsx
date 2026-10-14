@@ -844,7 +844,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         <div className="relative z-10 px-5 text-center">
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/75">Your Marville stay</p>
           <h1 className="text-3xl font-bold text-white sm:text-5xl">Manage Booking</h1>
-          <p className="mt-3 max-w-xl text-sm text-white/85 sm:text-base">Your schedules, payments and requests, all in one place.</p>
+          <p className="mt-3 max-w-xl text-sm text-white/85 sm:text-black">Your schedules, payments and requests, all in one place.</p>
         </div>
       </section>
 
@@ -863,7 +863,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             <label className="flex items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2.5 md:w-56">
               <ManageIcon name="search" className="h-4 w-4 text-neutral/45" />
               <input type="search" aria-label="Search booking reference" value={search} onChange={event => setSearch(event.target.value)}
-                placeholder="Search reference" className="min-w-0 w-full bg-transparent text-base text-neutral outline-none sm:text-sm" />
+                placeholder="Search reference" className="min-w-0 w-full bg-transparent text-black text-neutral outline-none sm:text-sm" />
             </label>
           </div>
           <div className="mb-5 mt-5 flex items-start justify-between gap-3">
@@ -892,7 +892,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 const closed = isClosedReservation(record.status), reviewing = record.status.toLowerCase() === "payment submitted";
                 return <article key={record.id} aria-label={`Booking ${record.reference}`} className="overflow-hidden rounded-2xl border border-neutral/10 transition hover:border-primary/25 hover:shadow-sm">
                   <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
-                    <div className="min-w-0"><p className="break-all text-base font-semibold text-neutral">{record.reference}</p>
+                    <div className="min-w-0"><p className="break-all text-black font-semibold text-neutral">{record.reference}</p>
                       <p className="mt-1 flex items-center gap-2 text-xs text-neutral/60"><span className="capitalize">{record.bookingMode?.replace(/_/g, " ") || "Reservation"}</span><span aria-hidden="true">&middot;</span><ManageIcon name="guests" className="h-4 w-4" />{record.guests} guests</p>
                       <span className={`mt-3 inline-block rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{bookingStatus(record)}</span>
                     </div>
@@ -1024,7 +1024,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                             )
                           );
                         }}
-                        className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                        className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-black"
                       />
                     </div>
                     <p className="text-xs text-neutral/70 md:text-sm">Minimum allowed: {service.minQuantity}</p>
@@ -1039,7 +1039,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     aria-label="New service"
                     value={selectedAddServiceId}
                     onChange={(event) => setSelectedAddServiceId(event.target.value)}
-                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-black"
                   >
                     <option value="">Select a service</option>
                     {availableServices
@@ -1057,7 +1057,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     aria-label="New service quantity"
                     value={addServiceQuantity}
                     onChange={(event) => setAddServiceQuantity(event.target.value)}
-                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-black"
                   />
                   <button
                     type="button"
@@ -1148,7 +1148,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               <button
                 type="submit"
                 disabled={isSubmittingReschedule || !rescheduleForm.checkIn || rescheduleForm.checkIn < minRescheduleDate}
-                className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-base text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-black text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmittingReschedule ? "Submitting Request..." : "Submit Reschedule Request"}
               </button>
@@ -1201,7 +1201,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     min={manilaDateKey(new Date(now))}
                     aria-label="Scheduled Date"
                     value={ocularEdit.scheduledDate}
-                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-black"
                     onChange={(event) => setOcularEdit((current) => ({ ...current, scheduledDate: event.target.value }))}
                   />
                 </div>
@@ -1212,7 +1212,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     aria-label="Time Slot"
                     value={ocularEdit.timeSlotId}
                     onChange={(event) => setOcularEdit((current) => ({ ...current, timeSlotId: event.target.value }))}
-                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-base"
+                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-black"
                   >
                     {Object.values(ocularSlotsById).map((slot) => {
                       const slotValue = `${slot.start_time}-${slot.end_time}`;
@@ -1222,7 +1222,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                   <p className="mt-1 text-xs text-neutral/60">Manila time. Slots starting in less than 30 minutes are unavailable.</p>
                 </div>
               </div>
-              <button type="submit" disabled={isSavingOcular} className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-base text-white hover:bg-primary/90 disabled:opacity-50">
+              <button type="submit" disabled={isSavingOcular} className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-black text-white hover:bg-primary/90 disabled:opacity-50">
                 {isSavingOcular ? "Saving..." : "Save Changes"}
               </button>
             </form>
