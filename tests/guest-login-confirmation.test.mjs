@@ -4,7 +4,7 @@ import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
 const credentials = { email: " Guest@Example.com ", password: "correct-password" };
 const deviceId = "00000000-0000-4000-8000-000000000001";
-function harness({ code = "email_not_confirmed", locked = false, verified = false } = {}) {
+function harness({ code = "email_not_confirmed", locked = false, verified = false, active = true, deactivateDuringLogin = false } = {}) {
   const attempts = []; const signIns = []; const signOuts = []; const updates = [];
   const sessionId = "00000000-0000-4000-8000-000000000002";
   const token = `header.${Buffer.from(JSON.stringify({ session_id: sessionId })).toString("base64url")}.signature`;
@@ -22,8 +22,8 @@ function harness({ code = "email_not_confirmed", locked = false, verified = fals
       attempts.push(payload); return { data: null, error: null };
     },
     from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: deviceId }, error: null }) }) }),
-      update: (record) => { updates.push(record); return { eq: async () => ({ error: null }) }; },
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: deviceId, is_active: active }, error: null }) }) }),
+      update: (record) => { updates.push(record); const query = { eq: () => query, select: () => query, maybeSingle: async () => ({ data: deactivateDuringLogin ? null : { id: deviceId }, error: null }) }; return query; },
     }),
   };
   const mocks = {
@@ -73,4 +73,17 @@ test("staff login retains its current error handling", async () => {
   assert.equal(access.response.status, 401);
   assert.equal((await access.response.json()).message, "Invalid credentials.");
   assert.equal(h.attempts[0].p_kind, "staff"); assert.equal(h.attempts[0].p_result, "failed");
+});
+
+
+test("deactivated guests with correct credentials are denied without starting a website session", async () => {
+  const h = harness({ verified: true, active: false }); const response = await h.request();
+  assert.equal(response.status, 403); assert.equal((await response.json()).code, "ACCOUNT_DEACTIVATED");
+  assert.equal(h.updates.length, 0); assert.equal(h.attempts[0].p_result, "denied"); assert.equal(h.signOuts[0].scope, "local");
+});
+
+test("deactivation racing with login cannot set a new active session", async () => {
+  const h = harness({ verified: true, deactivateDuringLogin: true }); const response = await h.request();
+  assert.equal(response.status, 403); assert.equal((await response.json()).code, "ACCOUNT_DEACTIVATED");
+  assert.equal(h.signOuts[0].scope, "local"); assert.equal(h.attempts[0].p_result, "denied");
 });

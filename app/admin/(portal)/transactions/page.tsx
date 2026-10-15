@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminMetricCard from "@/components/admin/AdminMetricCard";
 import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
@@ -38,6 +38,8 @@ import { hasPermission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { useModuleTab } from "@/lib/admin/use-module-tab";
 import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
+import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
+import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
 
 interface PaymentSnapshotRow {
   payment_id: string;
@@ -185,6 +187,9 @@ export default function AdminTransactionsPage() {
   const [cashAmount, setCashAmount] = useState("");
   const [cashReference, setCashReference] = useState("");
   const [cashBusy, setCashBusy] = useState(false);
+  const cashSaving = useRef(false);
+  const [cashReceived, setCashReceived] = useState(false);
+  const closeCashDialog = useCallback(() => { if (!cashSaving.current) setCashReservationId(null); }, []);
   const [cashError, setCashError] = useState<string | null>(null);
   const [cashMessage, setCashMessage] = useState<string | null>(null);
   const [reviewPayment, setReviewPayment] = useState<PaymentSnapshotRow | null>(null);
@@ -300,7 +305,9 @@ export default function AdminTransactionsPage() {
         }, {});
 
         const cancelledIds = new Set((reservationsData ?? []).filter(row => row.status === "cancelled").map(row => row.reservation_id));
-        setTransactions(transactionList.map(row => cancelledIds.has(row.reservation_id) ? { ...row, balance: 0, status: "cancelled" } : row));
+        const statuses = new Map((reservationsData ?? []).map(row => [row.reservation_id, row.status]));
+        setTransactions(transactionList.map(row => ({ ...row, reservation_status: statuses.get(row.reservation_id),
+          ...(cancelledIds.has(row.reservation_id) ? { balance: 0, status: "cancelled" as const } : {}) })));
         setInvoices((invoicesData as InvoiceRow[] | null) ?? []);
         setReceipts((receiptsData as ReceiptRow[] | null) ?? []);
         setReservationReferencesById(nextReservationReferencesById);
@@ -423,13 +430,14 @@ export default function AdminTransactionsPage() {
   );
 
   const handleTransactionRowAction = (action: string, row: AdminTableRow) => {
-    if (action === "Settle") {
+    if (action === "Settle in cash") {
       const transaction = transactions.find((item) => item.transaction_id === row.id);
       if (!canRecordPayments || !transaction || Number(transaction.balance ?? 0) <= 0) return;
       setCashReservationId(transaction.reservation_id);
       setCashAmount(Number(transaction.balance).toFixed(2));
       setCashReference(`CASH-${crypto.randomUUID().slice(0, 12).toUpperCase()}`);
       setCashError(null);
+      setCashReceived(false);
       return;
     }
     if (action !== "View") {
@@ -491,21 +499,23 @@ export default function AdminTransactionsPage() {
   };
 
   const submitCashPayment = async () => {
-    if (!cashReservationId || cashBusy) return;
+    if (!cashReservationId || cashSaving.current || !cashReceived || !isValidPaymentAmount(Number(cashAmount))) return;
+    cashSaving.current = true;
     setCashBusy(true); setCashError(null);
     try {
       const response = await fetch("/api/admin/payments/manual-entry", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reservationId: cashReservationId, amount: Number(cashAmount),
-          paymentMethod: "cash", paymentReference: cashReference.trim() }),
+          paymentMethod: "cash", paymentReference: cashReference.trim(), cashReceived,
+          expectedBalance: Number(transactions.find(item => item.reservation_id === cashReservationId)?.balance ?? 0) }),
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.message ?? "Unable to record cash payment.");
-      setCashMessage(`Payment recorded for ${reservationReferencesById[cashReservationId] ?? "reservation"}. A new receipt was issued in the guest's name.`);
+      setCashMessage(`${result.message ?? "Cash payment recorded."} ${result.receipt?.receipt_number ? `Receipt ${result.receipt.receipt_number}. ` : ""}Remaining balance: ${formatCurrency(Number(result.remainingBalance ?? 0))}. Print the receipt from Issued Receipts.`);
       setCashReservationId(null);
       setRefreshRevision((revision) => revision + 1);
     } catch (cause) { setCashError(cause instanceof Error ? cause.message : "Unable to record cash payment."); }
-    finally { setCashBusy(false); }
+    finally { cashSaving.current = false; setCashBusy(false); }
   };
 
   const closePaymentReview = () => {
@@ -887,20 +897,22 @@ export default function AdminTransactionsPage() {
             rows={transactionRows}
             defaultSort={{ key: "updatedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid", "Cancelled"] }]}
-            actions={canRecordPayments ? ["Refresh ledger", "Post Payment", "Export Ledger"] : ["Refresh ledger", "Export Ledger"]}
-            rowActions={canRecordPayments ? ["View", "Settle"] : ["View"]}
+            actions={canRecordPayments ? ["Refresh ledger", "Record cash", "Export Ledger"] : ["Refresh ledger", "Export Ledger"]}
+            rowActions={canRecordPayments ? ["View", "Settle in cash"] : ["View"]}
+            isRowActionDisabled={(action, row) => action === "Settle in cash" && !transactions.some(item => item.transaction_id === row.id && Number(item.balance ?? 0) > 0 && ["pending", "confirmed"].includes(item.reservation_status ?? ""))}
             isLoading={isLoading}
             hasError={Boolean(fetchError)}
             onAction={(action, rows) => {
               if (action === "Refresh ledger") { setRefreshRevision(revision => revision + 1); return; }
               if (action === "Export Ledger") { downloadReportCsv(transactionColumns, rows, "transaction-ledger.csv"); return; }
-              if (action !== "Post Payment" || !canRecordPayments) return;
-              const first = transactions.find((transaction) => Number(transaction.balance ?? 0) > 0);
+              if (action !== "Record cash" || !canRecordPayments) return;
+              const first = transactions.find((transaction) => Number(transaction.balance ?? 0) > 0 && ["pending", "confirmed"].includes(transaction.reservation_status ?? ""));
               if (!first) { setFetchError("No reservation has an outstanding balance."); return; }
               setCashReservationId(first.reservation_id);
               setCashAmount(Number(first.balance).toFixed(2));
               setCashReference(`CASH-${crypto.randomUUID().slice(0, 12).toUpperCase()}`);
               setCashError(null);
+              setCashReceived(false);
             }}
             onRowAction={handleTransactionRowAction}
           />
@@ -982,21 +994,27 @@ export default function AdminTransactionsPage() {
 
       {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)} /> : null}
 
-      {cashReservationId && <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/50 p-4" role="dialog" aria-modal="true" aria-label="Record cash payment">
-        <form className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl" onSubmit={(event) => { event.preventDefault(); void submitCashPayment(); }}>
-          <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Record cash payment</h2><p className="text-sm text-neutral/70">A separate receipt is issued for this payment under the reservation guest.</p></div><button type="button" onClick={() => setCashReservationId(null)}>Close</button></div>
-          <label className="block text-sm">Reservation<select value={cashReservationId} onChange={(event) => {
-            const next = transactions.find((item) => item.reservation_id === event.target.value);
-            setCashReservationId(event.target.value); setCashAmount(Number(next?.balance ?? 0).toFixed(2));
-          }} className="mt-1 w-full rounded-lg border p-2">
-            {transactions.filter((item) => Number(item.balance ?? 0) > 0).map((item) => <option key={item.reservation_id} value={item.reservation_id}>{reservationReferencesById[item.reservation_id] ?? item.reservation_id} · balance {formatCurrency(Number(item.balance ?? 0))}</option>)}
-          </select></label>
-          <label className="block text-sm">Amount received<input type="number" min="0.01" max={Number(transactions.find((item) => item.reservation_id === cashReservationId)?.balance ?? 0)} step="0.01" required value={cashAmount} onChange={(event) => setCashAmount(event.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label>
-          <label className="block text-sm">Cash reference<input required value={cashReference} onChange={(event) => setCashReference(event.target.value)} className="mt-1 w-full rounded-lg border p-2" /></label>
-          {cashError && <p role="alert" className="rounded bg-red-50 p-2 text-sm">{cashError}</p>}
-          <button disabled={cashBusy || !Number.isFinite(Number(cashAmount)) || Number(cashAmount) <= 0} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base disabled:opacity-50">{cashBusy ? "Recording..." : "Record payment and issue receipt"}</button>
+      {cashReservationId && <CatalogDialog title="Record cash payment" description="Receive cash at the resort and apply it to the reservation bill." busy={cashBusy} onClose={closeCashDialog}>
+        <form className="space-y-4" onSubmit={event => { event.preventDefault(); void submitCashPayment(); }}>
+          <fieldset disabled={cashBusy} className="min-w-0 space-y-4">
+            <p className="rounded-xl bg-base p-3 text-sm text-neutral/75">Payment method: <strong>Cash (staff only)</strong>. Online bookings continue to use GCash.</p>
+            <label className="block text-sm font-medium text-black">Reservation<select data-autofocus value={cashReservationId} onChange={event => {
+              const next = transactions.find(item => item.reservation_id === event.target.value);
+              setCashReservationId(event.target.value); setCashAmount(Number(next?.balance ?? 0).toFixed(2)); setCashReceived(false);
+              setCashReference(`CASH-${crypto.randomUUID().slice(0, 12).toUpperCase()}`); setCashError(null);
+            }} className="mt-1 min-h-11 w-full min-w-0 rounded-xl border border-neutral/20 bg-white p-3 text-[16px] text-black">
+              {transactions.filter(item => Number(item.balance ?? 0) > 0 && ["pending", "confirmed"].includes(item.reservation_status ?? "")).map(item => <option key={item.reservation_id} value={item.reservation_id}>{reservationReferencesById[item.reservation_id] ?? item.reservation_id} - balance {formatCurrency(Number(item.balance ?? 0))}</option>)}
+            </select></label>
+            <label className="block text-sm font-medium text-black">Cash applied to this bill<input type="number" min="0.01" max={Number(transactions.find(item => item.reservation_id === cashReservationId)?.balance ?? 0)} step="0.01" required value={cashAmount} onChange={event => { setCashAmount(event.target.value); setCashReceived(false); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white p-3 text-[16px] text-black" /></label>
+            <p className="text-xs text-neutral/65">The remaining balance is filled in for full settlement. Enter a smaller amount for a partial payment. Give any change separately; only record the amount applied to this bill.</p>
+            <label className="block text-sm font-medium text-black">Cash reference<input required readOnly value={cashReference} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-base p-3 text-[16px] text-black" /></label>
+            <label className="flex items-start gap-3 rounded-xl border border-neutral/10 p-3 text-sm text-neutral"><input type="checkbox" checked={cashReceived} onChange={event => setCashReceived(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" />I have counted and received this cash from the guest.</label>
+            {cashError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{cashError}</p>}
+            <p className="text-xs text-neutral/60">A receipt is issued in the reservation guest&apos;s name and the balance updates after recording.</p>
+            <button disabled={cashBusy || !cashReceived || !isValidPaymentAmount(Number(cashAmount)) || Number(cashAmount) > Number(transactions.find(item => item.reservation_id === cashReservationId)?.balance ?? 0)} className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">{cashBusy ? "Recording..." : "Record payment and issue receipt"}</button>
+          </fieldset>
         </form>
-      </div>}
+      </CatalogDialog>}
 
       {reviewPayment && (
         <PaymentReviewModal

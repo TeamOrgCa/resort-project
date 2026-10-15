@@ -29,7 +29,7 @@ const rows = [
   { reservation_id: "booking", reference_number: "MV-CONFIRMED", status: "confirmed" },
   { reservation_id: "reviewing", reference_number: "MV-REVIEW", status: "payment_submitted" },
   { reservation_id: "closed", reference_number: "MV-CLOSED", status: "cancelled", cancellation_snapshot: { outcome: "no_refund" } },
-].map(row => ({ ...row, start_datetime: day(10) + "T08:00:00+08:00", end_datetime: day(10) + "T18:00:00+08:00", booking_mode: "day", adult_count: 3, child_count: 1, payment_deadline_at: null }));
+].map(row => ({ ...row, start_datetime: day(20) + "T08:00:00+08:00", end_datetime: day(20) + "T18:00:00+08:00", booking_mode: "day", adult_count: 3, child_count: 1, payment_deadline_at: null }));
 function client() {
   const data = {
     guests: { email: "guest@example.com", phone_number: "09123456789" },
@@ -126,16 +126,16 @@ test("reschedule requests retain the original time and duration, and show approv
     await action("MV-CONFIRMED", "Reschedule");
     assert.equal(dialog().querySelector('input[type="date"]'), null);
     assert.equal(button(dialog(), "Submit Reschedule Request").disabled, true);
-    assert.equal(dialog().querySelector(`button[data-date="${day(10)}"]`).disabled, true);
+    assert.equal(dialog().querySelector(`button[data-date="${day(20)}"]`).disabled, true);
     await click(dialog().querySelector('[aria-label="Next month"]'));
     await click(dialog().querySelector('[aria-label="Previous month"]'));
     assert.equal(posted, undefined);
-    await chooseDate(day(15));
-    assert.equal(dialog().querySelector(`button[data-date="${day(15)}"]`).getAttribute("aria-pressed"), "true");
+    await chooseDate(day(25));
+    assert.equal(dialog().querySelector(`button[data-date="${day(25)}"]`).getAttribute("aria-pressed"), "true");
     await click(button(dialog(), "Submit Reschedule Request"));
     assert.equal(posted.url, "/api/reservations/reschedule"); assert.equal(posted.body.reservationId, "booking");
     assert.equal(new Date(posted.body.newEndDatetime) - new Date(posted.body.newStartDatetime), 10 * 3600000);
-    assert.equal(posted.body.newStartDatetime, day(15) + "T00:00:00.000Z");
+    assert.equal(posted.body.newStartDatetime, day(25) + "T00:00:00.000Z");
     assert.match(dialog().textContent, /Request sent for review/); assert.match(dialog().textContent, /Reschedule Requested/);
     assert.match(dialog().textContent, /500/); assert.equal(dialog().textContent.includes("Submit Reschedule Request"), false);
   } finally { await h.close(); }
@@ -152,6 +152,20 @@ test("closed and payment-review reservations keep their action restrictions in t
     await key(document.activeElement, "Escape"); await value(h.container.querySelector('[type="search"]'), "CLOSED");
     assert.equal(h.container.querySelectorAll("article").length, 1);
   } finally { await h.close(); }
+});
+
+test("late guest reschedules explain the Philippine deadline and disable requests in the calendar dialog", async () => {
+  const previous = { ...rows[0] };
+  Object.assign(rows[0], { start_datetime: day(2) + "T08:00:00+08:00", end_datetime: day(2) + "T18:00:00+08:00" });
+  let posts = 0; const h = await mount(async (_url, options) => { if (options?.method) posts++; return Response.json({ refunds: [], eligible: [] }); });
+  try {
+    await action("MV-CONFIRMED", "Reschedule");
+    assert.match(dialog().textContent, /Contact the resort for a staff-reviewed exception/);
+    assert.match(dialog().textContent, /deadline was/); assert.match(dialog().textContent, /PHP 300/);
+    assert.equal(button(dialog(), "Submit Reschedule Request").disabled, true);
+    for (const date of dialog().querySelectorAll("button[data-date]")) assert.equal(date.disabled, true);
+    assert.equal(posts, 0);
+  } finally { Object.assign(rows[0], previous); await h.close(); }
 });
 
 test("ocular visit edits show their saved schedule in a dialog and cancellation uses its confirmation", async () => {

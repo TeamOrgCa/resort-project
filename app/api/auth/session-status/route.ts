@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthSessionId } from "@/lib/auth/auth-session";
 import { createClient } from "@/lib/supabase/server";
+import { DEACTIVATED_GUEST_MESSAGE } from "@/lib/auth/guest-access";
 
 export async function GET() {
   const supabase = await createClient();
@@ -19,8 +20,9 @@ export async function GET() {
   }
 
   const { data: guest, error: guestError } = await supabase.from("guests")
-    .select("active_session_id").eq("id", user.id).maybeSingle();
+    .select("active_session_id, is_active").eq("id", user.id).maybeSingle();
   if (guestError) return NextResponse.json({ message: "Unable to check session." }, { status: 503 });
+  if (guest && !guest.is_active) return NextResponse.json({ kind: "guest", status: "inactive", code: "ACCOUNT_DEACTIVATED", message: DEACTIVATED_GUEST_MESSAGE }, { status: 401, headers: { "Cache-Control": "no-store" } });
   if (!guest || !sessionId) return NextResponse.json({ kind: "guest", status: "none", code: "UNAUTHORIZED" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   const active = guest.active_session_id === sessionId;
   return NextResponse.json({ kind: "guest", status: active ? "active" : "replaced", ...(active ? {} : { code: "SESSION_REPLACED" }) }, { status: active ? 200 : 401, headers: { "Cache-Control": "no-store" } });

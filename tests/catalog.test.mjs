@@ -155,3 +155,12 @@ test("archived payment methods hide linked accounts from guests without deleting
   assert.deepEqual(catalog.paymentAccounts.map((account) => account.account_name), ["Current"]);
   assert.equal(database.tables.payment_accounts.length, 2);
 });
+
+
+test("cash methods and their linked accounts stay out of the online catalog", async () => {
+  const rows=seed();rows.payment_methods.push({payment_method_id:uuid(6),name:"Cash",type:"cash",is_active:true});
+  rows.payment_accounts=[{account_id:uuid(3),payment_method_id:uuid(2),account_name:"GCash account",is_active:true},{account_id:uuid(7),payment_method_id:uuid(6),account_name:"Cash desk",is_active:true}];
+  const {getActiveCatalog}=loadTsModule("repositories/catalogRepository.ts");const catalog=await getActiveCatalog(catalogDatabase(rows));
+  assert.deepEqual(catalog.paymentMethods.map(method=>method.name),["GCash"]);assert.deepEqual(catalog.paymentAccounts.map(account=>account.account_name),["GCash account"]);
+  const {isGcashMethod}=loadTsModule("lib/booking/gcash-receipt.ts");assert.equal(isGcashMethod({name:"GCash",type:"cash"}),false);
+});

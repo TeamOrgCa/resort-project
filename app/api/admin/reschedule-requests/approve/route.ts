@@ -62,10 +62,12 @@ export async function POST(request: Request) {
     });
     if (error) {
       console.error("Reschedule approval failed:", error);
-      const conflict = error.code === "23P01" || error.code === "P0001";
+      if (error.code === "22023") return NextResponse.json({ success: false, message: error.message }, { status: 400 });
+      if (error.code === "42501") return NextResponse.json({ success: false, message: "Reschedule approval permission is required." }, { status: 403 });
+      const conflict = ["23P01", "P0001", "40001"].includes(error.code);
       return NextResponse.json({ success: false, message: conflict
         ? "This request can no longer be approved. Refresh the records and check its date and status."
-        : "Unable to approve the request. Apply the reschedule approval migration if it is not installed." }, { status: conflict ? 409 : 500 });
+        : "Unable to approve the request. Check that the reschedule-policy migration is installed." }, { status: conflict ? 409 : 500 });
     }
 
     const result = data as { totalAmount: number; paidAmount: number; additionalCharge: number };

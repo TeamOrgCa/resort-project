@@ -12,7 +12,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   refund_review: "Review refund payment records (approval is admin-only)", refund_payout: "Record refund payout", refund_verify: "Verify refund payout",
   records: "View records", reports: "View and export reports", analytics: "View analytics",
   audit: "View audit log", configuration: "Resort configuration", catalog: "Manage catalog",
-  users: "Manage staff users",
+  users: "Manage staff and guest accounts (admin only)",
 };
 
 export function hasPermission(role: StaffRole, granted: readonly string[], permission: Permission): boolean {

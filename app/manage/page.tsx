@@ -17,6 +17,7 @@ import ManageIcon from "@/components/manage/ManageIcon";
 import RecordActionsMenu from "@/components/manage/RecordActionsMenu";
 import RecordDialog from "@/components/manage/RecordDialog";
 import RescheduleCalendar from "@/components/manage/RescheduleCalendar";
+import { reschedulePolicy, RESCHEDULE_POLICY_TEXT, RESCHEDULE_FEE_TEXT } from "@/lib/booking/reschedule-charge-policy";
 
 type ManageTab = "bookings" | "ocular" | "refunds";
 type RecordMode = "view" | "edit" | "reschedule" | null;
@@ -476,10 +477,8 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       return;
     }
 
-    // if (!isAtLeastTwoDaysAway(selectedBooking.checkIn)) {
-    //   setRescheduleFormError("Reschedule requests must be submitted at least 2 days before check-in.");
-    //   return;
-    // }
+    const notice = reschedulePolicy(selectedBooking.startDatetime);
+    if (!notice.allowed) { setRescheduleFormError(notice.blockedReason); return; }
 
     const nextCheckIn = parseDateValue(rescheduleForm.checkIn);
 
@@ -1138,7 +1137,13 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 )}
               </div>
 
+              <div className="rounded-xl border border-neutral/10 bg-white p-3 text-sm text-neutral">
+                <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
+                <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(reschedulePolicy(selectedBooking.startDatetime, now).noticeFee)}.</p>
+                {!reschedulePolicy(selectedBooking.startDatetime, now).allowed && <p role="alert" className="mt-2 text-amber-900">{reschedulePolicy(selectedBooking.startDatetime, now).blockedReason}</p>}
+              </div>
               <RescheduleCalendar
+                disabled={!reschedulePolicy(selectedBooking.startDatetime, now).allowed || isSubmittingReschedule}
                 value={rescheduleForm.checkIn}
                 onChange={date => { setRescheduleForm({ checkIn: date }); setRescheduleFormError(null); }}
                 minDate={minRescheduleDate}
@@ -1147,7 +1152,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               <p className="text-xs text-neutral/60">An additional notice fee and any higher date rate are charged after approval.</p>
               <button
                 type="submit"
-                disabled={isSubmittingReschedule || !rescheduleForm.checkIn || rescheduleForm.checkIn < minRescheduleDate}
+                disabled={isSubmittingReschedule || !reschedulePolicy(selectedBooking.startDatetime, now).allowed || !rescheduleForm.checkIn || rescheduleForm.checkIn < minRescheduleDate}
                 className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-black text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmittingReschedule ? "Submitting Request..." : "Submit Reschedule Request"}

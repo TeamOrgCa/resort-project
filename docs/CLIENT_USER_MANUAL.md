@@ -66,6 +66,8 @@ If the email does not arrive, use **Resend confirmation email** on the registrat
 
 Only one device session is active per account. Signing in on another device ends the previous session; sign in again on the device you intend to use. Separate guests should use their own accounts.
 
+If your account has been deactivated, sign-in and protected booking actions are blocked. Contact the resort for help. After staff restore access, sign in again. Existing reservation, payment and refund records remain with the resort.
+
 ### Forgot your password?
 
 1. Select **Forgot password?** on the sign-in page.
@@ -124,6 +126,8 @@ Weekday prices apply Monday–Thursday and weekend prices Friday–Sunday, based
 If prices changed while you were filling in the form, return to the booking form and review the refreshed total before saving. If saving reports an unavailable date, choose another available date/package.
 
 ## 5. Pay through GCash
+
+Online payment submissions use GCash. If you pay an outstanding balance in cash at the resort, staff will record the received cash and issue a receipt. Check your updated balance in Manage Booking afterward.
 
 ### Step A — Select what to pay
 
@@ -215,6 +219,10 @@ Closed reservations and bookings under payment review cannot be edited through t
 **Expected result:** A pending request does not immediately move the reservation. The original dates remain reserved while staff reviews it. Approval can add a notice fee and a higher-date-rate adjustment; moving to a cheaper date does not automatically refund the difference.
 
 Rescheduling requires a confirmed payment, an eligible available date and the applicable booking rules. The new start must remain at least 30 minutes away. Contact staff if **Reschedule** is disabled or your requested change is outside the available options.
+
+The original swimming date requires at least **14 Philippine calendar days' notice** for March-May and September-December, or **7 days** for other months. The dialog displays your deadline and notice fee. Late requests are disabled; contact the resort to ask about a staff-reviewed exception. Your package, original time and duration stay fixed.
+
+Notice fees are **PHP 50 for 6+ days**, **PHP 100 for 3-5 days**, **PHP 300 for 1-2 days**, and **PHP 500 on or after the original date**. Short-notice changes require an authorized staff exception. On-time requests carry PHP 50 plus any higher-date-rate adjustment when approved. Your existing payments remain on the bill.
 
 ## 9. Cancel a booking
 

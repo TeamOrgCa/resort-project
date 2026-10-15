@@ -1,4 +1,5 @@
 export interface TransactionRow {
+  reservation_status?: string;
   transaction_id: string;
   reservation_id: string;
   total_amount: number;

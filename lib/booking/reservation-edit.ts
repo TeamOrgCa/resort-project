@@ -2,6 +2,8 @@ import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { validateBookingWindow, type BookingMode } from "@/lib/booking/policy";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import type { PackageRates } from "@/lib/booking/package-rates";
+import { manilaDateKey } from "@/lib/booking/manila-date";
+import { rescheduleNoticeFee } from "@/lib/booking/reschedule-charge-policy";
 
 export const uuidPattern = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 export type ServiceChoice = { serviceId: string; quantity: number };
@@ -10,6 +12,7 @@ export type ReservationEdit = {
   adultCount: number; childCount: number; unitId: string | null;
   specialRequests: string; services: ServiceChoice[]; reason: string;
   version: string; expectedTotal: number;
+  lateRescheduleAcknowledged?: boolean;
 };
 export type EditableReservation = {
   reservation_id: string; reference_number: string; status: string; booking_mode: BookingMode;
@@ -28,8 +31,28 @@ export type EditDetail = {
   services: SelectedService[]; units: SelectedUnit[]; catalogServices: CatalogService[]; catalogUnits: CatalogUnit[];
   bill: Bill; version: string; canEdit: boolean; canChangeDetails: boolean; lockedReason: string | null;
   packageRates: PackageRates;
+  canApproveLateReschedule?: boolean;
+  canRescheduleException?: boolean;
 };
 export const moneyRound = (n: number) => Math.round(n * 100) / 100;
+
+export function moveReservationToDate(reservation: Pick<EditableReservation, "start_datetime" | "end_datetime">, date: string) {
+  const delta = Date.parse(`${date}T00:00:00Z`) - Date.parse(`${manilaDateKey(reservation.start_datetime)}T00:00:00Z`);
+  return {
+    startDatetime: new Date(Date.parse(reservation.start_datetime) + delta).toISOString(),
+    endDatetime: new Date(Date.parse(reservation.end_datetime) + delta).toISOString(),
+  };
+}
+
+export function bookedPackageChangeReason(reservation: EditableReservation, edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime">): string | null {
+  if (edit.bookingMode !== (reservation.booking_mode ?? "day")) return "The booked package cannot be changed. Choose another available date for the same package.";
+  const startShift = Date.parse(edit.startDatetime) - Date.parse(reservation.start_datetime);
+  const endShift = Date.parse(edit.endDatetime) - Date.parse(reservation.end_datetime);
+  if (startShift % 86_400_000 !== 0 || endShift !== startShift) {
+    return "Keep the booked package's original start time and duration. Only the reservation date may change.";
+  }
+  return null;
+}
 
 export function parseReservationEdit(value: unknown): ReservationEdit | null {
   if (!value || typeof value !== "object") return null;
@@ -54,7 +77,7 @@ export function parseReservationEdit(value: unknown): ReservationEdit | null {
     version: b.version, expectedTotal: moneyRound(b.expectedTotal),
     startDatetime: new Date(b.startDatetime).toISOString(), endDatetime: new Date(b.endDatetime).toISOString(),
     unitId: b.unitId?.toLowerCase() ?? null, services: b.services.map(s => ({ serviceId: s.serviceId.toLowerCase(), quantity: s.quantity })),
-    specialRequests: b.specialRequests.trim(), reason: b.reason.trim() };
+    specialRequests: b.specialRequests.trim(), reason: b.reason.trim(), lateRescheduleAcknowledged: b.lateRescheduleAcknowledged === true };
 }
 
 export function reservationEditAccess(r: EditableReservation, pendingPayment: boolean, pendingReschedule: boolean, now = Date.now()) {
@@ -79,11 +102,15 @@ export function validateEditWindow(edit: ReservationEdit) {
 
 // Apply the package difference to the recorded bill. This retains historical
 // discounts, reschedule fees and negotiated charges, including on service-only edits.
-export function previewReservationEdit(r: EditableReservation, bill: Bill, existing: SelectedService[], catalog: CatalogService[], edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime" | "adultCount" | "childCount" | "services">, rates: PackageRates) {
+export function previewReservationEdit(r: EditableReservation, bill: Bill, existing: SelectedService[], catalog: CatalogService[], edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime" | "adultCount" | "childCount" | "services">, rates: PackageRates, now = Date.now()) {
   const priceInput = { bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count };
   const changed = priceInput.bookingMode !== edit.bookingMode || Date.parse(priceInput.startDatetime) !== Date.parse(edit.startDatetime) ||
     Date.parse(priceInput.endDatetime) !== Date.parse(edit.endDatetime) || priceInput.adultCount !== edit.adultCount || priceInput.childCount !== edit.childCount;
-  const packageDelta = changed ? moneyRound(computeBookingPricing({ ...edit, servicesTotal: 0 }, rates).total - computeBookingPricing(priceInput, rates).total) : 0;
+  const rescheduled = Date.parse(r.start_datetime) !== Date.parse(edit.startDatetime) || Date.parse(r.end_datetime) !== Date.parse(edit.endDatetime);
+  const countDelta = changed ? moneyRound(computeBookingPricing({ ...priceInput, adultCount: edit.adultCount, childCount: edit.childCount }, rates).total - computeBookingPricing(priceInput, rates).total) : 0;
+  const dateDelta = rescheduled ? Math.max(0, moneyRound(computeBookingPricing({ ...edit, servicesTotal: 0 }, rates).total - computeBookingPricing({ ...priceInput, adultCount: edit.adultCount, childCount: edit.childCount }, rates).total)) : 0;
+  const packageDelta = countDelta + dateDelta;
+  const rescheduleFee = rescheduled ? rescheduleNoticeFee(r.start_datetime, now) : 0;
   const oldServices = existing.reduce((sum, s) => sum + s.quantity * Number(s.price_at_time), 0);
   const newServices = edit.services.reduce((sum, s) => {
     const old = existing.find(e => e.service_id === s.serviceId);
@@ -91,8 +118,8 @@ export function previewReservationEdit(r: EditableReservation, bill: Bill, exist
     if (!old && (!listed || !listed.is_active)) throw new Error("A selected service is no longer available. Reload the reservation.");
     return sum + s.quantity * Number(old?.price_at_time ?? listed!.price);
   }, 0);
-  const total = moneyRound(Number(bill.total_amount) + packageDelta + newServices - oldServices);
-  return { packageDelta, servicesTotal: moneyRound(newServices), total,
+  const total = moneyRound(Number(bill.total_amount) + packageDelta + rescheduleFee + newServices - oldServices);
+  return { packageDelta, rescheduleFee, dateRateAdjustment: dateDelta, servicesTotal: moneyRound(newServices), total,
     paid: Number(bill.paid_amount), balance: moneyRound(Math.max(0, total - Number(bill.paid_amount))),
     overpaid: moneyRound(Math.max(0, Number(bill.paid_amount) - total)) };
 }
