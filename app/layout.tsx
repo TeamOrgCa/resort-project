@@ -3,6 +3,9 @@ import { Montserrat } from "next/font/google";
 import "./globals.css";
 import SessionWatcher from "@/components/SessionWatcher";
 import { SiteContentProvider } from "@/components/content/SiteContent";
+import TextInputGuard from "@/components/TextInputGuard";
+import InputErrorFeedback from "@/components/InputErrorFeedback";
+import NotificationCenter from "@/components/notifications/NotificationCenter";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -31,8 +34,10 @@ export default function RootLayout({
         className={`${montserrat.variable} antialiased`}
         style={{ fontFamily: "var(--font-montserrat)" }}
       >
-        <SiteContentProvider>{children}</SiteContentProvider>
+        <NotificationCenter><SiteContentProvider>{children}</SiteContentProvider></NotificationCenter>
         <SessionWatcher />
+        <TextInputGuard />
+        <InputErrorFeedback />
       </body>
     </html>
   );

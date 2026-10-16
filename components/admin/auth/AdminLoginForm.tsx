@@ -59,8 +59,8 @@ export default function AdminLoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {searchParams.get("reason") === "session-replaced" && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-neutral">This account was signed in on another device. Your session here has ended. Sign in again to continue.</p>}
-      {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+      {searchParams.get("reason") === "session-replaced" && <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-neutral">This account was signed in on another device. Your session here has ended. Sign in again to continue.</p>}
+      {error ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
       {!requiresOtp ? <div>
         <label htmlFor="admin-email" className="mb-2 block text-sm font-medium text-neutral">
@@ -72,7 +72,7 @@ export default function AdminLoginForm() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
-          className="w-full rounded-lg border border-neutral/20 px-3 py-2 focus:border-primary focus:outline-none"
+          className="w-full rounded-xl border border-neutral/20 px-3 py-2 focus:border-primary focus:outline-none"
           placeholder="staff@marville.example"
         />
       </div> : null}
@@ -87,7 +87,7 @@ export default function AdminLoginForm() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
-          className="w-full rounded-lg border border-neutral/20 px-3 py-2 focus:border-primary focus:outline-none"
+          className="w-full rounded-xl border border-neutral/20 px-3 py-2 focus:border-primary focus:outline-none"
           placeholder="••••••••"
         />
       </div> : null}
@@ -103,7 +103,7 @@ export default function AdminLoginForm() {
           value={otp}
           onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 8))}
           required
-          className="w-full rounded-lg border border-neutral/20 px-3 py-2 text-center tracking-[0.35em] focus:border-primary focus:outline-none"
+          className="w-full rounded-xl border border-neutral/20 px-3 py-2 text-center tracking-[0.35em] focus:border-primary focus:outline-none"
           placeholder="00000000"
         />
       </div> : null}
@@ -111,7 +111,7 @@ export default function AdminLoginForm() {
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full rounded-lg bg-primary px-4 py-3 font-semibold text-base transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+        className="w-full rounded-xl bg-primary px-4 py-3 font-semibold text-base transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {isSubmitting ? "Verifying..." : requiresOtp ? "Verify Code" : "Sign In to Staff Portal"}
       </button>

@@ -61,9 +61,9 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
-        <div className="flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral/10 pb-5">
           <div>
             <h3 className="text-lg font-semibold text-neutral">Invoice Details</h3>
             <p className="mt-1 text-sm text-neutral/70">Complete invoice, reservation, payment, and billing summary.</p>
@@ -71,7 +71,7 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
+            className="admin-button-secondary"
           >
             Close
           </button>
@@ -79,7 +79,7 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
 
         {isLoading ? <p className="mt-5 text-sm text-neutral/70">Loading invoice details...</p> : null}
 
-        {error ? <p className="mt-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">{error}</p> : null}
+        {error ? <p className="mt-4 rounded-xl border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">{error}</p> : null}
 
         {!isLoading && invoiceDetails ? (
           <div className="mt-5 space-y-6">
@@ -180,7 +180,7 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
                   </p>
                 </div>
 
-                <div className="rounded-lg bg-base px-3 py-2 text-sm text-neutral/80">
+                <div className="rounded-xl bg-base px-3 py-2 text-sm text-neutral/80">
                   Computed Total: <span className="font-semibold text-neutral">{formatCurrency(invoiceDetails.computedTotal)}</span>
                   <span className="mx-2">•</span>
                   Transaction Total: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.total_amount ?? 0))}</span>

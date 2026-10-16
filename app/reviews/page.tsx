@@ -21,6 +21,9 @@ type ReviewItem = {
 
 export default function Reviews() {
   const [showForm, setShowForm] = useState(false);
+  const [checkingStay, setCheckingStay] = useState(false);
+  const [eligibilityMessage, setEligibilityMessage] = useState<string | null>(null);
+  const [completedStays, setCompletedStays] = useState<{ reservation_id: string; reference_number: string; end_datetime: string }[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +171,18 @@ export default function Reviews() {
     }
   };
 
+  async function openReviewForm() {
+    if (checkingStay) return;
+    setCheckingStay(true); setEligibilityMessage(null);
+    try {
+      const response = await fetch("/api/reviews/eligibility", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok || !data.eligible) { setEligibilityMessage(data.message ?? "Complete a resort stay before submitting a review."); return; }
+      setCompletedStays(data.reservations ?? []); setShowForm(true);
+    } catch { setEligibilityMessage("Unable to check your completed stays. Please try again."); }
+    finally { setCheckingStay(false); }
+  }
+
   const StarRating = ({ value, onChange, readonly = false }: { value: number; onChange?: (rating: number) => void; readonly?: boolean }) => {
     return (
       <div className="flex gap-2">
@@ -287,14 +302,16 @@ export default function Reviews() {
             <h2 className="text-3xl font-bold text-neutral">Guest Reviews ({existingReviews.length})</h2>
             {!showForm && (
               <button
-                onClick={() => setShowForm(true)}
+                onClick={() => void openReviewForm()}
+                disabled={checkingStay}
                 className="bg-primary text-base px-6 py-3 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105"
               >
-                Write a Review
+                {checkingStay ? "Checking completed stays..." : "Write a Review"}
               </button>
             )}
           </div>
 
+          {eligibilityMessage && <p role="alert" className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{eligibilityMessage}</p>}
           {showForm && (
             <div className="bg-white rounded-3xl shadow-xl p-8 mb-12">
               <div className="flex justify-between items-center mb-8">
@@ -431,16 +448,14 @@ export default function Reviews() {
                     </div>}
                   </div>
 
-                  {/* Optional Reservation ID */}
+                  {/* Optional completed stay link */}
                   <div>
-                    <label className="block text-sm font-medium text-neutral/70 mb-2">Reservation ID (Optional)</label>
-                    <input
-                      type="text"
+                    <label htmlFor="review-completed-stay" className="block text-sm font-medium text-neutral/70 mb-2">Completed stay (optional)</label>
+                    <select id="review-completed-stay"
                       value={formData.reservationId}
                       onChange={(e) => setFormData({ ...formData, reservationId: e.target.value })}
-                      placeholder="Link this review to a specific reservation"
-                      className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                    />
+                      className="w-full px-4 py-3 rounded-lg border border-neutral/20 bg-white text-black focus:border-primary focus:outline-none"
+                    ><option value="">General feedback about my completed stay</option>{completedStays.map(stay => <option key={stay.reservation_id} value={stay.reservation_id}>{stay.reference_number} — {new Date(stay.end_datetime).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</option>)}</select>
                   </div>
 
                   {/* Would Recommend */}

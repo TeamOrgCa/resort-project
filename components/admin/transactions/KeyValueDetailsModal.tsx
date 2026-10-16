@@ -20,24 +20,24 @@ export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetai
   }, [details, isReceipt]);
 
   const modal = (
-    <div id={isReceipt ? "billing-receipt-print" : undefined} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-4 py-6 sm:items-center" role="dialog" aria-modal="true" aria-label={details.title}>
-      <div className="receipt-document max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl">
+    <div id={isReceipt ? "billing-receipt-print" : undefined} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true" aria-label={details.title}>
+      <div className="receipt-document max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
         {isReceipt && <div className="mb-5 border-b border-neutral/20 pb-4">
           <h2 className="text-xl font-bold">{contentText(content, "resort.name")}</h2>
           <p className="mt-1 whitespace-pre-line text-sm">{contentText(content, "resort.address")}</p>
           <p className="text-sm">{contentText(content, "resort.email")}</p>
         </div>}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral/10 pb-5">
           <div>
             <h3 className="text-lg font-semibold text-neutral">{isReceipt ? "Payment Receipt" : details.title}</h3>
             <p className="receipt-screen-only mt-1 text-sm text-neutral/70">Detailed record view for this billing entry.</p>
           </div>
-          <div className="receipt-screen-only flex gap-2">
-            {isReceipt && <button type="button" onClick={() => window.print()} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-base">Print receipt</button>}
+          <div className="receipt-screen-only flex flex-wrap gap-2">
+            {isReceipt && <button type="button" onClick={() => window.print()} className="admin-button-primary">Print receipt</button>}
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-neutral/20 px-3 py-1.5 text-xs font-medium text-neutral hover:bg-base"
+              className="admin-button-secondary"
             >
               Close
             </button>

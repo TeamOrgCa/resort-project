@@ -6,10 +6,10 @@ interface AdminMetricCardProps {
 
 export default function AdminMetricCard({ metric }: AdminMetricCardProps) {
   return (
-    <article className="rounded-2xl border border-neutral/10 bg-white p-5">
-      <p className="text-sm text-neutral/70">{metric.label}</p>
-      <p className="mt-2 text-2xl font-bold text-neutral">{metric.value}</p>
-      <p className="mt-1 text-xs text-secondary">{metric.trend}</p>
+    <article className="min-w-0 rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm">
+      <p className="text-sm font-medium text-neutral/65">{metric.label}</p>
+      <p className="mt-2 break-words text-2xl font-semibold tracking-tight text-neutral">{metric.value}</p>
+      <p className="mt-2 text-xs leading-relaxed text-neutral/60">{metric.trend}</p>
     </article>
   );
 }

@@ -32,6 +32,7 @@ test("feedback loads automatically, supports live filtering and paging, and hide
     assert.match(h.container.textContent, /Lovely visit/); assert.match(h.calls[0].url, /analytics\/feedback/);
     assert.equal(button(h.container, "Archive feedback"), undefined); assert.match(h.container.textContent, /Your role can view feedback/);
     await click(button(h.container, "Next reviews")); assert.match(h.calls.at(-1).url, /page=1/);
+    await act(async () => new Promise(resolve => setTimeout(resolve, 300))); assert.match(h.calls.at(-1).url, /page=1/);
     await value(h.container.querySelector('input[type="search"]'), "pool");
     await act(async () => new Promise(resolve => setTimeout(resolve, 300))); assert.match(h.calls.at(-1).url, /search=pool&page=0/);
     await value(h.container.querySelector("select"), "archived"); assert.match(h.calls.at(-1).url, /status=archived/);

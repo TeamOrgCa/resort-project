@@ -20,11 +20,11 @@ export default function ReportChart({ title, points, format = "count", initialTy
   const width = Math.max(640, data.length * 50), height = 250, left = 90, right = width - 25, top = 20, bottom = 215;
   const x = (index: number) => data.length <= 1 ? (left + right) / 2 : left + index * (right - left) / (data.length - 1);
   const y = (n: number) => bottom - n / maximum * (bottom - top);
-  return <article className="min-w-0 rounded-xl border border-neutral/10 bg-white p-4 sm:p-5">
+  return <article className="min-w-0 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm sm:p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <h3 id={`${id}-title`} className="font-semibold text-neutral">{title}</h3>
       {interactive && <label className="flex items-center gap-2 text-xs text-neutral/70">View
-        <select aria-label={`${title} chart type`} value={type} onChange={event => { const next = event.target.value as ChartType; setSelection(next); onTypeChange?.(next); }} className="rounded-lg border border-neutral/20 bg-white px-2 py-2 text-sm text-neutral">
+        <select aria-label={`${title} chart type`} value={type} onChange={event => { const next = event.target.value as ChartType; setSelection(next); onTypeChange?.(next); }} className="admin-field">
           {Object.entries(choices).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </select>
       </label>}

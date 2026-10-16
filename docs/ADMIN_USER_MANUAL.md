@@ -47,6 +47,8 @@ One session is active per account. Signing in on another device ends the previou
 
 ## 2. Understand roles and navigation
 
+On mobile, use the **hamburger icon** in the sticky top bar to open navigation. The top bar remains visible as you scroll. In the Reservations header, the calendar-plus, wrench and refresh icons mean **New reservation**, **Add maintenance block** (admin only) and **Refresh calendar**. Hover over an icon for its tooltip.
+
 | Role | Access |
 | --- | --- |
 | Admin | Full portal access, including Users, Configuration and Business Catalog |
@@ -60,8 +62,8 @@ Managers are displayed as Manager in the permission editor; some older role cont
 | Dashboard | Live arrivals, verified collections, booking charts and unresolved review queues | `/admin` |
 | Reservations | Calendar, manual reservations, reservation editor and maintenance blocks | `/admin/reservations` |
 | Records | Reservation records, reschedule requests and ocular approvals | `/admin/records` |
-| Transactions | Ledger, payment verification, refunds, invoices, receipts and guest reports | `/admin/transactions` |
-| Reports | Sales Report and Staff Report | `/admin/reports` |
+| Transactions | Ledger, payment verification, refunds, invoices and receipts | `/admin/transactions` |
+| Reports | Sales Report, Guest Report and Staff Report | `/admin/reports` |
 | Analytics | Booking activity, collection estimates, operational tasks and guest feedback | `/admin/analytics` |
 | Users | Staff accounts and role permissions; admin only | `/admin/users` |
 | Configuration | Website content, resort information and policy settings; admin only | `/admin/configuration` |
@@ -69,6 +71,8 @@ Managers are displayed as Manager in the permission editor; some older role cont
 | Audit Log | Recorded actions and account access activity | `/admin/audit` |
 
 In tables, use search, available dropdown filters and sortable column headings to find records. Paging controls appear where provided. Use each module's own export/refresh controls; not every screen has the same actions.
+
+Unread notifications appear automatically as pop-up cards. Use **View details** to open the relevant module, the **X** to dismiss one card, or **Dismiss all** to hide the current pop-ups. Dismissing a card preserves it in the notification bell and keeps it hidden for the current browser-tab session. Use **Mark all read** in the bell menu to clear unread indicators. Live updates are supplemented by a 15-second refresh and a refresh when you return to the page; no notification menu needs to be open.
 
 ## 3. Daily operating checklist
 
@@ -103,21 +107,28 @@ Select a row's **View** to open that reservation directly in the calendar editor
 
 1. Open **Reservations**.
 2. Navigate to the required month using the calendar controls.
-3. Use the search icon and **Search calendar** to look up a reference or guest name within the loaded calendar period.
-4. Select the booking event or its date marker to open the reservation dialog.
+3. Type a reference, guest, status or attention flag into **Search bookings**. Results filter immediately within the loaded calendar period. Use the **Show** dropdown to filter attention flags.
+4. On desktop, select a compact event or its date marker in the month grid to open its dialog. On mobile, bookings are grouped by date in a vertical list; tap an entry for its details. Choose **Week**, **Month** or **Agenda**, and use the arrows to navigate the selected period. **Today** returns to the current Philippine date.
 5. Read its schedule, guest details, services, bill and any read-only explanation.
 6. Select **Close** when finished, or follow the editing steps below.
 
-Calendar indicators distinguish reservations, items needing attention, ocular visits and maintenance. A date selected in the calendar is not proof that a bill is paid; check the verified payments and transaction balance.
+Calendar indicators distinguish **Booking request** (pending/payment submitted), **Confirmed reservation**, **Closed booking**, ocular visits and maintenance. Separate attention badges identify submitted payments, pending reschedules, pending refunds, unpaid balances and today's arrivals not yet checked in. Counts refer to unique bookings within the displayed calendar period. A cancelled booking can still have a pending-refund badge.
+
+When guests actually arrive, open their confirmed reservation for today, check **I confirm the guest has arrived at the resort**, then select **Mark guest checked in**. Requires Edit reservations permission. This records the staff member and server time in the audit log without changing reservation or payment status. The arrival flag clears; an unpaid-balance flag remains until payment settles. Use the review links in the dialog to open the corresponding module if your role has access. A date selected in the calendar is not proof that a bill is paid; check the verified payments and transaction balance.
+
+After check-in, cancellation and rescheduling are locked for both guests and staff. Extra services and billing may still be updated during the stay. Resolve pending reschedule requests before recording arrival.
+
+To check out, open the checked-in reservation, settle the full current bill and resolve pending payment reviews. Tick **I confirm the guest is checking out**, then select **Check out and complete stay**. The server recalculates the bill against actual verified payments less completed refunds, records the departure time and staff member, and marks the reservation **Completed**. An outstanding balance prevents checkout. The guest receives a completion notification and becomes eligible to review the resort. Check-in and checkout require Edit reservations permission.
+
+
+Administrators can select the **Add maintenance block** wrench icon in the Reservations header on either desktop or mobile. This opens a modal for the name, guest announcement and date range. Conflicting reservations are rejected with an error inside the modal. Successful blocks appear in the calendar and notify registered guests.
 
 ## 5. Enter a phone, Messenger or walk-in reservation
 
 **Required permission:** Add reservation.
 
-1. Open **Reservations** and select **+ New Reservation**.
-2. In **New Manual Reservation**, select **Guest type**:
-   - **Existing account:** Select the correct registered guest.
-   - **Walk-in guest:** Enter the first name, last name, email, phone and address required by the form. This option also supports people booking by phone or Messenger without a website account.
+1. Open **Reservations** and select the **New reservation** calendar-plus icon in the header.
+2. In **New Manual Reservation**, enter first name, last name, email, phone and address for a guest without an account. This supports phone, Messenger and walk-in bookings. Registered guests must book through their own account; an email already registered to an account is rejected.
 3. Click a selectable day in the custom **Booking date** calendar. Use the arrows to change months. Booked dates, maintenance closures and past dates are disabled. **Day only** or **Night only** means the other start is unavailable. Choose an available **Booking package** and, if applicable, **Whole-day variant**. Overnight and whole-day availability includes the following day. Fixed start times must be at least 30 minutes from now in Philippine time.
 4. Select the **Unit**, and enter the adults and children counts.
 5. Under **Additional services**, check the services requested and enter a whole-number quantity for each. Add special requests, including the booking channel or relevant guest instructions when helpful.
@@ -158,9 +169,9 @@ If a save reports that a booking was created but a follow-up action failed, look
 
 Once the stay starts, schedule/details changes are restricted and previously booked services cannot be removed or reduced. Ended, closed or expired bookings and bookings awaiting payment/reschedule review can be read-only. An unavailable date or a concurrent change can also stop saving; reload and inspect the current record before trying again.
 
-**Reschedule notice:** The original swimming date requires at least 14 Philippine calendar days' notice in March-May and September-December, or 7 days in other months. The editor displays the deadline. Notice fees are PHP 50 for 6+ days, PHP 100 for 3-5 days, PHP 300 for 1-2 days, and PHP 500 on or after the original date. Ordinary on-time reschedules still carry PHP 50.
+**Reschedule notice:** Standard notice before the original swimming date is 14 Philippine calendar days in March-May and September-December, or 7 days in other months. The editor displays the deadline; shorter-notice changes need staff approval. Notice fees are PHP 50 for 6+ days, PHP 100 for 3-5 days, PHP 300 for 1-2 days, and PHP 500 on or after the original date. Ordinary on-time reschedules still carry PHP 50.
 
-**Late exceptions:** Staff need both **Edit reservation** and **Reschedule approval** permissions. For a confirmed reservation, check the late-exception acknowledgement, choose an available future date, review the charge, and document the guest request in **Reason for change**. A still-confirmed reservation with a past schedule may be moved; completed/cancelled bookings cannot be reopened. Existing accommodation and guest counts remain locked after the original arrival. Resolve pending reviews/open refunds first. Date, bill, invoice and audit changes save together; a linked guest receives an in-app notification when delivery succeeds. Apply `docs/reschedule-policy-migration.sql` before using this feature.
+**Late exceptions:** Staff need both **Edit reservation** and **Reschedule approval** permissions. For a confirmed reservation, check the late-exception acknowledgement, choose an available future date, review the charge, and document the guest request in **Reason for change**. A still-confirmed reservation with a past schedule that has not been checked in may be moved; completed/cancelled bookings cannot be reopened. Existing accommodation and guest counts remain locked after the original arrival. Resolve pending reviews/open refunds first. Date, bill, invoice and audit changes save together; a linked guest receives an in-app notification when delivery succeeds. Apply `docs/reschedule-policy-migration.sql` before using this feature.
 
 Existing reservations use their booked package-rate schedule for package differences. Existing services retain their booked prices; newly added services use their available catalog prices. A later Catalog price change does not reprice all existing bookings. Changing accommodation still follows package-based billing; inspect the preview rather than assuming a unit rate replaces the package bill.
 
@@ -180,7 +191,7 @@ Reservation editing does not automatically pay a refund or send a new billing em
 
 **Expected result:** Approval updates the schedule and adds the notice fee plus any higher-date-rate adjustment to billing. A rejection leaves the original reservation schedule in place. The original booking remains occupied while the request is pending.
 
-Notice eligibility and fees are based on the request's submission date, not the later approval date. Legacy requests submitted outside the notice period must be rejected and processed in the reservation editor as an authorized late exception.
+Guests may submit short-notice, same-day or past-date requests while their reservation is confirmed and they have not checked in. Review these in the same approval queue; staff approval records the exception and applies the quoted fee. Fees are based on the request's submission date in Philippine time, not the later approval date. The audit record includes the notice policy, original/requested dates, guest and approving staff member. Apply `docs/guest-reschedule-requests-migration.sql` after the reschedule-policy and stay-completion migrations to enable this workflow.
 
 Approval can fail if another booking/maintenance block conflicts or the requested start is too near/past. A lower-date rate does not automatically create a refund. Explain any additional balance to the guest; they can pay through Manage Booking when eligible.
 
@@ -191,23 +202,23 @@ Approval can fail if another booking/maintenance block conflicts or the requeste
 1. Open **Records → Ocular Visit Records**.
 2. Find the **Pending** visit and review its reference, guest, date and slot.
 3. Confirm that the visit can be accommodated and has not started.
-4. Select **Approve**, confirm, then check the updated status.
+4. Select **Approve** or **Reject**, enter a reason, confirm the decision and check the updated status.
 
 **Expected result:** The visit is confirmed and the existing guest notification/email workflow is attempted. A viewing is free and does not create a paid stay reservation.
 
-The current Records screen offers ocular approval, not an ocular rejection button. Guests can change or cancel eligible visits through their own Manage Booking screen. Contact the guest if other arrangements are needed.
+Select an ocular visit directly in the reservation calendar to approve or reject it. Enter a required review reason of 5-2,000 characters, then select **Approve ocular visit** or **Reject ocular visit**. Both decisions require Ocular approval permission, are audited and notify the guest. Records also offers both actions. Past visits cannot be approved; reviewed or closed requests cannot receive a conflicting decision.
 
 ## 9. Create or release a maintenance block
 
 **Required role:** Admin.
 
-1. Open **Reservations** and select **+ Maintenance Block**.
+1. Open **Reservations** and select the **Add maintenance block** wrench icon.
 2. Enter **Name**, **Reason / guest announcement**, **Start date** and **End date**.
 3. Review the affected dates. Existing active reservations prevent creating a conflicting block.
 4. Select **Block dates and alert guests**.
 5. Check the result and calendar indicator. Registered guests receive an in-app alert through the existing notification workflow.
 
-To reopen the dates, select the maintenance event, choose **Release block** and check the result. The released block no longer blocks new bookings. Do not use maintenance as a substitute for reviewing existing guest cancellations/refunds.
+To reopen the dates, select the maintenance event, choose **Release block** and check the result. The released block no longer blocks new bookings. Guest booking calendars show closures in purple as **Closed for maintenance**, separate from grey **Fully booked** dates. Do not use maintenance as a substitute for reviewing existing guest cancellations/refunds.
 
 ## 10. Use the transaction ledger
 
@@ -230,15 +241,15 @@ The financial summary and ledger use the latest **200 loaded ledger records**, n
 
 ## 11. Verify a guest GCash payment
 
-**Required permissions:** Transactions access and payment approval.
+**Required permissions:** Payment approval plus access to the module used (Reservations or Transactions).
 
-1. Open **Transactions → Payment Verification Queue**.
-2. Filter to **Pending** and select **Review** for the correct payment.
+1. Open a booking or reservation in the **Reservations** calendar and find **Submitted payments**, then select **Review payment**. You can also use **Transactions > Payment Verification Queue**.
+2. Select the correct pending payment. The calendar review stays inside the reservation dialog; it does not require Transactions access.
 3. Read the reservation reference, payment reference, amount, sender, payment type, receipt time and receipt-screening notes.
 4. Open the proof at full size. Check that it is a clear, complete original GCash screenshot.
 5. Independently check the resort's receiving GCash account. Match the actual transaction's **amount, reference, recipient and date/time** with the proof.
 6. For new guest receipts, select the required original-screenshot acknowledgement only after the image loads and you have checked it.
-7. Select **Approve** and then **Confirm approval**, or **Reject** and then **Confirm rejection**.
+7. Select **Approve** and then **Confirm approval**, or select **Reject**, enter a required reason of 5 to 2,000 characters, then **Confirm rejection**. Rejection is disabled until a valid reason is provided. The reason, reviewer and decision are saved together in the audit trail, and the guest notification includes the reason.
 8. Check the review result, reservation status, ledger balance and generated receipt.
 
 **Expected result:** Approval credits the actual submitted payment and confirms an eligible initial reservation. Rejection of an initial payment can reject the reservation and release its dates. Rejection of a later balance payment leaves an already confirmed reservation active.
@@ -330,9 +341,9 @@ Receipts are issued by payment workflows. Each payment can have its own receipt;
 | --- | --- | --- |
 | Sales Report | Reports | Gross verified collections and reservations created during the selected dates |
 | Staff Report | Reports | Logged actions and identified staff activity during the selected dates |
-| Guest Report | Transactions → Guest Report | Reservations created, guest contacts, group sizes, sources and booking history |
+| Guest Report | Reports → Guest Report | Reservations created, guest contacts, group sizes, sources and booking history |
 
-There is no separate Financial Report tab in Reports. Guest reporting belongs to Transactions.
+There is no separate Financial Report tab in Reports. Guest reporting belongs to Reports and requires Reports permission.
 
 ### Select dates and read the summary
 
@@ -359,7 +370,7 @@ Trends initially use a line graph; breakdowns initially use a pie. Switching cha
 2. Sort using a column heading. Use **First**, **Previous**, **Next** and **Last** for 25-row pages.
 3. Use **Clear table filters** to reset search, filters and sorting.
 4. Select **Export CSV** to download every matching table row across all pages.
-5. Select **Print report** to print or save a PDF containing the selected charts, full-period summary and every matching table row.
+5. Select **Print report** to print or save a PDF containing the selected charts, full-period summary and every matching table row. Print charts use scalable graphics with axes, legends and exact values. Long line/bar series are divided into sections of at most 12 points to keep them readable; progress bars print as bar charts. You do not need to enable browser background graphics for the SVG chart colours.
 
 **How to interpret the numbers**
 
@@ -531,7 +542,7 @@ Only an administrator can change guest access. Deactivation blocks website sign-
 1. Open **Role Permission Matrix** on Users.
 2. Select the required Manager or Cashier permissions.
 3. Grant module access and the specific action permissions needed for the work. For example, refund review and refund payout are separate.
-4. Select **Save manager** or **Save cashier** for the role you changed. Save each role separately.
+4. Select **Save permissions** once to save Manager and Cashier changes together.
 5. Ask the staff member to refresh/reopen the relevant module and confirm the permitted actions.
 
 **Expected result:** Permissions apply to the role on subsequent requests. Admin keeps full access; Users, Configuration and Business Catalog remain admin-only. Removing all module access can leave a role with no portal pages.
@@ -587,3 +598,8 @@ These notes describe the current application and prevent users from treating dem
 | Older records | Historical/manual entries may lack fields found on newer bookings or receipts. Inspect the displayed record and supporting history before acting |
 
 Application updates can change these limitations. Recheck this manual when new screens or workflows are deployed.
+
+
+### Catalog rate controls
+
+Use **Package rates** for weekday/weekend swimming prices and extra-person charges, and **Units** for accommodation prices. The separate Unit rates and Guest rates tabs have been removed; historical rate records are retained.

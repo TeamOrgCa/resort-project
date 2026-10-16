@@ -1,7 +1,7 @@
 import { manilaDateKey } from "./manila-date";
 
 const DAY_MS = 86_400_000;
-export const RESCHEDULE_POLICY_TEXT = "Peak months: March-May and September-December require 14 days' notice; other months require 7 days. Shorter notice requires an authorized staff exception.";
+export const RESCHEDULE_POLICY_TEXT = "Usual notice: 14 days for March-May and September-December; 7 days for other months. Guests may also submit shorter-notice requests. Every request needs staff approval before the schedule or bill changes.";
 export const RESCHEDULE_FEE_TEXT = "Notice fees: PHP 50 for 6 or more days, PHP 100 for 3-5 days, PHP 300 for 1-2 days, and PHP 500 on or after the original swimming date.";
 
 export function reschedulePolicy(originalStart: string, now = Date.now()) {

@@ -65,12 +65,13 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
   return (
     <StaffDialogShell
       isOpen={isOpen}
+      busy={isSubmitting}
       title="Create Staff User"
-      description="Provision a new Supabase auth account and matching staff profile."
+      description="Create a staff account and choose its access level."
       onClose={onClose}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error ? <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+        {error ? <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
@@ -79,7 +80,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
               required
-              className="w-full rounded-xl border border-neutral/20 px-3 py-2.5 focus:border-primary focus:outline-none"
+              className="admin-field w-full"
               placeholder="Alex Mendoza"
             />
           </label>
@@ -121,7 +122,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
             <select
               value={role}
               onChange={(event) => setRole(event.target.value as StaffRole)}
-              className="w-full rounded-xl border border-neutral/20 px-3 py-2.5 focus:border-primary focus:outline-none"
+              className="admin-field w-full"
             >
               {roleOptions.map((option) => (
                 <option key={option} value={option}>
@@ -139,7 +140,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
               onChange={(event) => setPassword(event.target.value)}
               minLength={8}
               required
-              className="w-full rounded-xl border border-neutral/20 px-3 py-2.5 focus:border-primary focus:outline-none"
+              className="admin-field w-full"
               placeholder="At least 8 characters"
             />
           </label>
@@ -155,7 +156,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
           Create as active staff member
         </label>
 
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-neutral/10 pt-5">
           <button
             type="button"
             onClick={onClose}
@@ -167,7 +168,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
           <button
             type="submit"
             disabled={isSubmitting}
-            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {isSubmitting ? "Creating..." : "Create Staff User"}
           </button>

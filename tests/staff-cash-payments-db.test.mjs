@@ -134,3 +134,10 @@ test("the repaired receipt trigger still issues one receipt when an existing GCa
  await db.query("update public.payments set paid_at=now() where payment_id=$1",[inserted.payment_id]);
  assert.equal((await one("select count(*)::int n from public.receipts")).n,1);
 });
+
+test("the new permission/rejection migration preserves authorized cash settlement and named receipts",async()=>{
+ await db.exec("create table if not exists public.notifications(recipient_role text,recipient_id uuid,actor_id uuid,title text,message text,action_url text,entity_type text,entity_id uuid);drop trigger if exists guard_review on public.payments;drop trigger if exists finish_review on public.payments;");
+ await db.exec(readFileSync("docs/payment-review-and-notifications-migration.sql","utf8"));
+ await actor(staff);const result=await record();assert.equal(result.remainingBalance,0);assert.equal(result.receipt.billed_to_name,"Guest Tester");assert.equal(result.payment.verified_by,staff);
+ assert.equal((await record()).alreadyRecorded,true);assert.equal((await one("select count(*)::int n from public.receipts")).n,1);
+});

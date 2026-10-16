@@ -752,12 +752,12 @@ export default function Booking() {
                     {bookingType === "stay" ? "Select Booking Date" : "Select Visit Date"}
                   </h2>
                   <div className="flex gap-2">
-                    <button type="button" onClick={prevMonth} className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
+                    <button type="button" onClick={prevMonth} aria-label="Previous month" className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
                       <svg className="w-6 h-6 text-neutral" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <button type="button" onClick={nextMonth} className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
+                    <button type="button" onClick={nextMonth} aria-label="Next month" className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
                       <svg className="w-6 h-6 text-neutral" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
@@ -809,10 +809,11 @@ export default function Booking() {
                       );
                     } else {
                     const { day, night } = dateAvailability(date);
+                    const isMaintenance = blockedDateRanges.some(block => block.start_date <= toDateKey(date) && block.end_date >= toDateKey(date));
                     const isBooked = !day && !night;
                     const noRemainingStarts = !isBookingStartAllowed(buildBookingWindow({ bookingMode: "day", date }).startDatetime!, now)
                       && !isBookingStartAllowed(buildBookingWindow({ bookingMode: "night", date }).startDatetime!, now);
-                    const unavailableLabel = noRemainingStarts ? "No remaining start times" : "Fully booked";
+                    const unavailableLabel = isMaintenance ? "Closed for maintenance" : noRemainingStarts ? "No remaining start times" : "Fully booked";
                     const isSelected = isDateSelected(date);
 
                       return (
@@ -823,10 +824,11 @@ export default function Booking() {
                           disabled={availabilityLoading || availabilityError || isBooked || isPast}
                           aria-label={`${toDateKey(date)}: ${isBooked ? unavailableLabel : `${day ? "day available" : "day unavailable"}, ${night ? "night available" : "night unavailable"}`}`}
                           title={isBooked ? unavailableLabel : `${day ? "Day available" : "Day unavailable"} · ${night ? "Night available" : "Night unavailable"}`}
+                          style={isMaintenance ? { backgroundColor: "#6A7282", border: "1px solid #6A7282", color: "#FFFFFF" } : undefined}
                           className={`aspect-square rounded-lg flex flex-col items-center justify-center font-medium transition-all
-                            ${isBooked ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
+                            ${isMaintenance ? "border border-gray-500 bg-gray-500 text-white cursor-not-allowed" : isBooked ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
                             ${isPast && !isBooked ? "text-neutral/30 cursor-not-allowed" : ""}
-                            ${isSelected ? "bg-primary text-base" : ""}
+                            ${isSelected && !isBooked ? "bg-primary text-base" : ""}
                             ${!isBooked && !isPast && !isSelected ? (day && night ? "hover:bg-primary/10 text-neutral" : "bg-amber-50 text-amber-900 hover:bg-amber-100") : ""}
                           `}
                         >
@@ -850,6 +852,7 @@ export default function Booking() {
                         <div className="w-4 h-4 bg-neutral/20 rounded"></div>
                         <span className="text-sm text-neutral/70">Fully booked</span>
                       </div>
+                      <div className="flex items-center gap-2"><div className="h-4 w-4 rounded bg-gray-500" style={{ backgroundColor: "#6A7282" }} /><span className="text-sm text-neutral/70">Closed for maintenance</span></div>
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-amber-50 rounded"></div>
                         <span className="text-sm text-neutral/70">Day or night available</span>
@@ -964,7 +967,7 @@ export default function Booking() {
 
                     {packageRatesError && <p role="alert" className="mb-3 text-sm text-red-700">{packageRatesError}</p>}
                     {stayError ? (
-                      <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
+                      <div role="alert" className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
                         {stayError}
                       </div>
                     ) : null}
@@ -985,7 +988,7 @@ export default function Booking() {
                 ) : (
                   <>
                     {ocularError ? (
-                      <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
+                      <div role="alert" className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
                         {ocularError}
                       </div>
                     ) : null}

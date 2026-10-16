@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
+import { legacyRates } from "./helpers/package-rates.mjs";
+const serviceId = "11111111-1111-4111-8111-111111111111", karaokeId = "22222222-2222-4222-8222-222222222222";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/manage", pretendToBeVisual: true });
 globalThis.window = dom.window; globalThis.document = dom.window.document;
@@ -35,8 +37,8 @@ function client() {
     guests: { email: "guest@example.com", phone_number: "09123456789" },
     reservations: rows,
     transactions: rows.map(row => ({ reservation_id: row.reservation_id, total_amount: 3000, paid_amount: 600, balance: 2400 })),
-    reservation_services: [{ reservation_id: "booking", service_id: "service", quantity: 1, price_at_time: 100, services: { name: "Extra table" } }],
-    services: [{ service_id: "service", name: "Extra table", price: 100 }, { service_id: "karaoke", name: "Karaoke", price: 500 }],
+    reservation_services: [{ reservation_id: "booking", service_id: serviceId, quantity: 1, price_at_time: 100, services: { name: "Extra table" } }],
+    services: [{ service_id: serviceId, name: "Extra table", price: 100 }, { service_id: karaokeId, name: "Karaoke", price: 500 }],
     ocular_visits: [{ visit_id: "visit", reference_number: "OC-VISIT", scheduled_date: day(12), time_slot_id: "slot", status: "confirmed", created_at: new Date().toISOString() }],
     ocular_time_slots: [{ slot_id: "slot", start_time: "10:00:00", end_time: "11:00:00" }],
   };
@@ -49,8 +51,17 @@ function client() {
     },
   };
 }
-async function mount(fetcher = async () => Response.json({ refunds: [], eligible: [] })) {
-  const original = globalThis.fetch; globalThis.fetch = fetcher;
+async function mount(fetcher = async () => Response.json({ refunds: [], eligible: [] }), availabilityFetcher = async () => Response.json({ reservations: [], blockedDates: [] })) {
+  const original = globalThis.fetch;
+  globalThis.fetch = (url, options) => {
+    if (url.startsWith("/api/booking/availability")) return availabilityFetcher(url, options);
+    if (url.startsWith("/api/reservations/edit") && !options?.method) return Promise.resolve(Response.json({
+      reservation: rows[0], services: [{ service_id: serviceId, quantity: 1, price_at_time: 100 }],
+      catalogServices: [{ service_id: serviceId, name: "Extra table", price: 100, is_active: true }, { service_id: karaokeId, name: "Karaoke", price: 500, is_active: true }],
+      bill: { total_amount: 3000, paid_amount: 600, status: "partial" }, packageRates: legacyRates, version: "a".repeat(64), lockedReason: null, canChangeGuests: true, canReduceServices: true,
+    }));
+    return fetcher(url, options);
+  };
   const pushes = [], drafts = [];
   const Component = loadTsModule("app/manage/page.tsx", {
     "next/image": () => null,
@@ -77,11 +88,12 @@ test("booking actions open a focused dialog without inline details and restore t
   try {
     assert.equal(dialog(), null); assert.equal(h.container.textContent.includes("Booked services"), false);
     const trigger = options("MV-CONFIRMED"); await click(trigger);
-    assert.equal(document.activeElement, menuItem("View")); await key(document.activeElement, "ArrowDown"); assert.equal(document.activeElement, menuItem("Edit services"));
+    assert.equal(document.activeElement, menuItem("View")); await key(document.activeElement, "ArrowDown"); assert.equal(document.activeElement, menuItem("Edit booking"));
     await key(document.activeElement, "Escape"); assert.equal(document.querySelector('[role="menu"]'), null); assert.equal(document.activeElement, trigger);
     await action("MV-CONFIRMED", "View");
     assert.ok(dialog()); assert.equal(h.container.contains(dialog()), false); assert.equal(document.body.style.overflow, "hidden");
     assert.match(dialog().textContent, /Booking details/); assert.match(dialog().textContent, /Extra table/);
+    for (const label of ["Edit booking", "Reschedule", "Cancel reservation", "Continue to Payment"]) assert.ok(button(dialog(), label), label);
     assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
     const last = button(dialog(), "Close"); last.focus(); await key(last, "Tab"); assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
     await key(document.activeElement, "Escape"); assert.equal(dialog(), null); assert.equal(document.body.style.overflow, ""); assert.equal(document.activeElement, trigger);
@@ -94,17 +106,17 @@ test("service errors and recalculated amounts remain visible in the selected dia
   const h = await mount(async (url, options) => {
     if (!options?.method) return Response.json({ refunds: [], eligible: [] });
     calls.push({ url, body: JSON.parse(options.body) });
-    if (rejectSave) return Response.json({ message: "Service not available" }, { status: 409 });
-    return new Promise(resolve => { resolveSave = () => resolve(Response.json({ success: true, message: "Services saved", totalAmount: 3600, paidAmount: 600, remainingBalance: 3000 })); });
+    if (rejectSave) return Response.json({ message: "Service not available" }, { status: 503 });
+    return new Promise(resolve => { resolveSave = () => resolve(Response.json({ success: true, message: "Services saved", totalAmount: 3600, paidAmount: 600, remainingBalance: 3000, adultCount: 3, childCount: 1, services: [{ serviceId, name: "Extra table", quantity: 2, priceAtTime: 100 }, { serviceId: karaokeId, name: "Karaoke", quantity: 1, priceAtTime: 500 }] })); });
   });
   try {
-    await action("MV-CONFIRMED", "Edit services");
-    await value(dialog().querySelector('[aria-label="New service"]'), "karaoke");
+    await action("MV-CONFIRMED", "Edit booking");
+    await value(dialog().querySelector('[aria-label="New service"]'), karaokeId);
     await click(button(dialog(), "Add Service"));
     await value(dialog().querySelector('[aria-label="Quantity for Extra table"]'), "2");
-    await click(button(dialog(), "Save Service Changes")); assert.match(dialog().querySelector('[role="alert"]').textContent, /Service not available/);
-    assert.deepEqual(calls[0].body, { reservationId: "booking", services: [{ serviceId: "service", quantity: 2 }, { serviceId: "karaoke", quantity: 1 }] });
-    rejectSave = false; await click(button(dialog(), "Save Service Changes"));
+    await click(button(dialog(), "Save Booking Changes")); assert.match(dialog().querySelector('[role="alert"]').textContent, /Service not available/);
+    assert.deepEqual(calls[0].body, { adultCount: 3, childCount: 1, services: [{ serviceId, quantity: 2 }, { serviceId: karaokeId, quantity: 1 }], expectedTotal: 3600, version: "a".repeat(64) });
+    rejectSave = false; await click(button(dialog(), "Save Booking Changes"));
     assert.equal(dialog().getAttribute("aria-busy"), "true"); assert.equal(button(dialog(), "Close").disabled, true);
     await key(dialog(), "Escape"); assert.ok(dialog()); await act(async () => resolveSave());
     assert.match(dialog().textContent, /Services saved/); assert.match(dialog().textContent, /Booking details/);
@@ -112,6 +124,25 @@ test("service errors and recalculated amounts remain visible in the selected dia
     await click(button(dialog(), "Close"));
     assert.match(h.container.querySelector('[aria-label="Booking MV-CONFIRMED"]').textContent, /3,600/);
     await action("MV-REVIEW", "View"); assert.equal(dialog().textContent.includes("Services saved"), false);
+  } finally { await h.close(); }
+});
+
+test("a paid-downpayment booking opens edits from View and carries saved adult/child counts into balance payment", async () => {
+  let posted;
+  const h = await mount(async (url, options) => {
+    if (!options?.method) return Response.json({ refunds: [], eligible: [] });
+    posted = JSON.parse(options.body);
+    return Response.json({ success: true, adultCount: 5, childCount: 2, services: [], totalAmount: 2900, paidAmount: 600, remainingBalance: 2300, message: "Booking updated" });
+  });
+  try {
+    await action("MV-CONFIRMED", "View"); await click(button(dialog(), "Edit booking"));
+    await value(dialog().querySelector('[aria-label="Adults"]'), "5"); await value(dialog().querySelector('[aria-label="Children"]'), "2");
+    await click(dialog().querySelector('[aria-label="Remove Extra table"]'));
+    await click(button(dialog(), "Save Booking Changes"));
+    assert.equal(posted.adultCount, 5); assert.equal(posted.childCount, 2); assert.deepEqual(posted.services, []);
+    assert.match(dialog().textContent, /7 guests/); assert.match(dialog().textContent, /No services selected/);
+    await click(button(dialog(), "Continue to Payment")); assert.equal(h.drafts[0].adultCount, 5); assert.equal(h.drafts[0].childCount, 2);
+    assert.equal(h.drafts[0].bookingMode, "day"); assert.equal(h.drafts[0].roomPrice, 2300);
   } finally { await h.close(); }
 });
 
@@ -141,30 +172,113 @@ test("reschedule requests retain the original time and duration, and show approv
   } finally { await h.close(); }
 });
 
+test("reschedule dates block occupied slots and maintenance, and recheck a selected date after a conflict", async () => {
+  let newlyBooked = false, posts = 0;
+  const h = await mount(async (url, options) => {
+    if (!options?.method) return Response.json({ refunds: [], eligible: [] });
+    posts++; newlyBooked = true; return Response.json({ message: "This time slot was just booked." }, { status: 409 });
+  }, async () => Response.json({
+    reservations: [rows[0], { start_datetime: day(25) + "T10:00:00+08:00", end_datetime: day(25) + "T12:00:00+08:00" },
+      ...(newlyBooked ? [{ start_datetime: day(27) + "T08:00:00+08:00", end_datetime: day(27) + "T18:00:00+08:00" }] : [])],
+    blockedDates: [{ start_date: day(26), end_date: day(26) }],
+  }));
+  try {
+    await action("MV-CONFIRMED", "Reschedule");
+    await chooseDate(day(27));
+    assert.match(dialog().querySelector(`button[data-date="${day(25)}"]`).title, /Already reserved/);
+    assert.equal(dialog().querySelector(`button[data-date="${day(25)}"]`).disabled, true);
+    assert.match(dialog().querySelector(`button[data-date="${day(26)}"]`).title, /maintenance/);
+    assert.equal(dialog().querySelector(`button[data-date="${day(26)}"]`).disabled, true);
+    await click(button(dialog(), "Submit Reschedule Request"));
+    assert.equal(posts, 1); assert.match(dialog().querySelector('[role="alert"]').textContent, /just booked/);
+    assert.equal(button(dialog(), "Submit Reschedule Request").disabled, true);
+    assert.match(dialog().textContent, /Already reserved/);
+    await chooseDate(day(28)); assert.equal(button(dialog(), "Submit Reschedule Request").disabled, false);
+  } finally { await h.close(); }
+});
+
+test("availability failures block rescheduling until a successful retry", async () => {
+  let fail = true, posts = 0;
+  const h = await mount(async (_url, options) => { if (options?.method) posts++; return Response.json({ refunds: [], eligible: [] }); },
+    async () => fail ? Response.json({ message: "Unavailable" }, { status: 503 }) : Response.json({ reservations: [], blockedDates: [] }));
+  try {
+    await action("MV-CONFIRMED", "Reschedule"); assert.match(dialog().textContent, /Unable to load available dates/);
+    assert.equal(button(dialog(), "Submit Reschedule Request").disabled, true);
+    for (const date of dialog().querySelectorAll("button[data-date]")) assert.equal(date.disabled, true);
+    fail = false; await click(button(dialog(), "Retry availability")); await chooseDate(day(25));
+    assert.equal(button(dialog(), "Submit Reschedule Request").disabled, false); assert.equal(posts, 0);
+  } finally { await h.close(); }
+});
+
+test("overnight rescheduling preserves seconds and blocks maintenance on the departure day", async () => {
+  const previous = { ...rows[0] }; let posted;
+  Object.assign(rows[0], { start_datetime: day(20) + "T18:00:17.125+08:00", end_datetime: day(21) + "T06:00:17.125+08:00", booking_mode: "night" });
+  const h = await mount(async (_url, options) => {
+    if (!options?.method) return Response.json({ refunds: [], eligible: [] });
+    posted = JSON.parse(options.body); return Response.json({ success: true, totalAdditional: 50 });
+  }, async () => Response.json({ reservations: [rows[0]], blockedDates: [{ start_date: day(26), end_date: day(26) }] }));
+  try {
+    await action("MV-CONFIRMED", "Reschedule"); await chooseDate(day(27));
+    assert.equal(dialog().querySelector(`button[data-date="${day(25)}"]`).disabled, true);
+    await click(button(dialog(), "Submit Reschedule Request"));
+    assert.equal(posted.newStartDatetime, day(27) + "T10:00:17.125Z");
+    assert.equal(posted.newEndDatetime, new Date(Date.parse(day(28) + "T06:00:17.125+08:00")).toISOString());
+  } finally { Object.assign(rows[0], previous); await h.close(); }
+});
+
+test("staff approvals and cancellations refresh guest actions and dates when the page regains focus", async () => {
+  const previous = { ...rows[0] }; rows[0].status = "reschedule_requested";
+  const h = await mount();
+  try {
+    await click(options("MV-CONFIRMED")); assert.equal(menuItem("Reschedule").disabled, true);
+    await key(document.activeElement, "Escape");
+    Object.assign(rows[0], { status: "confirmed", start_datetime: day(30) + "T08:00:00+08:00", end_datetime: day(30) + "T18:00:00+08:00" });
+    await act(async () => window.dispatchEvent(new window.Event("focus")));
+    await action("MV-CONFIRMED", "Reschedule");
+    assert.equal(dialog().querySelector(`button[data-date="${day(30)}"]`).disabled, true);
+    await click(button(dialog(), "Close"));
+    Object.assign(rows[0], { status: "cancelled", cancellation_snapshot: { outcome: "no_refund" } });
+    await act(async () => window.dispatchEvent(new window.Event("focus")));
+    assert.match(h.container.querySelector('[aria-label="Booking MV-CONFIRMED"]').textContent, /Cancelled - No Refund/);
+    await click(options("MV-CONFIRMED")); assert.equal(menuItem("Cancel reservation").disabled, true); assert.equal(menuItem("Reschedule").disabled, true);
+  } finally { delete rows[0].cancellation_snapshot; Object.assign(rows[0], previous); await h.close(); }
+});
+
 test("closed and payment-review reservations keep their action restrictions in the menu", async () => {
   const h = await mount();
   try {
     await click(options("MV-CLOSED"));
-    for (const label of ["Edit services", "Reschedule", "Pay balance", "Cancel reservation"]) assert.equal(menuItem(label).disabled, true, label);
-    assert.match(menuItem("Edit services").textContent, /closed/); await key(document.activeElement, "Escape");
-    await click(options("MV-REVIEW")); assert.equal(menuItem("Edit services").disabled, true); assert.equal(menuItem("Pay balance").disabled, true);
+    for (const label of ["Edit booking", "Reschedule", "Pay balance", "Cancel reservation"]) assert.equal(menuItem(label).disabled, true, label);
+    assert.match(menuItem("Edit booking").textContent, /closed/); await key(document.activeElement, "Escape");
+    await click(options("MV-REVIEW")); assert.equal(menuItem("Edit booking").disabled, true); assert.equal(menuItem("Pay balance").disabled, true);
     assert.match(menuItem("Pay balance").textContent, /being reviewed/); assert.equal(menuItem("View").disabled, false);
     await key(document.activeElement, "Escape"); await value(h.container.querySelector('[type="search"]'), "CLOSED");
     assert.equal(h.container.querySelectorAll("article").length, 1);
   } finally { await h.close(); }
 });
 
-test("late guest reschedules explain the Philippine deadline and disable requests in the calendar dialog", async () => {
+test("late guests can select and submit available dates for staff approval without changing their bill", async () => {
   const previous = { ...rows[0] };
   Object.assign(rows[0], { start_datetime: day(2) + "T08:00:00+08:00", end_datetime: day(2) + "T18:00:00+08:00" });
-  let posts = 0; const h = await mount(async (_url, options) => { if (options?.method) posts++; return Response.json({ refunds: [], eligible: [] }); });
+  let posts = 0; const h = await mount(async (_url, options) => {
+    if (options?.method) { posts++; return Response.json({ success: true, rescheduleFee: 300, rateAdjustment: 0, totalAdditional: 300 }); }
+    return Response.json({ refunds: [], eligible: [] });
+  });
   try {
     await action("MV-CONFIRMED", "Reschedule");
-    assert.match(dialog().textContent, /Contact the resort for a staff-reviewed exception/);
-    assert.match(dialog().textContent, /deadline was/); assert.match(dialog().textContent, /PHP 300/);
+    assert.match(dialog().textContent, /You can submit it for staff approval/);
+    assert.match(dialog().textContent, /PHP 300/);
     assert.equal(button(dialog(), "Submit Reschedule Request").disabled, true);
-    for (const date of dialog().querySelectorAll("button[data-date]")) assert.equal(date.disabled, true);
-    assert.equal(posts, 0);
+    await chooseDate(day(25));
+    assert.equal(dialog().querySelector(`button[data-date="${day(25)}"]`).getAttribute("aria-pressed"), "true");
+    assert.match(dialog().textContent, /Requested schedule/);
+    assert.equal(button(dialog(), "Submit Reschedule Request").disabled, false);
+    await click(button(dialog(), "Submit Reschedule Request"));
+    assert.equal(posts, 1);
+    assert.match(dialog().textContent, /Request sent for review/);
+    assert.match(dialog().textContent, /Reschedule Requested/);
+    assert.match(dialog().textContent, /3,000/);
+    assert.match(dialog().textContent, /2,400/);
   } finally { Object.assign(rows[0], previous); await h.close(); }
 });
 
@@ -222,7 +336,7 @@ test("booking cancellation opens its financial preview and then the cancelled re
     return Response.json({ eligible: [], refunds: cancelled ? [{ refund_id: "refund", reservation_id: "booking", reference_number: "MV-CONFIRMED", amount: 2400, status: "pending", request_kind: "cancellation", requested_at: new Date().toISOString() }] : [] });
   });
   try {
-    await action("MV-CONFIRMED", "Cancel reservation"); assert.match(dialog().textContent, /Retained deposit/); assert.equal(button(dialog(), "Confirm cancellation").disabled, true);
+    await action("MV-CONFIRMED", "Cancel reservation"); assert.match(dialog().textContent, /Would you prefer to reschedule/); assert.equal(posted, undefined); await click(button(dialog(), "Continue to cancellation")); assert.match(dialog().textContent, /Retained deposit/); assert.equal(button(dialog(), "Confirm cancellation").disabled, true);
     await click(dialog().querySelector('[type="checkbox"]')); await click(button(dialog(), "Confirm cancellation"));
     assert.equal(posted.reservationId, "booking"); assert.equal(posted.quote, preview.quote);
     assert.equal(document.querySelectorAll('[role="dialog"]').length, 1); assert.match(dialog().textContent, /Booking details/);
@@ -291,4 +405,106 @@ test("options menus stay within short phone viewports and dismiss when the viewp
       assert.equal(trigger.getAttribute("aria-expanded"), "false");
     }
   } finally { Object.defineProperty(window, "innerWidth", width); Object.defineProperty(window, "innerHeight", height); await h.close(); }
+});
+
+test("cancellation offers rescheduling without calling the cancellation endpoint", async () => {
+  let cancellationCalls = 0;
+  const h = await mount(async url => { if(url.startsWith("/api/reservations/cancel")) cancellationCalls++; return Response.json({ refunds: [], eligible: [] }); });
+  try {
+    await action("MV-CONFIRMED", "Cancel reservation");
+    assert.match(dialog().textContent,/Would you prefer to reschedule/);
+    assert.equal(cancellationCalls,0);
+    await click(button(dialog(),"Reschedule instead"));
+    assert.match(dialog().textContent,/Reschedule Booking/);
+    await chooseDate(day(25));
+    assert.equal(button(dialog(),"Submit Reschedule Request").disabled,false);
+    assert.equal(cancellationCalls,0);
+  } finally { await h.close(); }
+});
+
+test("a date can be selected while availability loads but submission waits and rejects a newly found conflict",async()=>{
+  let release;const responses=[];
+  const h=await mount(undefined,()=>new Promise(resolve=>{responses.push(resolve);release=()=>responses.forEach(r=>r(Response.json({reservations:[{start_datetime:day(25)+"T08:00:00+08:00",end_datetime:day(25)+"T18:00:00+08:00"}],blockedDates:[]})));}));
+  try {
+    await action("MV-CONFIRMED","Reschedule");
+    await chooseDate(day(25));
+    assert.equal(dialog().querySelector('[data-date="'+day(25)+'"]').getAttribute("aria-pressed"),"true");
+    assert.equal(button(dialog(),"Submit Reschedule Request").disabled,true);
+    assert.match(dialog().textContent,/Checking available time slots/);
+    await act(async()=>release());
+    assert.equal(button(dialog(),"Submit Reschedule Request").disabled,true);
+    assert.match(dialog().textContent,/Already reserved/);
+  }finally{await h.close();}
+});
+test("recorded check-in disables guest cancellation and rescheduling in both the options menu and details", async () => {
+  rows[0].checked_in_at = new Date().toISOString();
+  const h = await mount();
+  try {
+    await click(options("MV-CONFIRMED"));
+    assert.equal(menuItem("Reschedule").disabled, true); assert.equal(menuItem("Cancel reservation").disabled, true);
+    await click(menuItem("View"));
+    assert.equal(button(dialog(), "Reschedule"), undefined); assert.equal(button(dialog(), "Cancel reservation"), undefined);
+    assert.match(dialog().textContent, /You are checked in/);
+  } finally { await h.close(); delete rows[0].checked_in_at; }
+});
+
+test("guests can switch to rescheduling after reviewing cancellation deductions without cancelling", async () => {
+  let cancellations = 0;
+  const h = await mount(async (url, options) => {
+    if (url.startsWith("/api/reservations/cancel")) {
+      if (options?.method === "POST") cancellations++;
+      return Response.json({ preview: { reference: "MV-CONFIRMED", verifiedPaid: 600, previousRefunds: 0, netPaid: 600, depositBase: 3000, deduction: 600, refundableAmount: 0, allowed: true, rule: "Initial deposit retained", quote: "a".repeat(32) } });
+    }
+    return Response.json({ refunds: [], eligible: [] });
+  });
+  try {
+    await action("MV-CONFIRMED", "View");
+    await click(button(dialog(), "Cancel reservation"));
+    await click(button(dialog(), "Continue to cancellation"));
+    assert.match(dialog().textContent, /Retained deposit/);
+    await click(button(dialog(), "Reschedule instead"));
+    await chooseDate(day(25));
+    assert.equal(button(dialog(), "Submit Reschedule Request").disabled, false);
+    assert.equal(cancellations, 0);
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 1);
+  } finally { await h.close(); }
+});
+
+test("cancellation lets late guests submit a reschedule request instead of cancelling", async () => {
+  const previous = { ...rows[0] };
+  Object.assign(rows[0], { start_datetime: day(2) + "T08:00:00+08:00", end_datetime: day(2) + "T18:00:00+08:00" });
+  let cancellations = 0, requests = 0;
+  const h = await mount(async (url, options) => {
+    if (url.startsWith("/api/reservations/cancel")) cancellations++;
+    if (url === "/api/reservations/reschedule" && options?.method === "POST") { requests++; return Response.json({ success: true, rescheduleFee: 300, totalAdditional: 300 }); }
+    return Response.json({ refunds: [], eligible: [] });
+  },
+    async () => Response.json({ reservations: [{ start_datetime: day(25) + "T08:00:00+08:00", end_datetime: day(25) + "T18:00:00+08:00" }], blockedDates: [] }));
+  try {
+    await action("MV-CONFIRMED", "Cancel reservation");
+    assert.match(dialog().textContent, /You can request a new date even with short notice/);
+    await click(button(dialog(), "Reschedule instead"));
+    await chooseDate(day(26));
+    assert.equal(dialog().querySelector(`button[data-date="${day(25)}"]`).disabled, true);
+    assert.equal(button(dialog(), "Submit Reschedule Request").disabled, false);
+    await click(button(dialog(), "Submit Reschedule Request"));
+    assert.equal(requests, 1);
+    assert.equal(cancellations, 0);
+  } finally { Object.assign(rows[0], previous); await h.close(); }
+});
+
+test("a month without available dates explains how to find a selectable date", async () => {
+  const month = rows[0].start_datetime.slice(0, 7);
+  const h = await mount(undefined, async url => Response.json({ reservations: [], blockedDates: new URL(url, "http://localhost").searchParams.get("month") === month
+    ? [{ start_date: month + "-01", end_date: month + "-31" }] : [] }));
+  try {
+    await action("MV-CONFIRMED", "Reschedule");
+    assert.match(dialog().textContent, /No available dates this month/);
+    assert.equal(dialog().querySelector('[aria-label="Next month"]').disabled, false);
+    await click(dialog().querySelector('[aria-label="Next month"]'));
+    assert.equal(dialog().textContent.includes("No available dates this month"), false);
+    const date = [...dialog().querySelectorAll("button[data-date]")].find(button => !button.disabled);
+    await click(date);
+    assert.equal(button(dialog(), "Submit Reschedule Request").disabled, false);
+  } finally { await h.close(); }
 });

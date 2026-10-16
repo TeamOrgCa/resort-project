@@ -15,21 +15,24 @@ type BookingDateCalendarProps = {
   description?: string;
   minDate?: string;
   initialDate?: string;
+  visibleMonth?: string;
   minimumDateReason?: string;
   getUnavailableReason?: (date: string) => string | null;
   getDateHint?: (date: string) => string;
   onMonthChange?: (month: string) => void;
   disabled?: boolean;
+  disabledReason?: string;
   emptyLabel?: string;
   footnote?: string;
 };
 
 export default function BookingDateCalendar({ value, onChange, title = "Booking date", description = "Choose a date in Philippine time.",
-  minDate, initialDate, minimumDateReason = "Before the earliest selectable date", getUnavailableReason, getDateHint, onMonthChange, disabled = false,
+  minDate, initialDate, visibleMonth, minimumDateReason = "Before the earliest selectable date", getUnavailableReason, getDateHint, onMonthChange, disabled = false, disabledReason,
   emptyLabel = "Select a booking date.", footnote,
 }: BookingDateCalendarProps) {
   const titleId = useId();
-  const [month, setMonth] = useState(() => (value || initialDate || minDate || manilaDateKey(new Date())).slice(0, 7));
+  const [localMonth, setMonth] = useState(() => (value || initialDate || minDate || manilaDateKey(new Date())).slice(0, 7));
+  const month = visibleMonth || localMonth;
   const [year, monthNumber] = month.split("-").map(Number);
   const firstDay = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay();
   const days = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
@@ -53,7 +56,7 @@ export default function BookingDateCalendar({ value, onChange, title = "Booking 
       {Array.from({ length: firstDay }, (_, index) => <span key={`empty-${index}`} aria-hidden="true" />)}
       {Array.from({ length: days }, (_, index) => {
         const date = `${month}-${String(index + 1).padStart(2, "0")}`;
-        const reason = minDate && date < minDate ? minimumDateReason : getUnavailableReason?.(date) ?? null;
+        const reason = disabled && disabledReason ? disabledReason : minDate && date < minDate ? minimumDateReason : getUnavailableReason?.(date) ?? null;
         const hint = !reason ? getDateHint?.(date) : undefined;
         const selected = date === value;
         return <button key={date} type="button" data-date={date} disabled={disabled || Boolean(reason)} aria-pressed={selected}

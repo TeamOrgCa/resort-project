@@ -12,27 +12,23 @@ import { isBookingStartAllowed } from "@/lib/booking/start-time";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
 
-type Guest = { id: string; first_name: string; last_name: string; email: string };
 type Unit = { unit_id: string; name: string; capacity: number };
 type Service = { service_id: string; name: string; description: string | null; price: number };
 type PackageMode = Exclude<BookingMode, "custom">;
 type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreated: () => void };
 type BookingForm = { bookingDate: string; bookingMode: PackageMode; wholeDayVariant: WholeDayVariant; adultCount: string; childCount: string; unitId: string; specialRequests: string };
 const money = (value: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value);
-const fieldClass = "mt-2 min-h-11 w-full min-w-0 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-[16px] text-black";
+const fieldClass = "admin-field mt-1 w-full";
 const validQuantity = (value: string) => Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10000;
 
 export default function ManualBookingDialog({ isOpen, onClose, onCreated }: ManualBookingDialogProps) {
   const { schedule: packageSchedule, error: packageRatesError } = usePackageRates(isOpen);
-  const [guests, setGuests] = useState<Guest[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [serviceQuantities, setServiceQuantities] = useState<Record<string, string>>({});
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsRevision, setOptionsRevision] = useState(0);
-  const [guestType, setGuestType] = useState<"existing" | "walk_in">("existing");
-  const [guestId, setGuestId] = useState("");
   const [walkIn, setWalkIn] = useState({ firstName: "", lastName: "", email: "", phoneNumber: "", address: "" });
   const [form, setForm] = useState<BookingForm>({ bookingDate: toIsoLocalDay(new Date()), bookingMode: "day", wholeDayVariant: "day_to_night", adultCount: "1", childCount: "0", unitId: "", specialRequests: "" });
   const [calendarMonth, setCalendarMonth] = useState(() => toIsoLocalDay(new Date()).slice(0, 7));
@@ -49,14 +45,12 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
       setOptionsLoading(true); setOptionsError(null);
       try {
         const supabase = createClient();
-        const [guestResult, unitResult, serviceResult] = await Promise.all([
-          supabase.from("guests").select("id, first_name, last_name, email").order("first_name").limit(500),
+        const [unitResult, serviceResult] = await Promise.all([
           supabase.from("units").select("unit_id, name, capacity").eq("is_active", true).is("archived_at", null).order("name"),
           supabase.from("services").select("service_id, name, description, price").eq("is_active", true).order("name"),
         ]);
-        if ([guestResult, unitResult, serviceResult].some(result => result.error)) throw new Error("Unable to load guests, units or services. Please reload the booking options.");
+        if ([unitResult, serviceResult].some(result => result.error)) throw new Error("Unable to load units or services. Please reload the booking options.");
         if (!active) return;
-        setGuests((guestResult.data as Guest[] | null) ?? []);
         const availableUnits = (unitResult.data as Unit[] | null) ?? [];
         setUnits(availableUnits); setServices((serviceResult.data as Service[] | null) ?? []);
         setForm(current => ({ ...current, unitId: current.unitId || availableUnits[0]?.unit_id || "" }));
@@ -114,13 +108,11 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     if ("error" in previewWindow) { setError(previewWindow.error ?? "Invalid booking window."); return; }
     const adults = Number(form.adultCount), children = Number(form.childCount);
     if (!form.unitId || !isValidGuestCounts(adults, children)) { setError("Select a unit and enter valid guest counts."); return; }
-    if (guestType === "existing" && !guestId) { setError("Select an existing guest account."); return; }
-    if (guestType === "walk_in" && Object.values(walkIn).some(value => !value.trim())) { setError("Complete all walk-in guest details."); return; }
+    if (Object.values(walkIn).some(value => !value.trim())) { setError("Complete all walk-in guest details."); return; }
     saving.current = true; setIsSaving(true);
     try {
       const response = await fetch("/api/admin/reservations/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        packageRateVersion: packageSchedule.version, guestType, guestId: guestType === "existing" ? guestId : undefined,
-        walkInGuest: guestType === "walk_in" ? walkIn : undefined, bookingMode: form.bookingMode,
+        packageRateVersion: packageSchedule.version, guestType: "walk_in", walkInGuest: walkIn, bookingMode: form.bookingMode,
         wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : null,
         startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime,
         adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests, selectedServices,
@@ -136,26 +128,25 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     finally { saving.current = false; setIsSaving(false); }
   };
 
-  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/40 px-3 py-4 sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true" aria-labelledby="manual-booking-title">
-    <div className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-xl sm:p-6">
-      <div className="flex items-start justify-between gap-4">
+  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true" aria-labelledby="manual-booking-title">
+    <div className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral/10 pb-5">
         <div className="min-w-0"><h2 id="manual-booking-title" className="text-xl font-semibold text-neutral">New Manual Reservation</h2><p className="mt-1 text-sm text-neutral/60">Choose an available package and add any services requested by the guest.</p></div>
-        <button type="button" disabled={isSaving} onClick={onClose} className="min-h-11 rounded-lg border border-neutral/20 px-3 text-sm font-semibold text-neutral">Close</button>
+        <button type="button" disabled={isSaving} onClick={onClose} className="min-h-11 rounded-xl border border-neutral/20 px-3 text-sm font-semibold text-neutral">Close</button>
       </div>
       <form onSubmit={handleSubmit} className="mt-5">
-        {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
-        {success && <p role="status" className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-neutral">{success}</p>}
-        {optionsError && <div role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{optionsError}<button type="button" onClick={() => setOptionsRevision(value => value + 1)} className="ml-2 min-h-11 underline">Reload booking options</button></div>}
+        {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+        {success && <p role="status" className="mb-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-neutral">{success}</p>}
+        {optionsError && <div role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{optionsError}<button type="button" onClick={() => setOptionsRevision(value => value + 1)} className="ml-2 min-h-11 underline">Reload booking options</button></div>}
         <fieldset disabled={isSaving} className="min-w-0 space-y-5">
           <div className="grid gap-4 md:grid-cols-2">
-            <SelectField label="Guest type" value={guestType} onChange={value => setGuestType(value as typeof guestType)} options={[{ value: "existing", label: "Existing account" }, { value: "walk_in", label: "Walk-in guest" }]} />
-            {guestType === "existing" ? <label className="block text-sm text-neutral">Guest account<select value={guestId} onChange={event => setGuestId(event.target.value)} className={fieldClass}><option value="">Select guest</option>{guests.map(guest => <option key={guest.id} value={guest.id}>{guest.first_name} {guest.last_name} - {guest.email}</option>)}</select></label>
-              : (Object.keys(walkIn) as Array<keyof typeof walkIn>).map(key => <Input key={key} label={({ firstName: "First name", lastName: "Last name", email: "Email", phoneNumber: "Phone", address: "Address" })[key]} value={walkIn[key]} onChange={value => setWalkIn(current => ({ ...current, [key]: value }))} />)}
+            <p className="text-sm text-neutral/65 md:col-span-2">For guests without an account who book by phone, Messenger or walk-in. Registered guests should book through their own account.</p>
+            {(Object.keys(walkIn) as Array<keyof typeof walkIn>).map(key => <Input key={key} label={({ firstName: "First name", lastName: "Last name", email: "Email", phoneNumber: "Phone", address: "Address" })[key]} type={key === "email" ? "email" : "text"} value={walkIn[key]} onChange={value => setWalkIn(current => ({ ...current, [key]: value }))} />)}
           </div>
           <div className="grid min-w-0 gap-4 md:grid-cols-2">
             <div className="min-w-0 space-y-3">
               {!availability.ready && !availability.error && <p role="status" className="text-sm text-neutral/70">Loading available dates...</p>}
-              {availability.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
+              {availability.error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
               <BookingDateCalendar value={form.bookingDate} onChange={chooseDate} onMonthChange={setCalendarMonth} minDate={manilaDateKey(new Date(availability.now))} minimumDateReason="Past date"
                 getUnavailableReason={dateIssue} disabled={isSaving}
                 getDateHint={date => !packageIssue(date, "day") && !packageIssue(date, "night") ? "Day / Night" : !packageIssue(date, "day") ? "Day only" : "Night only"}
@@ -175,7 +166,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
                 { value: "day_to_night", label: "A - 8:00 AM to 6:00 AM next day", disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "day_to_night")) },
                 { value: "night_to_day", label: "B - 6:00 PM to 4:00 PM next day", disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "night_to_day")) },
               ]} />}
-              {availability.ready && selectedIssue && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{selectedIssue} Choose another date or an available package.</p>}
+              {availability.ready && selectedIssue && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{selectedIssue} Choose another date or an available package.</p>}
               <SelectField label="Unit" value={form.unitId} onChange={value => updateForm("unitId", value)} options={units.map(unit => ({ value: unit.unit_id, label: `${unit.name} - ${unit.capacity} pax` }))} />
               <div className="grid grid-cols-2 gap-3"><Input label="Adults" type="number" value={form.adultCount} onChange={value => updateForm("adultCount", value)} /><Input label="Children" type="number" value={form.childCount} onChange={value => updateForm("childCount", value)} /></div>
             </div>
@@ -204,7 +195,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
             <p className="mt-2 font-semibold text-primary">Total: {money(preview.total)}</p>
             <p className="mt-1 text-xs text-neutral/60">Minimum 20% downpayment: {money(preview.downPaymentMin)}</p>
           </> : <p>Choose a valid date and guest count to view the current package price.</p>}</div>
-          <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={onClose} className="min-h-11 rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral">Cancel</button><button type="submit" disabled={isSaving || !preview || Boolean(packageRatesError) || !quantitiesValid || Boolean(selectedIssue) || optionsLoading || Boolean(optionsError)} className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
+          <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={onClose} className="min-h-11 rounded-xl border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral">Cancel</button><button type="submit" disabled={isSaving || !preview || Boolean(packageRatesError) || !quantitiesValid || Boolean(selectedIssue) || optionsLoading || Boolean(optionsError)} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
         </fieldset>
       </form>
     </div>

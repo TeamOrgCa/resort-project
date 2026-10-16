@@ -127,7 +127,7 @@ test("chatbot quotes saved prices and cannot fall back to the static swimming pr
   assert.doesNotMatch(resortContext, /7,500|14,500|15,000/);
 });
 
-function bookingHarness({ version = 2, insertError = null, manual = false, services = [], conflict = false } = {}) {
+function bookingHarness({ version = 2, insertError = null, manual = false, services = [], conflict = false, registered = false, permitted = true } = {}) {
   const writes = [];
   const rates = copy(); rates.weekday.day = { baseRate: 4321.25, addOnPerHead: 123.45 };
   const client = {
@@ -136,11 +136,11 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
     from: table => {
       let operation = "select";
       const result = () => ({ error: table === "reservations" && operation === "insert" ? insertError : null,
-        data: table === "services" ? services : table === "units" ? { unit_id: "unit", base_price: 1, is_active: true, archived_at: null }
+        data: table === "guests" ? (registered ? [{ id: "registered-guest" }] : []) : table === "services" ? services : table === "units" ? { unit_id: "unit", base_price: 1, is_active: true, archived_at: null }
           : table === "walk_in_guests" ? { walk_in_guest_id: "walk-in" }
           : table === "reservations" && operation === "insert" ? { reservation_id: "reservation", reference_number: "TEST", status: "pending" } : null });
       const query = {
-        select: () => query, eq: () => query, in: () => query,
+        select: () => query, eq: () => query, in: () => query, ilike: () => query, limit: () => query,
         insert: payload => { operation = "insert"; writes.push({ table, payload }); return query; },
         upsert: payload => { operation = "upsert"; writes.push({ table, payload }); return query; },
         delete: () => { operation = "delete"; writes.push({ table, operation }); return query; },
@@ -152,7 +152,8 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
   };
   const route = loadTsModule(manual ? "app/api/admin/reservations/create/route.ts" : "app/api/reservations/create/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
-    "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: client }), createAuditLog: async () => true },
+    "@/lib/server/role-permissions": { staffHasPermission: async () => permitted },
+    "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: client, staffUser: { role: "admin" } }), createAuditLog: async () => true },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict, error: null }) },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { reservation: [] } },
   });
@@ -215,4 +216,14 @@ test("manual booking rechecks conflicts on the server and rejects a slot claimed
   const h = bookingHarness({ manual: true, conflict: true });
   assert.equal((await h.save()).status, 409);
   assert.equal(h.writes.some(write => write.table === "reservations"), false);
+});
+
+test("manual booking rejects existing accounts including a registered email passed as a walk-in", async () => {
+  for (const payload of [{ guestType: "existing", guestId: "registered" }, { guestId: "registered" }, { guestEmail: "guest@example.com" }]) {
+    const h=bookingHarness({manual:true});const response=await h.save(payload);assert.equal(response.status,400);assert.equal(h.writes.length,0);
+    assert.match((await response.json()).message,/own account/);
+  }
+  const h=bookingHarness({manual:true,registered:true});const response=await h.save();assert.equal(response.status,409);assert.equal(h.writes.length,0);
+  assert.match((await response.json()).message,/already has a guest account/);
+  const denied=bookingHarness({manual:true,permitted:false});assert.equal((await denied.save()).status,403);assert.equal(denied.writes.length,0);
 });

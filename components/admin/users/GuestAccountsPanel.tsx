@@ -85,8 +85,8 @@ export default function GuestAccountsPanel() {
       </article>)}</div>}
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4 text-sm">
       <p className="text-neutral/60">{total} guest accounts &middot; Page {page + 1} of {Math.max(1, Math.ceil(total / 10))}</p>
-      <div className="flex gap-2"><button type="button" disabled={loading || page === 0} onClick={() => setPage(current => current - 1)} className="min-h-11 rounded-lg border border-neutral/15 px-3 disabled:opacity-40">Previous</button>
-        <button type="button" disabled={loading || (page + 1) * 10 >= total} onClick={() => setPage(current => current + 1)} className="min-h-11 rounded-lg border border-neutral/15 px-3 disabled:opacity-40">Next</button></div>
+      <div className="flex gap-2"><button type="button" disabled={loading || page === 0} onClick={() => setPage(current => current - 1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 disabled:opacity-40">Previous</button>
+        <button type="button" disabled={loading || (page + 1) * 10 >= total} onClick={() => setPage(current => current + 1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 disabled:opacity-40">Next</button></div>
     </div>
     {selected && <CatalogDialog title={selected.is_active ? "Deactivate guest account" : "Reactivate guest account"} description={`${name(selected)} (${selected.email})`} busy={saving} onClose={close}>
       <form onSubmit={changeStatus} className="space-y-4">

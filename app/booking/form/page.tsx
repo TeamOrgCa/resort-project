@@ -440,7 +440,7 @@ function BookingFormContent() {
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Additional Services & Amenities</h3>
                   {catalogError && (
-                    <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
+                    <div role="alert" className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
                       {catalogError}
                     </div>
                   )}

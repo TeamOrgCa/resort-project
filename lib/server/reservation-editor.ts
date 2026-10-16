@@ -37,6 +37,6 @@ export async function loadReservationEditor(id: string) {
   }
   return { reservation: r.data, guest, services, units, bill, packageRates: packageSchedule.rates, catalogServices: (cs.data ?? []) as CatalogService[],
     catalogUnits: (cu.data ?? []) as CatalogUnit[], snapshot, version,
-    lateRescheduleEligible: r.data.status === "confirmed" && !payments.data?.length && !reschedules.data?.length,
+    lateRescheduleEligible: r.data.status === "confirmed" && !r.data.checked_in_at && !payments.data?.length && !reschedules.data?.length,
     ...reservationEditAccess(r.data, Boolean(payments.data?.length), Boolean(reschedules.data?.length)) };
 }

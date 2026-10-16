@@ -16,7 +16,10 @@ import CancellationDialog from "@/components/CancellationDialog";
 import ManageIcon from "@/components/manage/ManageIcon";
 import RecordActionsMenu from "@/components/manage/RecordActionsMenu";
 import RecordDialog from "@/components/manage/RecordDialog";
+import GuestBookingEditor from "@/components/manage/GuestBookingEditor";
 import RescheduleCalendar from "@/components/manage/RescheduleCalendar";
+import { moveReservationToDate } from "@/lib/booking/reservation-edit";
+import { useGuestRescheduleAvailability } from "@/lib/booking/use-guest-reschedule-availability";
 import { reschedulePolicy, RESCHEDULE_POLICY_TEXT, RESCHEDULE_FEE_TEXT } from "@/lib/booking/reschedule-charge-policy";
 
 type ManageTab = "bookings" | "ocular" | "refunds";
@@ -31,11 +34,15 @@ interface BookingRecord {
   checkOut: string;
   bookingMode: "day" | "night" | "whole_day" | "custom" | null;
   guests: number;
+  adultCount: number;
+  childCount: number;
   totalAmount: number;
   paidAmount: number;
   remainingBalance: number;
   status: string;
   paymentDeadlineAt: string | null;
+  checkedInAt?: string | null;
+  checkedOutAt?: string | null;
   cancellationOutcome?: string;
   email: string;
   phone: string;
@@ -73,6 +80,8 @@ interface ReservationRow {
   child_count: number;
   status: string;
   payment_deadline_at: string | null;
+  checked_in_at?: string | null;
+  checked_out_at?: string | null;
   cancellation_snapshot?: { outcome?: string } | null;
 }
 
@@ -110,12 +119,6 @@ interface ReservationServiceRow {
         name: string;
       }>
     | null;
-}
-
-interface ServiceCatalogRow {
-  service_id: string;
-  name: string;
-  price: number;
 }
 
 interface OcularTimeSlotRow {
@@ -188,14 +191,6 @@ const formatTimeSlot = (slot: string) => {
   return `${toLabel(start)} - ${toLabel(end)}`;
 };
 
-const parseDateValue = (value: string) => {
-  const [year, month, day] = value.split("-").map((part) => Number(part));
-  if (!year || !month || !day) return null;
-
-  const date = new Date(year, month - 1, day);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
 const toDateTimeLocal = (value: string) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -212,10 +207,8 @@ const toDateTimeLocal = (value: string) => {
 const getMinRescheduleDate = (booking: BookingRecord | null) => {
   const today = manilaDateKey(new Date());
   if (!booking?.startDatetime) return today;
-  const originalClock = new Date(booking.startDatetime).toLocaleTimeString("en-GB", {
-    timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-  });
-  if (isBookingStartAllowed(`${today}T${originalClock}:00+08:00`)) return today;
+  const moved = moveReservationToDate({ start_datetime: booking.startDatetime, end_datetime: booking.endDatetime }, today);
+  if (isBookingStartAllowed(moved.startDatetime)) return today;
   return manilaDateKey(new Date(new Date(`${today}T00:00:00+08:00`).getTime() + 86_400_000));
 };
 
@@ -223,6 +216,7 @@ export default function ManageBooking() {
   const router = useRouter();
   const recordsPanel = useRef<HTMLDivElement>(null);
   const refundsTab = useRef<HTMLButtonElement>(null);
+  const bookingRevision = useRef(0);
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [activeTab, setActiveTab] = useState<ManageTab>("bookings");
   const [search, setSearch] = useState("");
@@ -250,17 +244,14 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [ocularEditError, setOcularEditError] = useState<string | null>(null);
   const [isSavingOcular, setIsSavingOcular] = useState(false);
   const [reservationServicesById, setReservationServicesById] = useState<Record<string, EditableReservationService[]>>({});
-  const [availableServices, setAvailableServices] = useState<ServiceCatalogRow[]>([]);
   const [ocularSlotsById, setOcularSlotsById] = useState<Record<string, OcularTimeSlotRow>>({});
-  const [editableServices, setEditableServices] = useState<EditableReservationService[]>([]);
-  const [selectedAddServiceId, setSelectedAddServiceId] = useState("");
-  const [addServiceQuantity, setAddServiceQuantity] = useState("1");
-  const [serviceEditError, setServiceEditError] = useState<string | null>(null);
   const [serviceEditMessage, setServiceEditMessage] = useState<string | null>(null);
   const [isSavingServices, setIsSavingServices] = useState(false);
   const [rescheduleFormError, setRescheduleFormError] = useState<string | null>(null);
   const [rescheduleMessage, setRescheduleMessage] = useState<string | null>(null);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  const rescheduleSubmitting = useRef(false);
+  const [rescheduleCalendarMonth, setRescheduleCalendarMonth] = useState("");
   const [rescheduleForm, setRescheduleForm] = useState<RescheduleFormState>({
     checkIn: "",
   });
@@ -269,6 +260,14 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
   const selectedBooking = bookings.find((item) => item.id === selectedBookingId) ?? null;
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
+  const selectedReschedulePolicy = selectedBooking ? reschedulePolicy(selectedBooking.startDatetime, now) : null;
+  const canRequestReschedule = !selectedBooking?.checkedInAt && selectedBooking?.status.toLowerCase() === "confirmed";
+  const rescheduleAvailability = useGuestRescheduleAvailability(selectedBooking?.startDatetime ?? "", selectedBooking?.endDatetime ?? "",
+    rescheduleCalendarMonth, rescheduleForm.checkIn,
+    recordMode === "reschedule" && canRequestReschedule);
+  const selectedRescheduleIssue = selectedBooking && rescheduleForm.checkIn ? rescheduleAvailability.dateIssue(rescheduleForm.checkIn) : null;
+  const requestedSchedule = selectedBooking && rescheduleForm.checkIn && !selectedRescheduleIssue
+    ? moveReservationToDate({ start_datetime: selectedBooking.startDatetime, end_datetime: selectedBooking.endDatetime }, rescheduleForm.checkIn) : null;
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000);
     return () => window.clearInterval(timer);
@@ -310,13 +309,13 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
   const openPaymentPortal = (booking: BookingRecord) => {
     setBookingDraft({
-      bookingMode: "custom",
+      bookingMode: booking.bookingMode ?? "day",
       startDatetime: booking.startDatetime,
       endDatetime: booking.endDatetime,
       checkIn: booking.checkIn,
       checkOut: booking.checkOut,
-      adultCount: booking.guests,
-      childCount: 0,
+      adultCount: booking.adultCount,
+      childCount: booking.childCount,
       roomName: "Remaining Balance Payment",
       roomPrice: booking.remainingBalance,
       nights: 1,
@@ -390,84 +389,16 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
 
 
-  const handleSaveServices = async () => {
-    if (!selectedBooking) {
-      setServiceEditError("Select a booking first.");
-      return;
-    }
-
-    if (editableServices.length === 0) {
-      setServiceEditError("At least one service is required.");
-      return;
-    }
-
-    setServiceEditError(null);
-    setIsSavingServices(true);
-
-    try {
-      const response = await fetch("/api/reservations/services", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          reservationId: selectedBooking.id,
-          services: editableServices.map((service) => ({
-            serviceId: service.serviceId,
-            quantity: Number(service.quantity),
-          })),
-        }),
-      });
-
-      let result: { success?: boolean; message?: string; errorCode?: string | null; totalAmount?: number; paidAmount?: number; remainingBalance?: number } | null = null;
-      let rawText = "";
-
-      try {
-        result = (await response.json()) as { success?: boolean; message?: string; errorCode?: string | null; totalAmount?: number; paidAmount?: number; remainingBalance?: number };
-      } catch {
-        rawText = await response.text().catch(() => "");
-      }
-
-      if (!response.ok || !result?.success) {
-        const statusLabel = `Save failed (${response.status})`;
-        const codeLabel = result?.errorCode ? ` [${result.errorCode}]` : "";
-        const rawLabel = rawText.trim() ? ` ${rawText.trim().slice(0, 200)}` : "";
-        setServiceEditError(`${statusLabel}: ${result?.message ?? "Failed to update services."}${codeLabel}${rawLabel}`);
-        return;
-      }
-
-      setReservationServicesById((current) => ({
-        ...current,
-        [selectedBooking.id]: editableServices,
-      }));
-
-      setBookings((currentBookings) => currentBookings.map((booking) =>
-        booking.id === selectedBooking.id ? {
-          ...booking,
-          totalAmount: Number(result.totalAmount ?? booking.totalAmount),
-          paidAmount: Number(result.paidAmount ?? booking.paidAmount),
-          remainingBalance: Number(result.remainingBalance ?? booking.remainingBalance),
-        } : booking
-      ));
-
-      setRecordMode("view");
-      setServiceEditMessage(result.message ?? "Services added to your bill.");
-    } catch {
-      setServiceEditError("Failed to update services.");
-    } finally {
-      setIsSavingServices(false);
-    }
-  };
-
   const handleSubmitReschedule = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (rescheduleSubmitting.current) return;
 
     if (!selectedBooking) {
       setRescheduleFormError("Select a booking first.");
       return;
     }
 
-    if (isClosedReservation(selectedBooking.status)) {
+    if (selectedBooking.checkedInAt || isClosedReservation(selectedBooking.status)) {
       setRescheduleFormError("This reservation can no longer be rescheduled.");
       return;
     }
@@ -477,56 +408,16 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       return;
     }
 
-    const notice = reschedulePolicy(selectedBooking.startDatetime);
-    if (!notice.allowed) { setRescheduleFormError(notice.blockedReason); return; }
-
-    const nextCheckIn = parseDateValue(rescheduleForm.checkIn);
-
-    if (!nextCheckIn) {
+    if (!rescheduleForm.checkIn) {
       setRescheduleFormError("Please choose a valid reschedule date.");
       return;
     }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (nextCheckIn.getTime() < today.getTime()) {
-      setRescheduleFormError("Reschedule date must be in the future.");
-      return;
-    }
-
-    const currentBookingDate = parseDateValue(manilaDateKey(selectedBooking.startDatetime));
-    if (currentBookingDate && nextCheckIn.getTime() === currentBookingDate.getTime()) {
-      setRescheduleFormError("Please choose a different date from the current reservation.");
-      return;
-    }
-
-    // Extract the original start and end times, then apply to new date
-    const originalStart = new Date(selectedBooking.startDatetime);
-    const originalEnd = new Date(selectedBooking.endDatetime);
-    
-    if (Number.isNaN(originalStart.getTime()) || Number.isNaN(originalEnd.getTime())) {
-      setRescheduleFormError("Unable to determine original booking times.");
-      return;
-    }
-
-    const originalClock = originalStart.toLocaleTimeString("en-GB", {
-      timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-    });
-    
-    const durationMs = originalEnd.getTime() - originalStart.getTime();
-    
-    const newStart = new Date(`${rescheduleForm.checkIn}T${originalClock}:00+08:00`);
-    
-    const newEnd = new Date(newStart);
-    newEnd.setTime(newStart.getTime() + durationMs);
-
-    if (!isBookingStartAllowed(newStart)) {
-      setRescheduleFormError(BOOKING_LEAD_MESSAGE);
-      return;
-    }
+    const issue = rescheduleAvailability.dateIssue(rescheduleForm.checkIn);
+    if (issue) { setRescheduleFormError(issue); return; }
+    const moved = moveReservationToDate({ start_datetime: selectedBooking.startDatetime, end_datetime: selectedBooking.endDatetime }, rescheduleForm.checkIn);
 
     setRescheduleFormError(null);
+    rescheduleSubmitting.current = true;
     setIsSubmittingReschedule(true);
 
     try {
@@ -537,8 +428,8 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         },
         body: JSON.stringify({
           reservationId: selectedBooking.id,
-          newStartDatetime: newStart.toISOString(),
-          newEndDatetime: newEnd.toISOString(),
+          newStartDatetime: moved.startDatetime,
+          newEndDatetime: moved.endDatetime,
         }),
       });
 
@@ -546,9 +437,11 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
       if (!response.ok || !result?.success) {
         setRescheduleFormError(result?.message ?? "Failed to submit reschedule request.");
+        if (response.status === 409) rescheduleAvailability.refresh();
         return;
       }
 
+      bookingRevision.current++;
       setBookings((currentBookings) =>
         currentBookings.map((booking) =>
           booking.id === selectedBooking.id
@@ -566,6 +459,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     } catch {
       setRescheduleFormError("Failed to submit reschedule request.");
     } finally {
+      rescheduleSubmitting.current = false;
       setIsSubmittingReschedule(false);
     }
   };
@@ -597,7 +491,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           supabase.from("guests").select("email, phone_number").eq("id", user.id).maybeSingle<GuestRow>(),
           supabase
             .from("reservations")
-            .select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot")
+            .select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot, checked_in_at, checked_out_at")
             .eq("guest_id", user.id)
             .order("created_at", { ascending: false }),
           supabase
@@ -618,7 +512,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         const [
           { data: transactionRows, error: transactionsError },
           { data: reservationServicesData, error: reservationServicesError },
-          { data: availableServicesData, error: availableServicesError },
         ] = await Promise.all([
           reservationIds.length
             ? supabase
@@ -632,15 +525,14 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 .select("reservation_id, service_id, quantity, price_at_time, services(name)")
                 .in("reservation_id", reservationIds)
             : Promise.resolve({ data: [], error: null }),
-          supabase.from("services").select("service_id, name, price").eq("is_active", true).order("name", { ascending: true }),
         ]);
 
         if (transactionsError) {
           throw transactionsError;
         }
 
-        if (reservationServicesError || availableServicesError) {
-          throw reservationServicesError || availableServicesError;
+        if (reservationServicesError) {
+          throw reservationServicesError;
         }
 
         if (!isMounted) return;
@@ -666,11 +558,12 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           checkOut: toDateTimeLocal(reservation.end_datetime),
           bookingMode: reservation.booking_mode,
           guests: Number(reservation.adult_count ?? 0) + Number(reservation.child_count ?? 0),
+          adultCount: Number(reservation.adult_count ?? 0), childCount: Number(reservation.child_count ?? 0),
           totalAmount: transactionByReservationId[reservation.reservation_id]?.total ?? 0,
           paidAmount: transactionByReservationId[reservation.reservation_id]?.paid ?? 0,
           remainingBalance: transactionByReservationId[reservation.reservation_id]?.balance ?? 0,
           status: toTitleCase(reservation.status),
-          cancellationOutcome: reservation.cancellation_snapshot?.outcome,
+          cancellationOutcome: reservation.cancellation_snapshot?.outcome, checkedInAt: reservation.checked_in_at, checkedOutAt: reservation.checked_out_at,
           paymentDeadlineAt: reservation.payment_deadline_at,
           email: guestData?.email ?? user.email ?? "-",
           phone: guestData?.phone_number ?? "-",
@@ -717,7 +610,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         setBookings(mappedBookings);
         setOcularBookings(mappedOcularBookings);
         setReservationServicesById(nextReservationServicesById);
-        setAvailableServices((availableServicesData as ServiceCatalogRow[] | null) ?? []);
         setOcularSlotsById(
           ocularSlotMap
         );
@@ -740,61 +632,55 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     };
   }, []);
 
+  const bookingIds = bookings.map(booking => booking.id).sort().join(",");
   useEffect(() => {
-    if (!bookings.length) {
-      return;
-    }
-
-    const reservationIds = bookings.map((booking) => booking.id);
+    if (!bookingIds) return;
+    const reservationIds = bookingIds.split(",");
+    let active = true;
+    let refreshing = false;
 
     const refreshTransactionSnapshots = async () => {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("reservation_id, total_amount, paid_amount, balance")
-        .in("reservation_id", reservationIds);
-
-      if (error) {
-        return;
-      }
-
-      const nextByReservationId = ((data as TransactionRow[] | null) ?? []).reduce<
-        Record<string, { total: number; paid: number; balance: number }>
-      >((accumulator, transaction) => {
-        accumulator[transaction.reservation_id] = {
-          total: Number(transaction.total_amount ?? 0),
-          paid: Number(transaction.paid_amount ?? 0),
-          balance: Number(transaction.balance ?? 0),
-        };
-        return accumulator;
-      }, {});
-
-      setBookings((currentBookings) =>
-        currentBookings.map((booking) => {
-          const nextSnapshot = nextByReservationId[booking.id];
-
-          if (!nextSnapshot) {
-            return booking;
-          }
-
+      if (refreshing) return;
+      refreshing = true;
+      const revision = bookingRevision.current;
+      try {
+        const supabase = createClient();
+        const [billResult, reservationResult] = await Promise.all([
+          supabase.from("transactions").select("reservation_id, total_amount, paid_amount, balance").in("reservation_id", reservationIds),
+          supabase.from("reservations").select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot, checked_in_at, checked_out_at").in("reservation_id", reservationIds),
+        ]);
+        if (!active || revision !== bookingRevision.current || billResult.error || reservationResult.error) return;
+        const reservations = new Map(((reservationResult.data as ReservationRow[] | null) ?? []).map(row => [row.reservation_id, row]));
+        const bills = new Map(((billResult.data as TransactionRow[] | null) ?? []).map(row => [row.reservation_id, row]));
+        setBookings(current => current.map(booking => {
+          const bill = bills.get(booking.id), reservation = reservations.get(booking.id);
+          if (!bill || !reservation) return booking;
           return {
             ...booking,
-            totalAmount: nextSnapshot.total,
-            paidAmount: nextSnapshot.paid,
-            remainingBalance: nextSnapshot.balance,
+            startDatetime: reservation.start_datetime, endDatetime: reservation.end_datetime,
+            checkIn: toDateTimeLocal(reservation.start_datetime), checkOut: toDateTimeLocal(reservation.end_datetime),
+            bookingMode: reservation.booking_mode, guests: reservation.adult_count + reservation.child_count,
+            adultCount: reservation.adult_count, childCount: reservation.child_count,
+            status: toTitleCase(reservation.status), paymentDeadlineAt: reservation.payment_deadline_at,
+            cancellationOutcome: reservation.cancellation_snapshot?.outcome, checkedInAt: reservation.checked_in_at, checkedOutAt: reservation.checked_out_at,
+            totalAmount: Number(bill.total_amount ?? 0), paidAmount: Number(bill.paid_amount ?? 0), remainingBalance: Number(bill.balance ?? 0),
           };
-        })
-      );
+        }));
+      } catch { /* Preserve the last loaded records after a temporary network failure. */ }
+      finally { refreshing = false; }
     };
 
     const timer = window.setInterval(() => {
       void refreshTransactionSnapshots();
     }, 20000);
+    window.addEventListener("focus", refreshTransactionSnapshots);
 
     return () => {
+      active = false;
       window.clearInterval(timer);
+      window.removeEventListener("focus", refreshTransactionSnapshots);
     };
-  }, [bookings]);
+  }, [bookingIds]);
 
 
   const dialogBusy = isSavingServices || isSubmittingReschedule || isSavingOcular;
@@ -804,13 +690,11 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   };
   const openBookingRecord = (record: BookingRecord, mode: Exclude<RecordMode, null>) => {
     setSelectedBookingId(record.id); setSelectedOcularId(null); setRecordMode(mode);
-    setServiceEditError(null); setServiceEditMessage(null); setRescheduleFormError(null); setRescheduleMessage(null);
-    if (mode === "edit") {
-      setSelectedAddServiceId(""); setAddServiceQuantity("1");
-      setEditableServices((reservationServicesById[record.id] ?? []).map(service => ({ ...service })));
-    }
+    setServiceEditMessage(null); setRescheduleFormError(null); setRescheduleMessage(null);
     if (mode === "reschedule") {
       setRescheduleForm({ checkIn: "" });
+      const minimum = getMinRescheduleDate(record);
+      setRescheduleCalendarMonth((manilaDateKey(record.startDatetime) < minimum ? minimum : manilaDateKey(record.startDatetime)).slice(0, 7));
     }
   };
   const openOcularRecord = (record: OcularRecord, mode: "view" | "edit") => {
@@ -897,10 +781,10 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     </div>
                     <RecordActionsMenu reference={record.reference} actions={[
                       { label: "View", icon: "view", explanation: "Details, payment and refund updates", onSelect: () => openBookingRecord(record, "view") },
-                      { label: "Edit services", icon: "edit", disabled: closed || reviewing, explanation: closed ? "This reservation is closed" : reviewing ? "Available after payment review" : "Add services or increase quantities", onSelect: () => openBookingRecord(record, "edit") },
-                      { label: "Reschedule", icon: "calendar", disabled: record.status.toLowerCase() !== "confirmed", explanation: record.status.toLowerCase() === "confirmed" ? "Request a new date for staff approval" : "Available for confirmed reservations", onSelect: () => openBookingRecord(record, "reschedule") },
+                      { label: "Edit booking", icon: "edit", disabled: closed || reviewing, explanation: closed ? "This reservation is closed" : reviewing ? "Available after payment review" : "Update guest counts, services and billing", onSelect: () => openBookingRecord(record, "edit") },
+                      { label: "Reschedule", icon: "calendar", disabled: Boolean(record.checkedInAt) || record.status.toLowerCase() !== "confirmed", explanation: record.checkedInAt ? "Rescheduling is locked after check-in" : record.status.toLowerCase() === "confirmed" ? "Request a new date for staff approval" : "Available for confirmed reservations", onSelect: () => openBookingRecord(record, "reschedule") },
                       { label: "Pay balance", icon: "wallet", disabled: closed || reviewing || record.remainingBalance <= 0, explanation: closed ? "This reservation is closed" : reviewing ? "Your payment is being reviewed" : record.remainingBalance <= 0 ? "No outstanding balance" : "Continue to GCash payment", onSelect: () => openPaymentPortal(record) },
-                      { label: "Cancel reservation", icon: "cancel", danger: true, disabled: closed, explanation: closed ? "This reservation is closed" : "Review the refund calculation first", onSelect: () => { setCancelError(null); setPendingCancellation({ id: record.id, reference: record.reference, checkIn: record.checkIn }); } },
+                      { label: "Cancel reservation", icon: "cancel", danger: true, disabled: closed || Boolean(record.checkedInAt), explanation: record.checkedInAt ? "Cancellation is locked after check-in" : closed ? "This reservation is closed" : "Review the refund calculation first", onSelect: () => { setCancelError(null); setPendingCancellation({ id: record.id, reference: record.reference, checkIn: record.checkIn }); } },
                     ]} />
                   </div>
                   <div className="grid min-w-0 gap-4 border-t border-neutral/5 px-4 py-4 [overflow-wrap:anywhere] sm:grid-cols-2 sm:px-5 lg:grid-cols-4">
@@ -938,7 +822,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       </main>
 
       {recordMode && currentRecord && <RecordDialog reference={currentRecord.reference} busy={dialogBusy} onClose={closeRecord}
-        title={activeTab === "ocular" ? recordMode === "view" ? "Ocular visit details" : "Edit ocular visit" : recordMode === "view" ? "Booking details" : recordMode === "edit" ? "Edit booking services" : "Reschedule booking"}>
+        title={activeTab === "ocular" ? recordMode === "view" ? "Ocular visit details" : "Edit ocular visit" : recordMode === "view" ? "Booking details" : recordMode === "edit" ? "Edit booking" : "Reschedule booking"}>
         {activeTab === "bookings" && <>
           {recordMode === "view" && selectedBooking && <div className="space-y-5">
             {serviceEditMessage && <p role="status" className="rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{serviceEditMessage}</p>}
@@ -966,148 +850,22 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               <h3 className="font-semibold">Continue payment</h3><p className="mt-1 text-sm text-neutral/65">Submit your GCash receipt for the outstanding balance.</p>
               <button type="button" onClick={() => openPaymentPortal(selectedBooking)} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl sm:w-auto bg-primary px-5 py-3 text-sm font-semibold text-white hover:bg-primary/90">Continue to Payment<ManageIcon name="arrow" className="h-4 w-4" /></button>
             </div>}
+            {!["payment submitted", "reschedule requested"].includes(selectedBooking.status.toLowerCase()) && !isClosedReservation(selectedBooking.status) && <div className="flex flex-col gap-3 sm:flex-row">
+              <button type="button" onClick={() => openBookingRecord(selectedBooking, "edit")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/25 px-5 py-3 text-sm font-semibold text-primary hover:bg-primary/5"><ManageIcon name="edit" />Edit booking</button>
+              {!selectedBooking.checkedInAt && selectedBooking.status.toLowerCase() === "confirmed" && <button type="button" onClick={() => openBookingRecord(selectedBooking, "reschedule")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-neutral/15 px-5 py-3 text-sm font-semibold text-neutral"><ManageIcon name="calendar" />Reschedule</button>}
+              {!selectedBooking.checkedInAt && <button type="button" onClick={() => { setRecordMode(null); setPendingCancellation({ id: selectedBooking.id, reference: selectedBooking.reference, checkIn: selectedBooking.checkIn }); }} className="min-h-11 rounded-xl border border-red-200 px-5 py-3 text-sm font-semibold text-red-700">Cancel reservation</button>}
+            </div>}
+            {selectedBooking.checkedInAt && <p className="rounded-xl bg-base p-3 text-sm text-neutral/70">{selectedBooking.checkedOutAt ? "Your stay is completed. You can share your experience on the Reviews page." : "You are checked in. Cancellation and rescheduling are no longer available."}</p>}
             <button type="button" onClick={() => showRefunds(selectedBooking.reference)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-neutral/10 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5"><span className="flex items-center gap-2"><ManageIcon name="wallet" />View refunds</span><ManageIcon name="arrow" /></button>
           </div>}
-          {recordMode === "edit" && selectedBooking && (
-            <form
-              className="min-w-0 rounded-2xl border border-neutral/10 bg-base p-3 space-y-4 sm:p-5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleSaveServices();
-              }}
-            >
-              <h3 className="text-lg font-semibold text-neutral">Edit Booking Services</h3>
-              <p className="text-sm text-neutral/70">
-                You can add new services or increase quantities. Existing services cannot be reduced or removed.
-              </p>
-
-              {serviceEditError ? (
-                <p role="alert" className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                  {serviceEditError}
-                </p>
-              ) : null}
-
-              <div className="space-y-3">
-                {editableServices.length === 0 ? (
-                  <p className="text-sm text-neutral/70">No services yet. Add one below to continue.</p>
-                ) : null}
-
-                {editableServices.map((service) => (
-                  <div key={service.serviceId} className="grid gap-3 rounded-xl border border-neutral/10 bg-white p-3 md:grid-cols-3">
-                    <p className="text-sm text-neutral">
-                      <span className="font-semibold">{service.name}</span>
-                      <span className="block text-neutral/70">{formatCurrency(service.priceAtTime)} each</span>
-                    </p>
-                    <div>
-                      <label className="mb-1 block text-xs text-neutral/70">Quantity</label>
-                      <input
-                        type="number"
-                        aria-label={`Quantity for ${service.name}`}
-                        min={service.minQuantity}
-                        step={1}
-                        value={service.quantity}
-                        onChange={(event) => {
-                          const parsedValue = Number.parseInt(event.target.value, 10);
-                          const nextQuantity = Number.isNaN(parsedValue)
-                            ? service.minQuantity
-                            : Math.max(service.minQuantity, parsedValue);
-
-                          setEditableServices((current) =>
-                            current.map((currentService) =>
-                              currentService.serviceId === service.serviceId
-                                ? {
-                                    ...currentService,
-                                    quantity: nextQuantity,
-                                  }
-                                : currentService
-                            )
-                          );
-                        }}
-                        className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-black"
-                      />
-                    </div>
-                    <p className="text-xs text-neutral/70 md:text-sm">Minimum allowed: {service.minQuantity}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="rounded-xl border border-neutral/10 bg-white p-3">
-                <p className="mb-3 text-sm font-semibold text-neutral">Add New Service</p>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <select
-                    aria-label="New service"
-                    value={selectedAddServiceId}
-                    onChange={(event) => setSelectedAddServiceId(event.target.value)}
-                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-black"
-                  >
-                    <option value="">Select a service</option>
-                    {availableServices
-                      .filter((service) => !editableServices.some((entry) => entry.serviceId === service.service_id))
-                      .map((service) => (
-                        <option key={service.service_id} value={service.service_id}>
-                          {service.name} ({formatCurrency(Number(service.price ?? 0))})
-                        </option>
-                      ))}
-                  </select>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    aria-label="New service quantity"
-                    value={addServiceQuantity}
-                    onChange={(event) => setAddServiceQuantity(event.target.value)}
-                    className="min-h-11 min-w-0 w-full rounded-lg border border-neutral/20 px-3 py-2 text-black"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setServiceEditError(null);
-
-                      if (!selectedAddServiceId) {
-                        setServiceEditError("Select a service to add.");
-                        return;
-                      }
-
-                      const selectedService = availableServices.find(
-                        (service) => service.service_id === selectedAddServiceId
-                      );
-
-                      if (!selectedService) {
-                        setServiceEditError("Selected service is no longer available.");
-                        return;
-                      }
-
-                      const parsedQuantity = Number.parseInt(addServiceQuantity, 10);
-                      const nextQuantity = Number.isNaN(parsedQuantity) ? 1 : Math.max(1, parsedQuantity);
-
-                      setEditableServices((current) => [
-                        ...current,
-                        {
-                          serviceId: selectedService.service_id,
-                          name: selectedService.name,
-                          quantity: nextQuantity,
-                          minQuantity: 1,
-                          priceAtTime: Number(selectedService.price ?? 0),
-                        },
-                      ]);
-                      setSelectedAddServiceId("");
-                      setAddServiceQuantity("1");
-                    }}
-                    className="min-h-11 rounded-lg border border-neutral/20 px-3 py-2 text-sm font-medium text-neutral hover:bg-base"
-                  >
-                    Add Service
-                  </button>
-                </div>
-              </div>
-
-              <button
-                disabled={isSavingServices}
-                className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-base text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSavingServices ? "Saving..." : "Save Service Changes"}
-              </button>
-            </form>
-          )}
+          {recordMode === "edit" && selectedBooking && <GuestBookingEditor key={selectedBooking.id} reservationId={selectedBooking.id} onBusyChange={setIsSavingServices}
+            onSaved={result => {
+              bookingRevision.current++;
+              setReservationServicesById(current => ({ ...current, [selectedBooking.id]: result.services.map(service => ({ ...service, minQuantity: 1 })) }));
+              setBookings(current => current.map(booking => booking.id === selectedBooking.id ? { ...booking, guests: result.adultCount + result.childCount, adultCount: result.adultCount, childCount: result.childCount,
+                totalAmount: result.totalAmount, paidAmount: result.paidAmount, remainingBalance: result.remainingBalance } : booking));
+              setServiceEditMessage(result.message); setRecordMode("view"); setRefundRefresh(value => value + 1);
+            }} />}
 
           {recordMode === "reschedule" && selectedBooking && (
             <form
@@ -1118,12 +876,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               }}
             >
               <h3 className="text-lg font-semibold text-neutral">Reschedule Booking</h3>
-
-              {rescheduleFormError ? (
-                <p role="alert" className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">
-                  {rescheduleFormError}
-                </p>
-              ) : null}
 
               <div className="rounded-lg bg-neutral/5 p-4 space-y-2 text-sm">
                 <p><span className="text-neutral/70">Booking Mode:</span> <span className="font-semibold text-neutral capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Unknown"}</span></p>
@@ -1139,21 +891,37 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
               <div className="rounded-xl border border-neutral/10 bg-white p-3 text-sm text-neutral">
                 <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
-                <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(reschedulePolicy(selectedBooking.startDatetime, now).noticeFee)}.</p>
-                {!reschedulePolicy(selectedBooking.startDatetime, now).allowed && <p role="alert" className="mt-2 text-amber-900">{reschedulePolicy(selectedBooking.startDatetime, now).blockedReason}</p>}
+                <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(selectedReschedulePolicy?.noticeFee ?? 0)}.</p>
+                {canRequestReschedule && !selectedReschedulePolicy?.allowed && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">This request is within the usual {selectedReschedulePolicy?.minimumNoticeDays}-day notice period. You can submit it for staff approval. The applicable notice fee and any higher date rate will be added only if approved; your current schedule remains unchanged until then.</p>}
               </div>
+              {!canRequestReschedule && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                <p className="font-semibold">Rescheduling unavailable</p>
+                <p className="mt-1">{selectedBooking.checkedInAt ? "Rescheduling is locked after check-in."
+                  : `This reservation is now ${selectedBooking.status.toLowerCase()}. Only confirmed reservations can request a new date.`}</p>
+              </div>}
               <RescheduleCalendar
-                disabled={!reschedulePolicy(selectedBooking.startDatetime, now).allowed || isSubmittingReschedule}
+                disabled={!canRequestReschedule || isSubmittingReschedule}
+                disabledReason={selectedBooking.checkedInAt ? "Rescheduling is locked after check-in" : isSubmittingReschedule ? "Submitting your reschedule request" : "Only confirmed reservations can be rescheduled"}
                 value={rescheduleForm.checkIn}
                 onChange={date => { setRescheduleForm({ checkIn: date }); setRescheduleFormError(null); }}
                 minDate={minRescheduleDate}
                 originalDate={manilaDateKey(selectedBooking.startDatetime)}
+                onMonthChange={setRescheduleCalendarMonth}
+                month={rescheduleCalendarMonth}
+                loading={canRequestReschedule && !rescheduleAvailability.ready && !rescheduleAvailability.error}
+                getUnavailableReason={rescheduleAvailability.calendarDateIssue}
+                error={rescheduleAvailability.error}
+                onRetry={rescheduleAvailability.refresh}
               />
+              {rescheduleForm.checkIn && <p role="status" className="rounded-lg bg-white p-3 text-sm text-neutral">
+                {selectedRescheduleIssue ?? (requestedSchedule && `Requested schedule: ${formatDateTime(requestedSchedule.startDatetime)} to ${formatDateTime(requestedSchedule.endDatetime)}.`)}
+              </p>}
               <p className="text-xs text-neutral/60">An additional notice fee and any higher date rate are charged after approval.</p>
+              {rescheduleFormError && <p role="alert" className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">{rescheduleFormError}</p>}
               <button
                 type="submit"
-                disabled={isSubmittingReschedule || !reschedulePolicy(selectedBooking.startDatetime, now).allowed || !rescheduleForm.checkIn || rescheduleForm.checkIn < minRescheduleDate}
-                className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 sm:text-black text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSubmittingReschedule || !canRequestReschedule || !rescheduleForm.checkIn || Boolean(selectedRescheduleIssue)}
+                className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmittingReschedule ? "Submitting Request..." : "Submit Reschedule Request"}
               </button>
@@ -1236,7 +1004,11 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         </>}
       </RecordDialog>}
 
-      {pendingCancellation && <CancellationDialog reservationId={pendingCancellation.id} onClose={() => setPendingCancellation(null)} onCancelled={result => {
+      {pendingCancellation && <CancellationDialog reservationId={pendingCancellation.id} onClose={() => setPendingCancellation(null)}
+        rescheduleBlockedReason={(() => { const booking = bookings.find(row => row.id === pendingCancellation.id); return booking?.checkedInAt ? "Rescheduling is locked after check-in." : !booking || booking.status.toLowerCase() !== "confirmed" ? "Only confirmed reservations can request a new date." : null; })()}
+        rescheduleNotice={(() => { const booking = bookings.find(row => row.id === pendingCancellation.id); return booking?.status.toLowerCase() === "confirmed" && !booking.checkedInAt && !reschedulePolicy(booking.startDatetime, now).allowed ? "You can request a new date even with short notice. Staff approval is required, and the applicable notice fee is charged only after approval." : null; })()}
+        onReschedule={() => { const booking = bookings.find(row => row.id === pendingCancellation.id); if (booking) { setPendingCancellation(null); openBookingRecord(booking, "reschedule"); } }} onCancelled={result => {
+        bookingRevision.current++;
         const id = pendingCancellation.id;
         setServiceEditMessage(null); setRescheduleMessage(null);
         setBookings(current => current.map(item => item.id === id ? { ...item, status: "Cancelled", cancellationOutcome: result.outcome } : item));

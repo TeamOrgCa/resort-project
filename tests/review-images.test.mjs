@@ -23,7 +23,8 @@ function harness({ authenticated = true, guest = true, policy = { allowed: true 
     from: table => {
       let inserting = false;
       const query = {
-        select: () => query, eq: () => query,
+        select: () => query, eq: () => query, limit: () => query,
+        maybeSingle: () => query.single(),
         insert: row => { inserting = true; inserts.push(row); return query; },
         single: async () => {
           if (table === "guests") return { data: guest ? { id: guestId, first_name: "Test", last_name: "Guest" } : null, error: null };
@@ -53,6 +54,13 @@ test("guest photo uploads use generated owned paths, validated content and the r
   assert.equal(h.uploads[0].options.contentType, "image/png"); assert.equal(h.uploads[0].options.upsert, false);
   assert.equal(h.inserts[0].image_path, h.uploads[0].path); assert.equal(h.inserts[0].guest_id, guestId);
   assert.equal(h.removals.length, 0);
+});
+
+test("a guest without a completed stay cannot submit any review or upload a photo", async () => {
+  const h = harness({ ownReservation: false });
+  const response = await h.post(multipart());
+  assert.equal(response.status, 403); assert.match((await response.json()).error, /completes your stay/);
+  assert.equal(h.uploads.length, 0); assert.equal(h.inserts.length, 0);
 });
 
 test("text-only reviews remain supported and clients cannot attach a forged stored path", async () => {

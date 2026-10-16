@@ -30,6 +30,10 @@ body {
   font-family: var(--font-montserrat), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
+[role="alert"] { scroll-margin-top: 7rem; }
+[role="alert"]:focus { outline: 2px solid #b91c1c; outline-offset: 4px; }
+[aria-invalid="true"] { border-color: #b91c1c; }
+
 .admin-shell-grid {
   min-height: 100vh;
   width: 100%;
@@ -38,6 +42,47 @@ body {
 .admin-shell-sidebar {
   height: 100vh;
   width: 260px;
+}
+
+@layer components {
+  .admin-panel {
+    @apply min-w-0 overflow-hidden rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm sm:p-6;
+  }
+
+  .admin-field {
+    @apply min-h-11 min-w-0 rounded-xl border border-neutral/20 bg-white px-3 py-2.5 text-base text-black placeholder:text-neutral/45 transition-shadow focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/10 disabled:cursor-not-allowed disabled:bg-neutral/5 disabled:opacity-60 sm:text-sm;
+  }
+
+  .admin-button-secondary {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-neutral/20 bg-white px-4 py-2.5 text-sm font-medium text-neutral transition-colors hover:border-primary/30 hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .admin-button-primary {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Keep forms readable throughout the admin workspace, including legacy dialogs. */
+  .admin-workspace :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea) {
+    color: #111827;
+    background-color: white;
+    min-width: 0;
+    font-size: 1rem;
+  }
+
+  .admin-workspace :where(input[type="checkbox"], input[type="radio"]) {
+    accent-color: var(--primary);
+  }
+
+  .admin-workspace :where(button, a, input, select, textarea):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+  }
+
+  .admin-workspace :where(button:disabled) { cursor: not-allowed; }
+
+  @media (min-width: 640px) {
+    .admin-workspace :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea) { font-size: .875rem; }
+  }
 }
 
 @media (min-width: 768px) {
@@ -56,6 +101,15 @@ body {
   #admin-report-print .admin-print-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
   #admin-report-print .admin-print-charts article { break-inside: avoid; }
   #admin-report-print .admin-print-charts svg { min-width: 0 !important; max-width: 100%; }
+  #admin-report-print .admin-print-chart { min-width: 0; border: 1px solid #d1d5db; padding: 12px; break-inside: avoid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  #admin-report-print .admin-print-chart h2 { margin-top: 0; font-size: 13px; }
+  #admin-report-print .admin-print-plot { display: block; width: 100%; height: auto; overflow: visible; }
+  #admin-report-print .admin-print-pie { display: block; width: 210px; height: 195px; margin: 0 auto; }
+  #admin-report-print .admin-print-chart-values { margin: 8px 0 0; font-size: 10px; }
+  #admin-report-print .admin-print-chart-values > div { display: flex; justify-content: space-between; gap: 12px; margin: 4px 0; break-inside: avoid; }
+  #admin-report-print .admin-print-chart-values dt { display: flex; gap: 5px; font-weight: normal; }
+  #admin-report-print .admin-print-chart-values dd { flex-shrink: 0; text-align: right; margin: 0; font-weight: bold; }
+  #admin-report-print .admin-print-swatch { width: 10px; height: 10px; flex-shrink: 0; margin-top: 2px; }
   #admin-report-print { display: block !important; position: static; padding: 0; color: black; background: white; font-family: Arial, sans-serif; font-size: 11px; page: admin-report; }
   #admin-report-print h1 { font-size: 20px; margin-bottom: 8px; }
   #admin-report-print h2 { font-size: 14px; font-weight: bold; margin-top: 12px; }

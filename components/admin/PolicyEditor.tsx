@@ -69,25 +69,25 @@ export default function PolicyEditor() {
         <p className="text-sm text-neutral/70">Only administrators can publish changes. Every version is retained and recorded in the audit log. Refunds still require admin review.</p>
       </div>
       {loading ? <p className="text-sm text-neutral/70">Loading policy...</p> : null}
-      {error ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-      {message ? <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{message}</p> : null}
+      {error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+      {message ? <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{message}</p> : null}
       {current && <>
         <p className="text-xs text-neutral/60">Current version {current.version} · Published {new Date(current.created_at).toLocaleString("en-PH")}</p>
         <label className="block text-sm font-semibold text-neutral">Guest cancellation notice (hours)
-          <input type="number" min="0" max="8760" step="1" value={noticeHours} onChange={(event) => setNoticeHours(event.target.value)} className="mt-2 block w-full max-w-xs rounded-lg border border-neutral/20 bg-white px-3 py-2" />
+          <input type="number" min="0" max="8760" step="1" value={noticeHours} onChange={(event) => setNoticeHours(event.target.value)} className="mt-2 block w-full max-w-xs rounded-xl border border-neutral/20 bg-white px-3 py-2" />
           <span className="mt-1 block text-xs font-normal text-neutral/60">Guest self-service cancellation closes this many hours before check-in. Staff can still review a cancellation.</span>
         </label>
         <label className="block text-sm font-semibold text-neutral">Cancellation policy shown to guests
-          <textarea rows={5} maxLength={5000} value={cancellationText} onChange={(event) => setCancellationText(event.target.value)} className="mt-2 block w-full rounded-lg border border-neutral/20 bg-white px-3 py-2 font-normal" />
+          <textarea rows={5} maxLength={5000} value={cancellationText} onChange={(event) => setCancellationText(event.target.value)} className="mt-2 block w-full rounded-xl border border-neutral/20 bg-white px-3 py-2 font-normal" />
         </label>
         <label className="block text-sm font-semibold text-neutral">Refund policy shown to guests and reviewers
-          <textarea rows={5} maxLength={5000} value={refundText} onChange={(event) => setRefundText(event.target.value)} className="mt-2 block w-full rounded-lg border border-neutral/20 bg-white px-3 py-2 font-normal" />
+          <textarea rows={5} maxLength={5000} value={refundText} onChange={(event) => setRefundText(event.target.value)} className="mt-2 block w-full rounded-xl border border-neutral/20 bg-white px-3 py-2 font-normal" />
         </label>
-        <p className="rounded-lg bg-white p-3 text-sm">Eligible cancellation refunds are always created automatically. Guest cancellations retain the initial 20% deposit; resort-attributable cancellations refund all remaining verified payments. Administrators approve requests, and payouts are manual and independently verified. The previous enable/disable setting does not suppress eligible refunds.</p>
-        <button type="button" disabled={saving || !changed || cancellationText.trim().length < 20 || refundText.trim().length < 20 || noticeHours.trim() === "" || !Number.isInteger(Number(noticeHours)) || Number(noticeHours) < 0 || Number(noticeHours) > 8760} onClick={() => void publish()} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-base disabled:opacity-50">{saving ? "Publishing..." : "Publish new version"}</button>
+        <p className="rounded-xl bg-white p-3 text-sm">Eligible cancellation refunds are always created automatically. Guest cancellations retain the initial 20% deposit; resort-attributable cancellations refund all remaining verified payments. Administrators approve requests, and payouts are manual and independently verified. The previous enable/disable setting does not suppress eligible refunds.</p>
+        <button type="button" disabled={saving || !changed || cancellationText.trim().length < 20 || refundText.trim().length < 20 || noticeHours.trim() === "" || !Number.isInteger(Number(noticeHours)) || Number(noticeHours) < 0 || Number(noticeHours) > 8760} onClick={() => void publish()} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Publishing..." : "Publish new version"}</button>
         <div className="border-t border-neutral/10 pt-4">
           <h3 className="mb-2 font-semibold text-neutral">Previous versions</h3>
-          <div className="space-y-2">{history.map((item) => <details key={item.version} className="rounded-lg border border-neutral/10 bg-white p-3 text-sm">
+          <div className="space-y-2">{history.map((item) => <details key={item.version} className="rounded-xl border border-neutral/10 bg-white p-3 text-sm">
             <summary className="cursor-pointer font-semibold">Version {item.version} · {new Date(item.created_at).toLocaleString("en-PH")}</summary>
             <p className="mt-3"><strong>Guest notice:</strong> {item.guest_cancellation_notice_hours} hours</p>
             <p className="mt-2 whitespace-pre-wrap"><strong>Cancellation:</strong> {item.cancellation_text}</p>

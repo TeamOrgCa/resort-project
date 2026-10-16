@@ -6,7 +6,7 @@ export default function AdminLoginPage() {
   return (
     <div className="min-h-screen bg-base px-4 py-12 flex items-center justify-center">
       <div className="w-full max-w-6xl">
-        <section className="rounded-3xl border border-neutral/10 bg-white p-8 mx-auto max-w-md">
+        <section className="rounded-2xl border border-neutral/10 bg-white p-8 mx-auto max-w-md">
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">
             Staff Portal
           </p>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
@@ -29,6 +29,7 @@ function BookingDetailsContent() {
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
 
   const [isSavingBooking, setIsSavingBooking] = useState(false);
+  const saving = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [paymentDeadlineAt, setPaymentDeadlineAt] = useState<string | null>(null);
@@ -54,9 +55,8 @@ function BookingDetailsContent() {
     typeof bookingDraft.reservationId === "string" &&
     bookingDraft.reservationId.trim() !== "";
 
-  const formattedSaveDate = useMemo(() => new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }), []);
-
   const handleSaveBooking = async () => {
+    if (saving.current) return;
     if (!hasValidDraft) {
       setSaveError("Missing booking details. Please go back to the form.");
       return;
@@ -68,12 +68,13 @@ function BookingDetailsContent() {
     }
 
     if (isAlreadySaved) {
-      setSaveSuccess("Booking already saved. You can continue to payment or manage booking.");
+      setSaveSuccess("Your booking is saved. Continue to payment to secure your reservation.");
       return;
     }
 
     setSaveError(null);
     setSaveSuccess(null);
+    saving.current = true;
     setIsSavingBooking(true);
 
     try {
@@ -133,10 +134,11 @@ function BookingDetailsContent() {
           : {}),
       });
       setPaymentDeadlineAt(json.reservation.paymentDeadlineAt ?? null);
-      setSaveSuccess("Booking saved successfully. You can now continue to payment or go to manage booking.");
+      setSaveSuccess("Booking saved successfully. Continue to payment to secure your reservation.");
     } catch {
       setSaveError("Unable to save booking right now. Please try again.");
     } finally {
+      saving.current = false;
       setIsSavingBooking(false);
     }
   };
@@ -184,18 +186,6 @@ function BookingDetailsContent() {
                 {!hasValidDraft ? (
                   <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
                     Booking details are incomplete. Please go back to the booking form.
-                  </div>
-                ) : null}
-
-                {saveError ? (
-                  <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
-                    {saveError}
-                  </div>
-                ) : null}
-
-                {saveSuccess ? (
-                  <div className="mb-4 rounded-lg border border-secondary/30 bg-secondary/10 px-4 py-3 text-sm text-neutral/80">
-                    {saveSuccess}
                   </div>
                 ) : null}
 
@@ -270,38 +260,27 @@ function BookingDetailsContent() {
 
                 {!isAlreadySaved && <div className="mt-8"><PolicyAgreement accepted={acceptedPolicies} onChange={setAcceptedPolicies} onPolicyVersion={setBookingPolicyVersion} /></div>}
 
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                  <Link href="/booking/form" className="flex-1">
-                    <button type="button" className="w-full bg-neutral/10 text-neutral px-6 py-4 rounded-full font-semibold hover:bg-neutral/20 transition-colors">
-                      Back to Edit
-                    </button>
-                  </Link>
-                  <button
-                    type="button"
-                    disabled={!hasValidDraft || !acceptedPolicies || bookingPolicyVersion === null || isSavingBooking || isAlreadySaved}
-                    onClick={handleSaveBooking}
-                    className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isAlreadySaved ? "Booking Saved" : isSavingBooking ? "Saving Booking..." : "Save Booking"}
-                  </button>
-                </div>
-
-                {isAlreadySaved ? (
-                  <div className="mt-4 rounded-lg bg-base px-4 py-3 text-sm text-neutral/80">
-                    <p>
-                      Booking saved on {formattedSaveDate}. Reference: <span className="font-semibold text-primary">{bookingDraft.reservationReference || "-"}</span>
-                    </p>
+                {saveError && <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{saveError}</div>}
+                {isAlreadySaved && (
+                  <div role="status" className="mt-6 rounded-xl border border-secondary/30 bg-secondary/10 p-4 text-sm text-neutral">
+                    <p className="font-semibold">{saveSuccess ?? "Your booking is saved. Continue to payment to secure your reservation."}</p>
+                    <p className="mt-2">Booking reference: <span className="break-all font-semibold text-primary">{bookingDraft.reservationReference || "-"}</span></p>
                     {paymentDeadlineAt && <p>Submit payment by {new Date(paymentDeadlineAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} (Manila time).</p>}
                   </div>
-                ) : null}
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <Link href={isAlreadySaved ? "/booking/payment" : "#"} aria-disabled={!isAlreadySaved} onClick={(event) => { if (!isAlreadySaved) event.preventDefault(); }} className="w-full bg-secondary text-base px-6 py-4 rounded-full font-semibold text-center hover:bg-secondary/90 transition-all aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
-                      Continue to Payment
+                )}
+                <div aria-label="Booking actions" className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Link href={isAlreadySaved ? "/" : "/booking/form"} aria-disabled={isSavingBooking} tabIndex={isSavingBooking ? -1 : undefined}
+                    onClick={event => { if (saving.current) event.preventDefault(); }}
+                    className="flex min-h-12 items-center justify-center rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
+                    {isAlreadySaved ? "Back to Home" : "Back to Edit"}
                   </Link>
-                  <Link href={isAlreadySaved ? "/manage" : "#"} aria-disabled={!isAlreadySaved} onClick={(event) => { if (!isAlreadySaved) event.preventDefault(); }} className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold text-center hover:bg-accent/90 transition-all aria-disabled:opacity-50 aria-disabled:cursor-not-allowed">
-                      Go to Manage Booking
-                  </Link>
+                  {isAlreadySaved ? <Link href="/booking/payment" className="flex min-h-12 items-center justify-center rounded-full bg-primary px-6 py-4 text-center font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                    Continue to Payment
+                  </Link> : <button type="button" disabled={!hasValidDraft || !acceptedPolicies || bookingPolicyVersion === null || isSavingBooking}
+                    onClick={() => void handleSaveBooking()}
+                    className="min-h-12 rounded-full bg-primary px-6 py-4 font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                    {isSavingBooking ? "Saving Booking..." : "Save Booking"}
+                  </button>}
                 </div>
               </div>
             </div>

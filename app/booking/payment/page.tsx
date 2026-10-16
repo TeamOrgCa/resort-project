@@ -14,6 +14,9 @@ import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/pay
 import { isValidAccountNumber, sanitizeAccountNumber } from "@/lib/helper/validation";
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
 import PaymentQr from "@/components/PaymentQr";
+import PaymentErrorAlert from "@/components/booking/PaymentErrorAlert";
+
+const proofInputClass = "block w-full min-w-0 cursor-pointer rounded-xl border border-primary/25 bg-white p-2 text-sm text-neutral file:mr-3 file:min-h-12 file:cursor-pointer file:rounded-lg file:border-0 file:bg-primary file:px-5 file:py-3 file:text-sm file:font-semibold file:text-white file:shadow-sm hover:file:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -59,7 +62,9 @@ function PaymentContent() {
   useEffect(() => { selectedMethodRef.current = selectedPaymentMethodId; }, [selectedPaymentMethodId]);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitErrorValue] = useState<string | null>(null);
+  const [submitIssues, setSubmitIssues] = useState<string[]>([]);
+  const setSubmitError = (message: string | null) => { setSubmitErrorValue(message); setSubmitIssues([]); };
   const [acceptedTermsForReservation, setAcceptedTermsForReservation] = useState("");
   const [uploadedProofPath, setUploadedProofPath] = useState<string | null>(null);
   const [reservationReference, setReservationReference] = useState<string | null>(null);
@@ -443,31 +448,28 @@ function PaymentContent() {
       let checkoutJson: {
         success?: boolean;
         message?: string;
+        issues?: string[];
         errorCode?: string | null;
         payment?: { id?: string; status?: string; ocrStatus?: string; amount?: number };
         reservation?: { referenceNumber?: string };
       } | null = null;
-      let checkoutRaw = "";
 
       try {
         checkoutJson = (await checkoutResponse.json()) as {
           success?: boolean;
           message?: string;
+          issues?: string[];
           errorCode?: string | null;
           payment?: { id?: string; status?: string; ocrStatus?: string; amount?: number };
           reservation?: { referenceNumber?: string };
         };
       } catch {
-        checkoutRaw = await checkoutResponse.text().catch(() => "");
+        checkoutJson = null;
       }
 
       if (!checkoutResponse.ok || !checkoutJson?.success) {
-        const statusLabel = `Payment submission failed (${checkoutResponse.status})`;
-        const details = checkoutJson?.errorCode ? ` [${checkoutJson.errorCode}]` : "";
-        const fallbackRaw = checkoutRaw.trim() ? ` ${checkoutRaw.trim().slice(0, 220)}` : "";
-        setSubmitError(
-          `${statusLabel}: ${checkoutJson?.message || "Failed to submit payment."}${details}${fallbackRaw}`
-        );
+        setSubmitError(checkoutJson?.message || "We could not submit your payment. Please try again.");
+        setSubmitIssues(Array.isArray(checkoutJson?.issues) ? checkoutJson.issues.filter(issue => typeof issue === "string" && issue.trim()) : []);
         setIsSubmitting(false);
         return;
       }
@@ -764,11 +766,7 @@ function PaymentContent() {
                     {excessAfterThisPayment > 0 && <p className="mt-2 text-sm text-neutral">Excess: ₱{excessAfterThisPayment.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. You can request an excess refund in Manage Booking after approval.</p>}
                   </div>
 
-                  {submitError && (
-                    <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
-                      {submitError}
-                    </div>
-                  )}
+                  {submitError && <PaymentErrorAlert message={submitError} issues={submitIssues} />}
 
                   {paymentMethod === "bank" && (
                     <div className="mb-8">
@@ -806,14 +804,20 @@ function PaymentContent() {
                             required
                           />
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Upload Proof of Payment *</label>
+                        <div className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
+                          <label htmlFor="bank-payment-proof" className="mb-2 flex items-center gap-2 text-base font-semibold text-neutral">
+                            <svg aria-hidden="true" className="h-6 w-6 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4" /></svg>
+                            Upload Proof of Payment *
+                          </label>
+                          <p id="bank-proof-help" className="mb-3 text-sm text-neutral/70">Choose your original receipt screenshot. PNG, JPG or WebP, up to {MAX_PAYMENT_PROOF_BYTES / 1024 / 1024} MB.</p>
                           <input
+                            id="bank-payment-proof"
                             ref={bankFileInputRef}
                             type="file"
                             accept="image/png,image/jpeg,image/webp"
                             onChange={handleBankProofChange}
-                            className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
+                            aria-describedby="bank-proof-help"
+                            className={proofInputClass}
                             required
                           />
                           {bankDetails.uploadProof && (
@@ -913,15 +917,20 @@ function PaymentContent() {
                             required
                           />
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Upload original GCash screenshot *</label>
-                          <p className="mb-2 text-sm text-neutral/70">Take a screenshot directly in GCash and upload the original file from your gallery. Photos of another phone&apos;s screen, scans, blurred images and edited receipts are not allowed. Keep the amount, recipient, reference number and today&apos;s Philippine date/time fully visible and readable.</p>
+                        <div className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
+                          <label htmlFor="gcash-payment-proof" className="mb-2 flex items-center gap-2 text-base font-semibold text-neutral">
+                            <svg aria-hidden="true" className="h-6 w-6 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4" /></svg>
+                            Upload original GCash screenshot *
+                          </label>
+                          <p id="gcash-proof-help" className="mb-3 text-sm text-neutral/70">Choose the original screenshot directly from your gallery. PNG, JPG or WebP, up to {MAX_PAYMENT_PROOF_BYTES / 1024 / 1024} MB. Keep the amount, recipient, reference number and today&apos;s Philippine date/time fully visible and readable. Photos of another phone, scans, blurred images and edited receipts are not accepted.</p>
                           <input
+                            id="gcash-payment-proof"
                             ref={ewalletFileInputRef}
                             type="file"
                             accept="image/png,image/jpeg,image/webp"
                             onChange={handleEwalletProofChange}
-                            className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
+                            aria-describedby="gcash-proof-help"
+                            className={proofInputClass}
                             required
                           />
                           {ewalletDetails.uploadProof && (

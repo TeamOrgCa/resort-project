@@ -39,12 +39,13 @@ export default function ResetPasswordDialog({
   return (
     <StaffDialogShell
       isOpen={isOpen}
+      busy={isSubmitting}
       title="Reset Password"
       description={staffEmail ? `Set a new temporary password for ${staffEmail}.` : "Set a new temporary password."}
       onClose={onClose}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error ? <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+        {error ? <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
         <label className="space-y-2">
           <span className="block text-sm font-medium text-neutral">Temporary Password</span>
@@ -54,12 +55,12 @@ export default function ResetPasswordDialog({
             onChange={(event) => setPassword(event.target.value)}
             minLength={8}
             required
-            className="w-full rounded-xl border border-neutral/20 px-3 py-2.5 focus:border-primary focus:outline-none"
+            className="admin-field w-full"
             placeholder="At least 8 characters"
           />
         </label>
 
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-neutral/10 pt-5">
           <button
             type="button"
             onClick={onClose}
@@ -71,7 +72,7 @@ export default function ResetPasswordDialog({
           <button
             type="submit"
             disabled={isSubmitting}
-            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {isSubmitting ? "Updating..." : "Reset Password"}
           </button>

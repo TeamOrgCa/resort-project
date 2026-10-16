@@ -24,7 +24,7 @@ async function mount({ tabs = ["Guest Report"], fetcher, filename = "components/
   URL.createObjectURL = blob => { const url = `blob:test-${blobs.size}`; blobs.set(url, blob); return url; };
   URL.revokeObjectURL = () => {};
   dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push({ filename: this.download, blob: blobs.get(this.href) }); };
-  window.print = () => { const report = document.querySelector("#admin-report-print"); printed = report?.textContent; printedCharts = [...report?.querySelectorAll("svg") ?? []].map(svg => svg.getAttribute("aria-label")); assert.equal(report?.querySelector("select"), null); window.dispatchEvent(new dom.window.Event("afterprint")); };
+  window.print = () => { const report = document.querySelector("#admin-report-print"); printed = report?.textContent; printedCharts = [...report?.querySelectorAll('svg[role="img"]') ?? []].map(svg => svg.getAttribute("aria-label")); assert.equal(report?.querySelector("select"), null); window.dispatchEvent(new dom.window.Event("afterprint")); };
   globalThis.fetch = async (url, options) => {
     requests.push({ url, options });
     if (url.startsWith("/api/admin/analytics/feedback")) return Response.json({ success: true, rows: [], total: 0, pageSize: 10, canArchive: false });
@@ -54,7 +54,7 @@ async function value(element, nextValue) {
 test("guest search, source filters, reset, numeric sorting and all pagination buttons work", async () => {
   const h = await mount();
   try {
-    assert.match(h.requests[0].url, /^\/api\/admin\/transactions\/guest-report/);
+    assert.match(h.requests[0].url, /^\/api\/admin\/reports\?tab=Guest/);
     assert.equal(h.container.querySelectorAll("tbody tr").length, 25);
     await click(button(h.container, "Next")); assert.match(h.container.textContent, /Page 2 of 2/);
     await click(button(h.container, "Previous")); assert.match(h.container.textContent, /Page 1 of 2/);
@@ -127,7 +127,7 @@ test("switching report types aborts the previous request and prevents old record
   } finally { await h.close(); }
 });
 
-test("Transactions ledger and document refresh/export controls work, invoice View opens, and Guest Report uses its own endpoint", async () => {
+test("Transactions ledger and document refresh/export controls work without a Guest Report tab", async () => {
   const fixture = {
     staff_users: [{ id: "staff", role: "admin", is_active: true }],
     transactions: [{ transaction_id: "t1", reservation_id: "r1", total_amount: 5000, paid_amount: 1000, balance: 4000, overpaid_amount: 0, status: "partial", created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-02T00:00:00Z" }],
@@ -159,8 +159,7 @@ test("Transactions ledger and document refresh/export controls work, invoice Vie
     await click(button(h.container, "Issued Receipts")); assert.equal(button(h.container, "Issue Receipt"), undefined);
     await click(button(h.container, "Export receipts CSV")); assert.match(await h.downloads[2].blob.text(), /RCPT-TEST/);
     await click(button(h.container, "Refresh receipts"));
-    await click(button(h.container, "Guest Report")); assert.match(h.requests.at(-1).url, /^\/api\/admin\/transactions\/guest-report/);
-    assert.match(h.container.textContent, /Guest reservations/);
+    assert.equal(button(h.container, "Guest Report"), undefined);
   } finally { await h.close(); }
 });
 
@@ -272,4 +271,18 @@ test("staff can settle a reservation balance in cash, acknowledge receipt and se
    assert.equal(h.container.querySelector('[role="dialog"]'),null);assert.match(h.container.querySelector('[role="status"]').textContent,/RCPT-CASH/);
    assert.equal(button(h.container,"Settle in cash").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
  }finally{await h.close();}
+});
+
+test("all report types including Guest Report use the Reports endpoint",async()=>{
+ const h=await mount({tabs:["Sales Report","Guest Report","Staff Report"]});
+ try {await click(button(h.container,"Guest Report"));assert.match(h.requests.at(-1).url,/^\/api\/admin\/reports\?tab=Guest/);assert.match(h.container.textContent,/Guest reservations/);}
+ finally{await h.close();}
+});
+
+test("long printed charts are split into readable SVG sections instead of shrinking or printing text-only summaries",async()=>{
+ const report=makeReport("Guest Report",1);report.trend=Array.from({length:31},(_,i)=>({label:`Oct ${i+1}, 2026`,value:i+1}));
+ const h=await mount({fetcher:()=>Response.json({success:true,report})});
+ try {await click(button(h.container,"Print report"));await act(async()=>new Promise(resolve=>setTimeout(resolve,180)));
+ assert.deepEqual(h.printedCharts(),["Line graph","Line graph","Line graph","Pie chart"]);assert.match(h.printed(),/Oct 31, 2026/);assert.match(h.printed(),/\(3\/3\)/);}
+ finally{await h.close();}
 });

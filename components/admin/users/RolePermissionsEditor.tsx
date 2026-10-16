@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PERMISSIONS, PERMISSION_LABELS, type Permission } from "@/lib/auth/role-access";
 
 type EditableRole = "staff" | "cashier";
@@ -9,11 +9,14 @@ export default function RolePermissionsEditor() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<EditableRole | null>(null);
+  const [saving, setSaving] = useState(false);
+  const submitting = useRef(false);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     fetch("/api/admin/permissions", { cache: "no-store" }).then(async (response) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message ?? "Unable to load permissions.");
+      setLoaded(true);
       setGrants({ staff: data.roles.find((row: { role: string }) => row.role === "staff")?.permissions ?? [], cashier: data.roles.find((row: { role: string }) => row.role === "cashier")?.permissions ?? [] });
     }).catch((cause) => setError(cause.message)).finally(() => setLoading(false));
   }, []);
@@ -21,24 +24,26 @@ export default function RolePermissionsEditor() {
     setGrants((current) => ({ ...current, [role]: current[role].includes(permission) ? current[role].filter((item) => item !== permission) : [...current[role], permission] }));
     setMessage("");
   };
-  const save = async (role: EditableRole) => {
-    setSaving(role); setError(""); setMessage("");
+  const save = async () => {
+    if (submitting.current || !loaded) return;
+    submitting.current = true;
+    setSaving(true); setError(""); setMessage("");
     try {
-      const response = await fetch("/api/admin/permissions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role, permissions: grants[role] }) });
+      const response = await fetch("/api/admin/permissions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roles: (["staff", "cashier"] as const).map(role => ({ role, permissions: grants[role] })) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message ?? "Unable to save permissions.");
-      setMessage(`${role === "staff" ? "Manager" : "Cashier"} permissions saved.`);
+      setMessage("Role permissions saved.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save permissions."); }
-    finally { setSaving(null); }
+    finally { submitting.current = false; setSaving(false); }
   };
   if (loading) return <p>Loading permissions...</p>;
   return <div className="space-y-5">
-    <p className="text-sm text-neutral/70">Changes take effect on the next request. Admin retains full access. Manager is stored as the existing staff role.</p>
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    {message && <p role="status" className="text-sm text-green-700">{message}</p>}
-    <div className="overflow-x-auto"><table className="w-full min-w-[550px] text-left text-sm"><thead><tr><th className="p-2">Permission</th><th className="p-2">Manager</th><th className="p-2">Cashier</th><th className="p-2">Admin</th></tr></thead><tbody>
-      {PERMISSIONS.map((permission) => <tr key={permission} className="border-t border-neutral/10"><th className="p-2 font-medium">{PERMISSION_LABELS[permission]}</th>{(["staff", "cashier"] as const).map((role) => <td key={role} className="p-2"><input aria-label={`${role === "staff" ? "Manager" : "Cashier"}: ${PERMISSION_LABELS[permission]}`} type="checkbox" disabled={["users", "configuration", "catalog"].includes(permission)} checked={grants[role].includes(permission)} onChange={() => toggle(role, permission)} /></td>)}<td className="p-2">✓</td></tr>)}
+    <p className="text-sm leading-relaxed text-neutral/65">Choose which modules and actions each role can access, then save your changes. Administrators retain full access.</p>
+    {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
+    {message && <p role="status" className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{message}</p>}
+    <div className="overflow-x-auto rounded-xl border border-neutral/10"><table className="w-full min-w-[550px] text-left text-sm"><thead className="border-b border-neutral/10 bg-base/60 text-neutral/60"><tr><th className="px-4 py-3">Permission</th><th className="px-4 py-3">Manager</th><th className="px-4 py-3">Cashier</th><th className="px-4 py-3">Admin</th></tr></thead><tbody>
+      {PERMISSIONS.map((permission) => <tr key={permission} className="border-t border-neutral/10 hover:bg-base/40"><th className="px-4 py-3 font-medium text-neutral">{PERMISSION_LABELS[permission]}</th>{(["staff", "cashier"] as const).map((role) => <td key={role} className="px-4 py-3"><input aria-label={`${role === "staff" ? "Manager" : "Cashier"}: ${PERMISSION_LABELS[permission]}`} type="checkbox" disabled={saving || !loaded || ["users", "configuration", "catalog"].includes(permission)} checked={grants[role].includes(permission)} onChange={() => toggle(role, permission)} /></td>)}<td className="px-4 py-3">✓</td></tr>)}
     </tbody></table></div>
-    <div className="flex gap-3">{(["staff", "cashier"] as const).map((role) => <button key={role} type="button" disabled={saving !== null} onClick={() => save(role)} className="rounded-lg bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50">Save {role === "staff" ? "manager" : "cashier"}</button>)}</div>
+    <div className="flex justify-end border-t border-neutral/10 pt-5"><button type="button" disabled={saving || !loaded} onClick={() => void save()} className="admin-button-primary">{saving ? "Saving..." : "Save permissions"}</button></div>
   </div>;
 }

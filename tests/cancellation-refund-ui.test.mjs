@@ -34,6 +34,45 @@ test("resort cancellation requires admin selection, a documented reason and a fr
     assert.equal(button(h.c,"Confirm cancellation").disabled,true);await value(h.c.querySelector("textarea"),"Pool repairs require closure");await click(button(h.c,"Confirm cancellation"));assert.equal(posted.initiator,"resort");assert.equal(posted.cancellationReason,"Pool repairs require closure");}
   finally{await h.close();}
 });
+
+test("guest cancellation explains unpaid/deposit-only outcomes and blocks requests disallowed by policy", async () => {
+  for (const [paid, allowed, reason] of [[0, true, null], [600, true, null], [3000, false, "The cancellation notice window has passed. Contact the resort."],
+    [3000, false, "Resolve pending payment review before cancellation."]]) {
+    let posts = 0;
+    const h = await mount("components/CancellationDialog.tsx", { reservationId: "reservation", onClose: () => {}, onCancelled: () => {} }, async (_url, options) => {
+      if (options?.method) posts++;
+      return Response.json({ preview: { ...preview, verifiedPaid: paid, netPaid: paid, deduction: Math.min(paid, 600), refundableAmount: Math.max(0, paid - 600), allowed, blockedReason: reason } });
+    });
+    try {
+      assert.equal(button(h.c, "Confirm cancellation").disabled, true);
+      if (allowed) {
+        assert.match(h.c.textContent, /No Refund: no request will be generated/);
+        await click(h.c.querySelector('[type="checkbox"]')); assert.equal(button(h.c, "Confirm cancellation").disabled, false);
+      } else { assert.match(h.c.querySelector('[role="alert"]').textContent, /Contact the resort|pending payment/); assert.equal(h.c.querySelector('[type="checkbox"]'), null); }
+      assert.equal(posts, 0);
+    } finally { await h.close(); }
+  }
+});
+
+test("cancellation keeps focus in its dialog and prevents duplicate submissions or closing while saving", async () => {
+  let finish, posts = 0, closed = 0, completed = 0;
+  const h = await mount("components/CancellationDialog.tsx", { reservationId: "reservation", onClose: () => closed++, onCancelled: () => completed++ }, async (_url, options) => {
+    if (!options?.method) return Response.json({ preview });
+    posts++; return new Promise(resolve => { finish = () => resolve(Response.json({ ...preview, success: true })); });
+  });
+  try {
+    assert.equal(document.body.style.overflow, "hidden"); assert.equal(document.activeElement, h.c.querySelector('[role="dialog"]'));
+    await click(h.c.querySelector('[type="checkbox"]'));
+    const submit = button(h.c, "Confirm cancellation"); submit.focus();
+    await act(async () => submit.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
+    assert.equal(document.activeElement, h.c.querySelector('[type="checkbox"]'));
+    await act(async () => { submit.click(); submit.click(); }); assert.equal(posts, 1);
+    assert.equal(h.c.querySelector('[role="dialog"]').getAttribute("aria-busy"), "true");
+    await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    assert.equal(closed, 0); await act(async () => finish()); assert.equal(completed, 1);
+  } finally { await h.close(); }
+  assert.equal(document.body.style.overflow, "");
+});
 test("cashier refund screen exposes verified records and review but no administrator approval",async()=>{
   const calls=[];let status="pending";
   const h=await mount("components/admin/transactions/RefundRequestsPanel.tsx",{},async(url,options)=>{

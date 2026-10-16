@@ -135,23 +135,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Enter a valid reservation ID or leave it blank." }, { status: 400 });
     }
 
-    // If reservation_id is provided, validate it belongs to this guest
-    if (reservation_id) {
-      const { data: reservation, error: reservationError } = await supabase
+    // Only completed stays qualify; an optional linked stay must also be owned.
+    let stayQuery = supabase
         .from("reservations")
         .select("reservation_id")
-        .eq("reservation_id", reservation_id)
         .eq("guest_id", user.id)
-        .single();
-
-      if (reservationError || !reservation) {
+        .eq("status", "completed");
+    if (reservation_id) stayQuery = stayQuery.eq("reservation_id", reservation_id);
+    const { data: reservation, error: reservationError } = await stayQuery.limit(1).maybeSingle();
+    if (reservationError) return NextResponse.json({ error: "Unable to verify your completed stay. Please try again." }, { status: 503 });
+    if (!reservation) {
         return NextResponse.json(
           {
-            error: "Invalid reservation ID or reservation does not belong to you.",
+            error: reservation_id ? "Choose one of your own completed stays." : "You can submit a review after resort staff checks you out and completes your stay.",
           },
-          { status: 400 }
+          { status: reservation_id ? 400 : 403 }
         );
-      }
     }
 
     // Preflight avoids unnecessary uploads. The database trigger checks again
@@ -210,6 +209,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: insertError.message, code: "REVIEW_RATE_LIMITED", retryAfter }, { status: 429, headers: { "Retry-After": String(retryAfter) } });
       }
       if (insertError?.code === "P0409") return NextResponse.json({ error: insertError.message, code: "DUPLICATE_REVIEW" }, { status: 409 });
+      if (insertError?.code === "42501") return NextResponse.json({ error: "An active guest account and a completed stay are required to submit a review." }, { status: 403 });
       if (insertError?.code === "23505") return NextResponse.json({ error: "A review already exists for this reservation. For another experience, leave the reservation field blank or use another reservation." }, { status: 409 });
       if (insertError?.code === "PGRST204" || insertError?.code === "42703") return NextResponse.json({ error: "Review photos are temporarily unavailable. Please try again later or submit your review without a photo." }, { status: 503 });
       return NextResponse.json(

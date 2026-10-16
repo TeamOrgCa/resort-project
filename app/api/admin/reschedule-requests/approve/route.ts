@@ -62,6 +62,9 @@ export async function POST(request: Request) {
     });
     if (error) {
       console.error("Reschedule approval failed:", error);
+      if (error.code === "22023" && /late request requires a documented staff exception/i.test(error.message)) {
+        return NextResponse.json({ success: false, message: "Apply docs/guest-reschedule-requests-migration.sql to enable approval of guest short-notice requests, then retry." }, { status: 503 });
+      }
       if (error.code === "22023") return NextResponse.json({ success: false, message: error.message }, { status: 400 });
       if (error.code === "42501") return NextResponse.json({ success: false, message: "Reschedule approval permission is required." }, { status: 403 });
       const conflict = ["23P01", "P0001", "40001"].includes(error.code);

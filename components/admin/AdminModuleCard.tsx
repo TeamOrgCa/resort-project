@@ -12,7 +12,7 @@ export default function AdminModuleCard({ module }: AdminModuleCardProps) {
       <p className="mt-2 text-sm text-neutral/70">{module.summary}</p>
       <Link
         href={module.href}
-        className="mt-4 inline-flex rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base transition-colors hover:bg-primary/90"
+        className="mt-4 inline-flex rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
       >
         Open Module
       </Link>

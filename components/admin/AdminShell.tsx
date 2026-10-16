@@ -42,22 +42,24 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
 
   return (
     <SettingsProvider>
-      <div className="admin-shell-grid">
+      <div className="admin-shell-grid admin-workspace">
         <aside className="admin-shell-sidebar hidden md:block">
           <AdminSidebar role={role} permissions={permissions} />
         </aside>
 
         <main className="min-w-0">
-          <div className="flex items-center gap-3 border-b border-neutral/10 px-4 py-3 md:px-8">
+          <div className="sticky top-0 z-40 flex items-center gap-3 border-b border-neutral/10 bg-base px-4 py-3 shadow-sm md:px-8">
             <div className="md:hidden">
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
-                className="rounded-lg border border-neutral/20 bg-white px-4 py-2 text-sm font-semibold text-neutral hover:bg-base"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-neutral/20 bg-white text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 aria-label="Open admin navigation"
+                title="Open admin navigation"
                 aria-expanded={isSidebarOpen}
+                aria-controls="mobile-admin-navigation"
               >
-                Menu
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-6 w-6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
               </button>
             </div>
             <div className="ml-auto">
@@ -65,11 +67,11 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
             </div>
           </div>
 
-          <div className="px-4 py-6 md:px-8 md:py-8">{children}</div>
+          <div className="mx-auto w-full max-w-[1600px] px-4 py-6 md:px-8 md:py-8">{children}</div>
         </main>
 
         {isSidebarOpen ? (
-          <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Admin navigation">
+          <div id="mobile-admin-navigation" className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Admin navigation">
             <button
               type="button"
               onClick={() => setIsSidebarOpen(false)}
@@ -81,12 +83,12 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
                 <button
                   type="button"
                   onClick={() => setIsSidebarOpen(false)}
-                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10"
+                  className="rounded-xl border border-white/20 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10"
                 >
                   Close
                 </button>
               </div>
-              <AdminSidebar role={role} permissions={permissions} />
+              <AdminSidebar role={role} permissions={permissions} onNavigate={() => setIsSidebarOpen(false)} />
             </aside>
           </div>
         ) : null}

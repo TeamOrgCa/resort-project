@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { StaffRole } from "@/lib/auth/staff-auth";
+import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
 
 type NotificationItem = {
   notification_id: string;
@@ -15,10 +16,15 @@ type NotificationItem = {
 
 export default function AdminNotifications({ role }: { role: StaffRole }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [localNotifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [localNotificationsLoading, setNotificationsLoading] = useState(false);
+  const notificationCenter = useNotificationCenter();
+  const notifications = notificationCenter?.notifications ?? localNotifications;
+  const notificationsLoading = notificationCenter?.loading ?? localNotificationsLoading;
   const [userId, setUserId] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
+  const pauseAlerts = notificationCenter?.pauseAlerts;
+  useEffect(() => isOpen ? pauseAlerts?.() : undefined, [isOpen, pauseAlerts]);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -39,6 +45,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
   }, [supabase]);
 
   const fetchNotifications = useCallback(async (activeUserId: string) => {
+    if (notificationCenter) { notificationCenter.refresh(); return; }
     setNotificationsLoading(true);
 
     const { data } = await supabase
@@ -51,7 +58,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
 
     setNotifications((data as NotificationItem[] | null) ?? []);
     setNotificationsLoading(false);
-  }, [supabase, role]);
+  }, [supabase, role, notificationCenter]);
 
   const handleToggle = async () => {
     const nextOpen = !isOpen;
@@ -81,6 +88,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
   };
 
   const markAllNotificationsRead = async () => {
+    if (notificationCenter) { await notificationCenter.markAllRead(); return; }
     if (!userId) return;
 
     const unreadIds = notifications.filter((item) => !item.is_read).map((item) => item.notification_id);
@@ -107,6 +115,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
         onClick={handleToggle}
         className="relative rounded-full border border-neutral/20 bg-white p-2 text-neutral hover:bg-base"
         aria-label="Open admin notifications"
+        aria-expanded={isOpen}
       >
         <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -138,12 +147,14 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
                 <button
                   type="button"
                   onClick={markAllNotificationsRead}
-                  className="text-xs font-medium text-primary hover:text-primary/80"
+                  disabled={notificationCenter?.markingRead}
+                  className="min-h-11 text-xs font-medium text-primary hover:text-primary/80 disabled:opacity-50"
                 >
                   Mark all read
                 </button>
               ) : null}
             </div>
+            {notificationCenter?.error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-800">{notificationCenter.error}<button type="button" onClick={notificationCenter.refresh} className="ml-2 min-h-11 font-semibold underline">Retry</button></p>}
             <div className="mt-3 space-y-2">
               {notificationsLoading ? (
                 <p className="text-xs text-neutral/60">Loading notifications...</p>

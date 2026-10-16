@@ -69,12 +69,13 @@ export default function EditStaffDialog({
   return (
     <StaffDialogShell
       isOpen={isOpen}
+      busy={isSubmitting}
       title="Edit Staff User"
       description={`Update access and profile details for ${staffUser.email}.`}
       onClose={onClose}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error ? <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+        {error ? <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
@@ -83,7 +84,7 @@ export default function EditStaffDialog({
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
               required
-              className="w-full rounded-xl border border-neutral/20 px-3 py-2.5 focus:border-primary focus:outline-none"
+              className="admin-field w-full"
             />
           </label>
 
@@ -119,7 +120,7 @@ export default function EditStaffDialog({
           <p className="text-xs text-neutral/60">Your own admin role cannot be removed.</p>
         ) : null}
 
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-neutral/10 pt-5">
           <button
             type="button"
             onClick={onClose}
@@ -131,7 +132,7 @@ export default function EditStaffDialog({
           <button
             type="submit"
             disabled={isSubmitting}
-            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {isSubmitting ? "Saving..." : "Save Changes"}
           </button>
