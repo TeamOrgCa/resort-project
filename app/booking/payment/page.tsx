@@ -498,7 +498,7 @@ function PaymentContent() {
   if (paymentComplete) {
     return (
       <div className="min-h-screen bg-base flex items-center justify-center px-4">
-        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-12 text-center">
+        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-5 sm:p-12 text-center">
           <div className="w-20 h-20 bg-secondary/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <svg className="w-12 h-12 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -510,7 +510,7 @@ function PaymentContent() {
             Excess payment: ₱{successExcess.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. After staff verifies this payment, request the excess refund in Manage Booking.
           </p>}
 
-          <div className="bg-base p-8 rounded-2xl mb-8">
+          <div className="booking-summary bg-base p-4 sm:p-8 rounded-2xl mb-8">
             <h2 className="text-2xl font-bold text-neutral mb-6">Reservation Summary</h2>
             <div className="space-y-4 text-left">
               <div className="flex justify-between pb-3 border-b border-neutral/10">
@@ -655,7 +655,7 @@ function PaymentContent() {
         <div className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2">
-              <div className="bg-white rounded-3xl shadow-xl p-8">
+              <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
                 <h2 className="text-3xl font-bold text-neutral mb-8">Payment Details</h2>
 
                 {!reservationId ? (
@@ -985,7 +985,7 @@ function PaymentContent() {
             </div>
 
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-3xl shadow-xl p-8 sticky top-28">
+              <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-6">Payment Summary</h3>
 
                 <div className="space-y-4 mb-6">

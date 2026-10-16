@@ -140,7 +140,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
             onClick={() => setIsOpen(false)}
             aria-label="Close notifications"
           />
-          <div className="absolute right-0 z-50 mt-3 w-80 rounded-xl border border-neutral/10 bg-white p-3 shadow-xl">
+          <div className="absolute right-0 z-50 mt-3 max-h-[calc(100dvh-6rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain rounded-xl border border-neutral/10 bg-white p-3 shadow-xl [overflow-wrap:anywhere]">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold uppercase tracking-wide text-neutral/60">Notifications</p>
               {unreadCount > 0 ? (

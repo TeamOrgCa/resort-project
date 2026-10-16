@@ -52,7 +52,7 @@ export default function OcularVisit() {
   if (visitScheduled) {
     return (
       <div className="min-h-screen bg-base flex items-center justify-center px-4">
-        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-12 text-center">
+        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-5 sm:p-12 text-center">
           <div className="w-20 h-20 bg-accent/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <svg className="w-12 h-12 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -61,7 +61,7 @@ export default function OcularVisit() {
           <h1 className="text-4xl font-bold text-neutral mb-4">Visit Scheduled!</h1>
           <p className="text-xl text-neutral/70 mb-8">We look forward to showing you around</p>
 
-          <div className="bg-base p-8 rounded-2xl mb-8">
+          <div className="booking-summary bg-base p-4 sm:p-8 rounded-2xl mb-8">
             <h2 className="text-2xl font-bold text-neutral mb-6">Visit Details</h2>
             <div className="space-y-4 text-left">
               <div className="flex justify-between">
@@ -165,11 +165,11 @@ export default function OcularVisit() {
             <div className="grid lg:grid-cols-3 gap-8">
               {/* Calendar */}
               <div className="lg:col-span-2">
-                <div className="bg-white rounded-3xl shadow-xl p-8">
-                  <h2 className="text-3xl font-bold text-neutral mb-8">Select Visit Date</h2>
+                <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
+                  <h2 className="text-xl sm:text-3xl font-bold text-neutral mb-8">Select Visit Date</h2>
 
-                  <div className="flex items-center justify-between mb-8">
-                    <h3 className="text-2xl font-semibold text-neutral">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
+                    <h3 className="text-lg sm:text-2xl font-semibold text-neutral">
                       {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
                     </h3>
                     <div className="flex gap-2">
@@ -186,15 +186,15 @@ export default function OcularVisit() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-7 gap-2 mb-4">
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-4">
                     {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                      <div key={day} className="text-center font-semibold text-neutral/70 py-2">
+                      <div key={day} className="text-center text-[10px] font-semibold text-neutral/70 py-2 sm:text-sm">
                         {day}
                       </div>
                     ))}
                   </div>
 
-                  <div className="grid grid-cols-7 gap-2">
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
                     {Array.from({ length: firstDay }).map((_, index) => (
                       <div key={`empty-${index}`} className="aspect-square"></div>
                     ))}
@@ -209,7 +209,7 @@ export default function OcularVisit() {
                           type="button"
                           onClick={() => handleDateClick(date)}
                           disabled={isPast}
-                          className={`aspect-square rounded-lg flex items-center justify-center font-medium transition-all
+                          className={`min-h-11 aspect-square rounded-lg flex items-center justify-center font-medium transition-all
                             ${isPast ? "text-neutral/30 cursor-not-allowed" : ""}
                             ${isSelected ? "bg-accent text-base" : ""}
                             ${!isPast && !isSelected ? "hover:bg-accent/10 text-neutral" : ""}
@@ -224,7 +224,7 @@ export default function OcularVisit() {
                   {selectedDate && (
                     <div className="mt-8 pt-8 border-t border-neutral/10">
                       <h3 className="text-xl font-semibold text-neutral mb-4">Available Times</h3>
-                      <div className="grid grid-cols-4 gap-3">
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                         {availableTimes.map((time) => (
                           <button
                             key={time}
@@ -245,7 +245,7 @@ export default function OcularVisit() {
 
               {/* Booking Reference */}
               <div className="lg:col-span-1">
-                <div className="bg-white rounded-3xl shadow-xl p-8 sticky top-28">
+                <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                   <h3 className="text-2xl font-bold text-neutral mb-6">Visit Details</h3>
 
                   <div className="space-y-6 mb-8">
@@ -298,7 +298,7 @@ export default function OcularVisit() {
       {/* Benefits Section */}
       <section className="py-20 px-4 bg-neutral/5">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-3xl font-bold text-neutral mb-12 text-center">Why Schedule an Ocular Visit?</h2>
+          <h2 className="text-xl sm:text-3xl font-bold text-neutral mb-12 text-center">Why Schedule an Ocular Visit?</h2>
           <div className="grid md:grid-cols-3 gap-8">
             <div className="bg-base p-6 rounded-2xl">
               <div className="w-12 h-12 bg-accent/20 rounded-full flex items-center justify-center mb-4">

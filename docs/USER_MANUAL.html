@@ -169,6 +169,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </ol>
 <p>The email field is read-only on this screen. Contact the resort if you need help with an account email change. Changing your profile does not change a reservation&#x27;s dates, selected services or bill.</p>
 <p>Unread updates appear as pop-up notification cards while you are signed in. Select <strong>View details</strong> to open the related booking or record, use the <strong>X</strong> to dismiss one card, or choose <strong>Dismiss all</strong>. Dismissed pop-ups stay hidden in the current browser-tab session; the saved notifications remain in your account menu. Use <strong>Mark all read</strong> there to clear unread indicators. Pop-ups pause while the account menu is open so Profile Settings and Sign Out stay accessible.</p>
+<p>In the account menu&#x27;s <strong>Notifications</strong> section, use the <strong>Pop-up notifications</strong> switch to turn pop-ups on or off. This preference saves automatically with your account and applies when you sign in again, including on another device. When off, new updates remain available in the notification list. If saving fails, the previous setting stays in place and an error prompts you to retry the switch.</p>
 <h2 id="client-4-book-a-resort-stay">4. Book a resort stay</h2>
 <h3 id="client-step-a-choose-a-date-and-package">Step A — Choose a date and package</h3>
 <ol>
@@ -1063,6 +1064,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p><strong>Expected result:</strong> Saving publishes that section. Uploading an image alone does not publish it. Save each section separately; unsaved edits elsewhere are not published with it.</p>
+<p>To recover from test edits, select <strong>Restore website defaults</strong> and review the confirmation. <strong>Restore and publish defaults</strong> restores the original logo, home page and about page text/images together, including replacing unsaved content drafts. This action publishes immediately. Package rates, reservations, payment accounts, resort contact information and uploaded files are preserved. A failed restore keeps your drafts and shows a retry message. Only administrators can restore defaults.</p>
 <p>Use <strong>Resort information</strong> for the resort name, address, phone/email and social links, then save that category&#x27;s settings. Keep text readable and check logo/image visibility on a phone. If a rates image contains prices, update the image separately when required; changing live package rates does not rewrite text inside an uploaded picture.</p>
 <h3 id="admin-publish-cancellation-and-refund-rules">Publish cancellation and refund rules</h3>
 <ol>
@@ -1108,6 +1110,18 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p>Your own admin role cannot be removed through this workflow. Check that the staff member has the appropriate role before sharing access.</p>
+<h3 id="admin-view-a-guest-s-booking-history">View a guest&#x27;s booking history</h3>
+<ol>
+<li>Open <strong>Users → Guest Accounts</strong>, then find the guest by name, email or phone.
+</li>
+<li>Select <strong>View bookings</strong> on that guest&#x27;s card. The history dialog includes all reservations linked to the account, including completed, cancelled and past bookings. Inactive accounts retain their history.
+</li>
+<li>Review the dates in Philippine time, package, guest counts, booking status, recorded bill, net payments, balance and any recorded attendance. Use <strong>Previous history page</strong>, <strong>Next history page</strong> and <strong>Refresh history</strong> as needed.
+</li>
+<li>Select <strong>Open reservation</strong> to inspect the exact record in the reservation calendar in a new tab. The guest list and history remain open in the original tab.
+</li>
+</ol>
+<p>History is matched by the guest&#x27;s account ID; separate walk-in profiles are not merged by similar names or email addresses. This view is administrator-only. An empty history and a failed lookup have separate messages; use <strong>Try again</strong> for a failed lookup.</p>
 <h3 id="admin-deactivate-or-reactivate-a-guest-account">Deactivate or reactivate a guest account</h3>
 <ol>
 <li>Open <strong>Users</strong>, then select <strong>Guest Accounts</strong>.

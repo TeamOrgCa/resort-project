@@ -491,6 +491,8 @@ Restore defaults changes the form first; it is not published until saved. It doe
 
 **Expected result:** Saving publishes that section. Uploading an image alone does not publish it. Save each section separately; unsaved edits elsewhere are not published with it.
 
+To recover from test edits, select **Restore website defaults** and review the confirmation. **Restore and publish defaults** restores the original logo, home page and about page text/images together, including replacing unsaved content drafts. This action publishes immediately. Package rates, reservations, payment accounts, resort contact information and uploaded files are preserved. A failed restore keeps your drafts and shows a retry message. Only administrators can restore defaults.
+
 Use **Resort information** for the resort name, address, phone/email and social links, then save that category's settings. Keep text readable and check logo/image visibility on a phone. If a rates image contains prices, update the image separately when required; changing live package rates does not rewrite text inside an uploaded picture.
 
 ### Publish cancellation and refund rules
@@ -526,6 +528,15 @@ Other Configuration categories include ocular, payment and notification settings
 4. Use **Reset Password** to set a temporary password when needed. The staff member changes it on next access when prompted.
 
 Your own admin role cannot be removed through this workflow. Check that the staff member has the appropriate role before sharing access.
+
+### View a guest's booking history
+
+1. Open **Users → Guest Accounts**, then find the guest by name, email or phone.
+2. Select **View bookings** on that guest's card. The history dialog includes all reservations linked to the account, including completed, cancelled and past bookings. Inactive accounts retain their history.
+3. Review the dates in Philippine time, package, guest counts, booking status, recorded bill, net payments, balance and any recorded attendance. Use **Previous history page**, **Next history page** and **Refresh history** as needed.
+4. Select **Open reservation** to inspect the exact record in the reservation calendar in a new tab. The guest list and history remain open in the original tab.
+
+History is matched by the guest's account ID; separate walk-in profiles are not merged by similar names or email addresses. This view is administrator-only. An empty history and a failed lookup have separate messages; use **Try again** for a failed lookup.
 
 ### Deactivate or reactivate a guest account
 

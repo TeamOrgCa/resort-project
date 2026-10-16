@@ -292,6 +292,19 @@ export default function UserMenu() {
                   </button>
                 ) : null}
               </div>
+              {notificationCenter && <div className="mb-3 flex items-center gap-3 rounded-xl border border-neutral/10 bg-base p-3">
+                <div className="min-w-0 flex-1"><p className="text-sm font-medium">Pop-up notifications</p>
+                  <p id={`${panelId}-popup-help`} className="mt-1 text-xs leading-relaxed text-neutral/65">{notificationCenter.savingPreference ? "Saving preference..." : notificationCenter.popupsEnabled ? "On — show pop-up updates." : "Off — updates stay in this menu."} Saved with your account.</p>
+                </div>
+                <button type="button" role="switch" aria-label="Pop-up notifications" aria-checked={notificationCenter.popupsEnabled} aria-describedby={`${panelId}-popup-help`}
+                  disabled={notificationCenter.savingPreference} onClick={() => void notificationCenter.setPopupsEnabled(!notificationCenter.popupsEnabled)}
+                  className="flex min-h-11 min-w-14 shrink-0 items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50">
+                  <span aria-hidden="true" className={`flex h-7 w-12 items-center rounded-full px-1 transition-colors ${notificationCenter.popupsEnabled ? "bg-primary" : "bg-neutral/30"}`}>
+                    <span className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${notificationCenter.popupsEnabled ? "translate-x-5" : "translate-x-0"}`} />
+                  </span>
+                </button>
+              </div>}
+              {notificationCenter?.preferenceError && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">{notificationCenter.preferenceError}</p>}
               {notificationError && <div role="alert" className="mb-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">{notificationError}
                 <button type="button" disabled={notificationsLoading || markingRead} onClick={() => void fetchNotifications(user)} className="ml-2 min-h-11 font-semibold underline disabled:opacity-50">Retry</button>
               </div>}

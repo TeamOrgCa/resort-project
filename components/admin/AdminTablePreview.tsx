@@ -237,8 +237,9 @@ export default function AdminTablePreview({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-neutral/10">
-        <table className="w-full min-w-180 text-left text-sm">
+      {sortable && <p className="mb-3 text-xs text-neutral/60 lg:hidden">Tap a column heading to sort records.</p>}
+      <div className="admin-table-scroll overflow-x-auto rounded-xl border border-neutral/10" tabIndex={0} aria-label={`${title} records`}>
+        <table className="admin-responsive-table w-full min-w-180 text-left text-sm">
           <thead className="border-b border-neutral/10 bg-base/60 text-neutral/60">
             <tr>
               {selectableRows ? <th className="px-4 py-3 font-medium" aria-label="Select" /> : null}
@@ -268,7 +269,7 @@ export default function AdminTablePreview({
             {displayedRows.map((row) => (
               <tr key={row.id} className="border-b border-neutral/10 transition-colors last:border-none hover:bg-base/40">
                 {selectableRows ? (
-                  <td className="px-4 py-4 text-neutral/75">
+                  <td data-label="Select" className="px-4 py-4 text-neutral/75">
                     <input
                       type="checkbox"
                       checked={resolvedSelectedRowIds.includes(row.id)}
@@ -280,13 +281,13 @@ export default function AdminTablePreview({
                 ) : null}
 
                 {columns.map((column) => (
-                  <td key={`${row.id}-${column.key}`} className="px-4 py-4 text-neutral/75">
-                    {column.key === "status" && row[column.key] ? <AdminStatusBadge status={row[column.key]} /> : row[column.key] ?? "-"}
+                  <td key={`${row.id}-${column.key}`} data-label={column.label} className="px-4 py-4 text-neutral/75">
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{column.key === "status" && row[column.key] ? <AdminStatusBadge status={row[column.key]} /> : row[column.key] ?? "-"}</span>
                   </td>
                 ))}
 
                 {rowActions.length > 0 && (
-                  <td className="px-4 py-4">
+                  <td data-label="Actions" className="admin-table-actions px-4 py-4">
                     <div className="flex flex-wrap gap-2">
                       {rowActions.map((action) => (
                         <button

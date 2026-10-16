@@ -8,6 +8,7 @@ import CancellationDialog from "@/components/CancellationDialog";
 import OcularVisitReview from "@/components/admin/OcularVisitReview";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import RecordDialog from "@/components/manage/RecordDialog";
+import LoadingState from "@/components/ui/LoadingState";
 import ReservationPaymentReview from "@/components/admin/transactions/ReservationPaymentReview";
 import { ATTENTION_LABELS, calendarBookingKind, reservationAttention, type AttentionFlag, type CalendarSignals } from "@/lib/booking/calendar-attention";
 import { hasPermission, type Permission } from "@/lib/auth/role-access";
@@ -433,6 +434,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`h-5 w-5 ${isLoading ? "animate-spin motion-reduce:animate-none" : ""}`} aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 19.5 9M17.9 17.9A8 8 0 0 1 4.5 15" /></svg>
         </button>
       </div>} />
+    {isLoading && <div className="mb-4"><LoadingState title="Loading reservation calendar..." description="Fetching bookings, maintenance dates and items needing attention." /></div>}
     {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-900">{cancellationMessage}</p>}
     {blockMessage && <p role="status" className="mb-4 rounded-xl bg-orange-50 p-4 text-sm">{blockMessage}</p>}
     {error && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error} {reservations.length > 0 && "Previously loaded data is shown; flags may be out of date."}<button type="button" onClick={() => setRefreshKey(key => key + 1)} className="ml-2 min-h-11 underline">Retry calendar</button></div>}
@@ -472,14 +474,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             const isToday = dayKey === today;
             const availability = availabilityByDay[dayKey];
             const maintenanceBlocked = (eventsByDay[dayKey] ?? []).some((event) => event.kind === "maintenance");
-            const availabilityLabel = maintenanceBlocked ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : "Fully booked";
+            const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : "Fully booked";
             return <div key={dayKey} className={`min-h-28 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
               {dayReservation ? (
                 <button type="button" onClick={() => openEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</button>
               ) : (
                 <div className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</div>
               )}
-              <p className={`mb-1 rounded px-1 py-0.5 text-[10px] font-medium ${availability?.day && availability?.night ? "bg-green-50 text-green-800" : availability?.day || availability?.night ? "bg-amber-50 text-amber-900" : "bg-neutral/10 text-neutral/60"}`} title={availabilityLabel}>{availabilityLabel}</p>
+              <p className={`mb-1 rounded px-1 py-0.5 text-[10px] font-medium ${isLoading || error ? "bg-neutral/5 text-neutral/60" : availability?.day && availability?.night ? "bg-green-50 text-green-800" : availability?.day || availability?.night ? "bg-amber-50 text-amber-900" : "bg-neutral/10 text-neutral/60"}`} title={availabilityLabel}>{availabilityLabel}</p>
               <div className="space-y-1">
                 {dayEvents.map((event) => {
                   const style = eventStyles[event.kind];

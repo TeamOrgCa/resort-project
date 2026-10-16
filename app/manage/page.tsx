@@ -16,6 +16,7 @@ import CancellationDialog from "@/components/CancellationDialog";
 import ManageIcon from "@/components/manage/ManageIcon";
 import RecordActionsMenu from "@/components/manage/RecordActionsMenu";
 import RecordDialog from "@/components/manage/RecordDialog";
+import LoadingState from "@/components/ui/LoadingState";
 import GuestBookingEditor from "@/components/manage/GuestBookingEditor";
 import RescheduleCalendar from "@/components/manage/RescheduleCalendar";
 import { moveReservationToDate } from "@/lib/booking/reservation-edit";
@@ -763,7 +764,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             {ocularMessage && !recordMode && <p role="status" className="mb-4 rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{ocularMessage}</p>}
             {ocularCancelError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{ocularCancelError}</p>}
           </>}
-          {activeTab !== "refunds" && (isLoading ? <div role="status" className="rounded-2xl bg-base p-8 text-center text-sm text-neutral/60">Loading your records...</div>
+          {activeTab !== "refunds" && (isLoading ? <LoadingState title="Loading your records..." description="Fetching your bookings and their latest payment and request statuses." />
             : ((activeTab === "bookings" ? visibleBookings : visibleOcular).length === 0) ?
               <div className="rounded-2xl border border-dashed border-neutral/15 bg-base/50 p-10 text-center">
                 <ManageIcon name="calendar" className="mx-auto mb-3 h-8 w-8 text-neutral/35" />

@@ -87,6 +87,8 @@ The email field is read-only on this screen. Contact the resort if you need help
 
 Unread updates appear as pop-up notification cards while you are signed in. Select **View details** to open the related booking or record, use the **X** to dismiss one card, or choose **Dismiss all**. Dismissed pop-ups stay hidden in the current browser-tab session; the saved notifications remain in your account menu. Use **Mark all read** there to clear unread indicators. Pop-ups pause while the account menu is open so Profile Settings and Sign Out stay accessible.
 
+In the account menu's **Notifications** section, use the **Pop-up notifications** switch to turn pop-ups on or off. This preference saves automatically with your account and applies when you sign in again, including on another device. When off, new updates remain available in the notification list. If saving fails, the previous setting stays in place and an error prompts you to retry the switch.
+
 ## 4. Book a resort stay
 
 ### Step A — Choose a date and package

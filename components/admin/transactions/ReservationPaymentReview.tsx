@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import LoadingState from "@/components/ui/LoadingState";
 import PaymentReviewModal, { type PaymentReviewRecord } from "./PaymentReviewModal";
 import { createClient } from "@/lib/supabase/client";
 import { PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
@@ -81,7 +82,7 @@ export default function ReservationPaymentReview({ reservationId, reference, onR
   return <section aria-label="Reservation payment review" className="mb-5 space-y-3 rounded-xl border border-neutral/15 bg-base p-3 sm:p-4">
     <h3 className="font-semibold text-neutral">Submitted payments</h3>
     {message && <p role={noticeWarning ? "alert" : "status"} className={`rounded-xl p-3 text-sm ${noticeWarning ? "bg-amber-50 text-amber-900" : "bg-green-50 text-green-900"}`}>{message}</p>}
-    {loading && <p role="status" className="text-sm text-neutral/60">Loading submitted payments...</p>}
+    {loading && <LoadingState compact title="Loading submitted payments..." description="Checking receipts awaiting review." />}
     {loadError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{loadError}<button type="button" onClick={refresh} className="ml-2 min-h-11 underline">Retry payments</button></p>}
     {!loading && !loadError && !payments.length && <p className="text-sm text-neutral/60">No payments awaiting review for this reservation.</p>}
     {!loading && !loadError && !selected && payments.map(payment => <div key={payment.payment_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-3 text-sm">

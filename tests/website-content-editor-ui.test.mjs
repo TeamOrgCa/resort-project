@@ -60,3 +60,43 @@ test("page and section navigation preserve drafts, failed saves retain edits and
     assert.equal(container.querySelector('a[target="_blank"]').getAttribute("href"), "/about");
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
+
+test("website defaults require confirmation, preserve drafts on failure, and publish every content group on success", async () => {
+  const { contentDefinitions } = loadTsModule("lib/settings/content-catalog.ts");
+  let settings = { "content.branding.tagline": "Tester text", "content.home.hero_title": "Tester title", "resort.name": "Resort name" };
+  let attempts = 0, release;
+  const Component = loadTsModule("components/admin/ConfigurationClient.tsx", {
+    "next/image": ({ src, alt }) => createElement("img", { src, alt }),
+    "@/components/admin/PolicyEditor": { default: () => null },
+    "@/components/settings/SettingsProvider": { useSettings: () => ({ settings, isLoading: false, isRefreshing: false, error: null,
+      save: async () => {}, restoreContentDefaults: async () => {
+        attempts++; if (attempts === 1) throw Error("Restore failed. Retry.");
+        await new Promise(resolve => { release = resolve; });
+        settings = { ...settings, ...Object.fromEntries(contentDefinitions.map(definition => [definition.key, definition.defaultValue])) };
+      } }) },
+  }).default;
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  const button = label => [...document.querySelectorAll("button")].find(button => button.textContent.trim() === label);
+  const click = async label => act(async () => { assert.ok(button(label), label); assert.equal(button(label).disabled, false); button(label).click(); });
+  const field = label => document.getElementById([...container.querySelectorAll("label[for]")].find(node => node.textContent === label)?.htmlFor);
+  const edit = async (label, value) => act(async () => {
+    const input = field(label); Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, value);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  try {
+    await act(async () => root.render(createElement(Component)));
+    await edit("Resort name", "Keep unsaved resort name"); await click("Website content"); await edit("Footer tagline", "Unsaved tester text");
+    await click("Restore website defaults"); assert.equal(attempts, 0); assert.ok(document.querySelector('[role="dialog"]'));
+    await click("Keep current content"); assert.equal(field("Footer tagline").value, "Unsaved tester text");
+    await click("Restore website defaults"); await click("Restore and publish defaults");
+    assert.match(document.querySelector('[role="dialog"] [role="alert"]').textContent, /Restore failed/);
+    assert.equal(field("Footer tagline").value, "Unsaved tester text");
+    await click("Restore and publish defaults"); assert.equal(button("Restoring...").disabled, true);
+    assert.equal(button("Keep current content").disabled, true); assert.equal(button("Saving...").disabled, true);
+    await act(async () => release()); assert.equal(attempts, 2); assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(field("Footer tagline").value, contentDefinitions.find(definition => definition.key === "content.branding.tagline").defaultValue);
+    assert.match(container.textContent, /restored and published/);
+    await click("Home page"); assert.equal(field("Hero heading").value, contentDefinitions.find(definition => definition.key === "content.home.hero_title").defaultValue);
+    await click("Resort information"); assert.equal(field("Resort name").value, "Keep unsaved resort name");
+  } finally { await act(async () => root.unmount()); container.remove(); }
+});

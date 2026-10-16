@@ -46,7 +46,7 @@ export default function ConfirmationDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/40 px-4"
+      className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-neutral/40 p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -57,13 +57,13 @@ export default function ConfirmationDialog({
       }}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-neutral/10 bg-white p-6 shadow-xl"
+        className="max-h-[90dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-neutral/10 bg-white p-4 shadow-xl sm:p-6"
         onClick={(event) => event.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-neutral">{title}</h3>
         <p className="mt-2 text-sm text-neutral/80">{message}</p>
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onCancel}

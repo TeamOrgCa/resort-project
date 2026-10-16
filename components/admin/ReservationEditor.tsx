@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import LoadingState from "@/components/ui/LoadingState";
 import { MAX_GUESTS } from "@/lib/booking/guest-count";
 import { moveReservationToDate, previewReservationEdit, validateEditWindow, type EditDetail, type ReservationEdit } from "@/lib/booking/reservation-edit";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
@@ -62,7 +63,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
   }, [reservationId, reload]);
 
   function reloadDetails() { setLoading(true); setError(null); setReload(n => n + 1); }
-  if (loading) return <p className="py-8 text-sm text-neutral/60" role="status">Loading reservation and bill…</p>;
+  if (loading) return <LoadingState title="Loading reservation and bill..." description="Fetching guest details, services and verified payment records." />;
   if (!detail || !draft) return <div className="mt-5"><p role="alert" className="text-sm text-red-700">{error}</p><button onClick={reloadDetails} className="mt-3 rounded-xl border px-4 py-2 text-sm">Try again</button></div>;
 
   const canEdit = detail.canEdit && !detail.lockedReason;

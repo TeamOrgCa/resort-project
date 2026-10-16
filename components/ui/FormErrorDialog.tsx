@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { usePortalTarget } from "@/lib/use-portal-target";
 
 export default function FormErrorDialog({ title, message, actions, closeText = "Back to form", onClose, returnFocusRef }: {
   title: string;
@@ -15,9 +16,11 @@ export default function FormErrorDialog({ title, message, actions, closeText = "
   const closeButton = useRef<HTMLButtonElement>(null);
   const titleId = useId(), messageId = useId();
   const onCloseRef = useRef(onClose);
+  const portalTarget = usePortalTarget();
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
+    if (!portalTarget) return;
     const previousFocus = document.activeElement as HTMLElement | null;
     const returnFocus = returnFocusRef?.current;
     const previousOverflow = document.body.style.overflow;
@@ -40,8 +43,9 @@ export default function FormErrorDialog({ title, message, actions, closeText = "
       document.body.style.overflow = previousOverflow;
       (returnFocus ?? previousFocus)?.focus({ preventScroll: !returnFocus });
     };
-  }, [returnFocusRef]);
+  }, [returnFocusRef, portalTarget]);
 
+  if (!portalTarget) return null;
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-neutral/50 p-3 backdrop-blur-sm sm:p-5">
       <div ref={dialog} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}
@@ -55,6 +59,6 @@ export default function FormErrorDialog({ title, message, actions, closeText = "
         <button ref={closeButton} type="button" onClick={onClose}
           className="mt-4 min-h-11 w-full rounded-xl border border-neutral/20 px-4 py-2 text-sm font-semibold hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">{closeText}</button>
       </div>
-    </div>, document.body,
+    </div>, portalTarget,
   );
 }

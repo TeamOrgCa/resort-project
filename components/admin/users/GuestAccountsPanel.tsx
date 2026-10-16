@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
+import GuestReservationHistory from "@/components/admin/users/GuestReservationHistory";
 
 type GuestAccount = {
   id: string; first_name: string; middle_name: string | null; last_name: string;
@@ -15,6 +16,7 @@ export default function GuestAccountsPanel() {
   const [status, setStatus] = useState("all"), [page, setPage] = useState(0), [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(true), [error, setError] = useState("");
   const [selected, setSelected] = useState<GuestAccount | null>(null), [reason, setReason] = useState("");
+  const [historyGuest, setHistoryGuest] = useState<GuestAccount | null>(null);
   const [saving, setSaving] = useState(false), [saveError, setSaveError] = useState(""), [message, setMessage] = useState("");
   const savingRef = useRef(false);
   const close = useCallback(() => { if (!savingRef.current) setSelected(null); }, []);
@@ -81,13 +83,17 @@ export default function GuestAccountsPanel() {
           <p className="mt-1 break-all text-sm text-neutral/70">{guest.email}</p><p className="mt-1 text-xs text-neutral/60">{guest.phone_number}</p>
           <p className="mt-2 text-xs text-neutral/55">{guest.email_confirmed ? "Email confirmed" : "Email not confirmed"} &middot; Registered {new Date(guest.created_at).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium" })}</p>
         </div>
-        <button type="button" onClick={() => { setSelected(guest); setReason(""); setSaveError(""); setMessage(""); }} className={`min-h-11 shrink-0 rounded-xl border px-4 text-sm font-semibold ${guest.is_active ? "border-red-200 text-red-700 hover:bg-red-50" : "border-emerald-200 text-emerald-800 hover:bg-emerald-50"}`}>{guest.is_active ? "Deactivate" : "Reactivate"}</button>
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
+          <button type="button" onClick={() => setHistoryGuest(guest)} className="admin-button-secondary flex-1 sm:flex-none">View bookings</button>
+          <button type="button" onClick={() => { setSelected(guest); setReason(""); setSaveError(""); setMessage(""); }} className={`min-h-11 flex-1 rounded-xl border px-4 text-sm font-semibold sm:flex-none ${guest.is_active ? "border-red-200 text-red-700 hover:bg-red-50" : "border-emerald-200 text-emerald-800 hover:bg-emerald-50"}`}>{guest.is_active ? "Deactivate" : "Reactivate"}</button>
+        </div>
       </article>)}</div>}
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4 text-sm">
       <p className="text-neutral/60">{total} guest accounts &middot; Page {page + 1} of {Math.max(1, Math.ceil(total / 10))}</p>
       <div className="flex gap-2"><button type="button" disabled={loading || page === 0} onClick={() => setPage(current => current - 1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 disabled:opacity-40">Previous</button>
         <button type="button" disabled={loading || (page + 1) * 10 >= total} onClick={() => setPage(current => current + 1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 disabled:opacity-40">Next</button></div>
     </div>
+    {historyGuest && <GuestReservationHistory key={historyGuest.id} guestId={historyGuest.id} name={name(historyGuest)} email={historyGuest.email} onClose={() => setHistoryGuest(null)} />}
     {selected && <CatalogDialog title={selected.is_active ? "Deactivate guest account" : "Reactivate guest account"} description={`${name(selected)} (${selected.email})`} busy={saving} onClose={close}>
       <form onSubmit={changeStatus} className="space-y-4">
         <p className="text-sm leading-relaxed text-neutral/75">{selected.is_active ? "The guest will be blocked from signing in and using their existing website session. Existing reservations, payments and refunds remain recorded for staff to manage." : "The guest will be able to sign in again. They must start a new session; their previous session will stay ended."}</p>

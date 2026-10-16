@@ -207,7 +207,7 @@ export default function Reviews() {
   if (submitted) {
     return (
       <div className="min-h-screen bg-base flex items-center justify-center px-4">
-        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-12 text-center">
+        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-5 sm:p-12 text-center">
           <div className="w-20 h-20 bg-secondary/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <svg className="w-12 h-12 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -216,7 +216,7 @@ export default function Reviews() {
           <h1 className="text-4xl font-bold text-neutral mb-4">Thank You!</h1>
           <p className="text-xl text-neutral/70 mb-8">Your review has been submitted successfully</p>
 
-          <div className="bg-base p-8 rounded-2xl mb-8">
+          <div className="booking-summary bg-base p-4 sm:p-8 rounded-2xl mb-8">
             <p className="text-neutral/80">
               We appreciate you taking the time to share your experience. Your feedback helps us improve our services 
               and helps future guests make informed decisions. Your review and any attached photo have been submitted.
@@ -298,7 +298,7 @@ export default function Reviews() {
       {/* Main Content */}
       <section className="py-20 px-4">
         <div className="max-w-6xl mx-auto">
-          <div className="flex justify-between items-center mb-12">
+          <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-8 sm:mb-12">
             <h2 className="text-3xl font-bold text-neutral">Guest Reviews ({existingReviews.length})</h2>
             {!showForm && (
               <button
@@ -313,8 +313,8 @@ export default function Reviews() {
 
           {eligibilityMessage && <p role="alert" className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{eligibilityMessage}</p>}
           {showForm && (
-            <div className="bg-white rounded-3xl shadow-xl p-8 mb-12">
-              <div className="flex justify-between items-center mb-8">
+            <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8 mb-12">
+              <div className="flex items-start justify-between gap-3 mb-6 sm:mb-8">
                 <h3 className="text-2xl font-bold text-neutral">Share Your Experience</h3>
                 <button
                   onClick={() => setShowForm(false)}
@@ -505,7 +505,7 @@ export default function Reviews() {
               </div>
             ) : (
               existingReviews.map((review) => (
-                <div key={review.review_id} className="bg-white rounded-3xl shadow-lg p-8">
+                <div key={review.review_id} className="bg-white rounded-3xl shadow-lg p-4 sm:p-8">
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <div className="flex items-center gap-3 mb-2">

@@ -95,7 +95,7 @@ function ResetPasswordContent() {
           <p className="text-neutral/70">Use a strong password you have not used before.</p>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-xl p-8">
+        <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
           {!isReady ? (
             <p className="text-sm text-neutral/70">Checking reset link...</p>
           ) : invalidLink || !hasRecoverySession ? (
