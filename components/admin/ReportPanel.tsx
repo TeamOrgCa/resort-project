@@ -1,5 +1,7 @@
 "use client";
 
+import AdminTabs from "@/components/admin/AdminTabs";
+
 import { useCallback, useEffect, useState } from "react";
 import ReportChart, { type ChartType } from "@/components/admin/ReportChart";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
@@ -37,7 +39,7 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    const endpoint = activeTab === "Guest Report" ? "/api/admin/transactions/guest-report" : "/api/admin/reports";
+    const endpoint = "/api/admin/reports";
     const load = async () => {
       try {
         const response = await fetch(`${endpoint}?${query}`, { cache: "no-store", signal: controller.signal });
@@ -66,17 +68,12 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
     } catch { setActionError("Unable to prepare this document. Please try again."); }
   };
 
-  return <section className="rounded-2xl border border-neutral/10 bg-white p-4 sm:p-6" aria-label="Report viewer">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      {tabs.length > 1 ? <div className="flex flex-wrap gap-2" aria-label="Report type">
-        {tabs.map(tab => <button key={tab} type="button" aria-pressed={activeTab === tab} onClick={() => { setActiveTab(tab); setActionError(null); }} className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === tab ? "bg-primary text-white" : "bg-base text-neutral hover:bg-neutral/10"}`}>{tab}</button>)}
-      </div> : <h2 className="text-xl font-semibold text-neutral">{activeTab}</h2>}
-      <button type="button" disabled={isLoading} onClick={refresh} className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral hover:bg-base disabled:opacity-50">{isLoading ? "Loading…" : "Refresh report"}</button>
-    </div>
+  return <section className="admin-panel" aria-label="Report viewer">
+    <AdminTabs tabs={tabs} value={activeTab} onChange={tab => { setActiveTab(tab); setActionError(null); }} label="Report type" actions={<button type="button" disabled={isLoading} onClick={refresh} className="admin-button-secondary">{isLoading ? "Loading…" : "Refresh report"}</button>} />
     <p className="mt-4 text-sm leading-relaxed text-neutral/75">{config.description}</p>
     <div className="mt-5 flex flex-wrap items-end gap-3 rounded-xl bg-base p-4">
       <ReportPeriodFilter key={period === "Custom" ? `${customRange.startDate}:${customRange.endDate}` : "preset"} period={period} range={customRange} onPeriodChange={setPeriod} onRangeChange={setCustomRange} />
-      <button type="button" onClick={() => { setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral hover:bg-neutral/5">Reset period</button>
+      <button type="button" onClick={() => { setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral hover:bg-neutral/5">Reset period</button>
     </div>
     <p className="mt-3 text-xs text-neutral/65">Reports update automatically when dates are applied. All dates and times use Philippine time.</p>
 

@@ -3,12 +3,15 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+import AdminTabs from "@/components/admin/AdminTabs";
 import CatalogDialog from "./CatalogDialog";
 import CatalogEditorDialog from "./CatalogEditorDialog";
 import PackageRatesEditor from "./PackageRatesEditor";
 import { catalogResources, catalogResourceKeys, catalogRecordName, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource, type CatalogStatus } from "@/lib/catalog/catalog";
 import { validateCatalogRecord } from "@/lib/catalog/validation";
 import { isContentImageUrl } from "@/lib/settings/public-content";
+
+const visibleCatalogResources = catalogResourceKeys.filter(key => key !== "unit_rates" && key !== "guest_rates");
 
 const PAGE_SIZE = 15;
 const emptyReferences: CatalogReferences = { units: [], paymentMethods: [] };
@@ -155,12 +158,12 @@ export default function CatalogClient() {
     <AdminSectionHeader title="Business Catalog" subtitle="Keep your resort offerings and operational details organized." />
     {notice && <div role="status" className={`mb-5 flex items-center justify-between gap-4 rounded-xl border px-4 py-3 text-sm ${notice.warning ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}><span>{notice.text}</span><button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)} className="font-medium underline">Dismiss</button></div>}
     <section className="overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm">
-      <nav aria-label="Catalog categories" className="flex flex-wrap gap-2 border-b border-neutral/10 bg-base/60 p-4 sm:px-6">
-        <button type="button" disabled={busy} aria-pressed={showPackageRates} onClick={() => setShowPackageRates(true)} className={`rounded-xl px-3.5 py-2 text-sm font-medium transition ${showPackageRates ? "bg-primary text-white shadow-sm" : "text-neutral/65 hover:bg-white hover:text-neutral"}`}>Package rates</button>
-        {catalogResourceKeys.map((resource) => <button key={resource} type="button" aria-pressed={!showPackageRates && filters.resource === resource} disabled={busy} onClick={() => {
-          setShowPackageRates(false); setLoading(true); setSearchDraft(""); setFilters({ resource, status: "active", search: "", unitId: "", page: 1 });
-        }} className={`rounded-xl px-3.5 py-2 text-sm font-medium transition ${!showPackageRates && filters.resource === resource ? "bg-primary text-white shadow-sm" : "text-neutral/65 hover:bg-white hover:text-neutral"}`}>{catalogResources[resource].label}</button>)}
-      </nav>
+      <AdminTabs inset={false} tabs={["Package rates", ...visibleCatalogResources.map(resource => catalogResources[resource].label)]} value={showPackageRates ? "Package rates" : definition.label} label="Catalog categories" disabled={busy} onChange={label => {
+        if (label === "Package rates") { setShowPackageRates(true); return; }
+        const resource = visibleCatalogResources.find(key => catalogResources[key].label === label);
+        if (!resource) return;
+        setShowPackageRates(false); setLoading(true); setSearchDraft(""); setFilters({ resource, status: "active", search: "", unitId: "", page: 1 });
+      }} />
       {showPackageRates ? <PackageRatesEditor /> : <div className="p-4 sm:p-6">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div><h2 className="text-xl font-semibold text-neutral">{definition.label}</h2><p className="mt-1 text-sm text-neutral/60">{definition.description}</p></div>
@@ -168,7 +171,7 @@ export default function CatalogClient() {
         </div>
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-base p-1" aria-label="Filter by status">
-            {(["active", "archived", "all"] as const).map((status) => <button key={status} type="button" aria-pressed={filters.status === status} onClick={() => { setLoading(true); setFilters((current) => ({ ...current, status, page: 1 })); }} className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm capitalize ${filters.status === status ? "bg-white font-semibold text-neutral shadow-sm" : "text-neutral/60 hover:text-neutral"}`}>{status} <span className="ml-1 text-xs text-neutral/45">{loading ? "…" : status === "all" ? counts.active + counts.archived : counts[status]}</span></button>)}
+            {(["active", "archived", "all"] as const).map((status) => <button key={status} type="button" aria-pressed={filters.status === status} onClick={() => { setLoading(true); setFilters((current) => ({ ...current, status, page: 1 })); }} className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm capitalize ${filters.status === status ? "bg-white font-semibold text-neutral shadow-sm" : "text-neutral/60 hover:text-neutral"}`}>{status} <span className="ml-1 text-xs text-neutral/45">{loading ? "…" : status === "all" ? counts.active + counts.archived : counts[status]}</span></button>)}
           </div>
           <div className="flex w-full items-center gap-2 sm:w-auto">
             {definition.search && <label className="relative grow sm:w-64"><span className="sr-only">Search {definition.label.toLowerCase()}</span><svg className="absolute left-3 top-3 text-neutral/45" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg><input type="search" value={searchDraft} maxLength={200} onChange={(event) => setSearchDraft(event.target.value)} placeholder={`Search ${definition.label.toLowerCase()}...`} className="w-full rounded-xl border border-neutral/20 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" /></label>}
@@ -185,11 +188,11 @@ export default function CatalogClient() {
                 const name = catalogRecordName(filters.resource, record, references); const active = isCatalogActive(record);
                 return <tr key={String(record[definition.id])} className="transition hover:bg-base/40">
                   {definition.columns.map((key, index) => <td key={key} className="px-4 py-4 align-top text-neutral/75"><div className={index === 0 ? "flex items-center gap-3" : ""}>
-                    {filters.resource === "units" && index === 0 && (isContentImageUrl(record.unit_img) ? <Image src={record.unit_img} alt={String(record.name)} width={44} height={44} unoptimized className="h-11 w-11 shrink-0 rounded-lg object-cover" /> : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg font-semibold text-primary" aria-hidden="true">{name.charAt(0)}</span>)}
+                    {filters.resource === "units" && index === 0 && (isContentImageUrl(record.unit_img) ? <Image src={record.unit_img} alt={String(record.name)} width={44} height={44} unoptimized className="h-11 w-11 shrink-0 rounded-xl object-cover" /> : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-lg font-semibold text-primary" aria-hidden="true">{name.charAt(0)}</span>)}
                     <div className="max-w-md"><p className={index === 0 ? "font-medium text-neutral" : key.includes("price") || key.includes("rate") ? "whitespace-nowrap font-medium tabular-nums" : key.startsWith("effective_") ? "whitespace-nowrap" : "line-clamp-2"}>{displayValue(key, record[key])}</p>{index === 0 && record.description ? <p className="mt-1 line-clamp-2 max-w-sm text-xs leading-relaxed text-neutral/50">{String(record.description)}</p> : null}{filters.resource === "payment_accounts" && index === 0 && <p className="mt-1 text-xs text-neutral/50">{record.qr_image ? "QR image attached" : "No QR image"}</p>}</div>
                   </div></td>)}
                   <td className="px-4 py-4 align-top"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${active ? "bg-green-50 text-green-700" : "bg-neutral/5 text-neutral/55"}`}><span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-green-500" : "bg-neutral/35"}`} />{active ? "Active" : "Archived"}</span></td>
-                  <td className="whitespace-nowrap px-4 py-4 text-right align-top"><button type="button" disabled={busy} onClick={() => openEditor(record)} aria-label={`Edit ${name}`} className="rounded-lg border border-neutral/15 px-3 py-1.5 text-xs font-medium text-neutral hover:border-primary/40 hover:bg-primary/5">Edit</button><button type="button" disabled={busy} onClick={() => { setAction({ kind: active ? "archive" : "restore", resource: filters.resource, record }); setActionError(null); }} aria-label={`${active ? "Archive" : "Restore"} ${name}`} className={`ml-2 rounded-lg px-3 py-1.5 text-xs font-medium ${active ? "text-neutral/55 hover:bg-red-50 hover:text-red-700" : "text-primary hover:bg-primary/5"}`}>{active ? "Archive" : "Restore"}</button></td>
+                  <td className="whitespace-nowrap px-4 py-4 text-right align-top"><button type="button" disabled={busy} onClick={() => openEditor(record)} aria-label={`Edit ${name}`} className="rounded-xl border border-neutral/15 px-3 py-1.5 text-xs font-medium text-neutral hover:border-primary/40 hover:bg-primary/5">Edit</button><button type="button" disabled={busy} onClick={() => { setAction({ kind: active ? "archive" : "restore", resource: filters.resource, record }); setActionError(null); }} aria-label={`${active ? "Archive" : "Restore"} ${name}`} className={`ml-2 rounded-xl px-3 py-1.5 text-xs font-medium ${active ? "text-neutral/55 hover:bg-red-50 hover:text-red-700" : "text-primary hover:bg-primary/5"}`}>{active ? "Archive" : "Restore"}</button></td>
                 </tr>;
               })}
             </tbody>
@@ -197,7 +200,7 @@ export default function CatalogClient() {
         </div>}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral/55">
           <p>{loading ? "Loading..." : total === 0 ? "0 items" : `${(filters.page - 1) * PAGE_SIZE + 1}–${Math.min(filters.page * PAGE_SIZE, total)} of ${total} items`}</p>
-          <div className="flex items-center gap-2"><button type="button" disabled={loading || filters.page <= 1} onClick={() => { setLoading(true); setFilters((current) => ({ ...current, page: current.page - 1 })); }} className="rounded-lg border border-neutral/15 px-3 py-2 text-xs font-medium hover:bg-base disabled:opacity-40">Previous</button><span className="px-2 text-xs">Page {filters.page} of {lastPage}</span><button type="button" disabled={loading || filters.page >= lastPage} onClick={() => { setLoading(true); setFilters((current) => ({ ...current, page: current.page + 1 })); }} className="rounded-lg border border-neutral/15 px-3 py-2 text-xs font-medium hover:bg-base disabled:opacity-40">Next</button></div>
+          <div className="flex items-center gap-2"><button type="button" disabled={loading || filters.page <= 1} onClick={() => { setLoading(true); setFilters((current) => ({ ...current, page: current.page - 1 })); }} className="rounded-xl border border-neutral/15 px-3 py-2 text-xs font-medium hover:bg-base disabled:opacity-40">Previous</button><span className="px-2 text-xs">Page {filters.page} of {lastPage}</span><button type="button" disabled={loading || filters.page >= lastPage} onClick={() => { setLoading(true); setFilters((current) => ({ ...current, page: current.page + 1 })); }} className="rounded-xl border border-neutral/15 px-3 py-2 text-xs font-medium hover:bg-base disabled:opacity-40">Next</button></div>
         </div>
       </div>}
     </section>

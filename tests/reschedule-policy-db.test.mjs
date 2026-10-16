@@ -5,6 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
 const migration = readFileSync("docs/reschedule-policy-migration.sql", "utf8");
+const guestRequestsMigration = readFileSync("docs/guest-reschedule-requests-migration.sql", "utf8");
 const { reschedulePolicy } = loadTsModule("lib/booking/reschedule-charge-policy.ts");
 const admin = "11111111-1111-4111-8111-111111111111";
 const staff = "22222222-2222-4222-8222-222222222222";
@@ -18,12 +19,12 @@ before(async () => {
   await db.exec(`
     create role anon; create role authenticated; create role service_role;
     create schema auth;
-    create function auth.uid() returns uuid language sql as $$select null::uuid$$;
+    create function auth.uid() returns uuid language sql as $$select nullif(current_setting('fixture.actor',true),'')::uuid$$;
     create table public.staff_users(id uuid primary key,role text,is_active boolean);
     create table public.role_permissions(role text primary key,permissions text[]);
     create table public.reservations(reservation_id uuid primary key,guest_id uuid,reference_number text,
       status text,booking_mode text,start_datetime timestamptz,end_datetime timestamptz,adult_count integer,
-      child_count integer,payment_deadline_at timestamptz,updated_at timestamptz default now(),special_requests text);
+      child_count integer,payment_deadline_at timestamptz,updated_at timestamptz default now(),special_requests text,checked_in_at timestamptz);
     create table public.transactions(reservation_id uuid primary key,total_amount numeric,paid_amount numeric,status text);
     create table public.reservation_services(reservation_id uuid,service_id uuid,quantity integer,price_at_time numeric,unique(reservation_id,service_id));
     create table public.reservation_units(reservation_id uuid,unit_id uuid,quantity integer,price_per_night numeric);
@@ -40,10 +41,12 @@ before(async () => {
   await db.query("insert into public.staff_users values($1,'admin',true),($2,'staff',true)", [admin, staff]);
   await db.exec("insert into public.role_permissions values('staff',array['edit_reservation','reschedule_approval'])");
   await db.exec(migration);
+  await db.exec(guestRequestsMigration);
+  await db.exec(guestRequestsMigration);
 });
 after(async () => { await db?.close(); });
 beforeEach(async () => {
-  await db.exec(`truncate public.reservation_reschedule_adjustments,public.reservations,public.transactions,public.invoices,
+  await db.exec(`reset role;select set_config('fixture.actor','',false);truncate public.reservation_reschedule_adjustments,public.reservations,public.transactions,public.invoices,
     public.audit_logs,public.reservation_reschedules,public.reservation_services,public.reservation_units,public.payments,public.refund_requests;
     update public.role_permissions set permissions=array['edit_reservation','reschedule_approval'];`);
   await db.query(`insert into public.reservations(reservation_id,guest_id,reference_number,status,booking_mode,start_datetime,end_datetime,adult_count,child_count)
@@ -68,10 +71,10 @@ async function moved({ actor = staff, ack = false, days = 1, feeOverride } = {})
   return { patch, expected, save: async (rpc = "edit_staff_reservation_reschedule") =>
     (await one("select public." + rpc + "($1,$2,$3,$4) result", [reservation, actor, expected, patch])).result };
 }
-async function guestRequest() {
+async function guestRequest(days = 1) {
   return one(`insert into public.reservation_reschedules(reservation_id,requested_by,old_start,old_end,new_start,new_end,reschedule_fee,rate_adjustment)
-    select reservation_id,guest_id,start_datetime,end_datetime,start_datetime+interval '1 day',end_datetime+interval '1 day',
-      (public.reschedule_policy_snapshot(start_datetime)->>'noticeFee')::numeric,500 from public.reservations returning *`);
+    select reservation_id,guest_id,start_datetime,end_datetime,start_datetime+make_interval(days=>$1),end_datetime+make_interval(days=>$1),
+      (public.reschedule_policy_snapshot(start_datetime)->>'noticeFee')::numeric,500 from public.reservations returning *`, [days]);
 }
 
 test("SQL and application policies agree on peak months, Philippine dates, deadlines and every fee bracket", async () => {
@@ -132,12 +135,75 @@ test("audit failures roll back the date, bill, invoice and charge record togethe
   assert.deepEqual((await one("select start_datetime from public.reservations")).start_datetime, before.start_datetime);
 });
 
-test("guest requests enforce notice and prevent duplicates without charging before approval", async () => {
+test("guest requests allow short notice and prevent duplicates without charging before approval", async () => {
   await guestRequest();
-  await assert.rejects(guestRequest, e => e.code === "40001");
+  await assert.rejects(() => guestRequest(), e => e.code === "40001");
   assert.equal((await one("select total_amount from public.transactions")).total_amount, "8600");
   await db.exec("truncate public.reservation_reschedules"); await originalDays(2);
-  await assert.rejects(guestRequest, e => e.code === "22023");
+  const original = await one("select start_datetime,end_datetime from public.reservations");
+  const request = await guestRequest(); assert.equal(Number(request.reschedule_fee), 300);
+  assert.deepEqual(await one("select start_datetime,end_datetime from public.reservations"), original);
+  assert.equal((await one("select total_amount from public.transactions")).total_amount, "8600");
+});
+
+test("short-notice, same-day and past-date requests wait for authorized approval and retain the correct fee", async () => {
+  for (const [days, fee] of [[6, 50], [5, 100], [3, 100], [2, 300], [1, 300], [0, 500], [-1, 500]]) {
+    await db.exec("truncate public.reservation_reschedules,public.audit_logs;update public.reservations set status='confirmed',checked_in_at=null;update public.transactions set total_amount=8600");
+    await originalDays(days);
+    const before = await one("select start_datetime from public.reservations");
+    const request = await guestRequest(30); assert.equal(Number(request.reschedule_fee), fee);
+    assert.equal(request.status, "pending");
+    assert.deepEqual((await one("select start_datetime from public.reservations")).start_datetime, before.start_datetime);
+    assert.equal((await one("select total_amount from public.transactions")).total_amount, "8600");
+    await db.exec("update public.reservations set status='reschedule_requested'");
+    const result = (await one("select public.approve_reschedule_request($1,$2) result", [request.reschedule_id, staff])).result;
+    assert.equal(result.additionalCharge, fee + 500); assert.equal(result.totalAmount, 8600 + fee + 500); assert.equal(result.paidAmount, 600);
+    const audit = (await one("select details from public.audit_logs")).details;
+    assert.equal(audit.notice_fee, fee); assert.equal(audit.requested_by, guest); assert.equal(audit.policy_at_request.daysNotice, days);
+    assert.equal(audit.late_request, days < audit.policy_at_request.minimumNoticeDays);
+  }
+});
+
+test("late requests retain ownership, arrival, financial-review and quote protections", async () => {
+  await originalDays(2);
+  await db.query("select set_config('fixture.actor',$1,false)", [admin]);
+  await assert.rejects(() => guestRequest(), e => e.code === "42501");
+  await db.query("select set_config('fixture.actor',$1,false)", [guest]);
+  await db.exec("update public.reservations set checked_in_at=now()");
+  await assert.rejects(() => guestRequest(), e => e.code === "40001");
+  await db.exec("update public.reservations set checked_in_at=null");
+  for (const table of ["payments", "refund_requests"]) {
+    await db.query(`insert into public.${table} values($1,'pending')`, [reservation]);
+    await assert.rejects(() => guestRequest(), e => e.code === "40001");
+    await db.exec(`truncate public.${table}`);
+  }
+  const request = await guestRequest(); await db.exec("update public.reservations set status='reschedule_requested'");
+  await db.exec("update public.reservation_reschedules set reschedule_fee=0");
+  await assert.rejects(() => one("select public.approve_reschedule_request($1,$2)", [request.reschedule_id, staff]), e => e.code === "40001");
+  await db.exec("set role authenticated");
+  await assert.rejects(() => one("select public.approve_reschedule_request($1,$2)", [request.reschedule_id, staff]), e => e.code === "42501");
+  await db.exec("reset role");
+  assert.equal((await one("select total_amount from public.transactions")).total_amount, "8600");
+});
+
+test("late approval records and charges roll back together if auditing fails", async () => {
+  await originalDays(2); const request = await guestRequest();
+  await db.exec("update public.reservations set status='reschedule_requested'");
+  const before = await one("select start_datetime from public.reservations");
+  await db.exec("create or replace function public.fail_reschedule_audit() returns trigger language plpgsql as $$begin raise exception 'audit unavailable';end$$;create trigger fail_reschedule_audit before insert on public.audit_logs for each row execute function public.fail_reschedule_audit()");
+  try { await assert.rejects(() => one("select public.approve_reschedule_request($1,$2)", [request.reschedule_id, staff]), /audit unavailable/); }
+  finally { await db.exec("drop trigger fail_reschedule_audit on public.audit_logs"); }
+  assert.deepEqual((await one("select start_datetime from public.reservations")).start_datetime, before.start_datetime);
+  assert.equal((await one("select total_amount from public.transactions")).total_amount, "8600");
+  assert.equal((await one("select status from public.reservation_reschedules")).status, "pending");
+});
+
+test("waiting for staff review does not increase a late request's original notice fee", async () => {
+  await originalDays(2); const request = await guestRequest();
+  await db.exec("update public.reservations set status='reschedule_requested';update public.reservation_reschedules set created_at=created_at-interval '4 days',reschedule_fee=50");
+  const result = (await one("select public.approve_reschedule_request($1,$2) result", [request.reschedule_id, staff])).result;
+  assert.equal(result.additionalCharge, 550); assert.equal(result.totalAmount, 9150);
+  assert.equal((await one("select details from public.audit_logs")).details.policy_at_request.daysNotice, 6);
 });
 
 test("guest approval preserves the captured bill despite legacy recalculation triggers", async () => {
@@ -153,7 +219,7 @@ test("guest approval preserves the captured bill despite legacy recalculation tr
 
 test("the original services-edit RPC cannot bypass date charges and reapplying preserves history", async () => {
   await assert.rejects(async () => (await moved()).save("edit_staff_reservation"), e => e.code === "22023");
-  await (await moved()).save(); await db.exec(migration);
+  await (await moved()).save(); await db.exec(migration); await db.exec(guestRequestsMigration);
   assert.equal((await one("select count(*)::int n from public.reservation_reschedule_adjustments")).n, 1);
   assert.equal((await one("select total_amount from public.transactions")).total_amount, "8650.00");
 });

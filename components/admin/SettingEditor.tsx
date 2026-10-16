@@ -1,9 +1,10 @@
 "use client";
 
+import { useId } from "react";
 import type { SettingDefinition, SettingValue } from "@/lib/settings/types";
 import ContentImageEditor from "./ContentImageEditor";
 
-const fieldClass = "mt-2 w-full rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral";
+const fieldClass = "admin-field mt-2 w-full";
 const asRecord = (value: SettingValue): Record<string, unknown> =>
   typeof value === "object" && !Array.isArray(value) && value !== null ? value : {};
 const asList = (value: SettingValue): string[] => Array.isArray(value) ? value : [];
@@ -12,7 +13,7 @@ function ListEditor({ value, onChange, itemLabel }: { value: string[]; onChange:
   return <div className="mt-2 space-y-2">
     {value.map((item, index) => <div key={index} className="flex gap-2">
       <input aria-label={`${itemLabel} ${index + 1}`} value={item} onChange={(event) => onChange(value.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className={fieldClass.replace("mt-2 ", "")} />
-      <button type="button" onClick={() => onChange(value.filter((_, entryIndex) => entryIndex !== index))} className="rounded-lg border border-neutral/20 px-3 text-sm">Remove</button>
+      <button type="button" onClick={() => onChange(value.filter((_, entryIndex) => entryIndex !== index))} className="rounded-xl border border-neutral/20 px-3 text-sm">Remove</button>
     </div>)}
     <button type="button" onClick={() => onChange([...value, ""])} className="text-sm font-semibold text-primary underline">Add {itemLabel.toLowerCase()}</button>
   </div>;
@@ -21,13 +22,13 @@ function ListEditor({ value, onChange, itemLabel }: { value: string[]; onChange:
 function TemplatesEditor({ value, onChange }: { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
   const entries = Object.entries(value);
   return <div className="mt-2 space-y-3">
-    {entries.map(([name, body]) => <div key={name} className="rounded-lg border border-neutral/10 bg-base p-3">
+    {entries.map(([name, body]) => <div key={name} className="rounded-xl border border-neutral/10 bg-base p-3">
       <div className="flex gap-2">
         <input aria-label="Template name" value={name} onChange={(event) => {
           const nextName = event.target.value;
           if (nextName !== name && !(nextName in value)) onChange(Object.fromEntries(entries.map(([key, text]) => [key === name ? nextName : key, text])));
         }} className={fieldClass.replace("mt-2 ", "")} />
-        <button type="button" onClick={() => onChange(Object.fromEntries(entries.filter(([key]) => key !== name)))} className="rounded-lg border border-neutral/20 px-3 text-sm">Remove</button>
+        <button type="button" onClick={() => onChange(Object.fromEntries(entries.filter(([key]) => key !== name)))} className="rounded-xl border border-neutral/20 px-3 text-sm">Remove</button>
       </div>
       <textarea aria-label={`${name} template body`} rows={3} value={typeof body === "string" ? body : ""} onChange={(event) => onChange({ ...value, [name]: event.target.value })} className={fieldClass} />
     </div>)}
@@ -39,11 +40,14 @@ function TemplatesEditor({ value, onChange }: { value: Record<string, unknown>; 
   </div>;
 }
 
-export default function SettingEditor({ definition, value, onChange, onUploadingChange }: { definition: SettingDefinition; value: SettingValue; onChange: (value: SettingValue) => void; onUploadingChange?: (uploading: boolean) => void }) {
+export default function SettingEditor({ definition, value, onChange, onUploadingChange, compact = false }: { definition: SettingDefinition; value: SettingValue; onChange: (value: SettingValue) => void; onUploadingChange?: (uploading: boolean) => void; compact?: boolean }) {
+  const id = useId();
   const record = asRecord(value);
+  const simpleControl = ["text", "textarea", "number"].includes(definition.input);
+  const controlClass = compact ? `admin-field mt-1 w-full ${definition.input === "textarea" ? "resize-y" : ""}` : fieldClass;
   let control: React.ReactNode;
   if (definition.input === "image") {
-    control = <ContentImageEditor value={typeof value === "string" ? value : ""} onChange={onChange} label={definition.label} onUploadingChange={onUploadingChange} />;
+    control = <ContentImageEditor compact={compact} value={typeof value === "string" ? value : ""} onChange={onChange} label={definition.label} onUploadingChange={onUploadingChange} />;
   } else if (definition.key === "resort.contact_numbers" || definition.key === "payments.accepted_methods") {
     control = <ListEditor value={asList(value)} onChange={onChange} itemLabel={definition.key === "resort.contact_numbers" ? "Phone number" : "Payment method"} />;
   } else if (definition.key === "resort.social_links") {
@@ -66,13 +70,13 @@ export default function SettingEditor({ definition, value, onChange, onUploading
   } else if (definition.input === "toggle") {
     control = <label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} /> Enabled</label>;
   } else if (definition.input === "textarea") {
-    control = <textarea rows={3} value={String(value)} onChange={(event) => onChange(event.target.value)} className={fieldClass} />;
+    control = <textarea id={id} aria-describedby={compact ? undefined : `${id}-help`} rows={compact ? /inclusions|reminders/i.test(definition.label) ? 4 : 2 : 3} value={String(value)} onChange={(event) => onChange(event.target.value)} className={controlClass} />;
   } else {
-    control = <input type={definition.input === "number" ? "number" : "text"} value={String(value)} onChange={(event) => onChange(definition.input === "number" ? Number(event.target.value) : event.target.value)} className={fieldClass} />;
+    control = <input id={id} aria-describedby={compact ? undefined : `${id}-help`} type={definition.input === "number" ? "number" : "text"} value={String(value)} onChange={(event) => onChange(definition.input === "number" ? Number(event.target.value) : event.target.value)} className={controlClass} />;
   }
-  return <div className="rounded-xl border border-neutral/10 p-4">
-    <p className="font-semibold text-neutral">{definition.label}</p>
-    <p className="mt-1 text-xs text-neutral/60">{definition.description}</p>
+  return <div className={compact ? "min-w-0" : "rounded-xl border border-neutral/10 p-4"}>
+    {simpleControl ? <label htmlFor={id} className="block text-sm font-medium text-neutral">{definition.label}</label> : <p className="text-sm font-semibold text-neutral">{definition.label}</p>}
+    {!compact && <p id={`${id}-help`} className="mt-1 text-xs text-neutral/60">{definition.description}</p>}
     {control}
   </div>;
 }

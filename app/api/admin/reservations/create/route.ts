@@ -5,8 +5,9 @@ import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
+import { staffHasPermission } from "@/lib/server/role-permissions";
 
-type GuestType = "existing" | "walk_in";
+type GuestType = "walk_in";
 
 interface WalkInGuestPayload {
   firstName: string;
@@ -39,11 +40,6 @@ interface ManualReservationPayload {
   unitId: string;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
-}
-
-interface GuestRow {
-  id: string;
-  email: string;
 }
 
 interface WalkInGuestRow {
@@ -114,15 +110,8 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
   }
 
   const walkInGuest = parseWalkInGuest(payload.walkInGuest);
-  const guestType: GuestType = payload.guestType === "walk_in" || walkInGuest ? "walk_in" : "existing";
-
-  if (guestType === "existing" && !payload.guestEmail && !payload.guestId) {
-    return null;
-  }
-
-  if (guestType === "walk_in" && !walkInGuest) {
-    return null;
-  }
+  const guestType: GuestType = "walk_in";
+  if ((payload.guestType && payload.guestType !== "walk_in") || payload.guestId || payload.guestEmail || !walkInGuest) return null;
 
   if (!isValidDate(payload.startDatetime) || !isValidDate(payload.endDatetime)) {
     return null;
@@ -195,13 +184,24 @@ export async function POST(request: Request) {
     if (!staffContext) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
+    if (!await staffHasPermission(staffContext.supabase, staffContext.staffUser.role, "create_reservation")) {
+      return NextResponse.json({ success: false, message: "You cannot create manual reservations." }, { status: 403 });
+    }
 
     const body = await request.json();
+    if (body && typeof body === "object" && (body.guestType === "existing" || body.guestId || body.guestEmail)) {
+      return NextResponse.json({ success: false, message: "Registered guests must create bookings through their own account. Manual entry is for guests without an account." }, { status: 400 });
+    }
     const payload = parsePayload(body);
 
     if (!payload) {
       return NextResponse.json({ success: false, message: "Invalid request payload." }, { status: 400 });
     }
+
+    const { data: registeredGuest, error: guestLookupError } = await staffContext.supabase.from("guests")
+      .select("id").ilike("email", payload.walkInGuest!.email.replace(/[\\%_]/g, "\\$&")).limit(1);
+    if (guestLookupError) return NextResponse.json({ success: false, message: "Unable to check guest account. Please retry." }, { status: 500 });
+    if (registeredGuest?.length) return NextResponse.json({ success: false, message: "This email already has a guest account. Please ask the guest to book using their account." }, { status: 409 });
 
     const packageSchedule = await loadQuotedPackageRates(staffContext.supabase, payload.packageRateVersion);
     const bookingValidation = validateBookingWindow({
@@ -274,7 +274,7 @@ export async function POST(request: Request) {
       );
     }
 
-    let guestId: string | null = null;
+    const guestId: string | null = null;
     let walkInGuestId: string | null = null;
 
     if (payload.guestType === "walk_in" && payload.walkInGuest) {
@@ -302,28 +302,6 @@ export async function POST(request: Request) {
       }
 
       walkInGuestId = walkInGuest.walk_in_guest_id;
-    } else {
-      const guestLookup = payload.guestId
-        ? staffContext.supabase.from("guests").select("id, email").eq("id", payload.guestId).maybeSingle<GuestRow>()
-        : staffContext.supabase
-            .from("guests")
-            .select("id, email")
-            .eq("email", payload.guestEmail ?? "")
-            .maybeSingle<GuestRow>();
-
-      const { data: guest, error: guestError } = await guestLookup;
-
-      if (guestError || !guest) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Guest profile not found. Please register the guest before creating a manual reservation.",
-          },
-          { status: 404 }
-        );
-      }
-
-      guestId = guest.id;
     }
 
     const { conflict, error: overlapError } = await checkReservationOverlap(

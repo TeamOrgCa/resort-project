@@ -3000,3 +3000,692 @@ create policy "Read visible review photos" on storage.objects for select to anon
   and exists(select 1 from public.reviews r where r.image_path=storage.objects.name and r.is_approved and r.archived_at is null));
 notify pgrst,'reload schema';
 commit;
+-- Apply after reservation-edit, package-rates, guest-account-status,
+-- additional-services-billing, overpayment-refunds and cancellation-refund-workflow.
+-- Guest dates/packages and immutable payments/receipts are never changed here.
+begin;
+create or replace function public.edit_guest_reservation_bill(p_reservation uuid,p_guest uuid,p_expected jsonb,p_patch jsonb)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  v_r public.reservations%rowtype; v_t public.transactions%rowtype;
+  v_existing public.reservation_services%rowtype; v_catalog public.services%rowtype;
+  v_old_services jsonb; v_old_units jsonb; v_before_services_total numeric; v_after_services_total numeric;
+  v_item jsonb; v_service uuid; v_quantity integer; v_seen uuid[]:=array[]::uuid[];
+  v_adults integer; v_children integer; v_total numeric; v_paid numeric; v_status text; v_reducing boolean:=false;
+begin
+  if not exists(select 1 from public.guests where id=p_guest and is_active) then
+    raise exception 'This guest account is not active' using errcode='42501'; end if;
+  select * into v_r from public.reservations where reservation_id=p_reservation for update;
+  if not found or v_r.guest_id is distinct from p_guest then
+    raise exception 'Booking not found for this account' using errcode='42501'; end if;
+  if v_r.status not in ('pending','confirmed') or v_r.end_datetime<=clock_timestamp()
+    or (v_r.status='pending' and (v_r.payment_deadline_at is null or v_r.payment_deadline_at<=clock_timestamp())) then
+    raise exception 'This booking is no longer editable' using errcode='40001'; end if;
+  select * into v_t from public.transactions where reservation_id=p_reservation for update;
+  if not found then raise exception 'Booking bill not found' using errcode='22023'; end if;
+  perform public.refresh_reservation_payment_totals(p_reservation);
+  select * into v_t from public.transactions where reservation_id=p_reservation;
+  v_paid:=coalesce(v_t.paid_amount,0);
+  if exists(select 1 from public.payments where reservation_id=p_reservation and status='pending')
+    or exists(select 1 from public.reservation_reschedules where reservation_id=p_reservation and status='pending')
+    or exists(select 1 from public.refund_requests where reservation_id=p_reservation and status in ('pending','reviewed','approved','payout_submitted')) then
+    raise exception 'Resolve the pending payment, reschedule or refund review before editing' using errcode='40001'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object('serviceId',service_id,'quantity',quantity,'price',price_at_time) order by service_id),'[]'::jsonb),
+    coalesce(sum(quantity*price_at_time),0) into v_old_services,v_before_services_total
+    from public.reservation_services where reservation_id=p_reservation;
+  select coalesce(jsonb_agg(jsonb_build_object('unitId',unit_id,'quantity',quantity,'price',price_per_night) order by unit_id),'[]'::jsonb)
+    into v_old_units from public.reservation_units where reservation_id=p_reservation;
+  if v_r.updated_at is distinct from (p_expected->>'updatedAt')::timestamptz
+    or v_t.total_amount is distinct from (p_expected->>'totalAmount')::numeric
+    or v_paid is distinct from (p_expected->>'paidAmount')::numeric
+    or v_old_services is distinct from p_expected->'services' or v_old_units is distinct from p_expected->'units' then
+    raise exception 'This booking or bill changed. Reload before saving' using errcode='40001'; end if;
+  if jsonb_typeof(p_patch->'services') is distinct from 'array' or jsonb_array_length(p_patch->'services')>100
+    or coalesce(p_patch->>'adultCount','') !~ '^[0-9]{1,2}$' or coalesce(p_patch->>'childCount','') !~ '^[0-9]{1,2}$'
+    or jsonb_typeof(p_patch->'packageDelta') is distinct from 'number'
+    or jsonb_typeof(p_patch->'expectedTotal') is distinct from 'number' then
+    raise exception 'Enter valid guest counts and service quantities' using errcode='22023'; end if;
+  v_adults:=(p_patch->>'adultCount')::integer; v_children:=(p_patch->>'childCount')::integer;
+  if v_adults<1 or v_children<0 or v_adults+v_children>30 then
+    raise exception 'Include at least one adult and no more than 30 guests' using errcode='22023'; end if;
+  if (v_adults<>v_r.adult_count or v_children<>v_r.child_count) and v_r.start_datetime<=clock_timestamp() then
+    raise exception 'Guest counts can only be changed before check-in. Contact resort staff' using errcode='22023'; end if;
+  for v_item in select value from jsonb_array_elements(p_patch->'services') loop
+    if jsonb_typeof(v_item) is distinct from 'object'
+      or coalesce(v_item->>'serviceId','') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      or coalesce(v_item->>'quantity','') !~ '^[1-9][0-9]{0,4}$' then
+      raise exception 'Choose valid services and quantities' using errcode='22023'; end if;
+    v_service:=(v_item->>'serviceId')::uuid; v_quantity:=(v_item->>'quantity')::integer;
+    if v_service=any(v_seen) or v_quantity>10000 then raise exception 'Duplicate service or invalid quantity' using errcode='22023'; end if;
+    v_seen:=array_append(v_seen,v_service);
+    select * into v_existing from public.reservation_services where reservation_id=p_reservation and service_id=v_service;
+    if found then
+      if v_quantity<v_existing.quantity then v_reducing:=true; end if;
+    elsif not exists(select 1 from public.services where service_id=v_service and is_active) then
+      raise exception 'A selected service is no longer available. Reload the booking' using errcode='22023'; end if;
+  end loop;
+  if exists(select 1 from public.reservation_services where reservation_id=p_reservation and not(service_id=any(v_seen))) then v_reducing:=true; end if;
+  if v_reducing and (v_paid>=v_t.total_amount or v_r.start_datetime<=clock_timestamp()) then
+    raise exception 'Services cannot be reduced after full payment or after check-in. Contact resort staff' using errcode='22023'; end if;
+  delete from public.reservation_services where reservation_id=p_reservation and not(service_id=any(v_seen));
+  for v_item in select value from jsonb_array_elements(p_patch->'services') loop
+    v_service:=(v_item->>'serviceId')::uuid; v_quantity:=(v_item->>'quantity')::integer;
+    select * into v_existing from public.reservation_services where reservation_id=p_reservation and service_id=v_service;
+    if found then
+      update public.reservation_services set quantity=v_quantity where reservation_id=p_reservation and service_id=v_service and quantity<>v_quantity;
+    else
+      select * into v_catalog from public.services where service_id=v_service and is_active for share;
+      if not found then raise exception 'A selected service became unavailable. Reload the booking' using errcode='40001'; end if;
+      insert into public.reservation_services(reservation_id,service_id,quantity,price_at_time) values(p_reservation,v_service,v_quantity,v_catalog.price);
+    end if;
+  end loop;
+  select coalesce(sum(quantity*price_at_time),0) into v_after_services_total from public.reservation_services where reservation_id=p_reservation;
+  v_total:=round(v_t.total_amount+(p_patch->>'packageDelta')::numeric+v_after_services_total-v_before_services_total,2);
+  if v_total<0 or v_total>99999999.99 or v_total is distinct from (p_patch->>'expectedTotal')::numeric then
+    raise exception 'The bill changed. Reload and review the total' using errcode='40001'; end if;
+  update public.reservations set adult_count=v_adults,child_count=v_children,updated_at=clock_timestamp() where reservation_id=p_reservation;
+  v_status:=case when v_paid>=v_total then 'paid' when v_paid>0 then 'partial' else 'unpaid' end;
+  -- Override legacy recalculation triggers with the captured negotiated bill plus
+  -- only the historical-package guest delta and the actual stored service delta.
+  update public.transactions set total_amount=v_total,paid_amount=v_paid,status=v_status where reservation_id=p_reservation;
+  update public.invoices set total_amount=v_total,status=case when v_paid>=v_total then 'paid' when v_paid>0 then 'partially_paid' else 'issued' end
+    where invoice_id=(select invoice_id from public.invoices where reservation_id=p_reservation and status<>'void' order by created_at desc,invoice_id desc limit 1);
+  insert into public.audit_logs(auth_user_id,action,entity_type,entity_id,details)
+    values(p_guest,'Guest edited booking and bill','reservation',p_reservation,jsonb_build_object('before',to_jsonb(v_r),'before_services',v_old_services,
+      'before_total',v_t.total_amount,'after',p_patch,'verified_net_paid',v_paid,'new_total',v_total,'balance',greatest(v_total-v_paid,0),'overpaid_amount',greatest(v_paid-v_total,0)));
+  return jsonb_build_object('totalAmount',v_total,'paidAmount',v_paid,'remainingBalance',greatest(v_total-v_paid,0),'overpaidAmount',greatest(v_paid-v_total,0),
+    'adultCount',v_adults,'childCount',v_children,'services',(select coalesce(jsonb_agg(jsonb_build_object('serviceId',rs.service_id,'name',coalesce(s.name,'Booked service'),
+      'quantity',rs.quantity,'priceAtTime',rs.price_at_time) order by rs.service_id),'[]'::jsonb) from public.reservation_services rs left join public.services s on s.service_id=rs.service_id where rs.reservation_id=p_reservation));
+end $$;
+revoke all on function public.edit_guest_reservation_bill(uuid,uuid,jsonb,jsonb) from public,anon,authenticated;
+grant execute on function public.edit_guest_reservation_bill(uuid,uuid,jsonb,jsonb) to service_role;
+
+-- Preserve the guest API's initial service inserts for an unpaid pending hold.
+-- Later guest changes must use an audited billing RPC, including calls made
+-- directly with a Supabase JWT rather than through the website controls.
+create or replace function public.guard_guest_service_edits()
+returns trigger language plpgsql set search_path='' as $$
+declare v_r public.reservations%rowtype;
+begin
+  if current_user in ('anon','authenticated') and not exists
+    (select 1 from public.staff_users where id=auth.uid() and is_active) then
+    select * into v_r from public.reservations where reservation_id=case when tg_op='DELETE' then old.reservation_id else new.reservation_id end for update;
+    -- A reservation deleted through its own access rules cascades its children.
+    if not found and tg_op='DELETE' then return old; end if;
+    if tg_op<>'INSERT' or v_r.guest_id is distinct from auth.uid() or v_r.status<>'pending'
+      or v_r.payment_deadline_at is null or v_r.payment_deadline_at<=clock_timestamp()
+      or not exists(select 1 from public.guests where id=auth.uid() and is_active)
+      or exists(select 1 from public.payments where reservation_id=v_r.reservation_id and status='verified') then
+      raise exception 'Use Edit booking to change services and recalculate the bill' using errcode='42501'; end if;
+    if new.quantity is null or new.quantity<1 or new.quantity>10000 or not exists
+      (select 1 from public.services where service_id=new.service_id and is_active and price=new.price_at_time) then
+      raise exception 'Choose an available service at its catalog price' using errcode='22023'; end if;
+  end if;
+  if tg_op='DELETE' then return old; end if; return new;
+end $$;
+drop trigger if exists guard_guest_service_edits on public.reservation_services;
+create trigger guard_guest_service_edits before insert or update or delete on public.reservation_services
+  for each row execute function public.guard_guest_service_edits();
+notify pgrst,'reload schema';
+commit;
+
+
+-- Apply after role-permissions and reservation lifecycle migrations.
+-- Existing reservations have unknown attendance until staff record actual arrival.
+begin;
+alter table public.reservations add column if not exists checked_in_at timestamptz;
+alter table public.reservations add column if not exists checked_in_by uuid references public.staff_users(id);
+
+create or replace function public.guard_reservation_attendance()
+returns trigger language plpgsql set search_path = '' as $$
+begin
+  -- Invoker context: browser clients cannot forge arrival records.
+  if current_user in ('anon','authenticated') then
+    if tg_op = 'INSERT' then
+      if new.checked_in_at is not null or new.checked_in_by is not null then
+        raise exception 'Use the staff check-in action to record arrival' using errcode='42501';
+      end if;
+    elsif new.checked_in_at is distinct from old.checked_in_at or new.checked_in_by is distinct from old.checked_in_by then
+      raise exception 'Use the staff check-in action to record arrival' using errcode='42501';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_reservation_attendance on public.reservations;
+create trigger guard_reservation_attendance before insert or update on public.reservations
+for each row execute function public.guard_reservation_attendance();
+
+create or replace function public.check_in_reservation(p_reservation uuid, p_staff uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare v_r public.reservations%rowtype;
+begin
+  if not exists(select 1 from public.staff_users s where s.id=p_staff and s.is_active
+    and (s.role='admin' or exists(select 1 from public.role_permissions rp where rp.role=s.role and 'edit_reservation'=any(rp.permissions)))) then
+    raise exception 'Reservation check-in permission required' using errcode='42501';
+  end if;
+  select * into v_r from public.reservations where reservation_id=p_reservation for update;
+  if not found then raise exception 'Reservation not found' using errcode='P0002'; end if;
+  if v_r.checked_in_at is not null then return to_jsonb(v_r); end if;
+  if v_r.status <> 'confirmed' or (v_r.start_datetime at time zone 'Asia/Manila')::date <> (clock_timestamp() at time zone 'Asia/Manila')::date
+    or v_r.end_datetime <= clock_timestamp() then
+    raise exception 'Only a confirmed reservation arriving today can be checked in' using errcode='40001';
+  end if;
+  update public.reservations set checked_in_at=clock_timestamp(),checked_in_by=p_staff
+    where reservation_id=p_reservation returning * into v_r;
+  insert into public.audit_logs(user_id,auth_user_id,action,entity_type,entity_id,details)
+    values(p_staff,p_staff,'Recorded guest check-in','reservation',p_reservation,
+      jsonb_build_object('checked_in_at',v_r.checked_in_at,'reference_number',v_r.reference_number));
+  return to_jsonb(v_r);
+end $$;
+revoke all on function public.check_in_reservation(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.check_in_reservation(uuid,uuid) to service_role;
+notify pgrst, 'reload schema';
+commit;
+
+
+-- Apply after reservation-lifecycle, role-permissions, staff-cash-payments,
+-- cancellation-refund-workflow and admin-refund-verification migrations.
+begin;
+alter table public.payments add column if not exists rejection_reason text;
+alter table public.audit_logs add column if not exists details jsonb;
+grant update (rejection_reason) on public.payments to authenticated;
+
+create or replace function public.can_review_payment(p_method uuid)
+returns boolean language sql stable security definer set search_path='' as $$
+  select exists(select 1 from public.staff_users s where s.id=auth.uid() and s.is_active
+    and s.active_session_id is not null and s.active_session_id::text=auth.jwt()->>'session_id'
+    and (s.role='admin' or exists(select 1 from public.role_permissions rp where rp.role=s.role
+      and ('payment_approval'=any(rp.permissions) or ('payment_entry'=any(rp.permissions)
+        and exists(select 1 from public.payment_methods m where m.payment_method_id=p_method and lower(btrim(m.type))='cash'))))));
+$$;
+revoke all on function public.can_review_payment(uuid) from public,anon;
+grant execute on function public.can_review_payment(uuid) to authenticated;
+
+drop policy if exists "Staff can verify payments" on public.payments;
+drop policy if exists "Admin and cashier can review payments" on public.payments;
+drop policy if exists "Authorized staff review payments" on public.payments;
+create policy "Authorized staff review payments" on public.payments for update to authenticated
+  using(public.can_review_payment(payment_method_id)) with check(public.can_review_payment(payment_method_id));
+
+create or replace function public.guard_payment_review()
+returns trigger language plpgsql security definer set search_path='' as $$
+declare v_r public.reservations%rowtype;
+begin
+  if old.status<>'pending' or new.status not in ('verified','rejected') or new.status is not distinct from old.status then
+    raise exception 'Payment has already been reviewed or transition is invalid' using errcode='23514'; end if;
+  if not public.can_review_payment(new.payment_method_id) or (new.status='rejected' and not exists
+    (select 1 from public.staff_users s where s.id=auth.uid() and s.is_active and (s.role='admin' or exists
+      (select 1 from public.role_permissions rp where rp.role=s.role and 'payment_approval'=any(rp.permissions))))) then
+    raise exception 'Payment approval permission required' using errcode='42501'; end if;
+  select * into v_r from public.reservations where reservation_id=new.reservation_id for update;
+  if v_r.status not in ('payment_submitted','confirmed') then
+    raise exception 'Reservation cannot accept this payment review' using errcode='40001'; end if;
+  if new.status='verified' then
+    new.verified_by:=auth.uid(); new.verified_at:=clock_timestamp(); new.rejection_reason:=null;
+  else
+    new.rejection_reason:=btrim(new.rejection_reason);
+    if coalesce(length(new.rejection_reason),0) not between 5 and 2000 then
+      raise exception 'A rejection reason of 5 to 2,000 characters is required' using errcode='22023'; end if;
+    new.rejected_by:=auth.uid(); new.rejected_at:=clock_timestamp();
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_payment_review_trigger on public.payments;
+create trigger guard_payment_review_trigger before update of status on public.payments
+for each row execute function public.guard_payment_review();
+
+create or replace function public.guard_payment_rejection_reason()
+returns trigger language plpgsql set search_path='' as $$
+begin
+  if tg_op='INSERT' then
+    if new.rejection_reason is not null then raise exception 'A rejection reason may only be recorded during review' using errcode='23514'; end if;
+  elsif new.rejection_reason is distinct from old.rejection_reason then
+    if old.status<>'pending' or new.status<>'rejected' then
+      raise exception 'The recorded payment rejection reason cannot be changed' using errcode='23514'; end if;
+  end if;
+  if tg_op='UPDATE' and old.status='pending' and new.status='rejected'
+    and coalesce(length(btrim(new.rejection_reason)),0) not between 5 and 2000 then
+    raise exception 'A rejection reason of 5 to 2,000 characters is required' using errcode='22023';
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_payment_rejection_reason on public.payments;
+create trigger guard_payment_rejection_reason before insert or update of status,rejection_reason on public.payments
+for each row execute function public.guard_payment_rejection_reason();
+
+create or replace function public.finish_payment_review()
+returns trigger language plpgsql security definer set search_path='' as $$
+begin
+  if old.status='pending' and new.status in ('verified','rejected') then
+    update public.reservations set status=case when new.status='verified' then 'confirmed' else 'rejected' end
+      where reservation_id=new.reservation_id and status='payment_submitted';
+    perform public.refresh_reservation_payment_totals(new.reservation_id);
+    insert into public.audit_logs(user_id,auth_user_id,action,entity_type,entity_id,details)
+      values(auth.uid(),auth.uid(),case when new.status='verified' then 'Approved payment verification' else 'Rejected payment verification' end,
+        'payment',new.payment_id,jsonb_build_object('reservation_id',new.reservation_id,'amount',new.amount,
+          'reference_number',new.reference_number,'status',new.status,'rejection_reason',new.rejection_reason));
+  end if;
+  return new;
+end $$;
+drop trigger if exists finish_payment_review_trigger on public.payments;
+create trigger finish_payment_review_trigger after update of status on public.payments
+for each row execute function public.finish_payment_review();
+
+-- Normalize titles at the shared notification boundary, preserving the existing
+-- atomic refund approval, payout and verification workflow.
+create or replace function public.notify_refund_workflow(p_guest uuid,p_title text,p_message text,p_entity text,p_id uuid)
+returns void language plpgsql security definer set search_path='' as $$
+declare v_title text:=case lower(btrim(p_title))
+  when 'refund reviewed' then 'Refund awaiting approval'
+  when 'refund approved' then 'Refund approved'
+  when 'refund rejected' then 'Refund request rejected'
+  when 'refund payout submitted' then 'Refund transfer awaiting verification'
+  when 'refund refunded' then 'Refund completed' else p_title end;
+begin
+  if p_guest is not null then
+    insert into public.notifications(recipient_role,recipient_id,actor_id,title,message,action_url,entity_type,entity_id)
+      values('guest',p_guest,auth.uid(),v_title,p_message,'/manage',p_entity,p_id);
+  end if;
+  insert into public.notifications(recipient_role,recipient_id,actor_id,title,message,action_url,entity_type,entity_id)
+    select s.role,s.id,auth.uid(),v_title,p_message,'/admin/transactions?tab=refunds',p_entity,p_id
+    from public.staff_users s where s.is_active and (s.role in ('admin','cashier') or exists
+      (select 1 from public.role_permissions rp where rp.role=s.role and rp.permissions && array['refund_review','refund_payout','refund_verify']));
+end $$;
+revoke all on function public.notify_refund_workflow(uuid,text,text,text,uuid) from public,anon,authenticated;
+update public.notifications set title='Refund completed' where lower(btrim(title))='refund refunded';
+notify pgrst,'reload schema';
+commit;
+
+
+-- stay-completion-migration.sql
+-- Apply after reservation-calendar-attendance, cancellation-refund-workflow,
+-- staff-cash-payments, reschedule-policy and review-feedback-management migrations.
+-- Attendance records are entered by staff; elapsed booking time does not complete a stay.
+begin;
+alter table public.reservations add column if not exists checked_out_at timestamptz;
+alter table public.reservations add column if not exists checked_out_by uuid references public.staff_users(id);
+
+create or replace function public.guard_reservation_attendance()
+returns trigger language plpgsql set search_path='' as $$
+begin
+  if current_user in ('anon','authenticated') then
+    if tg_op='INSERT' then
+      if new.checked_in_at is not null or new.checked_in_by is not null or new.checked_out_at is not null or new.checked_out_by is not null then
+        raise exception 'Use the staff arrival and checkout actions' using errcode='42501'; end if;
+    elsif new.checked_in_at is distinct from old.checked_in_at or new.checked_in_by is distinct from old.checked_in_by
+      or new.checked_out_at is distinct from old.checked_out_at or new.checked_out_by is distinct from old.checked_out_by then
+      raise exception 'Use the staff arrival and checkout actions' using errcode='42501';
+    end if;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.guard_stay_lifecycle()
+returns trigger language plpgsql security definer set search_path='' as $$
+declare v_total numeric; v_paid numeric;
+begin
+  if old.checked_in_at is not null and (new.status in ('cancelled','reschedule_requested')
+    or new.start_datetime is distinct from old.start_datetime or new.end_datetime is distinct from old.end_datetime
+    or new.booking_mode is distinct from old.booking_mode) then
+    raise exception 'Checked-in reservations cannot be cancelled or rescheduled' using errcode='40001'; end if;
+  if old.status is distinct from new.status and new.status='completed' then
+    if old.status<>'confirmed' or old.checked_in_at is null or new.checked_out_at is null or new.checked_out_by is null then
+      raise exception 'Record guest check-in and use the staff checkout action to complete a stay' using errcode='40001'; end if;
+    select total_amount into v_total from public.transactions where reservation_id=new.reservation_id;
+    select coalesce(sum(amount),0) into v_paid from public.payments where reservation_id=new.reservation_id and status='verified';
+    v_paid:=v_paid-coalesce((select sum(amount) from public.refund_requests where reservation_id=new.reservation_id and status='refunded'),0);
+    if v_total is null or round(v_paid,2)<round(v_total,2) then
+      raise exception 'Settle the full reservation bill with verified payments before checkout' using errcode='40001'; end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_stay_lifecycle on public.reservations;
+create trigger guard_stay_lifecycle before update on public.reservations for each row execute function public.guard_stay_lifecycle();
+
+create or replace function public.guard_checked_in_reschedule()
+returns trigger language plpgsql security definer set search_path='' as $$
+declare v_checked_in timestamptz;
+begin
+  if tg_op='INSERT' or new.status='approved' then
+    select checked_in_at into v_checked_in from public.reservations where reservation_id=new.reservation_id for update;
+    if v_checked_in is not null then raise exception 'Checked-in reservations cannot be rescheduled' using errcode='40001'; end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_checked_in_reschedule on public.reservation_reschedules;
+create trigger guard_checked_in_reschedule before insert or update on public.reservation_reschedules for each row execute function public.guard_checked_in_reschedule();
+
+create or replace function public.check_in_reservation(p_reservation uuid,p_staff uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_r public.reservations%rowtype;
+begin
+  if not exists(select 1 from public.staff_users s where s.id=p_staff and s.is_active
+    and (s.role='admin' or exists(select 1 from public.role_permissions rp where rp.role=s.role and 'edit_reservation'=any(rp.permissions)))) then
+    raise exception 'Reservation check-in permission required' using errcode='42501'; end if;
+  select * into v_r from public.reservations where reservation_id=p_reservation for update;
+  if not found then raise exception 'Reservation not found' using errcode='P0002'; end if;
+  if v_r.checked_in_at is not null then return to_jsonb(v_r)||jsonb_build_object('alreadyCheckedIn',true); end if;
+  if v_r.status<>'confirmed' or (v_r.start_datetime at time zone 'Asia/Manila')::date<>(clock_timestamp() at time zone 'Asia/Manila')::date
+    or v_r.end_datetime<=clock_timestamp() then
+    raise exception 'Only a confirmed reservation arriving today can be checked in' using errcode='40001'; end if;
+  if exists(select 1 from public.reservation_reschedules where reservation_id=p_reservation and status='pending') then
+    raise exception 'Resolve the pending reschedule request before check-in' using errcode='40001'; end if;
+  update public.reservations set checked_in_at=clock_timestamp(),checked_in_by=p_staff where reservation_id=p_reservation returning * into v_r;
+  insert into public.audit_logs(user_id,auth_user_id,action,entity_type,entity_id,details)
+    values(p_staff,p_staff,'Recorded guest check-in','reservation',p_reservation,jsonb_build_object('checked_in_at',v_r.checked_in_at,'reference_number',v_r.reference_number));
+  return to_jsonb(v_r)||jsonb_build_object('alreadyCheckedIn',false);
+end $$;
+revoke all on function public.check_in_reservation(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.check_in_reservation(uuid,uuid) to service_role;
+
+create or replace function public.check_out_reservation(p_reservation uuid,p_staff uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_r public.reservations%rowtype; v_t public.transactions%rowtype;
+begin
+  if not exists(select 1 from public.staff_users s where s.id=p_staff and s.is_active
+    and (s.role='admin' or exists(select 1 from public.role_permissions rp where rp.role=s.role and 'edit_reservation'=any(rp.permissions)))) then
+    raise exception 'Reservation checkout permission required' using errcode='42501'; end if;
+  select * into v_r from public.reservations where reservation_id=p_reservation for update;
+  if not found then raise exception 'Reservation not found' using errcode='P0002'; end if;
+  if v_r.status='completed' and v_r.checked_out_at is not null then
+    return to_jsonb(v_r)||jsonb_build_object('alreadyCheckedOut',true); end if;
+  if v_r.status<>'confirmed' or v_r.checked_in_at is null then
+    raise exception 'Only a checked-in confirmed reservation can be checked out' using errcode='40001'; end if;
+  if exists(select 1 from public.payments where reservation_id=p_reservation and status='pending') then
+    raise exception 'Review pending payments before checkout' using errcode='40001'; end if;
+  if exists(select 1 from public.reservation_reschedules where reservation_id=p_reservation and status='pending') then
+    raise exception 'Resolve pending reschedule requests before checkout' using errcode='40001'; end if;
+  perform 1 from public.transactions where reservation_id=p_reservation for update;
+  perform public.refresh_reservation_payment_totals(p_reservation);
+  select * into v_t from public.transactions where reservation_id=p_reservation;
+  if not found or v_t.balance>0 or coalesce(v_t.paid_amount,0)<v_t.total_amount then
+    raise exception 'Settle the full reservation bill with verified payments before checkout' using errcode='40001'; end if;
+  update public.reservations set status='completed',checked_out_at=clock_timestamp(),checked_out_by=p_staff
+    where reservation_id=p_reservation returning * into v_r;
+  update public.invoices set status='paid' where reservation_id=p_reservation and status<>'void';
+  insert into public.audit_logs(user_id,auth_user_id,action,entity_type,entity_id,details)
+    values(p_staff,p_staff,'Checked out guest and completed stay','reservation',p_reservation,
+      jsonb_build_object('checked_in_at',v_r.checked_in_at,'checked_out_at',v_r.checked_out_at,'reference_number',v_r.reference_number,
+        'total_amount',v_t.total_amount,'verified_net_paid',v_t.paid_amount,'balance',v_t.balance));
+  return to_jsonb(v_r)||jsonb_build_object('alreadyCheckedOut',false);
+end $$;
+revoke all on function public.check_out_reservation(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.check_out_reservation(uuid,uuid) to service_role;
+
+-- Existing rate limits and repeat-review rules still apply after a completed stay.
+create or replace function public.guard_review_completed_stay()
+returns trigger language plpgsql security definer set search_path='' as $$
+begin
+  if not exists(select 1 from public.reservations r where r.guest_id=new.guest_id and r.status='completed'
+    and (new.reservation_id is null or r.reservation_id=new.reservation_id)) then
+    raise exception 'Complete a resort stay before submitting a review. Linked reservations must be your own completed stays' using errcode='42501'; end if;
+  return new;
+end $$;
+drop trigger if exists guard_review_completed_stay on public.reviews;
+create trigger guard_review_completed_stay before insert or update of reservation_id,guest_id on public.reviews
+for each row execute function public.guard_review_completed_stay();
+
+create or replace function public.review_submission_status(p_title text,p_text text)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  if not exists(select 1 from public.guests where id=auth.uid() and is_active) then
+    raise exception 'An active guest account is required' using errcode='42501'; end if;
+  if not exists(select 1 from public.reservations where guest_id=auth.uid() and status='completed') then
+    raise exception 'Complete a resort stay before submitting a review' using errcode='42501'; end if;
+  if p_title is null or length(btrim(p_title)) not between 1 and 200 or p_text is null or length(btrim(p_text)) not between 50 and 5000 then
+    raise exception 'Enter a title of 1-200 characters and review text of 50-5000 characters' using errcode='22023'; end if;
+  return public.review_submission_policy(auth.uid(),p_title,p_text);
+end $$;
+revoke all on function public.review_submission_status(text,text) from public,anon;
+grant execute on function public.review_submission_status(text,text) to authenticated;
+
+-- Keep the existing refund quote and policy, adding the arrival lock.
+create or replace function public.get_cancellation_preview(p_reservation uuid,p_initiator text default 'guest')
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare r public.reservations%rowtype; t public.transactions%rowtype; p public.booking_policy_versions%rowtype;
+  v_staff boolean:=public.refund_staff_permission('cancel_reservation'); v_gross numeric; v_previous numeric;
+  v_net numeric; v_base numeric; v_deposit numeric; v_deduction numeric; v_refund numeric; v_allowed boolean;
+  v_result jsonb; v_block text;
+begin
+  if p_initiator is null or p_initiator not in ('guest','resort') then raise exception 'Choose guest or resort cancellation' using errcode='22023'; end if;
+  select * into r from public.reservations where reservation_id=p_reservation;
+  if not found then raise exception 'Reservation not found' using errcode='22023'; end if;
+  if auth.uid() is null or (not v_staff and (r.guest_id is distinct from auth.uid() or p_initiator<>'guest')) then
+    raise exception 'Cancellation permission required' using errcode='42501'; end if;
+  if p_initiator='resort' and not exists(select 1 from public.staff_users where id=auth.uid() and role='admin' and is_active) then
+    raise exception 'Only an administrator may cancel for a resort-attributable reason' using errcode='42501'; end if;
+  select * into t from public.transactions where reservation_id=p_reservation;
+  if not found then raise exception 'Reservation bill not found' using errcode='22023'; end if;
+  select * into p from public.booking_policy_versions where version=r.booking_policy_version;
+  if not found then select * into p from public.booking_policy_versions order by version desc limit 1; end if;
+  if not found then raise exception 'Booking policy is not configured' using errcode='22023'; end if;
+  select coalesce(sum(amount),0) into v_gross from public.payments where reservation_id=p_reservation and status='verified';
+  select coalesce(sum(amount),0) into v_previous from public.refund_requests where reservation_id=p_reservation and status='refunded';
+  v_net:=round(greatest(v_gross-v_previous,0),2);
+  v_base:=coalesce(t.cancellation_deposit_base,t.total_amount);
+  v_deposit:=ceil(v_base*20)/100; -- Same cent rounding as the required 20% downpayment.
+  v_deduction:=case when p_initiator='guest' then least(v_net,v_deposit) else 0 end;
+  v_refund:=round(greatest(v_net-v_deduction,0),2);
+  if r.checked_in_at is not null then v_block:='Checked-in reservations cannot be cancelled or rescheduled.';
+  elsif r.status not in ('pending','payment_submitted','confirmed','reschedule_requested') then v_block:='This reservation cannot be cancelled.';
+  elsif exists(select 1 from public.payments where reservation_id=p_reservation and status='pending') then v_block:='Review pending payments before cancelling.';
+  elsif exists(select 1 from public.refund_requests where reservation_id=p_reservation and status='payout_submitted') then v_block:='Verify the existing refund transfer before cancelling.';
+  elsif not v_staff and r.start_datetime-now()<make_interval(hours=>p.guest_cancellation_notice_hours) then v_block:='The guest cancellation notice window has passed. Contact the resort.';
+  end if;
+  v_allowed:=v_block is null;
+  v_result:=jsonb_build_object('reservationId',p_reservation,'reference',r.reference_number,'initiator',p_initiator,
+    'totalAmount',t.total_amount,'verifiedPaid',v_gross,'previousRefunds',v_previous,'netPaid',v_net,
+    'depositBase',v_base,'depositAmount',v_deposit,'deduction',v_deduction,'refundableAmount',v_refund,
+    'policyVersion',p.version,'noticeHours',p.guest_cancellation_notice_hours,'allowed',v_allowed,'blockedReason',v_block,
+    'outcome',case when v_refund>0 then 'pending_refund' else 'no_refund' end,
+    'rule',case when p_initiator='resort' then 'Full refund of remaining verified payments; no deposit deduction.'
+      else 'The initial 20% deposit is retained. Only remaining verified payments above that deposit are refundable.' end);
+  return v_result || jsonb_build_object('quote',md5(v_result::text));
+end $$;
+revoke all on function public.get_cancellation_preview(uuid,text) from public,anon;
+grant execute on function public.get_cancellation_preview(uuid,text) to authenticated;
+
+
+notify pgrst, 'reload schema';
+commit;
+
+
+-- ocular-review-migration.sql
+-- Apply after role-permissions and the ocular visit/time-slot tables.
+begin;
+alter table public.ocular_visits add column if not exists review_reason text;
+alter table public.ocular_visits add column if not exists reviewed_at timestamptz;
+alter table public.ocular_visits add column if not exists reviewed_by uuid references public.staff_users(id);
+alter table public.ocular_visits drop constraint if exists ocular_visits_status_check;
+alter table public.ocular_visits add constraint ocular_visits_status_check
+  check(status in ('pending','confirmed','rejected','cancelled','completed'));
+
+create or replace function public.guard_ocular_review_write()
+returns trigger language plpgsql set search_path='' as $$
+begin
+  if tg_op='INSERT' then
+    if current_user in ('anon','authenticated') and (new.status<>'pending' or new.reviewed_at is not null or new.reviewed_by is not null or new.review_reason is not null) then
+      raise exception 'New ocular visits must await staff review' using errcode='42501'; end if;
+  else
+    if current_user in ('anon','authenticated') and (new.reviewed_at is distinct from old.reviewed_at or new.reviewed_by is distinct from old.reviewed_by
+      or new.review_reason is distinct from old.review_reason or (new.status is distinct from old.status and new.status in ('confirmed','rejected'))) then
+      raise exception 'Use the authorized ocular review action' using errcode='42501'; end if;
+    if new.status is distinct from old.status and new.status in ('confirmed','rejected') and (old.status<>'pending'
+      or length(btrim(coalesce(new.review_reason,''))) not between 5 and 2000 or new.reviewed_at is null or new.reviewed_by is null) then
+      raise exception 'Review a pending ocular visit and document a reason' using errcode='22023'; end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_ocular_review_write on public.ocular_visits;
+create trigger guard_ocular_review_write before insert or update on public.ocular_visits for each row execute function public.guard_ocular_review_write();
+
+create or replace function public.review_ocular_visit(p_visit uuid,p_action text,p_reason text,p_staff uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_visit public.ocular_visits%rowtype; v_time time; v_status text;
+begin
+  if not exists(select 1 from public.staff_users s where s.id=p_staff and s.is_active
+    and (s.role='admin' or exists(select 1 from public.role_permissions rp where rp.role=s.role and 'ocular_approval'=any(rp.permissions)))) then
+    raise exception 'Ocular approval permission required' using errcode='42501'; end if;
+  if p_action is null or p_action not in ('approve','reject') or length(btrim(coalesce(p_reason,''))) not between 5 and 2000 then
+    raise exception 'Choose approve or reject and enter a reason of 5 to 2000 characters' using errcode='22023'; end if;
+  v_status:=case when p_action='approve' then 'confirmed' else 'rejected' end;
+  select * into v_visit from public.ocular_visits where visit_id=p_visit for update;
+  if not found then raise exception 'Ocular visit not found' using errcode='P0002'; end if;
+  if v_visit.status=v_status and v_visit.reviewed_by=p_staff and v_visit.review_reason=btrim(p_reason) then
+    return to_jsonb(v_visit)||jsonb_build_object('alreadyReviewed',true); end if;
+  if v_visit.status<>'pending' then raise exception 'This ocular visit was already reviewed. Refresh the calendar' using errcode='40001'; end if;
+  if p_action='approve' then
+    select start_time into v_time from public.ocular_time_slots where slot_id=v_visit.time_slot_id;
+    if v_time is null or ((v_visit.scheduled_date+v_time) at time zone 'Asia/Manila')<=clock_timestamp() then
+      raise exception 'Only a future ocular visit with an available time slot can be approved' using errcode='40001'; end if;
+  end if;
+  update public.ocular_visits set status=v_status,review_reason=btrim(p_reason),reviewed_at=clock_timestamp(),reviewed_by=p_staff
+    where visit_id=p_visit returning * into v_visit;
+  insert into public.audit_logs(user_id,auth_user_id,action,entity_type,entity_id,details)
+    values(p_staff,p_staff,case when p_action='approve' then 'Approved ocular visit' else 'Rejected ocular visit' end,'ocular_visit',p_visit,
+      jsonb_build_object('reference_number',v_visit.reference_number,'reason',btrim(p_reason),'status',v_status,'scheduled_date',v_visit.scheduled_date));
+  return to_jsonb(v_visit)||jsonb_build_object('alreadyReviewed',false);
+end $$;
+revoke all on function public.review_ocular_visit(uuid,text,text,uuid) from public,anon,authenticated;
+grant execute on function public.review_ocular_visit(uuid,text,text,uuid) to service_role;
+notify pgrst,'reload schema';
+commit;
+
+-- guest-reschedule-requests-migration.sql
+-- Apply after reschedule-policy and stay-completion migrations, before deploying.
+-- Guests may request short-notice changes; only authorized staff approval moves
+-- the reservation and adds charges. Existing requests and financial records remain intact.
+begin;
+
+create or replace function public.guard_guest_reschedule_policy()
+returns trigger language plpgsql security definer set search_path='' as $$
+declare v_r public.reservations%rowtype; v_policy jsonb; v_requested_at timestamptz:=clock_timestamp();
+begin
+  if new.status is distinct from 'pending' then return new; end if;
+  select * into v_r from public.reservations where reservation_id=new.reservation_id for update;
+  if not found or v_r.status<>'confirmed' or new.requested_by is distinct from v_r.guest_id or v_r.guest_id is null then
+    raise exception 'Only the confirmed reservation owner may request rescheduling' using errcode='42501'; end if;
+  if auth.uid() is not null and auth.uid()<>v_r.guest_id then
+    raise exception 'Not your reservation' using errcode='42501'; end if;
+  if v_r.checked_in_at is not null then
+    raise exception 'Checked-in reservations cannot be rescheduled' using errcode='40001'; end if;
+  -- Short notice changes the fee and review context, not permission to request.
+  v_policy:=public.reschedule_policy_snapshot(v_r.start_datetime,v_requested_at);
+  if exists(select 1 from public.reservation_reschedules where reservation_id=new.reservation_id and status='pending') then
+    raise exception 'A reschedule request is already pending' using errcode='40001'; end if;
+  if exists(select 1 from public.payments where reservation_id=new.reservation_id and status='pending') then
+    raise exception 'Resolve pending payment review before rescheduling' using errcode='40001'; end if;
+  if exists(select 1 from public.refund_requests where reservation_id=new.reservation_id and status in ('pending','reviewed','approved','payout_submitted')) then
+    raise exception 'Resolve the open refund before rescheduling' using errcode='40001'; end if;
+  if new.old_start is distinct from v_r.start_datetime or new.old_end is distinct from v_r.end_datetime
+    or new.new_start=new.old_start or new.new_start<clock_timestamp()+interval '30 minutes'
+    or new.new_end-new.new_start<>v_r.end_datetime-v_r.start_datetime
+    or mod(extract(epoch from new.new_start-v_r.start_datetime),86400)<>0 then
+    raise exception 'Keep the booked package, start time and duration and choose another future date' using errcode='22023'; end if;
+  if new.reschedule_fee is distinct from (v_policy->>'noticeFee')::numeric or new.rate_adjustment is null or new.rate_adjustment<0 then
+    raise exception 'Reschedule quote changed. Refresh before submitting' using errcode='40001'; end if;
+  new.created_at:=v_requested_at;
+  return new;
+end $$;
+
+drop trigger if exists guard_guest_reschedule_policy on public.reservation_reschedules;
+create trigger guard_guest_reschedule_policy before insert on public.reservation_reschedules
+for each row execute function public.guard_guest_reschedule_policy();
+
+create or replace function public.approve_reschedule_request(
+  p_reschedule_id uuid,
+  p_staff_id uuid
+) returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_request public.reservation_reschedules%rowtype;
+  v_reservation public.reservations%rowtype;
+  v_total numeric(10,2);
+  v_paid numeric(10,2);
+  v_new_total numeric(10,2);
+  v_charge numeric(10,2);
+  v_status text;
+  v_policy jsonb;
+begin
+  if not exists (select 1 from public.staff_users where id = p_staff_id and is_active = true and (role='admin' or exists(select 1 from public.role_permissions rp where rp.role=staff_users.role and 'reschedule_approval'=any(rp.permissions)))) then
+    raise exception 'Reschedule approval permission required' using errcode='42501';
+  end if;
+
+  select * into v_request from public.reservation_reschedules
+  where reschedule_id = p_reschedule_id for update;
+  if not found or v_request.status <> 'pending' then
+    raise exception 'Reschedule request is no longer pending';
+  end if;
+  if v_request.new_start < now() + interval '30 minutes' then
+    raise exception 'Requested start time is too soon';
+  end if;
+
+  select * into v_reservation from public.reservations
+  where reservation_id = v_request.reservation_id for update;
+  if not found or v_reservation.status <> 'reschedule_requested'
+     or v_reservation.start_datetime <> v_request.old_start
+     or v_reservation.end_datetime <> v_request.old_end then
+    raise exception 'Reservation is no longer awaiting this reschedule';
+  end if;
+
+  if v_reservation.checked_in_at is not null then
+    raise exception 'Checked-in reservations cannot be rescheduled' using errcode='40001'; end if;
+  -- Use the request timestamp so waiting for review does not increase its notice fee.
+  v_policy:=public.reschedule_policy_snapshot(v_request.old_start,v_request.created_at);
+  if v_request.reschedule_fee is distinct from (v_policy->>'noticeFee')::numeric
+    or v_request.rate_adjustment is null or v_request.rate_adjustment<0 then
+    raise exception 'Reschedule quote changed. Refresh before approving' using errcode='40001'; end if;
+  if v_request.new_end-v_request.new_start<>v_reservation.end_datetime-v_reservation.start_datetime
+    or mod(extract(epoch from v_request.new_start-v_reservation.start_datetime),86400)<>0 then
+    raise exception 'Keep the booked package, start time and duration' using errcode='22023'; end if;
+  if exists(select 1 from public.payments where reservation_id=v_request.reservation_id and status='pending')
+    or exists(select 1 from public.refund_requests where reservation_id=v_request.reservation_id and status in ('pending','reviewed','approved','payout_submitted')) then
+    raise exception 'Resolve the pending payment or refund review before rescheduling' using errcode='40001'; end if;
+  select total_amount,paid_amount into v_total,v_paid from public.transactions where reservation_id=v_request.reservation_id for update;
+  if not found then raise exception 'Reservation transaction is missing'; end if;
+  v_charge := v_request.reschedule_fee + v_request.rate_adjustment;
+
+  -- The reservation trigger recalculates the base transaction total.
+  -- The exclusion constraint rejects a date taken since the guest requested it.
+  update public.reservations set
+    start_datetime = v_request.new_start,
+    end_datetime = v_request.new_end,
+    status = 'confirmed'
+  where reservation_id = v_request.reservation_id;
+
+  v_new_total := v_total + v_charge;
+  v_status := case when coalesce(v_paid, 0) >= v_new_total then 'paid'
+                   when coalesce(v_paid, 0) > 0 then 'partial' else 'unpaid' end;
+  update public.transactions set total_amount = v_new_total, status = v_status
+  where reservation_id = v_request.reservation_id;
+  update public.invoices set total_amount = v_new_total, status=case when coalesce(v_paid,0)>=v_new_total then 'paid' when coalesce(v_paid,0)>0 then 'partially_paid' else 'issued' end
+  where invoice_id=(select invoice_id from public.invoices where reservation_id=v_request.reservation_id and status<>'void' order by created_at desc,invoice_id desc limit 1);
+
+  update public.reservation_reschedules set
+    status = 'approved', approved_by = p_staff_id,
+    approved_at = now(), rejection_reason = null
+  where reschedule_id = p_reschedule_id;
+
+  insert into public.audit_logs(user_id,auth_user_id,action,entity_type,entity_id,details)
+    values(p_staff_id,p_staff_id,'Approved reschedule and charged notice fee','reservation_reschedule',p_reschedule_id,
+      jsonb_build_object('notice_fee',v_request.reschedule_fee,'rate_adjustment',v_request.rate_adjustment,'before_total',v_total,'after_total',v_new_total,
+        'requested_by',v_request.requested_by,'requested_at',v_request.created_at,
+        'policy_at_request',v_policy,'late_request',not (v_policy->>'allowed')::boolean,
+        'old_start',v_request.old_start,'old_end',v_request.old_end,
+        'new_start',v_request.new_start,'new_end',v_request.new_end));
+  return jsonb_build_object(
+    'reservationId', v_request.reservation_id,
+    'totalAmount', v_new_total,
+    'paidAmount', coalesce(v_paid, 0),
+    'additionalCharge', v_charge
+  );
+end;
+$$;
+
+revoke all on function public.approve_reschedule_request(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.approve_reschedule_request(uuid,uuid) to service_role;
+notify pgrst, 'reload schema';
+commit;

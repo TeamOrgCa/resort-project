@@ -19,8 +19,8 @@ export const termsSections: LegalSection[] = [
   {
     heading: "3. Changes and cancellation",
     paragraphs: [
-      "The cancellation notice and refund rules for your reservation are the booking policy version displayed above and saved with your reservation. Rescheduling requires at least 14 Philippine calendar days' notice for an original swimming date in March-May or September-December, or at least 7 days in other months, subject to availability and resort confirmation. The booked package, original start time and duration remain fixed.",
-      "Change fees are ₱50 for six or more calendar days' notice, ₱100 for three to five days, ₱300 for one to two days, and ₱500 on or after the original swimming date. On-time reschedules carry the ₱50 fee plus any higher-date-rate adjustment. Changes outside the standard notice window require an authorized, documented staff exception; contact the resort. A cheaper date does not automatically reduce the bill. Do not assume a new date is confirmed until staff approves it.",
+      "The cancellation notice and refund rules for your reservation are the booking policy version displayed above and saved with your reservation. Standard rescheduling notice is 14 Philippine calendar days for an original swimming date in March-May or September-December, or 7 days in other months. Guests with confirmed reservations who have not checked in may also submit shorter-notice, same-day or past-date requests through Manage Booking. All requests are subject to availability and staff approval. The booked package, original start time and duration remain fixed.",
+      "Change fees are ₱50 for six or more calendar days' notice, ₱100 for three to five days, ₱300 for one to two days, and ₱500 on or after the original swimming date. On-time reschedules carry the ₱50 fee plus any higher-date-rate adjustment. A request does not change your schedule or bill until authorized staff approves it, including approval of any short-notice exception. A cheaper date does not automatically reduce the bill.",
     ],
   },
   {

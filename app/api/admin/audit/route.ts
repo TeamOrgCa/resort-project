@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { tryCreateAdminClient } from "@/lib/supabase/admin";
+import { InvalidDateRangeError, parseCustomDateRange } from "@/lib/server/custom-date-range";
 
 interface AuditLogRow {
   log_id: string;
@@ -41,7 +42,7 @@ function readableDetails(details: Record<string, unknown> | null, labels: Map<st
   }).join("\n") || "No additional details recorded.";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const staffContext = await requireActiveStaff();
 
@@ -55,11 +56,21 @@ export async function GET() {
       );
     }
 
-    const { data: logsData, error: logsError } = await staffContext.supabase
+    const params = new URL(request.url).searchParams;
+    const startDate = params.get("startDate"), endDate = params.get("endDate");
+    let range: ReturnType<typeof parseCustomDateRange> | undefined;
+    try {
+      if (startDate !== null || endDate !== null) range = parseCustomDateRange(startDate, endDate);
+    } catch (cause) {
+      if (cause instanceof InvalidDateRangeError) return NextResponse.json({ success: false, message: cause.message }, { status: 400 });
+      throw cause;
+    }
+
+    let query = staffContext.supabase
       .from("audit_logs")
-      .select("log_id, user_id, auth_user_id, action, entity_type, entity_id, attempted_email, details, created_at")
-      .order("created_at", { ascending: false })
-      .limit(300);
+      .select("log_id, user_id, auth_user_id, action, entity_type, entity_id, attempted_email, details, created_at");
+    if (range) query = query.gte("created_at", range.start.toISOString()).lt("created_at", range.end.toISOString());
+    const { data: logsData, error: logsError } = await query.order("created_at", { ascending: false }).limit(301);
 
     if (logsError) {
       return NextResponse.json(
@@ -71,7 +82,8 @@ export async function GET() {
       );
     }
 
-    const logs = (logsData as AuditLogRow[] | null) ?? [];
+    const matchingLogs = (logsData as AuditLogRow[] | null) ?? [];
+    const logs = matchingLogs.slice(0, 300);
     const lookupClient = tryCreateAdminClient() ?? staffContext.supabase;
     const staffIds = [...new Set(logs.flatMap((log) => [log.user_id, log.auth_user_id])
       .filter((value): value is string => Boolean(value)))];
@@ -163,7 +175,7 @@ export async function GET() {
       timestamp: log.created_at,
     }));
 
-    return NextResponse.json({ success: true, rows }, { status: 200 });
+    return NextResponse.json({ success: true, rows, hasMore: matchingLogs.length > 300, limit: 300 }, { status: 200, headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json(
       {

@@ -28,18 +28,18 @@ export default function ReportPeriodFilter({ period, range, onPeriodChange, onRa
     catch (cause) { setError(cause instanceof InvalidDateRangeError ? cause.message : "Choose a valid start and end date."); }
   }}>
     <label className="flex flex-col gap-1 text-sm text-neutral/70">Period
-      <select value={period} onChange={(event) => { setError(null); onPeriodChange(event.target.value as ReportPeriod); }} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral">
+      <select value={period} onChange={(event) => { setError(null); onPeriodChange(event.target.value as ReportPeriod); }} className="admin-field">
         {Object.entries(REPORT_PERIOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
     </label>
     {period === "Custom" && <>
       <label className="flex flex-col gap-1 text-sm text-neutral/70">From
-        <input type="date" required max={endDate || undefined} value={startDate} onChange={(event) => setStartDate(event.target.value)} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral" />
+        <input type="date" required max={endDate || undefined} value={startDate} onChange={(event) => setStartDate(event.target.value)} className="admin-field" />
       </label>
       <label className="flex flex-col gap-1 text-sm text-neutral/70">Through
-        <input type="date" required min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral" />
+        <input type="date" required min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="admin-field" />
       </label>
-      <button type="submit" className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base">Apply dates</button>
+      <button type="submit" className="admin-button-primary">Apply dates</button>
       <span className="text-xs text-neutral/60">Showing {range.startDate} through {range.endDate}</span>
       {error && <span role="alert" className="text-xs text-red-700">{error}</span>}
     </>}

@@ -1,11 +1,13 @@
 # MarVille Resort Complex — Client User Manual
 
 **Audience:** Guests using the resort website.  
-**Updated:** 13 October 2026.  
+**Updated:** 16 October 2026.
 **Companion guide:** [Admin User Manual](ADMIN_USER_MANUAL.md).  
 **Manual overview and printing:** [User Manuals](USER_MANUAL.md).
 
 This guide explains how to create an account, book a stay, submit payment, manage a booking, schedule a resort viewing and leave a review. Screen labels shown in **bold** match the current website. Use the website address provided by the resort; page paths below are added to that address.
+
+Input errors are highlighted and automatically scrolled into view, including inside booking dialogs. GCash receipt problems appear as separate bullet points. Emoji input is blocked in text fields.
 
 ## Contents
 
@@ -15,7 +17,7 @@ This guide explains how to create an account, book a stay, submit payment, manag
 - [4. Book a resort stay](#4-book-a-resort-stay)
 - [5. Pay through GCash](#5-pay-through-gcash)
 - [6. View your booking and pay the balance](#6-view-your-booking-and-pay-the-balance)
-- [7. Add services to a booking](#7-add-services-to-a-booking)
+- [7. Edit guest counts and services](#7-edit-guest-counts-and-services)
 - [8. Request a different booking date](#8-request-a-different-booking-date)
 - [9. Cancel a booking](#9-cancel-a-booking)
 - [10. Request an excess-payment refund](#10-request-an-excess-payment-refund)
@@ -83,6 +85,8 @@ If your account has been deactivated, sign-in and protected booking actions are 
 
 The email field is read-only on this screen. Contact the resort if you need help with an account email change. Changing your profile does not change a reservation's dates, selected services or bill.
 
+Unread updates appear as pop-up notification cards while you are signed in. Select **View details** to open the related booking or record, use the **X** to dismiss one card, or choose **Dismiss all**. Dismissed pop-ups stay hidden in the current browser-tab session; the saved notifications remain in your account menu. Use **Mark all read** there to clear unread indicators. Pop-ups pause while the account menu is open so Profile Settings and Sign Out stay accessible.
+
 ## 4. Book a resort stay
 
 ### Step A — Choose a date and package
@@ -119,7 +123,7 @@ Weekday prices apply Monday–Thursday and weekend prices Friday–Sunday, based
 2. Use **Back to Edit** if a detail is wrong.
 3. Select **Save Booking** once the details are correct.
 4. Keep the generated booking reference and note the displayed payment deadline.
-5. Select **Continue to Payment**.
+5. After saving, the two actions become **Back to Home** and **Continue to Payment**. The confirmation and reference appear directly above them.
 
 **Expected result:** The booking is saved with a temporary hold. Saving alone does not confirm a paid reservation. A new unpaid hold normally lasts **30 minutes**; submit valid payment proof before the displayed deadline. Payment submission then waits for staff review.
 
@@ -195,23 +199,23 @@ You can search by booking reference. Close a dialog with **Close**, its top-righ
 
 If resort staff entered your booking through Messenger, a phone call or a walk-in, it may be linked to a staff-created walk-in profile rather than your website account. Ask staff to identify the record if it does not appear in your account; do not create another booking to replace it without checking.
 
-## 7. Add services to a booking
+## 7. Edit guest counts and services
 
-1. Open **Manage Booking** and open the reservation's **three-dot options menu** and select **Edit services**.
-2. In **Edit Booking Services**, update the quantities allowed by the form. Existing booked quantities have a displayed minimum.
-3. Under **Add New Service**, select an available service and quantity, then select **Add Service**.
-4. Select **Save Service Changes**.
-5. After saving, the dialog shows the updated bill, outstanding balance and confirmation message. Pay additional charges through the payment flow when available.
+1. Open **Manage Booking**, select **View**, then **Edit booking**. You can also choose **Edit booking** from the reservation's three-dot options menu.
+2. Before check-in, update the adult and child counts. Include at least one adult and no more than 30 guests in total.
+3. Add services or increase quantities. Before check-in, while a balance remains, you may also reduce quantities or select **Remove**, including removing every optional service.
+4. Review **Updated bill preview**, including the new total, net verified payments and remaining balance. Select **Save Booking Changes**.
+5. The booking details show the saved counts, services and updated bill. Continue to payment for any balance, or request an excess-payment refund from **Refunds** if the recalculation leaves an overpayment. Refunds remain manual.
 
-**Expected result:** The selected services are saved and billing is recalculated. The guest Edit screen edits services; it does not change the reservation package, accommodation, guest count or contact details. Contact staff for those reservation changes.
+**Expected result:** Guest counts and services are saved together with the recalculated bill. Booked package prices and existing service prices are preserved; new services use the current catalog price. Existing payments and issued receipts remain unchanged. The package, accommodation, dates and contact details are not changed by this editor.
 
-Closed reservations and bookings under payment review cannot be edited through this screen. If the form refuses a change, follow its message or contact staff rather than creating a duplicate reservation.
+Closed/expired reservations and bookings with pending payment, reschedule or refund reviews cannot be edited through this screen. After check-in, contact staff for count changes or service reductions. After full payment, existing services cannot be reduced by the guest, though additional services can still be added. If the bill changes before saving, reload and review it again.
 
 ## 8. Request a different booking date
 
 1. Find a **Confirmed** reservation in **Manage Booking**.
 2. Open the **three-dot options menu** and select **Reschedule**. Choose your date in the dialog.
-3. Use **Previous month** or **Next month** in the custom calendar, select a new check-in date, and review the retained package time/duration. Past dates, dates too early for the original start time, and the current reservation date are disabled. Availability is checked when you submit.
+3. Use **Previous month** or **Next month** in the custom calendar, select a new check-in date (you can choose while availability loads; submission waits for the check), and review the retained package time/duration. Past/current dates, booked time slots, maintenance dates and dates too early for the original start time are disabled. Availability is checked again when you submit.
 4. Submit the request and read the notice showing the additional charge if approved.
 5. Wait for staff review and check the result in Manage Booking.
 6. If approved, check the new schedule and use **Pay Balance** for additional charges when required.
@@ -220,14 +224,14 @@ Closed reservations and bookings under payment review cannot be edited through t
 
 Rescheduling requires a confirmed payment, an eligible available date and the applicable booking rules. The new start must remain at least 30 minutes away. Contact staff if **Reschedule** is disabled or your requested change is outside the available options.
 
-The original swimming date requires at least **14 Philippine calendar days' notice** for March-May and September-December, or **7 days** for other months. The dialog displays your deadline and notice fee. Late requests are disabled; contact the resort to ask about a staff-reviewed exception. Your package, original time and duration stay fixed.
+The usual notice is **14 Philippine calendar days** for March-May and September-December, or **7 days** for other months. You can still submit a request with shorter notice, on the original swimming date or after it, as long as the booking remains confirmed and you have not checked in. The dialog shows a short-notice message and the applicable fee. Staff must approve the request before your schedule or bill changes. Your package, original time and duration stay fixed.
 
-Notice fees are **PHP 50 for 6+ days**, **PHP 100 for 3-5 days**, **PHP 300 for 1-2 days**, and **PHP 500 on or after the original date**. Short-notice changes require an authorized staff exception. On-time requests carry PHP 50 plus any higher-date-rate adjustment when approved. Your existing payments remain on the bill.
+Notice fees are **PHP 50 for 6+ days**, **PHP 100 for 3-5 days**, **PHP 300 for 1-2 days**, and **PHP 500 on or after the original date**. Fees use the date you submitted the request in Philippine time, rather than the later approval date. On-time requests carry PHP 50 plus any higher-date-rate adjustment when approved. Your existing payments remain on the bill.
 
 ## 9. Cancel a booking
 
 1. Open **Manage Booking** and open the reservation's **three-dot options menu** and select **Cancel reservation**.
-2. Review the server-calculated preview: verified payments, previous refunds, initial deposit basis, retained deposit and refundable amount.
+2. The dialog first offers **Reschedule instead**. Choose it to open the custom reschedule calendar, or select **Continue to cancellation** to review verified payments, previous refunds, initial deposit basis, retained deposit and refundable amount. Reschedule restrictions remain in force; the dialog explains when staff assistance is required.
 3. Check the acknowledgement and select **Confirm cancellation**. If the bill or payments changed, reload the preview and review it again.
 4. Read the success alert and updated booking status. Eligible cancellations create a refund request automatically; you do not submit another request.
 5. Open the **Refunds** tab for payment review, administrator approval, manual transfer and staff verification.
@@ -277,13 +281,13 @@ Visits are free and require approval. Slots starting in less than 30 minutes are
 
 ## 12. Write a review with a photo
 
-1. Sign in to your registered guest account and open **Reviews** after your visit.
+1. Sign in to your registered guest account and open **Reviews** after resort staff checks you out and marks your stay **Completed**. A booking or elapsed stay date alone does not qualify.
 2. Select **Write a Review**.
 3. Choose your **Overall Rating**, and fill in any other rating categories you want to provide.
 4. Enter a **Review Title** and **Your Review**. Write at least 50 characters.
 5. Optionally select one photo under **Add a photo (optional)**. Use JPEG, PNG or WebP, up to 3 MB.
 6. Check the photo preview; replace it or use **Remove photo** if needed.
-7. Optionally enter a reservation ID and select the recommendation checkbox.
+7. Optionally choose one of your completed stays from the dropdown and select the recommendation checkbox.
 8. Submit and wait for the success message.
 
 **Expected result:** Your review is saved. The current system automatically publishes newly submitted reviews; public photos are shown for approved reviews. Use **View full photo** on a review to open its image.
@@ -335,7 +339,7 @@ A rejected later balance payment does not itself cancel an already confirmed res
 | Receipt-screening service is unavailable | Wait and retry. Keep the receipt; do not transfer money again just because an upload failed |
 | Payment is still under review | Check Manage Booking and contact staff with both references |
 | A paid booking expired or an initial payment was rejected | Contact staff to reconcile the existing transfer before paying or creating another booking |
-| Edit services, Reschedule or Cancel reservation is disabled | Check the reservation status and policy; contact staff for assistance |
+| Edit booking, Reschedule or Cancel reservation is disabled | Check the reservation status and policy; contact staff for assistance |
 | Excess refund option is missing | Wait for payment verification and resolution of open payment/refund/reschedule requests; verify that there is still an excess |
 | Review photo cannot be uploaded | Use one supported image up to 3 MB; remove it to submit a text-only review |
 | A manual booking is missing from your account | Ask staff to look up the reference and check which guest profile it belongs to |
@@ -343,3 +347,8 @@ A rejected later balance payment does not itself cancel an already confirmed res
 For support, use the resort's current phone, email or social contact details on **About**. Give your booking reference, affected screen, exact message and approximate Philippine date/time. Include a screenshot of the error when useful. Send payment details privately to staff, and never share passwords or verification codes.
 
 The chatbot can explain resort information and the general booking flow. A chat reply does not save a booking, approve a payment, change dates or issue a refund; verify those actions on the relevant screen.
+
+
+### After arrival
+
+Once staff records check-in, cancellation and rescheduling are no longer available in Manage Booking. Settle any remaining balance and additional charges before checkout. Staff completes the reservation when checkout is recorded; only then can you submit a review. The existing review cooldown, duplicate-content checks and daily limits still apply.

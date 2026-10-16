@@ -1,5 +1,7 @@
 "use client";
 
+import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -82,27 +84,15 @@ export default function AdminDashboard() {
   ].filter(item => can(item.permission)) : [];
 
   return <div className="space-y-6 text-neutral" aria-busy={loading}>
-    <header className="overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm">
-      <div className="flex flex-col gap-4 bg-base/60 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Resort overview</p>
-          <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Dashboard</h1>
-          <p className="mt-2 max-w-xl text-sm text-neutral/65">Plan today’s arrivals, check money received and follow up on requests.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+    <AdminSectionHeader title="Dashboard" eyebrow="Resort overview" subtitle="Plan today’s arrivals, check money received and follow up on requests." actions={<div className="flex flex-wrap gap-2">
           <button type="button" onClick={refresh} disabled={loading} className="rounded-xl border border-neutral/20 bg-white px-4 py-2.5 text-sm font-semibold hover:bg-base disabled:opacity-50">{loading ? "Refreshing…" : "Refresh dashboard"}</button>
           {can("reservations") && can("create_reservation") && <Link href="/admin/reservations?new=1" className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">+ New reservation</Link>}
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 px-5 py-3 text-xs sm:px-6">
-        <p className="text-neutral/60" role="status">{dashboard ? `Updated ${new Date(dashboard.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} · Philippine time · Refreshes every minute` : "Loading resort records…"}</p>
+        </div>} footer={<><p className="text-neutral/60" role="status">{dashboard ? `Updated ${new Date(dashboard.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} · Philippine time · Refreshes every minute` : "Loading resort records…"}</p>
         <nav aria-label="Dashboard shortcuts" className="flex flex-wrap gap-4 font-semibold text-primary">
           {can("reservations") && <Link href="/admin/reservations" className="hover:underline">Reservation calendar →</Link>}
           {can("reports") && <Link href="/admin/reports" className="hover:underline">Reports →</Link>}
           {can("analytics") && <Link href="/admin/analytics" className="hover:underline">Analytics →</Link>}
-        </nav>
-      </div>
-    </header>
+        </nav></>} />
 
     {error && <div role="alert" className="rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm">{error}{dashboard && <p className="mt-1 font-semibold">Showing the last successful update. Refresh before acting on these figures.</p>}</div>}
     {!dashboard && loading && <div className="grid animate-pulse gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Loading dashboard"><div className="h-32 rounded-2xl bg-neutral/5" /><div className="h-32 rounded-2xl bg-neutral/5" /><div className="h-32 rounded-2xl bg-neutral/5" /><div className="h-32 rounded-2xl bg-neutral/5" /></div>}
@@ -136,7 +126,7 @@ export default function AdminDashboard() {
           <div className="min-w-0 xl:col-span-2"><ReportChart title="Verified collections" format="money" points={dashboard.collections} description="Actual payments by verification date, before refunds. Older payments without a verification date use their creation date. Today’s total may still change." /></div>
           <div className="min-w-0 rounded-xl border border-neutral/10 bg-white">
             <div className="flex gap-1 border-b border-neutral/10 bg-base/50 p-3" role="group" aria-label="Booking breakdown">
-              {(["status", "source"] as const).map(tab => <button key={tab} type="button" aria-pressed={breakdown === tab} onClick={() => setBreakdown(tab)} className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${breakdown === tab ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:bg-white/60"}`}>{tab === "status" ? "Booking status" : "Booking source"}</button>)}
+              {(["status", "source"] as const).map(tab => <button key={tab} type="button" aria-pressed={breakdown === tab} onClick={() => setBreakdown(tab)} className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium ${breakdown === tab ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:bg-white/60"}`}>{tab === "status" ? "Booking status" : "Booking source"}</button>)}
             </div>
             <ReportChart key={breakdown} title={breakdown === "status" ? "Status of new bookings" : "Where bookings came from"} initialType="pie" points={breakdown === "status" ? dashboard.bookingStatuses : dashboard.bookingSources} description={breakdown === "status" ? "Current recorded status of reservations created in the last 7 days, including cancelled or expired bookings." : "Reservations created in the last 7 days. Staff entry includes phone, Messenger and walk-in bookings."} />
           </div>
@@ -145,7 +135,7 @@ export default function AdminDashboard() {
 
       <section aria-label="Arrivals and stays">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Arrivals & stays</h2><p className="mt-1 text-sm text-neutral/60">Today and the next 29 days, through {dayLabel(dashboard.arrivalEndDate)}. Closed bookings and expired payment holds are excluded.</p></div>
-          <div className="flex flex-wrap gap-1 rounded-xl bg-neutral/5 p-1" role="group" aria-label="Arrival period">{ranges.map(range => <button key={range} type="button" onClick={() => setArrivalRange(range)} aria-pressed={arrivalRange === range} className={`rounded-lg px-3 py-2 text-xs font-semibold ${arrivalRange === range ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:bg-white/60"}`}>{range}</button>)}</div>
+          <div className="flex flex-wrap gap-1 rounded-xl bg-neutral/5 p-1" role="group" aria-label="Arrival period">{ranges.map(range => <button key={range} type="button" onClick={() => setArrivalRange(range)} aria-pressed={arrivalRange === range} className={`rounded-xl px-3 py-2 text-xs font-semibold ${arrivalRange === range ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:bg-white/60"}`}>{range}</button>)}</div>
         </div>
         <AdminTablePreview key={arrivalRange} title={arrivalRange === "Scheduled now" ? "Bookings scheduled now" : `Arrivals · ${arrivalRange.toLowerCase()}`} columns={columns} rows={rows} defaultSort={{ key: "checkIn", direction: "asc" }} pageSize={10} showResetFilters searchPlaceholder="Search guest or reservation reference…"
           filters={[{ key: "status", label: "Status", options: [...new Set(rows.map(r => r.status))].sort() }, { key: "source", label: "Booked through", options: ["Online", "Staff entry", "Unspecified"] }]}

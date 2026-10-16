@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+import AdminTabs from "@/components/admin/AdminTabs";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import {
   usersColumns,
@@ -286,6 +287,7 @@ export default function AdminUsersPage() {
 
       {toast ? (
         <div
+          role={toast.tone === "success" ? "status" : "alert"}
           className={`mb-4 rounded-2xl border px-4 py-3 text-sm font-medium ${
             toast.tone === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
@@ -296,27 +298,10 @@ export default function AdminUsersPage() {
         </div>
       ) : null}
 
-      <section className="rounded-2xl border border-neutral/10 bg-white p-4">
-        <div className="mb-4 flex flex-wrap gap-2 border-b border-neutral/10 pb-4">
-          {userTabs.map((tab) => {
-            const isActive = tab === activeTab;
+      <section className="admin-panel">
+        <AdminTabs tabs={userTabs} value={activeTab} onChange={setActiveTab} label="User management sections" />
 
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-                  isActive ? "bg-primary text-base" : "bg-base text-neutral hover:bg-neutral/10"
-                }`}
-              >
-                {tab}
-              </button>
-            );
-          })}
-        </div>
-
-        {pageError && activeTab === "Staff Accounts" ? <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{pageError}</div> : null}
+        {pageError && activeTab === "Staff Accounts" ? <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{pageError}</div> : null}
 
         {activeTab === "Staff Accounts" && (
           <AdminTablePreview

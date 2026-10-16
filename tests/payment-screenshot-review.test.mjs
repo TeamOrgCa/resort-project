@@ -47,3 +47,25 @@ test("screenshot acknowledgement cannot bypass staff permission, status or reser
     assert.equal(h.updates.length, 0);
   }
 });
+
+test("approval reads the database's net balance without overwriting completed refunds with gross payment sums", async () => {
+  const writes=[];
+  const client={from:table=>{
+    let updating=false;
+    const q={select:()=>q,eq:()=>q,update:patch=>{updating=true;writes.push({table,patch});return q;},
+      upsert:()=>assert.fail("Approval must not overwrite authoritative net totals"),
+      maybeSingle:async()=>({error:null,data:table==="payments"?(updating?{payment_id:"payment"}:{payment_id:"payment",reservation_id:"reservation",status:"pending",amount:100,receipt_paid_at:"2026-10-16T01:00:00Z"})
+        :table==="reservations"?{reservation_id:"reservation",guest_id:"guest",walk_in_guest_id:null,reference_number:"MV-NET",status:"confirmed",start_datetime:"2026-11-01T00:00:00Z",end_datetime:"2026-11-01T08:00:00Z"}
+        :table==="receipts"?{receipt_id:"receipt"}:table==="transactions"?{balance:650,overpaid_amount:0}:null})};return q;
+  }};
+  const {POST}=loadTsModule("app/api/admin/payments/approve/route.ts",{
+    "@/lib/server/admin-audit":{requireActiveStaff:async()=>({supabase:client,staffUser:{id:"manager",role:"staff"}})},
+    "@/lib/server/role-permissions":{staffHasPermission:async()=>true},
+    "@/lib/email":{sendReservationConfirmedEmail:async()=>false},
+    "@/lib/notifications":{createNotifications:async()=>({error:null})},
+    "@/lib/server/billing-email":{emailBillingDocuments:async()=>({receiptSent:false,invoiceSent:false})},
+  });
+  const response=await POST(new Request("http://localhost",{method:"POST",body:JSON.stringify({paymentId:"payment",screenshotReviewed:true})}));
+  assert.equal(response.status,200);assert.equal((await response.json()).remainingBalance,650);
+  assert.deepEqual(writes,[{table:"payments",patch:{status:"verified"}}]);
+});

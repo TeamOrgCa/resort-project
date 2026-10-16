@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
+import { receiptValidationIssues } from "@/lib/booking/receipt-feedback";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-rates";
@@ -423,12 +424,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Payment proof is missing or is not a supported image under 8 MB." }, { status: 400 });
     }
     if (ocr.status === "rejected") {
-      return NextResponse.json({ success: false, code: "INVALID_PAYMENT_PROOF", message: ocr.notes }, { status: 422 });
+      return NextResponse.json({ success: false, code: "INVALID_PAYMENT_PROOF", message: ocr.notes, issues: receiptValidationIssues(ocr.notes) }, { status: 422 });
     }
     if (ocr.status === "screening_unavailable") {
       return NextResponse.json({ success: false, code: "PROOF_SCREENING_UNAVAILABLE", message: ocr.notes }, { status: 503 });
     }
-    if (!isVerifiedGcashReceipt(ocr)) return NextResponse.json({ success: false, code: "RECEIPT_VALIDATION_FAILED", message: `Payment was not submitted: ${ocr.notes}. Upload a clear, complete receipt showing today's Philippine date and time.` }, { status: 422 });
+    if (!isVerifiedGcashReceipt(ocr)) return NextResponse.json({ success: false, code: "RECEIPT_VALIDATION_FAILED", issues: receiptValidationIssues(ocr.notes), message: `Payment was not submitted: ${ocr.notes}. Upload a clear, complete receipt showing today's Philippine date and time.` }, { status: 422 });
 
     const reservationReference = await generateReferenceNumber(supabase);
 

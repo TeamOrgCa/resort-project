@@ -20,6 +20,8 @@ export type EditableReservation = {
   special_requests: string | null; updated_at: string; payment_deadline_at: string | null;
   guest_id: string | null; walk_in_guest_id: string | null; booking_type: string;
   package_rate_version: number | null;
+  checked_in_at?: string | null;
+  checked_out_at?: string | null;
 };
 export type SelectedService = { service_id: string; quantity: number; price_at_time: number };
 export type SelectedUnit = { unit_id: string; quantity: number; price_per_night: number };
@@ -87,7 +89,7 @@ export function reservationEditAccess(r: EditableReservation, pendingPayment: bo
   else if (Date.parse(r.end_datetime) <= now) lockedReason = "This stay has ended. Reservation details are read-only.";
   else if (pendingPayment) lockedReason = "Finish reviewing the pending payment before editing this reservation.";
   else if (pendingReschedule) lockedReason = "Resolve the pending reschedule request before editing this reservation.";
-  return { lockedReason, canChangeDetails: !lockedReason && Date.parse(r.start_datetime) > now };
+  return { lockedReason, canChangeDetails: !lockedReason && !r.checked_in_at && Date.parse(r.start_datetime) > now };
 }
 
 export function detailsChanged(r: EditableReservation, edit: ReservationEdit) {

@@ -7,7 +7,6 @@ import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start
 import { calculateRescheduleCharges } from "@/lib/booking/reschedule-charges";
 import type { BookingMode } from "@/lib/booking/policy";
 import { loadPackageRates, PackageRatesError } from "@/lib/server/package-rates";
-import { reschedulePolicy } from "@/lib/booking/reschedule-charge-policy";
 
 interface ReschedulePayload {
   reservationId: string;
@@ -17,6 +16,7 @@ interface ReschedulePayload {
 
 interface ReservationRow {
   package_rate_version: number | null;
+  checked_in_at?: string | null;
   reservation_id: string;
   guest_id: string;
   reference_number: string;
@@ -68,7 +68,7 @@ const parsePayload = (value: unknown): ReschedulePayload | null => {
 ------------------------------*/
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
     const payload = parsePayload(body);
 
     if (!payload) {
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
     ------------------------------*/
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, package_rate_version")
+      .select("reservation_id, guest_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, package_rate_version, checked_in_at")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -143,11 +143,11 @@ export async function POST(request: Request) {
     /* -----------------------------
        STATUS CHECK
     ------------------------------*/
-    if (["cancelled", "completed"].includes(reservation.status)) {
+    if (reservation.checked_in_at || ["cancelled", "completed"].includes(reservation.status)) {
       return NextResponse.json(
         {
           success: false,
-          message: "This reservation can no longer be rescheduled.",
+          message: reservation.checked_in_at ? "Checked-in reservations cannot be rescheduled." : "This reservation can no longer be rescheduled.",
         },
         { status: 400 }
       );
@@ -192,9 +192,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    const policy = reschedulePolicy(reservation.start_datetime);
-    if (!policy.allowed) return NextResponse.json({ success: false, code: "RESCHEDULE_NOTICE_REQUIRED", message: policy.blockedReason, policy }, { status: 400 });
 
     if (reservation.status !== "confirmed") {
       return NextResponse.json({ success: false, message: "Payment must be approved before rescheduling this reservation." }, { status: 400 });
@@ -272,7 +269,10 @@ export async function POST(request: Request) {
       .single<{ reschedule_id: string }>();
 
     if (insertError) {
-      const status = ["40001", "23P01"].includes(insertError.code) ? 409 : ["22023", "42501"].includes(insertError.code) ? 400 : 500;
+      if (insertError.code === "22023" && /Rescheduling requires .* days notice/i.test(insertError.message)) {
+        return NextResponse.json({ success: false, message: "Guest reschedule requests are not yet configured. Ask the administrator to apply docs/guest-reschedule-requests-migration.sql, then retry." }, { status: 503 });
+      }
+      const status = ["40001", "23P01", "23505"].includes(insertError.code) ? 409 : insertError.code === "42501" ? 403 : insertError.code === "22023" ? 400 : 500;
       return NextResponse.json(
         {
           success: false,
@@ -285,26 +285,32 @@ export async function POST(request: Request) {
     /* -----------------------------
        UPDATE RESERVATION STATUS
     ------------------------------*/
-    const { error: updateError } = await adminSupabase
+    const { data: updatedReservation, error: updateError } = await adminSupabase
       .from("reservations")
       .update({ status: "reschedule_requested" })
-      .eq("reservation_id", reservation.reservation_id);
+      .eq("reservation_id", reservation.reservation_id)
+      .eq("status", "confirmed")
+      .eq("start_datetime", reservation.start_datetime)
+      .eq("end_datetime", reservation.end_datetime)
+      .select("reservation_id")
+      .maybeSingle();
 
-    if (updateError) {
+    if (updateError || !updatedReservation) {
       if (insertedRequest) {
         await adminSupabase
           .from("reservation_reschedules")
           .delete()
-          .eq("reschedule_id", insertedRequest.reschedule_id);
+          .eq("reschedule_id", insertedRequest.reschedule_id)
+          .eq("status", "pending");
       }
 
       return NextResponse.json(
         {
           success: false,
           message:
-            "Request created but reservation status update failed.",
+            "This reservation changed while you were requesting a new date. Refresh Manage Booking before trying again.",
         },
-        { status: 500 }
+        { status: 409 }
       );
     }
 

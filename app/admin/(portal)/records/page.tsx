@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+import AdminTabs from "@/components/admin/AdminTabs";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
 import { createClient } from "@/lib/supabase/client";
@@ -96,16 +97,17 @@ export default function AdminRecordsPage() {
 
   const review = async (action: "Approve" | "Reject", row: AdminTableRow) => {
     const isOcular = activeTab === "Ocular Visit Records";
-    const rejectionReason = action === "Reject" ? window.prompt("Reason for rejecting this reschedule request:")?.trim() : null;
+    const rejectionReason = isOcular || action === "Reject" ? window.prompt(isOcular ? `Reason for ${action === "Approve" ? "approving" : "rejecting"} this ocular visit (5-2000 characters):` : "Reason for rejecting this reschedule request:")?.trim() : null;
+    if (isOcular && (!rejectionReason || rejectionReason.length < 5 || rejectionReason.length > 2000)) return;
     if (action === "Reject" && !rejectionReason) return;
     if (action === "Approve" && !window.confirm(`Approve ${isOcular ? "ocular visit" : "reschedule request"} ${row.reference}?${isOcular ? "" : ` Additional charge: ${row.additionalCharge}.`}`)) return;
     setBusyId(row.id);
     setError(null);
     setMessage(null);
     try {
-      const url = isOcular ? "/api/admin/ocular-visits/approve" : `/api/admin/reschedule-requests/${action === "Approve" ? "approve" : "reject"}`;
+      const url = isOcular ? `/api/admin/ocular-visits/${action === "Approve" ? "approve" : "reject"}` : `/api/admin/reschedule-requests/${action === "Approve" ? "approve" : "reject"}`;
       const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(isOcular
-        ? { visitId: row.id }
+        ? { visitId: row.id, reviewReason: rejectionReason }
         : { rescheduleId: row.id, ...(rejectionReason ? { rejectionReason } : {}) }) });
       const result = await response.json() as { success?: boolean; message?: string };
       if (!response.ok || !result.success) throw new Error(result.message ?? "Unable to review request.");
@@ -123,12 +125,10 @@ export default function AdminRecordsPage() {
   return (
     <div>
       <AdminSectionHeader title="Records" subtitle="A single source of truth for reservations, reschedule requests, and ocular visits." />
-      {error ? <p className="mt-4 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">{error}</p> : null}
-      {message ? <p role="status" className="mt-4 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm text-neutral">{message}</p> : null}
-      <section className="mt-6 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm">
-        <div className="mb-4 flex flex-wrap gap-2 border-b border-neutral/10 pb-4">
-          {tabs.map((tab) => <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === tab ? "bg-primary text-base" : "bg-base text-neutral hover:bg-neutral/10"}`}>{tab}</button>)}
-        </div>
+      {error ? <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p> : null}
+      {message ? <p role="status" className="mt-4 rounded-xl border border-green-300 bg-green-50 px-3 py-2 text-sm text-neutral">{message}</p> : null}
+      <section className="admin-panel mt-6">
+        <AdminTabs tabs={tabs} value={activeTab} onChange={setActiveTab} label="Record sections" />
         <AdminTablePreview
           title={isLoading ? `${activeTab} (Loading...)` : activeTab}
           columns={activeTab === "Reservation Records" ? reservationColumns : activeTab === "Reschedule Requests" ? rescheduleColumns : ocularColumns}
@@ -136,8 +136,8 @@ export default function AdminRecordsPage() {
           pageSize={25}
           showResetFilters
           defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule Requests" ? "requestedAt" : "scheduledDate", direction: "desc" }}
-          filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
-          rowActions={activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" && canApproveOcular ? ["Approve"] : []}
+          filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
+          rowActions={activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" && canApproveOcular ? ["Approve", "Reject"] : []}
           onRowAction={(action, row) => void review(action as "Approve" | "Reject", row)}
           isRowActionDisabled={(_action, row) => Boolean(busyId) || row.status !== "Pending"}
         />

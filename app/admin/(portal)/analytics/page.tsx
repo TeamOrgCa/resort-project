@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+import AdminTabs from "@/components/admin/AdminTabs";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import ReportChart, { type ChartType } from "@/components/admin/ReportChart";
 import ReportPeriodFilter, { defaultReportDateRange } from "@/components/admin/ReportPeriodFilter";
@@ -102,24 +103,21 @@ export default function AdminAnalyticsPage() {
   };
   return <div>
     <AdminSectionHeader title="Resort Analytics" subtitle="Understand bookings, collections and tasks to follow up. All dates use Philippine time." />
-    <section className="rounded-2xl border border-neutral/10 bg-white p-4 sm:p-6" aria-label="Analytics viewer">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">{tabs.map(tab => <button key={tab.title} type="button" aria-pressed={activeTab === tab.title} onClick={() => setActiveTab(tab.title)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeTab === tab.title ? "bg-primary text-white" : "bg-base text-neutral hover:bg-neutral/10"}`}>{tab.title}</button>)}</div>
-        <button type="button" onClick={refresh} disabled={loading || analyzing} className="rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold disabled:opacity-50">{loading ? "Loading..." : "Refresh analytics"}</button>
-      </div>
+    <section className="admin-panel" aria-label="Analytics viewer">
+      <AdminTabs tabs={tabs.map(tab => tab.title)} value={activeTab} onChange={setActiveTab} label="Analytics sections" actions={<button type="button" onClick={refresh} disabled={loading || analyzing} className="admin-button-secondary">{loading ? "Loading..." : "Refresh analytics"}</button>} />
       <p className="mt-4 text-sm text-neutral/75">{tabs.find(tab => tab.title === activeTab)?.description}</p>
       <div className="mt-5 flex flex-wrap items-end gap-3 rounded-xl bg-base p-4">
         <ReportPeriodFilter key={period === "Custom" ? `${customRange.startDate}:${customRange.endDate}` : "preset"} period={period} range={customRange} onPeriodChange={value => { setPeriod(value); refresh(); }} onRangeChange={value => { setCustomRange(value); refresh(); }} />
-        <button type="button" onClick={() => { setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm">Reset period</button>
+        <button type="button" onClick={() => { setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm">Reset period</button>
       </div>
       <p className="mt-3 text-xs text-neutral/65">Dates update automatically when applied. Chart selectors change how the same values are displayed.</p>
-      {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-800">{error} Use Refresh analytics to retry.</p>}
+      {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-800">{error} Use Refresh analytics to retry.</p>}
       {actionError && <p role="alert" className="mt-4 text-sm text-red-700">{actionError}</p>}
       {loading && <p role="status" className="py-12 text-center text-sm text-neutral/65">Loading analytics...</p>}
       {reports && <p className="mt-5 text-sm text-neutral/70">{reports.booking.startDate} through {reports.booking.endDate} | Updated {new Date(reports.booking.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</p>}
       {activeTab === "Guest feedback" && <GuestFeedbackPanel key={query} query={query} revision={generation} onChanged={refresh} />}
       {activeTab === "Guest feedback" && reports && <article className="mt-4 rounded-xl bg-base p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">{sentiment?.overallSentiment ?? "Feedback has not been analyzed"}</h2><button type="button" disabled={analyzing} onClick={() => void analyzeFeedback()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{analyzing ? "Analyzing..." : sentiment ? "Analyze again" : "Analyze feedback"}</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">{sentiment?.overallSentiment ?? "Feedback has not been analyzed"}</h2><button type="button" disabled={analyzing} onClick={() => void analyzeFeedback()} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{analyzing ? "Analyzing..." : sentiment ? "Analyze again" : "Analyze feedback"}</button></div>
         {!sentiment && <p className="mt-3 text-sm text-neutral/70">Select dates, then analyze feedback to see review sentiment and common themes.</p>}
       </article>}
       {report && <>

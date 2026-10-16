@@ -12,7 +12,7 @@ import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start
 
 const currency = (amount: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(amount);
 const localTime = (value: string) => new Date(Date.parse(value) + 8 * 3600000).toISOString().slice(0, 16);
-const inputClass = "mt-1 min-h-11 w-full min-w-0 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-[16px] text-black disabled:bg-neutral/5 disabled:text-neutral/60 focus:outline-none focus:ring-2 focus:ring-primary";
+const inputClass = "admin-field mt-1 w-full";
 type Draft = Omit<ReservationEdit, "version" | "expectedTotal">;
 
 const monthsInWindow = (start: string, end: string) => {
@@ -25,10 +25,11 @@ const monthsInWindow = (start: string, end: string) => {
   return months;
 };
 
-export default function ReservationEditor({ reservationId, onSaved }: { reservationId: string; onSaved: () => void }) {
+export default function ReservationEditor({ reservationId, onSaved, onBusyChange }: { reservationId: string; onSaved: () => void; onBusyChange?: (busy: boolean) => void }) {
   const [detail, setDetail] = useState<EditDetail | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -62,12 +63,12 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
 
   function reloadDetails() { setLoading(true); setError(null); setReload(n => n + 1); }
   if (loading) return <p className="py-8 text-sm text-neutral/60" role="status">Loading reservation and bill…</p>;
-  if (!detail || !draft) return <div className="mt-5"><p role="alert" className="text-sm text-red-700">{error}</p><button onClick={reloadDetails} className="mt-3 rounded-lg border px-4 py-2 text-sm">Try again</button></div>;
+  if (!detail || !draft) return <div className="mt-5"><p role="alert" className="text-sm text-red-700">{error}</p><button onClick={reloadDetails} className="mt-3 rounded-xl border px-4 py-2 text-sm">Try again</button></div>;
 
   const canEdit = detail.canEdit && !detail.lockedReason;
   const canChange = canEdit && detail.canChangeDetails;
   const noticePolicy = reschedulePolicy(detail.reservation.start_datetime, availability.now);
-  const canMove = canChange || Boolean(detail.canRescheduleException && lateAcknowledged);
+  const canMove = !detail.reservation.checked_in_at && (canChange || Boolean(detail.canRescheduleException && lateAcknowledged));
   const toEdit = () => ({ ...draft,
     ...moveReservationToDate(detail.reservation, draft.startDatetime.slice(0, 10)),
     bookingMode: detail.reservation.booking_mode ?? "day", lateRescheduleAcknowledged: lateAcknowledged, version: detail.version, expectedTotal: 0 });
@@ -139,10 +140,10 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
         <p className="mt-1 text-sm text-neutral/60">{detail.guest?.email || "No email"} · {detail.guest?.phone_number || "No phone"}</p></div>
       <div className="text-sm text-neutral/70"><p className="font-medium">{detail.reservation.reference_number}</p><p className="capitalize">{detail.reservation.status.replaceAll("_", " ")}</p><p>{detail.reservation.booking_type === "walk_in" ? "Staff-entered booking" : "Online booking"}</p></div>
     </div>
-    {success && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{success}</p>}
-    {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800"><p>{error}</p><button type="button" disabled={busy} onClick={reloadDetails} className="mt-2 underline">Reload reservation</button></div>}
-    {!canEdit && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{detail.lockedReason ?? "Your role has view-only access. An administrator can grant permission to edit reservations."}</p>}
-    {canEdit && !canChange && <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">The stay has started. Add services or update notes below. Existing services remain on the bill.</p>}
+    {success && <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{success}</p>}
+    {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800"><p>{error}</p><button type="button" disabled={busy} onClick={reloadDetails} className="mt-2 underline">Reload reservation</button></div>}
+    {!canEdit && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{detail.lockedReason ?? "Your role has view-only access. An administrator can grant permission to edit reservations."}</p>}
+    {canEdit && !canChange && <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">The stay has started. Add services or update notes below. Existing services remain on the bill.</p>}
     {(canChange || detail.canRescheduleException) && <div className="rounded-xl border border-neutral/10 bg-base p-4 text-sm text-neutral">
       <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
       <p className="mt-2">Original swimming date: {manilaDateKey(detail.reservation.start_datetime)}. Standard notice deadline: {noticePolicy.deadline} (Philippines).</p>
@@ -153,7 +154,7 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
       <legend className="mb-3 font-semibold text-neutral">Reservation details</legend>
       <div className="mx-auto w-full min-w-0 max-w-md space-y-3 sm:col-span-2">
         {(canChange || detail.canRescheduleException) && !availability.ready && !availability.error && <p role="status" className="text-sm text-neutral/60">Loading available dates...</p>}
-        {(canChange || detail.canRescheduleException) && availability.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
+        {(canChange || detail.canRescheduleException) && availability.error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
         <BookingDateCalendar value={draft.startDatetime.slice(0, 10)} onChange={chooseDate} onMonthChange={setCalendarMonth}
           minDate={manilaDateKey(new Date(availability.now))} minimumDateReason="Past date" title="Arrival date"
           disabled={busy || !canMove} getUnavailableReason={canMove ? dateIssue : undefined}
@@ -170,7 +171,7 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
         <div><dt className="text-xs text-neutral/60">Arrival (Philippines)</dt><dd>{scheduleLabel(draft.startDatetime)}</dd></div>
         <div><dt className="text-xs text-neutral/60">Departure (Philippines)</dt><dd>{scheduleLabel(draft.endDatetime)}</dd></div>
       </dl>
-      {selectedIssue && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2">{selectedIssue} Choose another date or time slot.</p>}
+      {selectedIssue && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2">{selectedIssue} Choose another date or time slot.</p>}
       <label className="text-sm text-neutral/70">Adults<input disabled={!canChange} required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value) })} /></label>
       <label className="text-sm text-neutral/70">Children<input disabled={!canChange} required type="number" min={0} max={MAX_GUESTS - 1} className={inputClass} value={draft.childCount} onChange={e => setDraft({ ...draft, childCount: Number(e.target.value) })} /></label>
       <p className="text-xs text-neutral/60 sm:col-span-2">Times are in Philippine time. Up to {MAX_GUESTS} guests. Package rates apply to the selected schedule and guest count.</p>
@@ -183,7 +184,7 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
           const selected = draft.services.find(e => e.serviceId === s.service_id);
           const old = detail.services.find(e => e.service_id === s.service_id);
           const price = Number(old?.price_at_time ?? s.price);
-          return <div key={s.service_id} className="flex items-center justify-between gap-3 rounded-lg bg-base/60 p-3">
+          return <div key={s.service_id} className="flex items-center justify-between gap-3 rounded-xl bg-base/60 p-3">
             <label className="flex cursor-pointer items-start gap-3 text-sm"><input type="checkbox" className="mt-1 accent-primary" checked={Boolean(selected)} disabled={!canEdit || (!canChange && Boolean(old))} onChange={e => setDraft({ ...draft, services: e.target.checked ? [...draft.services, { serviceId: s.service_id, quantity: 1 }] : draft.services.filter(x => x.serviceId !== s.service_id) })} />
               <span><span className="font-medium text-neutral">{s.name}{!s.is_active ? " (archived)" : ""}</span><span className="block text-xs text-neutral/60">{currency(price)} each{old ? " · booked rate" : ""}</span></span></label>
             {selected && <label className="w-20 shrink-0 text-xs text-neutral/60">Quantity<input aria-label={`Quantity for ${s.name}`} type="number" required min={!canChange ? old?.quantity ?? 1 : 1} max={10000} className={inputClass} value={selected.quantity} onChange={e => setDraft({ ...draft, services: draft.services.map(x => x.serviceId === s.service_id ? { ...x, quantity: Number(e.target.value) } : x) })} /></label>}
@@ -207,6 +208,6 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
       <p className="mt-3 text-xs text-neutral/60">Payments and issued receipts are retained. The current invoice follows the updated bill. Handle any overpayment in Transactions.</p>
     </div>
     {(canEdit || detail.canRescheduleException) && <><label className="block text-sm text-neutral/70">Reason for change <span className="text-red-600">*</span><textarea required maxLength={1000} disabled={busy} rows={2} className={inputClass} placeholder="Example: Guest requested a new date by Messenger, or added services at check-in." value={draft.reason} onChange={e => setDraft({ ...draft, reason: e.target.value })} /></label>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4"><a href="/admin/transactions" className="text-sm text-primary hover:underline">View transactions and receipts</a><button type="submit" disabled={busy || !preview || preview.total < 0 || Boolean(selectedIssue) || (!canEdit && !scheduleChanged)} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">{busy ? "Saving…" : "Save reservation"}</button></div></>}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4"><a href="/admin/transactions" className="text-sm text-primary hover:underline">View transactions and receipts</a><button type="submit" disabled={busy || !preview || preview.total < 0 || Boolean(selectedIssue) || (!canEdit && !scheduleChanged)} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">{busy ? "Saving…" : "Save reservation"}</button></div></>}
   </form>;
 }

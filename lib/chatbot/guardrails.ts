@@ -186,7 +186,7 @@ export function getBookingGuidance(message: string, rates: PackageRates | null =
   }
 
   if (/\b(reschedul\w*|cancel\w*|refund\w*)\b/.test(lower)) {
-    return "The resort's listed policy says down payments are non-refundable. Rescheduling needs 14 Philippine calendar days' notice in March-May and September-December, or 7 days in other months, based on the original swimming date. Fees are ₱50 for 6+ days, ₱100 for 3-5 days, ₱300 for 1-2 days, and ₱500 on or after the date, plus any higher-date-rate adjustment. Shorter notice requires a documented staff exception. The booked package and times stay fixed. Check /manage or contact the resort at 09172796592 or 82360633 for your specific booking.";
+    return "The resort's listed policy says down payments are non-refundable. Standard reschedule notice is 14 Philippine calendar days in March-May and September-December, or 7 days in other months. If your booking is confirmed and you have not checked in, you may also submit a shorter-notice, same-day or past-date request in /manage. Staff must approve it before your schedule or bill changes. Fees are ₱50 for 6+ days, ₱100 for 3-5 days, ₱300 for 1-2 days, and ₱500 on or after the original date, plus any higher-date-rate adjustment. The booked package and times stay fixed. Contact the resort at 09172796592 or 82360633 for your specific booking.";
   }
 
   if (/\b(ocular|tour|visit the resort|view the resort)\b/.test(lower)) {

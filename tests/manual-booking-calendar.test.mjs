@@ -27,6 +27,7 @@ async function mount(fetcher = () => Response.json({ success: true, reservation:
     requests.push({ url, body: JSON.parse(options.body) }); return fetcher();
   };
   const client = { from(table) {
+    assert.notEqual(table, "guests", "Manual entry must not load account choices");
     const data = table === "guests" ? [{ id: "guest", first_name: "Test", last_name: "Guest", email: "test@example.com" }]
       : table === "services" ? [{ service_id: "karaoke", name: "Karaoke", price: 500, description: "Use during the stay" }, { service_id: "chairs", name: "Extra chair", price: 100, description: null }]
       : [{ unit_id: "unit", name: "Resort", capacity: 30 }];
@@ -53,6 +54,7 @@ test("manual reservations use a custom calendar, update weekday/weekend pricing 
   const h = await mount();
   try {
     const c = h.container;
+    assert.equal(c.textContent.includes("Existing account"), false);
     assert.equal(c.querySelector('input[type="date"]'), null);
     await click(c.querySelector('[aria-label="Next month"]'));
     const first = c.querySelector("[data-date]").dataset.date, month = first.slice(0, 7);
@@ -64,13 +66,13 @@ test("manual reservations use a custom calendar, update weekday/weekend pricing 
     await click(c.querySelector('[aria-label="Previous month"]'));
     assert.equal(c.querySelector('[data-date="' + friday + '"]').getAttribute("aria-pressed"), "true");
     assert.equal(h.requests.length, 0, "calendar controls must not submit the form");
-    await select(c, "Guest account", "guest"); await select(c, "Booking package", "whole_day"); await select(c, "Whole-day variant", "night_to_day");
+    await fillGuest(c); await select(c, "Booking package", "whole_day"); await select(c, "Whole-day variant", "night_to_day");
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
     assert.equal(h.requests.length, 1); const request = h.requests[0];
     assert.equal(request.url, "/api/admin/reservations/create"); assert.equal(request.body.packageRateVersion, 9);
     assert.equal(request.body.startDatetime, friday + "T10:00:00.000Z"); assert.equal(request.body.wholeDayVariant, "night_to_day");
     assert.equal((Date.parse(request.body.endDatetime) - Date.parse(request.body.startDatetime)) / 3600000, 22);
-    assert.equal(request.body.guestId, "guest"); assert.equal(h.created(), 1);
+    assert.equal(request.body.guestId, undefined); assert.equal(request.body.guestType, "walk_in"); assert.equal(request.body.walkInGuest.email, "walkin@example.com"); assert.equal(h.created(), 1);
   } finally { await h.close(); }
 });
 
@@ -81,7 +83,7 @@ test("calendar controls stay disabled while creating and a failed save preserves
     await click(c.querySelector('[aria-label="Next month"]'));
     await click(c.querySelector('[data-date]'));
     const selected = c.querySelector('[data-date][aria-pressed="true"]').dataset.date;
-    await select(c, "Guest account", "guest");
+    await fillGuest(c);
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
     assert.equal(c.querySelector('[aria-label="Next month"]').disabled, true);
     assert.equal(c.querySelector('[data-date="' + selected + '"]').disabled, true);
@@ -131,7 +133,7 @@ test("refreshing availability invalidates a selected package and prevents even a
   const h=await mount(undefined,{availabilityFetcher:()=>Response.json({reservations:booked?[{start_datetime:selected+"T08:00:00+08:00",end_datetime:selected+"T16:00:00+08:00"}]:[],blockedDates:[]})});
   try{
     const c=h.container;await click(c.querySelector('[aria-label="Next month"]'));selected=c.querySelector("[data-date]").dataset.date;
-    await click(c.querySelector("[data-date]"));await select(c,"Guest account","guest");assert.equal(submitButton(c).disabled,false);
+    await click(c.querySelector("[data-date]"));await fillGuest(c);assert.equal(submitButton(c).disabled,false);
     booked=true;await act(async()=>window.dispatchEvent(new window.Event("focus")));
     assert.equal(submitButton(c).disabled,true);assert.match(c.textContent,/Already reserved for this package/);
     await act(async()=>c.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
@@ -143,7 +145,7 @@ test("services and quantities recalculate the bill and downpayment and are inclu
   const h=await mount();
   try{
     const c=h.container;await click(c.querySelector('[aria-label="Next month"]'));await click(c.querySelector("[data-date]"));
-    await select(c,"Guest account","guest");
+    await fillGuest(c);
     const checks=c.querySelectorAll('input[type="checkbox"]');await click(checks[0]);await click(checks[1]);
     await input(c.querySelector('[aria-label="Quantity for Karaoke"]'),"2");
     await input(c.querySelector('[aria-label="Quantity for Extra chair"]'),"3");
@@ -178,3 +180,10 @@ test("a stale availability response cannot overwrite a newer refresh",async()=>{
     assert.equal(c.querySelector("[data-date]").disabled,false);
   }finally{await h.close();}
 });
+
+async function fillGuest(c) {
+  for (const [label,next] of Object.entries({ "First name":"Test", "Last name":"Guest", Email:"walkin@example.com", Phone:"09123456789", Address:"Manila" })) {
+    const element=[...c.querySelectorAll("label")].find(item=>item.textContent===label)?.querySelector("input");
+    assert.ok(element,label);await input(element,next);
+  }
+}

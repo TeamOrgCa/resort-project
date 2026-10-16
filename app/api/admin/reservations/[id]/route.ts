@@ -45,6 +45,7 @@ export async function PATCH(request: Request, context: Context) {
     const now = Date.now();
     const scheduleChanged = Date.parse(detail.reservation.start_datetime) !== Date.parse(edit.startDatetime)
       || Date.parse(detail.reservation.end_datetime) !== Date.parse(edit.endDatetime);
+    if (scheduleChanged && detail.reservation.checked_in_at) return fail("Checked-in reservations cannot be rescheduled.", 409);
     const policy = reschedulePolicy(detail.reservation.start_datetime, now);
     const needsException = scheduleChanged && !policy.allowed;
     const exceptionEligible = detail.reservation.status === "confirmed" && (detail.lateRescheduleEligible ?? !detail.lockedReason);

@@ -197,7 +197,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
   <p class="eyebrow">MarVille Resort Complex</p>
   <h1>Client and Admin User Manual</h1>
   <p>Step-by-step instructions for guests, administrators, managers and cashiers.</p>
-  <p><strong>Updated:</strong> 13 October 2026</p>
+  <p><strong>Updated:</strong> 16 October 2026</p>
   <div class="guide-links"><a href="#client">Open client guide</a><a href="#admin">Open admin guide</a></div>
   <p>Use the website address provided by the resort. Follow the displayed prices, deadlines, policies and success/error messages. Booking schedules and receipt validation use Philippine time.</p>
   <p>The guides describe the current application and identify older demonstration screens. They contain no account credentials or private configuration values.</p>
@@ -206,7 +206,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <section id="client" class="manual-section" aria-label="Client user manual">CLIENT_CONTENT</section>
 <section id="admin" class="manual-section" aria-label="Admin and staff user manual">ADMIN_CONTENT</section>
 </main>
-<footer>MarVille Resort Complex · User Manual · Updated 13 October 2026</footer>
+<footer>MarVille Resort Complex · User Manual · Updated 16 October 2026</footer>
 </body>
 </html>
 """

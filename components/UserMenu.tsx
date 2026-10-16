@@ -5,6 +5,7 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 import type { User } from "@supabase/supabase-js";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
 
 type NotificationItem = {
   notification_id: string;
@@ -24,10 +25,15 @@ export default function UserMenu() {
   const [user, setUser] = useState<User | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [profile, setProfile] = useState<GuestProfile | null>(null);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [notificationsLoading, setNotificationsLoading] = useState(false);
-  const [notificationError, setNotificationError] = useState<string | null>(null);
-  const [markingRead, setMarkingRead] = useState(false);
+  const [localNotifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [localNotificationsLoading, setNotificationsLoading] = useState(false);
+  const [localNotificationError, setNotificationError] = useState<string | null>(null);
+  const [localMarkingRead, setMarkingRead] = useState(false);
+  const notificationCenter = useNotificationCenter();
+  const notifications = notificationCenter?.notifications ?? localNotifications;
+  const notificationsLoading = notificationCenter?.loading ?? localNotificationsLoading;
+  const notificationError = notificationCenter?.error ?? localNotificationError;
+  const markingRead = notificationCenter?.markingRead ?? localMarkingRead;
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
@@ -35,6 +41,8 @@ export default function UserMenu() {
   const panel = useRef<HTMLDivElement>(null);
   const panelId = useId();
   const [position, setPosition] = useState({ left: 8, top: 88, width: 320, maxHeight: 480 });
+  const pauseAlerts = notificationCenter?.pauseAlerts;
+  useEffect(() => isOpen ? pauseAlerts?.() : undefined, [isOpen, pauseAlerts]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -100,6 +108,7 @@ export default function UserMenu() {
   }, [supabase]);
 
   const fetchNotifications = useCallback(async (activeUser: User) => {
+    if (notificationCenter) { notificationCenter.refresh(); return; }
     setNotificationsLoading(true);
     setNotificationError(null);
     try {
@@ -116,7 +125,7 @@ export default function UserMenu() {
     } catch {
       setNotificationError("Unable to load notifications. Please try again.");
     } finally { setNotificationsLoading(false); }
-  }, [supabase]);
+  }, [supabase, notificationCenter]);
 
   const handleMenuToggle = async () => {
     const nextOpen = !isOpen;
@@ -185,6 +194,7 @@ export default function UserMenu() {
   };
 
   const markAllNotificationsRead = async () => {
+    if (notificationCenter) { await notificationCenter.markAllRead(); return; }
     if (!user || markingRead) return;
 
     const unreadIds = notifications.filter((item) => !item.is_read).map((item) => item.notification_id);

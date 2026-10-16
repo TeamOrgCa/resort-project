@@ -91,11 +91,11 @@ test("reservation deep links validate IDs/dates and check add permission before 
   const { default: Page } = loadTsModule("app/admin/(portal)/reservations/page.tsx", {
     "@/components/admin/ReservationCalendar": { default: () => null },
     "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: {}, staffUser: { role: "front_desk" } }) },
-    "@/lib/server/role-permissions": { staffHasPermission: async (_client, _role, permission) => permission === "create_reservation" },
+    "@/lib/server/role-permissions": { getRolePermissions: async () => ["reservations", "create_reservation"] },
   });
   const id = "22222222-2222-4222-8222-222222222222";
   const valid = await Page({ searchParams: Promise.resolve({ reservation: id, date: "2026-11-01", new: "1" }) });
-  assert.equal(valid.props.initialReservationId, id); assert.equal(valid.props.initialDate, "2026-11-01"); assert.equal(valid.props.openNew, true);
+  assert.equal(valid.props.initialReservationId, id); assert.equal(valid.props.initialDate, "2026-11-01"); assert.equal(valid.props.openNew, true); assert.deepEqual(valid.props.initialAccess, {role:"front_desk",permissions:["reservations","create_reservation"]});
   const invalid = await Page({ searchParams: Promise.resolve({ reservation: "invalid", date: "2026-02-30" }) });
   assert.equal(invalid.props.initialReservationId, undefined); assert.equal(invalid.props.initialDate, undefined); assert.equal(invalid.props.openNew, false);
 });

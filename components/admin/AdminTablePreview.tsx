@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
 import type {
   AdminTableColumn,
   AdminTableFilter,
@@ -173,7 +174,7 @@ export default function AdminTablePreview({
   };
 
   return (
-    <section className="rounded-2xl border border-neutral/10 bg-white p-4 sm:p-5">
+    <section className="min-w-0 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm sm:p-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <h3 className="text-lg font-semibold text-neutral">{title}</h3>
 
@@ -185,7 +186,7 @@ export default function AdminTablePreview({
                 type="button"
                 onClick={() => onAction?.(action, sortedRows)}
                 disabled={isActionDisabled?.(action, sortedRows)}
-                className="rounded-lg border border-neutral/20 px-3 py-2 text-xs font-semibold text-neutral transition-colors hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                className={/^(add|new|create|record cash)\b/i.test(action) ? "admin-button-primary" : "admin-button-secondary"}
               >
                 {action}
               </button>
@@ -195,19 +196,22 @@ export default function AdminTablePreview({
       </div>
 
       {(enableSearch || filters.length > 0) && (
-        <div className="mb-4 flex flex-col gap-3 rounded-xl bg-base p-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
           {enableSearch ? (
+            <div className="relative min-w-0 flex-1 sm:min-w-55">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" className="pointer-events-none absolute left-3.5 top-3 h-5 w-5 text-neutral/45"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg>
             <input
               value={searchTerm}
               onChange={(event) => { setSearchTerm(event.target.value); setPage(0); }}
               placeholder={searchPlaceholder}
               aria-label={searchPlaceholder}
-              className="w-full min-w-0 flex-1 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none sm:min-w-55"
+              className="admin-field w-full pl-11"
             />
+            </div>
           ) : null}
 
           {filters.map((filter) => (
-            <label key={filter.key} className="flex w-full items-center justify-between gap-2 text-xs text-neutral/70 sm:w-auto sm:justify-start">
+            <label key={filter.key} className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-neutral/65 sm:min-w-36">
               <span>{filter.label}</span>
               <select
                 value={activeFilters[filter.key] ?? "all"}
@@ -218,7 +222,7 @@ export default function AdminTablePreview({
                     [filter.key]: event.target.value,
                   }));
                 }}
-                className="w-40 rounded-lg border border-neutral/20 bg-white px-2 py-2 text-xs text-neutral sm:w-auto"
+                className="admin-field w-full"
               >
                 <option value="all">All</option>
                 {filter.options.map((option) => (
@@ -229,18 +233,18 @@ export default function AdminTablePreview({
               </select>
             </label>
           ))}
-          {showResetFilters && <button type="button" onClick={() => { setSearchTerm(""); setActiveFilters({}); setSortState(defaultSort ?? null); setPage(0); }} className="rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral hover:bg-neutral/5">Clear table filters</button>}
+          {showResetFilters && <button type="button" onClick={() => { setSearchTerm(""); setActiveFilters({}); setSortState(defaultSort ?? null); setPage(0); }} className="admin-button-secondary">Clear table filters</button>}
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-180 text-left text-sm sm:min-w-full">
-          <thead className="border-b border-neutral/10 text-neutral/70">
+      <div className="overflow-x-auto rounded-xl border border-neutral/10">
+        <table className="w-full min-w-180 text-left text-sm">
+          <thead className="border-b border-neutral/10 bg-base/60 text-neutral/60">
             <tr>
-              {selectableRows ? <th className="px-3 py-2 font-medium" aria-label="Select" /> : null}
+              {selectableRows ? <th className="px-4 py-3 font-medium" aria-label="Select" /> : null}
 
               {columns.map((column) => (
-                <th key={column.key} className="px-3 py-2 font-medium">
+                <th key={column.key} className="px-4 py-3 font-medium">
                   <button
                     type="button"
                     onClick={() => handleSort(column.key)}
@@ -257,14 +261,14 @@ export default function AdminTablePreview({
                 </th>
               ))}
 
-              {rowActions.length > 0 && <th className="px-3 py-2 font-medium">Actions</th>}
+              {rowActions.length > 0 && <th className="px-4 py-3 font-medium">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {displayedRows.map((row) => (
-              <tr key={row.id} className="border-b border-neutral/10 last:border-none">
+              <tr key={row.id} className="border-b border-neutral/10 transition-colors last:border-none hover:bg-base/40">
                 {selectableRows ? (
-                  <td className="px-3 py-3 text-neutral/90">
+                  <td className="px-4 py-4 text-neutral/75">
                     <input
                       type="checkbox"
                       checked={resolvedSelectedRowIds.includes(row.id)}
@@ -276,13 +280,13 @@ export default function AdminTablePreview({
                 ) : null}
 
                 {columns.map((column) => (
-                  <td key={`${row.id}-${column.key}`} className="px-3 py-3 text-neutral/90">
-                    {row[column.key] ?? "-"}
+                  <td key={`${row.id}-${column.key}`} className="px-4 py-4 text-neutral/75">
+                    {column.key === "status" && row[column.key] ? <AdminStatusBadge status={row[column.key]} /> : row[column.key] ?? "-"}
                   </td>
                 ))}
 
                 {rowActions.length > 0 && (
-                  <td className="px-3 py-3">
+                  <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
                       {rowActions.map((action) => (
                         <button
@@ -290,7 +294,7 @@ export default function AdminTablePreview({
                           type="button"
                           onClick={() => onRowAction?.(action, row)}
                           disabled={isRowActionDisabled?.(action, row)}
-                          className="whitespace-nowrap rounded-md border border-neutral/20 px-2 py-1 text-xs font-medium text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                          className={`min-h-11 whitespace-nowrap rounded-xl border px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent sm:min-h-9 ${/^(reject|disable|deactivate|archive|delete|cancel)\b/i.test(getRowActionLabel?.(action, row) ?? action) ? "border-red-200 text-red-700 hover:bg-red-50" : "border-neutral/15 text-neutral hover:border-primary/40 hover:bg-primary/5"}`}
                         >
                           {getRowActionLabel?.(action, row) ?? action}
                         </button>
@@ -305,7 +309,7 @@ export default function AdminTablePreview({
               <tr>
                 <td
                   colSpan={columns.length + (rowActions.length > 0 ? 1 : 0) + (selectableRows ? 1 : 0)}
-                  className="px-3 py-6 text-center text-sm text-neutral/60"
+                  className="px-4 py-12 text-center text-sm text-neutral/60"
                 >
                   No records match the selected filters.
                 </td>
@@ -314,14 +318,14 @@ export default function AdminTablePreview({
           </tbody>
         </table>
       </div>
-      {pageSize && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral/70">
+      {pageSize && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4 text-sm text-neutral/60">
         <p>{sortedRows.length ? `Showing ${currentPage * size + 1}–${Math.min((currentPage + 1) * size, sortedRows.length)} of ${sortedRows.length} matching records` : "0 matching records"}</p>
-        <div className="flex items-center gap-2">
-          <button type="button" aria-label="First page" disabled={currentPage === 0} onClick={() => setPage(0)} className="rounded-lg border border-neutral/20 px-3 py-2 disabled:opacity-40">First</button>
-          <button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} className="rounded-lg border border-neutral/20 px-3 py-2 disabled:opacity-40">Previous</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" aria-label="First page" disabled={currentPage === 0} onClick={() => setPage(0)} className="admin-button-secondary px-3">First</button>
+          <button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} className="admin-button-secondary px-3">Previous</button>
           <span>Page {currentPage + 1} of {pages}</span>
-          <button type="button" disabled={currentPage >= pages - 1} onClick={() => setPage(currentPage + 1)} className="rounded-lg border border-neutral/20 px-3 py-2 disabled:opacity-40">Next</button>
-          <button type="button" aria-label="Last page" disabled={currentPage >= pages - 1} onClick={() => setPage(pages - 1)} className="rounded-lg border border-neutral/20 px-3 py-2 disabled:opacity-40">Last</button>
+          <button type="button" disabled={currentPage >= pages - 1} onClick={() => setPage(currentPage + 1)} className="admin-button-secondary px-3">Next</button>
+          <button type="button" aria-label="Last page" disabled={currentPage >= pages - 1} onClick={() => setPage(pages - 1)} className="admin-button-secondary px-3">Last</button>
         </div>
       </div>}
     </section>

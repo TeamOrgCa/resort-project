@@ -61,7 +61,7 @@ export default function CatalogEditorDialog({ resource, record, references, refe
             const file = event.target.files?.[0] ?? null;
             if (file && (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024 || !file.size)) { setFileError("Choose a PNG, JPEG, or WebP image up to 5 MB."); setQrFile(null); return; }
             setFileError(null); setQrFile(file);
-          }} className="mt-3 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:font-medium" />
+          }} className="mt-3 block w-full text-sm file:mr-3 file:rounded-xl file:border-0 file:bg-white file:px-3 file:py-2 file:font-medium" />
           {qrFile && <p className="mt-2 text-xs text-neutral/60">Selected: {qrFile.name}</p>}
           {fileError && <p role="alert" className="mt-2 text-sm text-red-700">{fileError}</p>}
         </div>}
