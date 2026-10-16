@@ -37,6 +37,8 @@ export default function Navigation() {
             onClick={toggleMenu}
             className="lg:hidden text-neutral p-2 hover:bg-neutral/10 rounded-lg transition-colors"
             aria-label="Toggle menu"
+            aria-expanded={isMenuOpen}
+            aria-controls={isMenuOpen ? "mobile-navigation" : undefined}
           >
             {isMenuOpen ? (
               // Close Icon
@@ -54,7 +56,7 @@ export default function Navigation() {
 
         {/* Mobile Menu Dropdown */}
         {isMenuOpen && (
-          <div className="lg:hidden pb-6 pt-2 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div id="mobile-navigation" className="max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain lg:hidden pb-6 pt-2 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
             <Link 
               href="/about" 
               className="block text-neutral hover:text-primary hover:bg-primary/5 px-4 py-3 rounded-lg transition-colors"

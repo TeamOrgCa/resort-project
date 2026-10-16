@@ -4,7 +4,7 @@ import { validateGuestRegistration } from "@/lib/auth/guest-registration";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { isEmailConfigured } from "@/lib/email";
-import { GuestConfirmationError, limitConfirmationRequests, registerGuestWithSmtp } from "@/lib/server/guest-confirmation";
+import { GuestConfirmationError, limitConfirmationRequests, registerGuestWithSmtp, REGISTERED_EMAIL_MESSAGE } from "@/lib/server/guest-confirmation";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -49,13 +49,16 @@ export async function POST(request: Request) {
         },
       },
     });
-    if (error) return NextResponse.json({ message: error.message }, { status: 400 });
+    if (error) {
+      if (["email_exists", "user_already_exists"].includes(error.code ?? "")) throw new GuestConfirmationError(REGISTERED_EMAIL_MESSAGE, 409, "EMAIL_ALREADY_REGISTERED");
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
     if (!data.user) throw new Error("Sign-up returned no user.");
 
-    // Supabase can return an obfuscated user for an existing email. Never write a
-    // guest profile for that response; keep the same confirmation message.
+    // Supabase can return an obfuscated user for an already registered email.
+    // Reject it without writing a profile or showing a confirmation success.
     if (data.user.identities?.length === 0) {
-      return NextResponse.json({ success: true, needsEmailConfirmation: true });
+      throw new GuestConfirmationError(REGISTERED_EMAIL_MESSAGE, 409, "EMAIL_ALREADY_REGISTERED");
     }
 
     // A session means Confirm email is disabled in Supabase. Do not leave a
@@ -79,6 +82,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, needsEmailConfirmation: true });
   } catch (error) {
     if (!(error instanceof GuestConfirmationError)) console.error("Guest registration failed.");
-    return NextResponse.json({ message: error instanceof GuestConfirmationError ? error.message : "Unable to create your account. Please try again." }, { status: error instanceof GuestConfirmationError ? error.status : 500 });
+    return NextResponse.json({ message: error instanceof GuestConfirmationError ? error.message : "Unable to create your account. Please try again.",
+      ...(error instanceof GuestConfirmationError && error.code ? { code: error.code } : {}),
+    }, { status: error instanceof GuestConfirmationError ? error.status : 500 });
   }
 }

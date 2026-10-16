@@ -2,10 +2,12 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { REVIEW_IMAGE_HELP, REVIEW_IMAGE_MAX_BYTES, REVIEW_IMAGE_MIME_TYPES } from "@/lib/reviews/images";
+import { REVIEW_SUBMISSION_HELP, reviewRetrySeconds } from "@/lib/reviews/submission-policy";
+import FormErrorDialog from "@/components/ui/FormErrorDialog";
 
 type ReviewItem = {
   review_id: string;
@@ -22,6 +24,8 @@ export default function Reviews() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorOpen, setErrorOpen] = useState(false);
+  const submitting = useRef(false);
   const [hoverRating, setHoverRating] = useState(0);
   const [existingReviews, setExistingReviews] = useState<ReviewItem[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(true);
@@ -115,6 +119,8 @@ export default function Reviews() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     setLoading(true);
     setError(null);
 
@@ -140,7 +146,8 @@ export default function Reviews() {
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(
-          errorData.error || "Failed to submit review. Please try again."
+          (errorData.error || "Failed to submit review. Please try again.") + (response.status === 429
+            ? ` Try again after ${new Date(Date.now() + reviewRetrySeconds(errorData.retryAfter) * 1000).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" })} (Philippine time).` : "")
         );
       }
 
@@ -149,12 +156,14 @@ export default function Reviews() {
       setReviewImage(null);
       setImagePreview(null);
     } catch (err) {
+      setErrorOpen(true);
       setError(
         err instanceof Error
           ? err.message
           : "An error occurred. Please try again."
       );
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };
@@ -197,6 +206,7 @@ export default function Reviews() {
               We appreciate you taking the time to share your experience. Your feedback helps us improve our services 
               and helps future guests make informed decisions. Your review and any attached photo have been submitted.
             </p>
+            <p className="mt-3 text-sm text-neutral/70">{REVIEW_SUBMISSION_HELP}</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4">
@@ -310,6 +320,7 @@ export default function Reviews() {
 
               <form onSubmit={handleSubmit}>
                 <fieldset disabled={loading} className="space-y-6">
+                  <p className="rounded-xl bg-base p-3 text-sm text-neutral/75">{REVIEW_SUBMISSION_HELP}</p>
                   {/* Overall Rating */}
                   <div>
                     <label className="block text-sm font-medium text-neutral/70 mb-3">Overall Rating *</label>
@@ -516,6 +527,7 @@ export default function Reviews() {
       </section>
 
       <Footer />
+      {errorOpen && <FormErrorDialog title="Review could not be submitted" message={error ?? "Please try again."} onClose={() => setErrorOpen(false)} />}
     </div>
   );
 }

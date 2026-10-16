@@ -27,6 +27,7 @@ async function mount({ tabs = ["Guest Report"], fetcher, filename = "components/
   window.print = () => { const report = document.querySelector("#admin-report-print"); printed = report?.textContent; printedCharts = [...report?.querySelectorAll("svg") ?? []].map(svg => svg.getAttribute("aria-label")); assert.equal(report?.querySelector("select"), null); window.dispatchEvent(new dom.window.Event("afterprint")); };
   globalThis.fetch = async (url, options) => {
     requests.push({ url, options });
+    if (url.startsWith("/api/admin/analytics/feedback")) return Response.json({ success: true, rows: [], total: 0, pageSize: 10, canArchive: false });
     if (fetcher) return fetcher(url, options, requests.length);
     const params = new URL(url, "http://localhost").searchParams;
     return Response.json({ success: true, report: makeReport(params.get("tab")) });

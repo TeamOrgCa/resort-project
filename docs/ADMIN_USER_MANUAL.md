@@ -382,7 +382,7 @@ Trends initially use a line graph; breakdowns initially use a pie. Switching cha
 | Bookings | Reservations created and their sources; includes all statuses, not occupancy or arrivals |
 | Collection forecast | Actual verified collections plus a separately labelled estimate from historical averages |
 | Operations | Payment submissions/pending reviews within the selected dates and logged activity |
-| Guest feedback | An on-demand AI summary of up to 100 latest approved reviews created within the dates |
+| Guest feedback | Actual submitted reviews, permission-controlled archiving/restoring, and optional AI analysis of up to 100 latest approved active reviews |
 
 ### Collection forecast
 
@@ -398,12 +398,15 @@ Pending submissions count only payments submitted within the selected dates, not
 
 ### Guest feedback
 
-1. Select **Guest feedback**, then **Analyze feedback**.
-2. Wait for the analysis and read the review sample size, sentiment percentages, summary and themes.
-3. Change chart style or export/print the result if needed.
-4. Use **Analyze again** to refresh the analysis.
+1. Select **Guest feedback**. Actual reviews within the selected dates load automatically, without running AI analysis.
+2. Read the guest name, rating, text, publication/archive status and any attached photo. Use live text search, **Feedback status**, **Previous reviews**, **Next reviews** or **Refresh reviews** to find records.
+3. With both **Analytics** and **Archive and restore guest feedback** permissions, select **Archive feedback**, enter a reason and confirm. The review is preserved but hidden from public reviews and future analysis. **Archived** status lets you find it and use **Restore feedback**, also with a documented reason. Administrators have access; other roles must receive both permissions in the Role Permission Matrix.
+4. Optionally select **Analyze feedback** to summarize up to 100 latest approved, non-archived reviews in the date range. Read the sample size, sentiment percentages, summary and themes.
+5. Change chart style or export/print the analysis if needed. Use **Analyze again** to refresh it.
 
-These are AI-generated interpretations of the sampled reviews, not a survey of every guest. No approved reviews produces a no-data result. If analysis is unavailable, ask the administrator to check the service. Changing dates or refreshing analytics clears the previous analysis so results are not reused for the wrong period.
+These are AI-generated interpretations of sampled reviews, not a survey of every guest. No approved active reviews produces a no-data result. If analysis is unavailable, the review list remains usable. Changing dates, refreshing analytics, archiving or restoring clears the displayed analysis. Archive/restore actions require a current staff session and are audited; the permission does not allow changing another guest's text or rating.
+
+Guests can submit multiple reviews, subject to 10 minutes between submissions, at most 3 per rolling 24 hours, duplicate-text blocking within 24 hours and one review per linked reservation. Archiving/deleting a review does not reset those limits. Apply `docs/review-feedback-management-migration.sql` before using the new workflow.
 
 ## 17. Manage catalog items and payment QR codes
 

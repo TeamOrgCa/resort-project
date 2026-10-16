@@ -10,7 +10,7 @@ function multipart(file = photo(), details = payload) {
   if (file) form.set("image", file);
   return new Request("http://localhost/api/reviews/create", { method: "POST", body: form });
 }
-function harness({ authenticated = true, guest = true, duplicate = false, insertError = null, uploadError = null, ownReservation = true, notificationFails = false } = {}) {
+function harness({ authenticated = true, guest = true, policy = { allowed: true }, policyError = null, insertError = null, uploadError = null, ownReservation = true, notificationFails = false } = {}) {
   const uploads = [], removals = [], inserts = [];
   let adminCalls = 0;
   const storage = {
@@ -18,6 +18,7 @@ function harness({ authenticated = true, guest = true, duplicate = false, insert
     remove: async paths => { removals.push(...paths); return { error: null }; },
   };
   const client = {
+    rpc: async name => { assert.equal(name, "review_submission_status"); return { data: policy, error: policyError }; },
     auth: { getUser: async () => ({ data: { user: authenticated ? { id: guestId } : null }, error: null }) },
     from: table => {
       let inserting = false;
@@ -28,7 +29,7 @@ function harness({ authenticated = true, guest = true, duplicate = false, insert
           if (table === "guests") return { data: guest ? { id: guestId, first_name: "Test", last_name: "Guest" } : null, error: null };
           if (table === "reservations") return { data: ownReservation ? { reservation_id: "reservation" } : null, error: null };
           assert.equal(table, "reviews");
-          return { data: inserting ? insertError ? null : { review_id: "review", ...inserts.at(-1) } : duplicate ? { review_id: "old" } : null, error: inserting ? insertError : null };
+          return { data: inserting ? insertError ? null : { review_id: "review", ...inserts.at(-1) } : null, error: inserting ? insertError : null };
         },
       };
       return query;
@@ -64,8 +65,8 @@ test("text-only reviews remain supported and clients cannot attach a forged stor
   }
 });
 
-test("authentication, guest membership, duplicate reviews and reservation ownership are checked before upload", async () => {
-  for (const [options, status] of [[{ authenticated: false }, 401], [{ guest: false }, 403], [{ duplicate: true }, 409], [{ ownReservation: false }, 400]]) {
+test("authentication, guest membership and reservation ownership are checked before upload", async () => {
+  for (const [options, status] of [[{ authenticated: false }, 401], [{ guest: false }, 403], [{ ownReservation: false }, 400]]) {
     const h = harness(options);
     assert.equal((await h.post(multipart(photo(), { ...payload, reservation_id: guestId }))).status, status);
     assert.equal(h.adminCalls(), 0); assert.equal(h.inserts.length, 0);
@@ -107,12 +108,34 @@ test("a notification failure does not remove the saved photo or fail a successfu
   assert.equal((await h.post(multipart())).status, 201); assert.equal(h.removals.length, 0);
 });
 
+test("guests can submit more than one review when the shared database quota allows it", async () => {
+  const h = harness(); assert.equal((await h.post(multipart(null))).status, 201);
+  assert.equal((await h.post(multipart(null, { ...payload, title: "Another visit" }))).status, 201);
+  assert.equal(h.inserts.length, 2);
+});
+
+test("rate limits, duplicate content and unavailable quota checks stop uploads and return actionable responses", async () => {
+  for (const [options, status] of [
+    [{ policy: { allowed: false, code: "REVIEW_RATE_LIMITED", retryAfter: 480, message: "Please wait before submitting another review." } }, 429],
+    [{ policy: { allowed: false, code: "DUPLICATE_REVIEW", message: "You already submitted this review." } }, 409],
+    [{ policyError: { code: "PGRST202" } }, 503],
+  ]) {
+    const h = harness(options), response = await h.post(multipart()); assert.equal(response.status, status);
+    assert.equal(h.uploads.length, 0); assert.equal(h.inserts.length, 0);
+    if (status === 429) { assert.equal(response.headers.get("retry-after"), "480"); assert.equal((await response.json()).retryAfter, 480); }
+  }
+  const race = harness({ insertError: { code: "P0429", details: "590", message: "Please wait before submitting another review." } });
+  const response = await race.post(multipart()); assert.equal(response.status, 429); assert.equal(response.headers.get("retry-after"), "590");
+  assert.deepEqual(race.removals, [race.uploads[0].path]);
+});
+
 function feedHarness({ signedError = false } = {}) {
   const approved = { review_id: "visible", is_approved: true, public_display_name: "Guest", overall_rating: 5, title: "Our stay", review_text: "Review", created_at: "2026-10-13T00:00:00Z", image_path: `${guestId}/visible.png` };
   const hidden = { ...approved, review_id: "hidden", is_approved: false, image_path: `${guestId}/hidden.png` };
   const signed = [];
   const query = {
     select: () => query,
+    is: (field, value) => { assert.equal(field, "archived_at"); assert.equal(value, null); return query; },
     eq: (field, value) => { assert.equal(field, "is_approved"); assert.equal(value, true); return query; },
     order: () => query,
     range: async () => ({ data: [approved, hidden].filter(r => r.is_approved), error: null, count: 1 }),

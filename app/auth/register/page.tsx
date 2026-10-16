@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { sanitizeName } from "@/lib/helper/validation";
 import { validateGuestRegistration } from "@/lib/auth/guest-registration";
+import FormErrorDialog from "@/components/ui/FormErrorDialog";
 
 export default function Register() {
   const router = useRouter();
@@ -23,6 +24,10 @@ export default function Register() {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [emailAlreadyRegistered, setEmailAlreadyRegistered] = useState(false);
+  const [errorOpen, setErrorOpen] = useState(false);
+  const emailInput = useRef<HTMLInputElement>(null);
+  const submitButton = useRef<HTMLButtonElement>(null);
   const [success, setSuccess] = useState(false);
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
   const [resendMessage, setResendMessage] = useState("");
@@ -60,15 +65,18 @@ export default function Register() {
       value = `${value.startsWith("+") ? "+" : ""}${value.replace(/\D/g, "")}`.slice(0, 16);
     }
     setFormData((previous) => ({ ...previous, [name]: value }));
+    if (name === "email" && emailAlreadyRegistered) { setError(""); setEmailAlreadyRegistered(false); }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loading) return;
+    if (loading || errorOpen) return;
     setError("");
+    setEmailAlreadyRegistered(false);
     const validation = validateGuestRegistration(formData);
     if (validation.error) {
       setError(validation.error);
+      setErrorOpen(true);
       return;
     }
 
@@ -79,9 +87,11 @@ export default function Register() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
-      const result = (await response.json()) as { success?: boolean; message?: string; needsEmailConfirmation?: boolean; confirmationEmailSent?: boolean };
+      const result = (await response.json()) as { success?: boolean; message?: string; code?: string; needsEmailConfirmation?: boolean; confirmationEmailSent?: boolean };
       if (!response.ok || !result.success) {
         setError(result.message || "Unable to create your account. Please try again.");
+        setEmailAlreadyRegistered(result.code === "EMAIL_ALREADY_REGISTERED");
+        setErrorOpen(true);
         return;
       }
       setNeedsEmailConfirmation(Boolean(result.needsEmailConfirmation));
@@ -92,6 +102,7 @@ export default function Register() {
       }
     } catch {
       setError("Unable to connect to the server. Please try again.");
+      setErrorOpen(true);
     } finally {
       setLoading(false);
     }
@@ -145,12 +156,6 @@ export default function Register() {
         {/* Registration Form */}
         <div className="bg-white rounded-3xl shadow-xl p-8">
           <form onSubmit={handleRegister} className="space-y-6">
-            {error && (
-              <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                {error}
-              </div>
-            )}
-
             {/* Personal Information */}
             <div>
               <h3 className="text-lg font-semibold text-neutral mb-4">Personal Information</h3>
@@ -214,12 +219,15 @@ export default function Register() {
                   </label>
                   <input
                     type="email"
+                    ref={emailInput}
                     id="email"
                     name="email"
                     value={formData.email}
                     onChange={handleChange}
                     required
                     maxLength={254}
+                    aria-invalid={emailAlreadyRegistered && Boolean(error)}
+                    aria-describedby={emailAlreadyRegistered && error ? "registration-error" : undefined}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="your@email.com"
                   />
@@ -303,7 +311,9 @@ export default function Register() {
               </div>
             </div>
 
+            {error && <p id="registration-error" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
             <button
+              ref={submitButton}
               type="submit"
               disabled={loading}
               className="w-full bg-primary text-base py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -328,6 +338,13 @@ export default function Register() {
           </div>
         </div>
       </div>
+      {errorOpen && <FormErrorDialog title={emailAlreadyRegistered ? "Email already registered" : "Registration could not be completed"}
+        message={error} closeText={emailAlreadyRegistered ? "Use another email" : "Back to form"}
+        onClose={() => setErrorOpen(false)} returnFocusRef={emailAlreadyRegistered ? emailInput : submitButton}
+        actions={emailAlreadyRegistered ? <>
+          <Link href="/auth/login" className="flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90">Sign in</Link>
+          <Link href="/auth/forgot" className="flex min-h-11 items-center justify-center rounded-xl border border-primary/25 px-4 py-2 text-sm font-semibold text-primary hover:bg-base">Reset password</Link>
+        </> : undefined} />}
     </div>
   );
 }

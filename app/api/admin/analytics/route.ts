@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     if (body.action === "forecast") return json({ success: true, report: (await generateAnalytics(period, range)).revenue });
 
     const window = reportWindow(period, range);
-    const { data, error } = await createAdminClient().from("reviews").select("overall_rating, title, review_text, would_recommend").eq("is_approved", true).gte("created_at", window.start.toISOString()).lt("created_at", window.end.toISOString()).order("created_at", { ascending: false }).limit(100);
+    const { data, error } = await createAdminClient().from("reviews").select("overall_rating, title, review_text, would_recommend").eq("is_approved", true).is("archived_at", null).gte("created_at", window.start.toISOString()).lt("created_at", window.end.toISOString()).order("created_at", { ascending: false }).limit(100);
     if (error) throw error;
     const reviews = data ?? [];
     const metadata = { sampleSize: reviews.length, startDate: window.startDate, endDate: window.endDate, generatedAt: new Date().toISOString() };

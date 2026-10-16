@@ -11,13 +11,14 @@ import { downloadReportCsv } from "@/lib/reports/export";
 import type { AnalyticsReport, AnalyticsReports, SentimentData } from "@/lib/reports/analytics-types";
 import type { ReportDateRange, ReportPeriod, ReportRow } from "@/lib/reports/types";
 import type { AdminTableColumn, AdminTableSort } from "@/components/admin/types";
+import GuestFeedbackPanel from "@/components/admin/GuestFeedbackPanel";
 
 type Tab = "Bookings" | "Collection forecast" | "Operations" | "Guest feedback";
 const tabs: { title: Tab; description: string }[] = [
   { title: "Bookings", description: "See how many reservations were created and where those bookings came from." },
   { title: "Collection forecast", description: "Compare actual verified collections with a simple estimate based on your historical daily average." },
   { title: "Operations", description: "Check payment submissions awaiting review and recorded system activity within these dates." },
-  { title: "Guest feedback", description: "Analyze the latest 100 approved reviews created within these dates. AI-generated feedback summaries should be checked against the reviews." },
+  { title: "Guest feedback", description: "Read guest reviews within these dates and archive feedback when your role permits it. Optional AI analysis uses up to 100 latest approved, active reviews." },
 ];
 const tableConfigs: Record<Tab, { columns: AdminTableColumn[]; sort: AdminTableSort }> = {
   Bookings: { columns: [{ key: "periodLabel", label: "Booking dates (PH)", sortType: "date", sortKey: "periodStart" }, { key: "bookings", label: "Reservations created", sortType: "number" }], sort: { key: "periodLabel", direction: "asc" } },
@@ -82,7 +83,7 @@ export default function AdminAnalyticsPage() {
   if (activeTab === "Guest feedback" && sentiment) report = {
     ...sentiment, trend: [], split: [{ label: "Positive", value: sentiment.positivePercent }, { label: "Neutral", value: sentiment.neutralPercent }, { label: "Negative", value: sentiment.negativePercent }],
     trendTitle: "Feedback analysis", splitTitle: "Share of analyzed feedback", tableTitle: "Feedback results",
-    metrics: [{ label: "Reviews analyzed", value: sentiment.sampleSize, format: "count", help: "Up to 100 latest approved reviews in the selected dates." }],
+    metrics: [{ label: "Reviews analyzed", value: sentiment.sampleSize, format: "count", help: "Up to 100 latest approved, non-archived reviews in the selected dates." }],
     note: `${sentiment.summary} Themes: ${sentiment.themes.join(", ") || "None identified"}. AI-generated summary of ${sentiment.sampleSize} reviews; this may not represent all guests.`,
     rows: [{ id: "overall", metric: "Overall feedback", value: sentiment.overallSentiment }, { id: "positive", metric: "Positive", value: `${sentiment.positivePercent}%` }, { id: "neutral", metric: "Neutral", value: `${sentiment.neutralPercent}%` }, { id: "negative", metric: "Negative", value: `${sentiment.negativePercent}%` }, { id: "themes", metric: "Themes", value: sentiment.themes.join("; ") || "None identified" }],
   };
@@ -116,6 +117,7 @@ export default function AdminAnalyticsPage() {
       {actionError && <p role="alert" className="mt-4 text-sm text-red-700">{actionError}</p>}
       {loading && <p role="status" className="py-12 text-center text-sm text-neutral/65">Loading analytics...</p>}
       {reports && <p className="mt-5 text-sm text-neutral/70">{reports.booking.startDate} through {reports.booking.endDate} | Updated {new Date(reports.booking.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</p>}
+      {activeTab === "Guest feedback" && <GuestFeedbackPanel key={query} query={query} revision={generation} onChanged={refresh} />}
       {activeTab === "Guest feedback" && reports && <article className="mt-4 rounded-xl bg-base p-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">{sentiment?.overallSentiment ?? "Feedback has not been analyzed"}</h2><button type="button" disabled={analyzing} onClick={() => void analyzeFeedback()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{analyzing ? "Analyzing..." : sentiment ? "Analyze again" : "Analyze feedback"}</button></div>
         {!sentiment && <p className="mt-3 text-sm text-neutral/70">Select dates, then analyze feedback to see review sentiment and common themes.</p>}

@@ -21,7 +21,12 @@ origin. Keep all SMTP secrets and `SUPABASE_SERVICE_ROLE_KEY` on the server.
 
 Keep Supabase email signup and **Confirm email** enabled. The app checks these
 settings before creating a guest. The auth-user trigger must create the guest
-profile. Existing passwords and profiles are retained on repeated registration.
+profile. Registration rejects already-verified email addresses with HTTP `409`,
+`EMAIL_ALREADY_REGISTERED`, and a centered popup with sign-in, password-reset and
+use-another-email actions. Registration failures appear immediately without scrolling;
+the form retains its values and a reminder beside the submit button. It sends no new
+confirmation email and leaves the existing account untouched. Repeating registration
+for an unconfirmed guest can resend confirmation without changing its password or profile.
 Resend ignores unknown, confirmed, and staff addresses. Link generation supplies
 an empty password so it cannot create an unknown account during resend.
 

@@ -3,8 +3,10 @@ import type { GuestRegistration } from "@/lib/auth/guest-registration";
 import { sendGuestConfirmationEmail } from "@/lib/email";
 
 export class GuestConfirmationError extends Error {
-  constructor(message: string, public status = 502) { super(message); }
+  constructor(message: string, public status = 502, public code?: string) { super(message); }
 }
+
+export const REGISTERED_EMAIL_MESSAGE = "This email is already registered. Please sign in or reset your password.";
 
 const attempts = new Map<string, { count: number; expires: number }>();
 export function limitConfirmationRequests(request: Request, email: string) {
@@ -52,6 +54,8 @@ export async function sendGuestConfirmation(admin: SupabaseClient, request: Requ
   // Empty password prevents creation of an unknown account. For an existing
   // unconfirmed user, signup link generation preserves their password/metadata.
   const { data, error: linkError } = await admin.auth.admin.generateLink({ type: "signup", email, password: "" });
+  // The account may have been confirmed after the check above.
+  if (linkError && ["email_exists", "user_already_exists"].includes(linkError.code ?? "")) return null;
   if (linkError || !data.properties?.hashed_token || data.user?.id !== profile.id || data.properties.verification_type !== "signup") throw new GuestConfirmationError("Unable to prepare your confirmation email. Please try again.");
   return sendGuestConfirmationEmail({ email, guestName: profile.first_name, confirmationUrl: guestConfirmationUrl(request, data.properties.hashed_token) });
 }
@@ -69,6 +73,7 @@ export async function registerGuestWithSmtp(admin: SupabaseClient, request: Requ
     if (profileError || !profile) throw new GuestConfirmationError("Your account needs assistance. Please contact support.", 500);
   }
   const delivered = await sendGuestConfirmation(admin, request, guest.email);
+  if (delivered === null) throw new GuestConfirmationError(REGISTERED_EMAIL_MESSAGE, 409, "EMAIL_ALREADY_REGISTERED");
   return { success: true, needsEmailConfirmation: true, confirmationEmailSent: delivered !== false,
     ...(delivered === false ? { message: "Your account was created, but the confirmation email could not be sent. Please use Resend confirmation email to try again." } : {}) };
 }

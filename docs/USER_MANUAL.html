@@ -423,7 +423,8 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p><strong>Expected result:</strong> Your review is saved. The current system automatically publishes newly submitted reviews; public photos are shown for approved reviews. Use <strong>View full photo</strong> on a review to open its image.</p>
-<p>The system currently permits <strong>one review per guest account</strong>. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.</p>
+<p>You may submit <strong>multiple reviews per guest account</strong>, with a <strong>10-minute wait between submissions</strong> and a <strong>maximum of 3 reviews per rolling 24 hours</strong>. Repeating the same review text within 24 hours is blocked, even if you change its title. Each linked reservation can still have only one review. If a limit is reached, a popup explains when to retry and keeps your text/photo selected. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.</p>
+<p>Authorized staff can archive feedback. Archived reviews and their photos are hidden from the public list, while the resort retains the record for documentation.</p>
 <h2 id="client-13-understand-booking-and-refund-statuses">13. Understand booking and refund statuses</h2>
 <h3 id="client-reservation-status">Reservation status</h3>
 <div class="table-wrap"><table><thead><tr><th scope="col">Status shown or described</th><th scope="col">What it means</th><th scope="col">What to do</th></tr></thead><tbody>
@@ -942,7 +943,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <tr><td>Bookings</td><td>Reservations created and their sources; includes all statuses, not occupancy or arrivals</td></tr>
 <tr><td>Collection forecast</td><td>Actual verified collections plus a separately labelled estimate from historical averages</td></tr>
 <tr><td>Operations</td><td>Payment submissions/pending reviews within the selected dates and logged activity</td></tr>
-<tr><td>Guest feedback</td><td>An on-demand AI summary of up to 100 latest approved reviews created within the dates</td></tr>
+<tr><td>Guest feedback</td><td>Actual submitted reviews, permission-controlled archiving/restoring, and optional AI analysis of up to 100 latest approved active reviews</td></tr>
 </tbody></table></div>
 <h3 id="admin-collection-forecast">Collection forecast</h3>
 <p>The formula is <strong>actual gross collections ÷ selected calendar days × forecast days</strong>. Days with no payments are included. Forecast length is one day for Daily/Custom, seven days for Weekly and 30 days for Monthly. The forecast starts after the selected end date; a past range produces a historical estimate.</p>
@@ -952,16 +953,19 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p>Pending submissions count only payments submitted within the selected dates, not all outstanding payments. The payment-status pie compares payments with payments; the activity graph counts audit entries separately. Follow the task explanation to open Transactions or Audit Log for details.</p>
 <h3 id="admin-guest-feedback">Guest feedback</h3>
 <ol>
-<li>Select <strong>Guest feedback</strong>, then <strong>Analyze feedback</strong>.
+<li>Select <strong>Guest feedback</strong>. Actual reviews within the selected dates load automatically, without running AI analysis.
 </li>
-<li>Wait for the analysis and read the review sample size, sentiment percentages, summary and themes.
+<li>Read the guest name, rating, text, publication/archive status and any attached photo. Use live text search, <strong>Feedback status</strong>, <strong>Previous reviews</strong>, <strong>Next reviews</strong> or <strong>Refresh reviews</strong> to find records.
 </li>
-<li>Change chart style or export/print the result if needed.
+<li>With both <strong>Analytics</strong> and <strong>Archive and restore guest feedback</strong> permissions, select <strong>Archive feedback</strong>, enter a reason and confirm. The review is preserved but hidden from public reviews and future analysis. <strong>Archived</strong> status lets you find it and use <strong>Restore feedback</strong>, also with a documented reason. Administrators have access; other roles must receive both permissions in the Role Permission Matrix.
 </li>
-<li>Use <strong>Analyze again</strong> to refresh the analysis.
+<li>Optionally select <strong>Analyze feedback</strong> to summarize up to 100 latest approved, non-archived reviews in the date range. Read the sample size, sentiment percentages, summary and themes.
+</li>
+<li>Change chart style or export/print the analysis if needed. Use <strong>Analyze again</strong> to refresh it.
 </li>
 </ol>
-<p>These are AI-generated interpretations of the sampled reviews, not a survey of every guest. No approved reviews produces a no-data result. If analysis is unavailable, ask the administrator to check the service. Changing dates or refreshing analytics clears the previous analysis so results are not reused for the wrong period.</p>
+<p>These are AI-generated interpretations of sampled reviews, not a survey of every guest. No approved active reviews produces a no-data result. If analysis is unavailable, the review list remains usable. Changing dates, refreshing analytics, archiving or restoring clears the displayed analysis. Archive/restore actions require a current staff session and are audited; the permission does not allow changing another guest&#x27;s text or rating.</p>
+<p>Guests can submit multiple reviews, subject to 10 minutes between submissions, at most 3 per rolling 24 hours, duplicate-text blocking within 24 hours and one review per linked reservation. Archiving/deleting a review does not reset those limits. Apply <code>docs/review-feedback-management-migration.sql</code> before using the new workflow.</p>
 <h2 id="admin-17-manage-catalog-items-and-payment-qr-codes">17. Manage catalog items and payment QR codes</h2>
 <p><strong>Required role:</strong> Admin.</p>
 <h3 id="admin-add-or-edit-an-item">Add or edit an item</h3>

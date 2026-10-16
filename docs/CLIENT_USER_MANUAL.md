@@ -288,7 +288,9 @@ Visits are free and require approval. Slots starting in less than 30 minutes are
 
 **Expected result:** Your review is saved. The current system automatically publishes newly submitted reviews; public photos are shown for approved reviews. Use **View full photo** on a review to open its image.
 
-The system currently permits **one review per guest account**. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.
+You may submit **multiple reviews per guest account**, with a **10-minute wait between submissions** and a **maximum of 3 reviews per rolling 24 hours**. Repeating the same review text within 24 hours is blocked, even if you change its title. Each linked reservation can still have only one review. If a limit is reached, a popup explains when to retry and keeps your text/photo selected. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.
+
+Authorized staff can archive feedback. Archived reviews and their photos are hidden from the public list, while the resort retains the record for documentation.
 
 ## 13. Understand booking and refund statuses
 
