@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import ManageIcon from "./ManageIcon";
+import { usePortalTarget } from "@/lib/use-portal-target";
+import LoadingState from "@/components/ui/LoadingState";
 
 export default function RecordDialog({ title, reference, busy, onClose, children, variant = "guest" }: {
   title: string; reference: string; busy: boolean; onClose: () => void; children: ReactNode;
@@ -10,8 +12,10 @@ export default function RecordDialog({ title, reference, busy, onClose, children
 }) {
   const dialog = useRef<HTMLDivElement>(null), close = useRef<HTMLButtonElement>(null), titleId = useId();
   const onCloseRef = useRef(onClose), busyRef = useRef(busy);
+  const portalTarget = usePortalTarget();
   useEffect(() => { onCloseRef.current = onClose; busyRef.current = busy; }, [onClose, busy]);
   useEffect(() => {
+    if (!portalTarget) return;
     const previousFocus = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden"; close.current?.focus();
@@ -26,7 +30,8 @@ export default function RecordDialog({ title, reference, busy, onClose, children
     };
     document.addEventListener("keydown", keydown);
     return () => { document.removeEventListener("keydown", keydown); document.body.style.overflow = previousOverflow; previousFocus?.focus(); };
-  }, []);
+  }, [portalTarget]);
+  if (!portalTarget) return <LoadingState title="Opening reservation details..." description="Preparing your booking dialog." />;
   return createPortal(<div className={`fixed inset-0 z-[70] flex items-center justify-center backdrop-blur-sm ${variant === "admin" ? "admin-workspace bg-neutral/45 p-3 sm:p-4" : "bg-neutral/55 p-2 sm:p-5"}`}
     onClick={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} aria-busy={busy}
@@ -36,7 +41,8 @@ export default function RecordDialog({ title, reference, busy, onClose, children
         <button ref={close} type="button" onClick={onClose} disabled={busy} aria-label="Close booking dialog" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-base text-neutral/70 hover:bg-neutral/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-40"><ManageIcon name="close" /></button>
       </header>
       <div className="min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-6" key={title}><fieldset disabled={busy} className="min-w-0 [overflow-wrap:anywhere]">{children}</fieldset></div>
+      {busy && <div className="shrink-0 px-3 pb-3 sm:px-6"><LoadingState compact title="Processing your request..." description="Please wait for confirmation before leaving this dialog." /></div>}
       <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-neutral/10 bg-white px-4 py-3 text-xs sm:px-7"><span className="min-w-0 text-neutral/50">Schedules shown in Philippine time</span><button type="button" disabled={busy} onClick={onClose} className="min-h-11 shrink-0 rounded-lg border border-neutral/15 px-4 py-2 text-sm font-medium text-neutral hover:bg-base disabled:opacity-40">Close</button></footer>
     </div>
-  </div>, document.body);
+  </div>, portalTarget);
 }

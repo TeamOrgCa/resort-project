@@ -43,13 +43,13 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
   return (
     <SettingsProvider>
       <div className="admin-shell-grid admin-workspace">
-        <aside className="admin-shell-sidebar hidden md:block">
+        <aside className="admin-shell-sidebar hidden lg:block">
           <AdminSidebar role={role} permissions={permissions} />
         </aside>
 
         <main className="min-w-0">
           <div className="sticky top-0 z-40 flex items-center gap-3 border-b border-neutral/10 bg-base px-4 py-3 shadow-sm md:px-8">
-            <div className="md:hidden">
+            <div className="lg:hidden">
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
@@ -71,7 +71,7 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
         </main>
 
         {isSidebarOpen ? (
-          <div id="mobile-admin-navigation" className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Admin navigation">
+          <div id="mobile-admin-navigation" className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Admin navigation">
             <button
               type="button"
               onClick={() => setIsSidebarOpen(false)}

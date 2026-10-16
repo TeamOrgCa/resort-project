@@ -98,9 +98,9 @@ export default function ChatBotMars() {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
+    <div className="fixed bottom-3 right-3 z-50 flex flex-col items-end gap-3 sm:bottom-5 sm:right-5">
       {open && (
-        <div className="flex max-h-[90vh] w-[min(92vw,24rem)] flex-col overflow-hidden rounded-3xl border border-white/20 bg-neutral/95 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+        <div className="flex max-h-[calc(100dvh-7rem)] w-[min(calc(100vw-1.5rem),24rem)] flex-col overflow-hidden rounded-3xl border border-white/20 bg-neutral/95 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:max-h-[calc(100dvh-8rem)]">
           <div className="flex items-center justify-between border-b border-white/10 bg-linear-to-r from-primary to-secondary px-5 py-4 text-base">
             <div>
               <p className="text-sm uppercase tracking-[0.24em] text-base/70">MarVille Assistant</p>
@@ -116,7 +116,7 @@ export default function ChatBotMars() {
             </button>
           </div>
 
-          <div className="min-h-24 flex-1 space-y-4 overflow-y-auto px-4 py-5" aria-live="polite">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5" aria-live="polite">
             {messages.map((message, index) => (
               <div
                 key={`${message.role}-${index}`}

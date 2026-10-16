@@ -15,6 +15,7 @@ interface SettingsContextValue {
   error: string | null;
   refresh: () => Promise<void>;
   save: (updates: SettingsUpdate[]) => Promise<void>;
+  restoreContentDefaults: () => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -67,6 +68,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setError(null);
   };
 
+  const restoreContentDefaults = async () => {
+    const response = await fetch("/api/admin/settings/content-defaults", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok || !result.success || !result.settings) throw new Error(result.message ?? "Unable to restore website defaults.");
+    setSettings(result.settings);
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), settings: result.settings }));
+      localStorage.setItem(CHANGE_KEY, String(Date.now()));
+    } catch { /* The saved content remains valid if browser storage is unavailable. */ }
+    window.dispatchEvent(new Event("site-content-changed"));
+    setError(null);
+  };
+
   useEffect(() => {
     void refresh();
     const supabase = createClient();
@@ -84,7 +98,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  return <SettingsContext.Provider value={{ settings, isLoading, isRefreshing, error, refresh, save }}>{children}</SettingsContext.Provider>;
+  return <SettingsContext.Provider value={{ settings, isLoading, isRefreshing, error, refresh, save, restoreContentDefaults }}>{children}</SettingsContext.Provider>;
 }
 
 export function useSettings() {

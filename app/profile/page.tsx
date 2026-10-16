@@ -124,7 +124,7 @@ export default function Profile() {
             <p className="text-neutral/70">Manage your personal information</p>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-xl p-8">
+          <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
             <form onSubmit={handleSubmit} className="space-y-6">
               {error && (
                 <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">

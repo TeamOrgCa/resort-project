@@ -27,16 +27,16 @@ export default function ReportPeriodFilter({ period, range, onPeriodChange, onRa
     try { parseCustomDateRange(startDate, endDate); setError(null); onRangeChange({ startDate, endDate }); }
     catch (cause) { setError(cause instanceof InvalidDateRangeError ? cause.message : "Choose a valid start and end date."); }
   }}>
-    <label className="flex flex-col gap-1 text-sm text-neutral/70">Period
+    <label className="flex w-full min-w-0 flex-col gap-1 text-sm text-neutral/70 sm:w-auto">Period
       <select value={period} onChange={(event) => { setError(null); onPeriodChange(event.target.value as ReportPeriod); }} className="admin-field">
         {Object.entries(REPORT_PERIOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
     </label>
     {period === "Custom" && <>
-      <label className="flex flex-col gap-1 text-sm text-neutral/70">From
+      <label className="flex w-full min-w-0 flex-col gap-1 text-sm text-neutral/70 sm:w-auto">From
         <input type="date" required max={endDate || undefined} value={startDate} onChange={(event) => setStartDate(event.target.value)} className="admin-field" />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-neutral/70">Through
+      <label className="flex w-full min-w-0 flex-col gap-1 text-sm text-neutral/70 sm:w-auto">Through
         <input type="date" required min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} className="admin-field" />
       </label>
       <button type="submit" className="admin-button-primary">Apply dates</button>

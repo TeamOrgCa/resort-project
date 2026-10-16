@@ -28,6 +28,35 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-montserrat), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow-wrap: anywhere;
+}
+
+main, fieldset { min-width: 0; }
+
+@media screen and (max-width: 1023px) {
+  /* Cards use the same table controls and records, so sorting and actions stay available. */
+  .admin-table-scroll { overflow: visible; border: 0; }
+  .admin-responsive-table { display: block; min-width: 0; width: 100%; }
+  .admin-responsive-table thead, .admin-responsive-table tbody { display: block; }
+  .admin-responsive-table thead { border: 0; background: transparent; margin-bottom: 12px; }
+  .admin-responsive-table.admin-table-static thead { display: none; }
+  .admin-responsive-table thead tr { display: flex; flex-wrap: wrap; gap: 6px; }
+  .admin-responsive-table th { padding: 0; font-size: 12px; }
+  .admin-responsive-table thead button { min-height: 44px; padding: 8px 10px; border: 1px solid #ded8cf; border-radius: 8px; background: #f8f4ec; }
+  .admin-responsive-table tbody tr { display: block; margin-bottom: 12px; border: 1px solid #e4dfd8; border-radius: 12px; padding: 8px 12px; }
+  .admin-responsive-table tbody td { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; gap: 12px; padding: 10px 0; }
+  .admin-responsive-table td[data-label]::before { content: attr(data-label); color: #75665c; font-size: 12px; font-weight: 600; }
+  .admin-responsive-table tbody td.admin-table-actions { display: block; border-top: 1px solid #e4dfd8; }
+  .admin-responsive-table td.admin-table-actions::before { display: block; margin-bottom: 8px; }
+  .admin-responsive-table td[colspan] { display: block; text-align: center; }
+}
+
+@media screen and (max-width: 639px) {
+  /* Prevent input zoom on phones and keep native date/file controls inside their forms. */
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) { min-width: 0; max-width: 100%; font-size: 16px; }
+  :where(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"])) { min-height: 44px; }
+  .booking-summary .flex.justify-between { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .booking-summary .flex.justify-between > :last-child { text-align: right; }
 }
 
 [role="alert"] { scroll-margin-top: 7rem; }
@@ -85,7 +114,7 @@ body {
   }
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   .admin-shell-grid {
     display: grid;
     grid-template-columns: 260px minmax(0, 1fr);

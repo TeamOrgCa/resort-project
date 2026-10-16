@@ -177,7 +177,7 @@ function BookingDetailsContent() {
         <div className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2">
-              <div className="bg-white rounded-3xl shadow-xl p-8">
+              <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
                 <h2 className="text-3xl font-bold text-neutral mb-2">Full Booking Details</h2>
                 <p className="text-neutral/70 mb-8">
                   Review everything below. Save booking first before proceeding to payment.
@@ -286,7 +286,7 @@ function BookingDetailsContent() {
             </div>
 
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-3xl shadow-xl p-8 sticky top-28">
+              <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-4">Quick Summary</h3>
                 <div className="space-y-3 text-sm text-neutral/80">
                   <div className="flex justify-between"><span>Total</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>

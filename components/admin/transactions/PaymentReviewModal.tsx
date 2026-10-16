@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import LoadingState from "@/components/ui/LoadingState";
 
 export type PaymentReviewRecord = {
   reference_number: string;
@@ -78,12 +79,12 @@ export default function PaymentReviewModal({
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,1fr)]">
           <div className="flex min-h-80 items-center justify-center rounded-xl border border-neutral/15 bg-base p-3">
-            {isProofLoading ? <p className="text-sm text-neutral/60">Loading payment proof...</p> :
+            {isProofLoading ? <LoadingState compact title="Loading payment proof..." /> :
               proofError ? <p role="alert" className="text-center text-sm text-red-700">{proofError}</p> :
               proofUrl && failedUrl === proofUrl ? <p role="alert" className="text-center text-sm text-red-700">Payment proof image could not be displayed. You can reject this payment or reopen it to retry.</p> :
               proofUrl ? (
                 <a href={proofUrl} target="_blank" rel="noopener noreferrer" className="block w-full" aria-label="Open payment proof at full size">
-                  {!imageReady && <p className="mb-2 text-center text-sm text-neutral/60">Loading image...</p>}
+                  {!imageReady && <LoadingState compact title="Loading image..." />}
                   <Image src={proofUrl} alt={`Payment proof for ${payment.reference_number}`} width={1200} height={900} unoptimized onLoad={() => setLoadedUrl(proofUrl)} onError={() => setFailedUrl(proofUrl)} className="mx-auto max-h-[65vh] w-auto max-w-full object-contain" />
                 </a>
               ) : <p className="text-sm text-neutral/60">No payment proof available.</p>}

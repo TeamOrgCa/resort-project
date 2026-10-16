@@ -308,7 +308,7 @@ function BookingFormContent() {
           <div className="grid lg:grid-cols-3 gap-8">
             {/* Form */}
             <div className="lg:col-span-2">
-              <div className="bg-white rounded-3xl shadow-xl p-8">
+              <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
                 <h2 className="text-3xl font-bold text-neutral mb-8">Reservation Details</h2>
 
                 {/* Personal Information */}
@@ -508,7 +508,7 @@ function BookingFormContent() {
 
             {/* Billing Summary */}
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-3xl shadow-xl p-8 sticky top-28">
+              <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-6">Billing Summary</h3>
 
                 <div className="space-y-4 mb-6">

@@ -14,17 +14,24 @@ const alerts = () => document.querySelector('[aria-label="New notifications"]');
 const button = (container, text) => [...container.querySelectorAll("button")].find(button => button.textContent.trim() === text);
 async function click(control) { assert.ok(control); assert.equal(control.disabled, false); await act(async () => control.click()); }
 
-async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true } = {}) {
+async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true, preferences = {} } = {}) {
   if (clearStorage) sessionStorage.clear();
-  const state = { rows, readError: false, writeError: false, defer: null };
-  const calls = { reads: [], writes: [], unsubscribed: 0, removed: [], intervals: [], cleared: [] };
+  const state = { rows, readError: false, writeError: false, defer: null, preferenceError: false, deferPreference: null };
+  const calls = { reads: [], writes: [], preferenceWrites: [], unsubscribed: 0, removed: [], intervals: [], cleared: [] };
+  let activeUser = userId;
+  const user = id => id ? { id, email: `${id}@example.com`, user_metadata: { notification_popups_enabled: preferences[id] } } : null;
   let authChanged;
   const originalSetInterval = window.setInterval, originalClearInterval = window.clearInterval;
   window.setInterval = (callback, delay) => { calls.intervals.push({ callback, delay }); return calls.intervals.length; };
   window.clearInterval = id => calls.cleared.push(id);
   const channels = [];
   const client = {
-    auth: { getUser: async () => ({ data: { user: userId ? { id: userId, email: `${userId}@example.com` } : null } }),
+    auth: { getUser: async () => ({ data: { user: user(activeUser) } }),
+      updateUser: async payload => {
+        const account = activeUser; calls.preferenceWrites.push({ account, payload });
+        const save = () => { if (state.preferenceError) return { error: Error("Offline") }; preferences[account] = payload.data.notification_popups_enabled; return { data: { user: user(account) }, error: null }; };
+        return state.deferPreference ? state.deferPreference(save) : save();
+      },
       onAuthStateChange(callback) { authChanged = callback; return { data: { subscription: { unsubscribe() { calls.unsubscribed++; } } } }; } },
     from(table) {
       const filters = []; let update;
@@ -62,7 +69,7 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
   await act(async () => root.render(el(Center, null, el(Probe), menu)));
   return { container, state, calls, channels,
     emit: () => act(async () => channels.at(-1)?.callback()),
-    auth: id => act(async () => authChanged("SIGNED_IN", id ? { user: { id } } : null)),
+    auth: id => act(async () => { activeUser = id; authChanged("SIGNED_IN", id ? { user: user(id) } : null); }),
     focus: () => act(async () => window.dispatchEvent(new window.Event("focus"))),
     poll: () => act(async () => calls.intervals.at(-1).callback()),
     close: async () => { await act(async () => root.unmount()); container.remove(); window.setInterval = originalSetInterval; window.clearInterval = originalClearInterval; },
@@ -152,4 +159,61 @@ test("anonymous users do not subscribe or fetch; unsafe action URLs never become
   const h = await mount({ rows: [row("unsafe", { action_url: "//example.com" }), row("script", { action_url: "javascript:alert(1)" })] });
   try { assert.equal(alerts().querySelectorAll("a").length, 0); }
   finally { await h.close(); }
+});
+
+test("the guest switch disables new popups while retaining notifications, then enables them again", async () => {
+  const h = await mount({ menus: "guest" });
+  const panel = () => document.querySelector('[aria-label="Your account and notifications"]');
+  const open = () => click(h.container.querySelector('[aria-label="Open user menu"]'));
+  const close = () => click(panel().querySelector('[aria-label="Close user menu"]'));
+  try {
+    assert.ok(alerts()); await open();
+    const toggle = () => panel().querySelector('[role="switch"][aria-label="Pop-up notifications"]');
+    assert.equal(toggle().getAttribute("aria-checked"), "true");
+    await click(toggle()); assert.equal(toggle().getAttribute("aria-checked"), "false");
+    assert.match(panel().textContent, /Off.*updates stay in this menu/);
+    assert.deepEqual(h.calls.preferenceWrites, [{ account: "guest", payload: { data: { notification_popups_enabled: false } } }]);
+    await close(); assert.equal(alerts(), null);
+    h.state.rows.unshift(row("new")); await h.emit(); assert.equal(alerts(), null);
+    assert.equal(h.container.querySelector("[data-feed]").textContent, "new:false,first:false");
+    await open(); assert.match(panel().textContent, /Booking update new/); assert.ok(button(panel(), "Mark all read"));
+    await click(toggle()); assert.equal(toggle().getAttribute("aria-checked"), "true");
+    await close(); assert.equal(alerts().querySelectorAll("article").length, 2);
+    assert.equal(h.calls.writes.length, 0);
+  } finally { await h.close(); }
+});
+
+test("popup preferences persist with the guest account across reloads and do not mute another account", async () => {
+  const preferences = { guest: false, other: true };
+  const rows = [row("guest-message"), row("other-message", { recipient_id: "other" })];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const h = await mount({ menus: "guest", preferences, rows });
+    try {
+      assert.equal(alerts(), null);
+      await click(h.container.querySelector('[aria-label="Open user menu"]'));
+      const panel = document.querySelector('[aria-label="Your account and notifications"]');
+      assert.equal(panel.querySelector('[role="switch"]').getAttribute("aria-checked"), "false");
+      await click(panel.querySelector('[aria-label="Close user menu"]'));
+      await h.auth("other"); assert.match(alerts().textContent, /Booking update other-message/);
+      await h.auth("guest"); assert.equal(alerts(), null);
+    } finally { await h.close(); }
+  }
+});
+
+test("failed preference saves retain the previous setting, show retry feedback and prevent duplicate saves", async () => {
+  const h = await mount({ menus: "guest" }); let release;
+  try {
+    await click(h.container.querySelector('[aria-label="Open user menu"]'));
+    const panel = () => document.querySelector('[aria-label="Your account and notifications"]');
+    const toggle = () => panel().querySelector('[role="switch"]');
+    h.state.preferenceError = true;
+    h.state.deferPreference = save => new Promise(resolve => { release = () => resolve(save()); });
+    await click(toggle()); assert.equal(toggle().disabled, true); assert.match(panel().textContent, /Saving preference/);
+    await act(async () => toggle().click()); assert.equal(h.calls.preferenceWrites.length, 1);
+    await act(async () => release()); assert.equal(toggle().getAttribute("aria-checked"), "true");
+    assert.match(panel().querySelector('[role="alert"]').textContent, /Could not save your notification preference/);
+    h.state.preferenceError = false; h.state.deferPreference = null;
+    await click(toggle()); assert.equal(toggle().getAttribute("aria-checked"), "false");
+    assert.equal(panel().querySelector('[role="alert"]'), null);
+  } finally { await h.close(); }
 });

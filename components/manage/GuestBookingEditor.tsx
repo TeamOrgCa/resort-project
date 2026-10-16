@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import LoadingState from "@/components/ui/LoadingState";
 import { guestEditRestriction, parseGuestBookingEdit, type GuestEditDetail, type GuestEditResult } from "@/lib/booking/guest-edit";
 import { previewReservationEdit } from "@/lib/booking/reservation-edit";
 import { isValidGuestCounts, MAX_GUESTS } from "@/lib/booking/guest-count";
@@ -34,7 +35,7 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
     return () => controller.abort();
   }, [endpoint, reload]);
   const refresh = () => { setLoading(true); setDetail(null); setError(null); setReload(value => value + 1); };
-  if (loading) return <p role="status" className="py-6 text-neutral/65">Loading your booking and payment records...</p>;
+  if (loading) return <LoadingState title="Loading your booking and payment records..." description="Checking your guests, services and remaining balance." />;
   if (!detail) return <div><p role="alert" className="rounded-xl border-2 border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p><button type="button" onClick={refresh} className="mt-3 min-h-11 rounded-lg border px-4 py-2">Retry booking details</button></div>;
   const r = detail.reservation;
   let preview: ReturnType<typeof previewReservationEdit> | null = null, previewError: string | null = null;
