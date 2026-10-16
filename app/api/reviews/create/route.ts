@@ -4,6 +4,7 @@ import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications
 import { createAdminClient } from "@/lib/supabase/admin";
 import { contentImageExtension } from "@/lib/settings/content-images";
 import { REVIEW_IMAGE_BUCKET, REVIEW_IMAGE_MAX_BYTES, REVIEW_IMAGE_HELP } from "@/lib/reviews/images";
+import { reviewRetrySeconds } from "@/lib/reviews/submission-policy";
 
 export async function POST(request: NextRequest) {
   let uploadedPath: string | null = null;
@@ -134,22 +135,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Enter a valid reservation ID or leave it blank." }, { status: 400 });
     }
 
-    // Check if guest already has a review (one review per guest constraint)
-    const { data: existingReview } = await supabase
-      .from("reviews")
-      .select("review_id")
-      .eq("guest_id", user.id)
-      .single();
-
-    if (existingReview) {
-      return NextResponse.json(
-        {
-          error: "You have already submitted a review. Each guest can only submit one review.",
-        },
-        { status: 409 }
-      );
-    }
-
     // If reservation_id is provided, validate it belongs to this guest
     if (reservation_id) {
       const { data: reservation, error: reservationError } = await supabase
@@ -169,6 +154,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Preflight avoids unnecessary uploads. The database trigger checks again
+    // under a per-guest lock when inserting, so parallel requests cannot bypass it.
+    const { data: policy, error: policyError } = await supabase.rpc("review_submission_status", { p_title: title.trim(), p_text: review_text.trim() });
+    if (policyError) return NextResponse.json({ error: ["PGRST202", "42883"].includes(policyError.code)
+      ? "Review submissions need the feedback management migration. Please contact the resort."
+      : "Unable to check review submission limits. Please try again." }, { status: policyError.code === "42501" ? 403 : 503 });
+    if (!policy?.allowed) {
+      const limited = policy?.code === "REVIEW_RATE_LIMITED", retryAfter = reviewRetrySeconds(policy?.retryAfter);
+      return NextResponse.json({ error: policy?.message ?? "Unable to submit this review.", code: policy?.code,
+        ...(limited ? { retryAfter } : {}) }, { status: limited ? 429 : 409, headers: limited ? { "Retry-After": String(retryAfter) } : {} });
+    }
     const publicDisplayName = `${guest.first_name} ${guest.last_name}`.trim();
 
     if (image) {
@@ -209,7 +205,12 @@ export async function POST(request: NextRequest) {
     if (insertError || !newReview) {
       await removeUpload();
       console.error("Review insertion error:", insertError);
-      if (insertError?.code === "23505") return NextResponse.json({ error: "You have already submitted a review. Each guest can only submit one review." }, { status: 409 });
+      if (insertError?.code === "P0429") {
+        const retryAfter = reviewRetrySeconds(insertError.details);
+        return NextResponse.json({ error: insertError.message, code: "REVIEW_RATE_LIMITED", retryAfter }, { status: 429, headers: { "Retry-After": String(retryAfter) } });
+      }
+      if (insertError?.code === "P0409") return NextResponse.json({ error: insertError.message, code: "DUPLICATE_REVIEW" }, { status: 409 });
+      if (insertError?.code === "23505") return NextResponse.json({ error: "A review already exists for this reservation. For another experience, leave the reservation field blank or use another reservation." }, { status: 409 });
       if (insertError?.code === "PGRST204" || insertError?.code === "42703") return NextResponse.json({ error: "Review photos are temporarily unavailable. Please try again later or submit your review without a photo." }, { status: 503 });
       return NextResponse.json(
         { error: "Failed to create review. Please try again." },
@@ -227,7 +228,7 @@ export async function POST(request: NextRequest) {
       entityType: "review",
       entityId: newReview.review_id,
       guestActionUrl: "/reviews",
-      staffActionUrl: "/admin",
+      staffActionUrl: "/admin/analytics",
     }).catch(() => ({ error: "Review notification unavailable" }));
 
     if (notificationError) {

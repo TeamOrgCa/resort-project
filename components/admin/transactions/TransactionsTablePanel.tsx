@@ -15,6 +15,7 @@ interface TransactionsTablePanelProps {
   onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
   isLoading?: boolean;
   hasError?: boolean;
+  isRowActionDisabled?: (action: string, row: AdminTableRow) => boolean;
 }
 
 export default function TransactionsTablePanel({
@@ -29,6 +30,7 @@ export default function TransactionsTablePanel({
   onRowAction,
   isLoading = false,
   hasError = false,
+  isRowActionDisabled,
 }: TransactionsTablePanelProps) {
   return (
     <AdminTablePreview
@@ -42,7 +44,7 @@ export default function TransactionsTablePanel({
       onAction={onAction}
       onRowAction={onRowAction}
       isActionDisabled={(action, matchingRows) => isLoading || (!action.startsWith("Refresh") && (hasError || (action.startsWith("Export") && matchingRows.length === 0)))}
-      isRowActionDisabled={() => isLoading || hasError}
+      isRowActionDisabled={(action, row) => isLoading || hasError || Boolean(isRowActionDisabled?.(action, row))}
     />
   );
 }

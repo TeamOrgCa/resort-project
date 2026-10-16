@@ -29,8 +29,8 @@ export default function CatalogDialog({ title, description, busy, onClose, child
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="catalog-dialog-title" aria-describedby="catalog-dialog-description" onClick={() => { if (!busy) onClose(); }}>
     <div ref={container} className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
       <div className="flex items-start justify-between gap-6 border-b border-neutral/10 px-6 py-5">
-        <div><h2 id="catalog-dialog-title" className="text-xl font-semibold text-neutral">{title}</h2><p id="catalog-dialog-description" className="mt-1 text-sm leading-relaxed text-neutral/60">{description}</p></div>
-        <button type="button" onClick={onClose} disabled={busy} aria-label="Close dialog" className="rounded-lg p-2 text-neutral/60 hover:bg-base disabled:opacity-40"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg></button>
+        <div className="min-w-0"><h2 id="catalog-dialog-title" className="text-xl font-semibold text-neutral">{title}</h2><p id="catalog-dialog-description" className="mt-1 break-words text-sm leading-relaxed text-neutral/60 [overflow-wrap:anywhere]">{description}</p></div>
+        <button type="button" onClick={onClose} disabled={busy} aria-label="Close dialog" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral/60 hover:bg-base disabled:opacity-40"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg></button>
       </div>
       <div className="overflow-y-auto px-6 py-5">{children}</div>
     </div>

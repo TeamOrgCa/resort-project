@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { apiPermission, getDefaultRouteForRole, hasPermission, routePermission } from '@/lib/auth/role-access'
 import { STAFF_SESSION_COOKIE, type StaffRole } from '@/lib/auth/staff-auth'
 import { getAuthSessionId } from '@/lib/auth/auth-session'
+import { DEACTIVATED_GUEST_MESSAGE } from '@/lib/auth/guest-access'
 
 const STAFF_LOGIN_PATH = '/staff/login'
 
@@ -25,11 +26,12 @@ function redirectToStaffLogin(request: NextRequest, supabaseResponse: NextRespon
   return redirectResponse
 }
 
-function redirectToGuestLogin(request: NextRequest, supabaseResponse: NextResponse, replaced = false) {
+function redirectToGuestLogin(request: NextRequest, supabaseResponse: NextResponse, replaced = false, deactivated = false) {
   const url = request.nextUrl.clone()
   url.pathname = '/auth/login'
   url.searchParams.set('redirect', request.nextUrl.pathname)
   if (replaced) url.searchParams.set('reason', 'session-replaced')
+  if (deactivated) url.searchParams.set('reason', 'account-deactivated')
   const response = NextResponse.redirect(url)
   copyCookies(supabaseResponse, response)
   return response
@@ -70,14 +72,21 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const path = request.nextUrl.pathname
-  const isGuestPage = path.startsWith('/booking/form') || path.startsWith('/booking/payment') || path.startsWith('/manage')
+  const isGuestPage = path.startsWith('/booking/form') || path.startsWith('/booking/payment') || path.startsWith('/manage') || path === '/profile'
   const isGuestApi = (path.startsWith('/api/reservations/') && !path.startsWith('/api/reservations/availability')) ||
-    path.startsWith('/api/ocular-visits') || path === '/api/reviews/create' || path === '/api/auth/me'
+    path.startsWith('/api/ocular-visits') || path === '/api/reviews/create' || (path === '/api/reviews' && request.method !== 'GET') || path === '/api/auth/me'
   if (isGuestPage || isGuestApi) {
     if (!user) return isGuestApi ? NextResponse.json({ code: 'UNAUTHORIZED', message: 'Unauthorized.' }, { status: 401 }) : redirectToGuestLogin(request, supabaseResponse)
     const { data: guest, error: guestError } = await supabase.from('guests')
-      .select('active_session_id').eq('id', user.id).maybeSingle<{ active_session_id: string | null }>()
+      .select('active_session_id, is_active').eq('id', user.id).maybeSingle<{ active_session_id: string | null; is_active: boolean }>()
     if (guestError) return new NextResponse('Unable to verify session.', { status: 503 })
+    if (guest && !guest.is_active) {
+      await supabase.auth.signOut({ scope: 'local' })
+      if (!isGuestApi) return redirectToGuestLogin(request, supabaseResponse, false, true)
+      const response = NextResponse.json({ code: 'ACCOUNT_DEACTIVATED', message: DEACTIVATED_GUEST_MESSAGE }, { status: 403 })
+      copyCookies(supabaseResponse, response)
+      return response
+    }
     const { data: { session } } = await supabase.auth.getSession()
     const sessionId = getAuthSessionId(session?.access_token)
     if (!guest || !sessionId) {

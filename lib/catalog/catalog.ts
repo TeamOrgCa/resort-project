@@ -66,7 +66,7 @@ export const catalogResources = {
     ],
   },
   payment_methods: {
-    label: "Payment methods", singular: "payment method", description: "Manage payment channels and the accounts linked to them.",
+    label: "Payment methods", singular: "payment method", description: "Manage payment channels. Cash is for staff-recorded payments at the resort and is hidden from online booking.",
     id: "payment_method_id", select: "payment_method_id, name, type, is_active, created_at", order: "name", search: "name",
     columns: ["name", "type"], fields: [
       { key: "name", label: "Method name", kind: "text", required: true },

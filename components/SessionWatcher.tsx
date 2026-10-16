@@ -17,11 +17,12 @@ export default function SessionWatcher() {
         const response = await fetch("/api/auth/session-status", { cache: "no-store" });
         if (response.status !== 200 && response.status !== 401) return;
         const result = await response.json() as { kind?: "staff" | "guest"; status?: string };
-        if (result.status !== "replaced" && result.status !== "none") return;
+        if (result.status !== "replaced" && result.status !== "none" && result.status !== "inactive") return;
         leaving = true;
         await supabase.auth.signOut({ scope: "local" });
         const isStaff = result.kind === "staff" || window.location.pathname.startsWith("/admin") || window.location.pathname.startsWith("/staff");
-        window.location.replace(`${isStaff ? "/staff/login" : "/auth/login"}?reason=session-replaced`);
+        const reason = result.status === "inactive" && !isStaff ? "account-deactivated" : "session-replaced";
+        window.location.replace(`${isStaff ? "/staff/login" : "/auth/login"}?reason=${reason}`);
       } catch {
         // A temporary network failure must not sign out the current device.
       } finally {

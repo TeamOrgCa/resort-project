@@ -1,6 +1,6 @@
 # MarVille Resort Complex — User Manuals
 
-**Updated:** 13 October 2026.
+**Updated:** 15 October 2026.
 
 These manuals cover the current guest website and staff portal, including the chart/report updates. They describe the implemented screens rather than proposed features. Current prices, contact details and booked policies should be read from the system; example amounts in the guides are illustrative.
 

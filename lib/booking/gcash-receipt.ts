@@ -2,6 +2,7 @@ export type OcrStatus = "not_applicable" | "consistent" | "mismatch" | "unreadab
 export type OcrAssessment = { status: OcrStatus; notes: string; amount?: number; reference?: string; paidAt?: string };
 
 export function isGcashMethod(method: { name: string; type: string }): boolean {
+  if (method.type.trim().toLowerCase() === "cash") return false;
   return /\bg\s*cash\b/i.test(`${method.name} ${method.type}`);
 }
 

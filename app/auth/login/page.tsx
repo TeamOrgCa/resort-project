@@ -4,12 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { DEACTIVATED_GUEST_MESSAGE } from "@/lib/auth/guest-access";
 
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect') || '/';
   const sessionReplaced = searchParams.get("reason") === "session-replaced";
+  const accountDeactivated = searchParams.get("reason") === "account-deactivated";
   const confirmation = searchParams.get("confirmation");
   
   const [email, setEmail] = useState("");
@@ -66,6 +68,7 @@ function LoginContent() {
             {confirmation === "success" && <p role="status" className="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-neutral">Email confirmed. You can now sign in.</p>}
             {confirmation === "invalid" && <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-neutral">This confirmation link is invalid or has expired. Request a new email from the registration page.</p>}
             {sessionReplaced && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-neutral">This account was signed in on another device. Your session here has ended. Sign in again to continue.</p>}
+            {accountDeactivated && <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-neutral">{DEACTIVATED_GUEST_MESSAGE}</p>}
             {error && (
               <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
                 {error}

@@ -24,7 +24,7 @@ const detail = () => ({ reservation, bill, packageRates: legacyRates, services: 
 test("service additions retain a negotiated package, fees, historical prices and payments", () => {
   const p = helper.previewReservationEdit(reservation, bill, existing, catalog, { ...edit,
     services: [{ serviceId, quantity: 2 }, { serviceId: newServiceId, quantity: 3 }] }, legacyRates);
-  assert.deepEqual(p, { packageDelta: 0, servicesTotal: 950, total: 9450, paid: 8000, balance: 1450, overpaid: 0 });
+  assert.deepEqual(p, { packageDelta: 0, rescheduleFee: 0, dateRateAdjustment: 0, servicesTotal: 950, total: 9450, paid: 8000, balance: 1450, overpaid: 0 });
 });
 test("a schedule or guest-count edit applies only the package price difference", () => {
   const p = helper.previewReservationEdit(reservation, bill, existing, catalog, { ...edit, adultCount: 22 }, legacyRates);
@@ -64,12 +64,15 @@ test("schedule validation rejects incorrect package duration and invalid custom 
   assert.equal(helper.validateEditWindow({ ...edit, bookingMode: "custom", startDatetime: "2027-06-14T07:00:00+08:00" }).valid, false);
 });
 
-function routeHarness({ grant = true, active = true, loaded = detail(), rpcError = null } = {}) {
+function routeHarness({ grant = true, approveLate = true, active = true, loaded = detail(), rpcError = null, conflict = false, availabilityError = null } = {}) {
   const calls = [];
+  const checks = [];
   const routes = loadTsModule("app/api/admin/reservations/[id]/route.ts", {
     "@/lib/server/admin-audit": { requireActiveStaff: async () => active ? { staffUser: { id, role: "staff" }, supabase: {} } : null },
-    "@/lib/server/role-permissions": { staffHasPermission: async () => grant },
+    "@/lib/server/role-permissions": { staffHasPermission: async (_db, _role, permission) => grant && (permission !== "reschedule_approval" || approveLate) },
+    "@/lib/notifications": { createNotifications: async () => ({ error: null }) },
     "@/lib/server/reservation-editor": { loadReservationEditor: async () => loaded },
+    "@/lib/server/reservation-availability": { checkReservationOverlap: async (...args) => { checks.push(args); return { conflict, error: availabilityError }; } },
     "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, args) => {
       calls.push({ name, args }); return { data: { totalAmount: 8600 }, error: rpcError };
     } }) },
@@ -77,8 +80,44 @@ function routeHarness({ grant = true, active = true, loaded = detail(), rpcError
   const patch = body => routes.PATCH(new Request("http://localhost/api/admin/reservations/" + id, {
     method: "PATCH", body: JSON.stringify(body), headers: { "Content-Type": "application/json" },
   }), { params: Promise.resolve({ id }) });
-  return { patch, calls, routes };
+  return { patch, calls, checks, routes };
 }
+
+test("schedule edits recheck availability excluding the current reservation before making changes", async () => {
+  const moved = { ...edit, startDatetime: "2027-06-15T08:00:00+08:00", endDatetime: "2027-06-15T16:00:00+08:00", expectedTotal: 8650 };
+  const available = routeHarness(); assert.equal((await available.patch(moved)).status, 200);
+  assert.equal(available.checks.length, 1); assert.equal(available.checks[0][3], id);
+  assert.equal(available.checks[0][0], "2027-06-15T00:00:00.000Z");
+  const booked = routeHarness({ conflict: true }); const blocked = await booked.patch(moved);
+  assert.equal(blocked.status, 409); assert.match((await blocked.json()).message, /reserved or closed for maintenance/); assert.equal(booked.calls.length, 0);
+  const failed = routeHarness({ availabilityError: { message: "Database unavailable" } });
+  assert.equal((await failed.patch(moved)).status, 503); assert.equal(failed.calls.length, 0);
+  const servicesOnly = routeHarness({ availabilityError: { message: "Unavailable" } });
+  assert.equal((await servicesOnly.patch(edit)).status, 200); assert.equal(servicesOnly.checks.length, 0);
+});
+
+test("package changes, whole-day variant changes and edited start times or durations are rejected by the server", async () => {
+  for (const change of [
+    { bookingMode: "night", startDatetime: "2027-06-14T18:00:00+08:00", endDatetime: "2027-06-15T06:00:00+08:00" },
+    { bookingMode: "whole_day", endDatetime: "2027-06-15T06:00:00+08:00" },
+    { bookingMode: "custom" },
+    { startDatetime: "2027-06-14T09:00:00+08:00", endDatetime: "2027-06-14T17:00:00+08:00" },
+    { endDatetime: "2027-06-14T17:00:00+08:00" },
+  ]) {
+    const h = routeHarness(); const response = await h.patch({ ...edit, ...change });
+    assert.equal(response.status, 400); assert.match((await response.json()).message, /booked package/); assert.equal(h.calls.length, 0);
+  }
+  const h = routeHarness({ loaded: { ...detail(), reservation: { ...reservation, booking_mode: "whole_day", start_datetime: "2027-06-14T18:00:00+08:00", end_datetime: "2027-06-15T16:00:00+08:00" } } });
+  assert.equal((await h.patch({ ...edit, bookingMode: "whole_day", endDatetime: "2027-06-15T06:00:00+08:00" })).status, 400);
+  assert.equal(h.calls.length, 0);
+});
+
+test("moving the booked window preserves its clock times, exact duration and fractional seconds across month boundaries", () => {
+  const booked = { ...reservation, booking_mode: "whole_day", start_datetime: "2027-06-14T18:12:34.567+08:00", end_datetime: "2027-06-15T16:12:34.567+08:00" };
+  const moved = helper.moveReservationToDate(booked, "2028-02-29");
+  assert.equal(moved.startDatetime, "2028-02-29T10:12:34.567Z"); assert.equal(moved.endDatetime, "2028-03-01T08:12:34.567Z");
+  assert.equal(helper.bookedPackageChangeReason(booked, { bookingMode: "whole_day", ...moved }), null);
+});
 test("unauthenticated and unprivileged staff cannot invoke the mutation", async () => {
   for (const [opts, status] of [[{ active: false }, 401], [{ grant: false }, 403]]) {
     const h = routeHarness(opts); assert.equal((await h.patch(edit)).status, status); assert.equal(h.calls.length, 0);
@@ -122,4 +161,41 @@ test("calendar APIs map reads and edits to separate role permissions", () => {
   assert.equal(apiPermission(`/api/admin/reservations/${id}`, "PATCH"), "edit_reservation");
   assert.equal(hasPermission("staff", ["reservations"], "edit_reservation"), false);
   assert.equal(hasPermission("staff", ["reservations", "edit_reservation"], "edit_reservation"), true);
+});
+
+test("staff date edits use the policy RPC and fees cannot be supplied by the browser", async () => {
+  const moved = { ...edit, startDatetime: "2027-06-15T08:00:00+08:00", endDatetime: "2027-06-15T16:00:00+08:00", expectedTotal: 8650, rescheduleFee: 0 };
+  const h = routeHarness(); assert.equal((await h.patch(moved)).status, 200);
+  assert.equal(h.calls[0].name, "edit_staff_reservation_reschedule"); assert.equal(h.calls[0].args.p_patch.rescheduleFee, 50);
+  const missing = routeHarness({ rpcError: { code: "PGRST202" } });
+  const response = await missing.patch(moved); assert.equal(response.status, 503); assert.match((await response.json()).message, /reschedule-policy migration/);
+});
+
+test("late and ended confirmed reservations require explicit approval and retain accommodation and guest counts", async () => {
+  const originalNow = Date.now; Date.now = () => Date.parse("2027-06-13T10:00:00+08:00");
+  try {
+    const loaded = { ...detail(), lateRescheduleEligible: true };
+    const moved = { ...edit, startDatetime: "2027-06-21T08:00:00+08:00", endDatetime: "2027-06-21T16:00:00+08:00", expectedTotal: 8900 };
+    assert.equal((await routeHarness({ loaded }).patch(moved)).status, 400);
+    assert.equal((await routeHarness({ loaded, approveLate: false }).patch({ ...moved, lateRescheduleAcknowledged: true })).status, 400);
+    assert.equal((await routeHarness({ loaded }).patch({ ...moved, lateRescheduleAcknowledged: "true" })).status, 400);
+    const authorized = routeHarness({ loaded });
+    assert.equal((await authorized.patch({ ...moved, lateRescheduleAcknowledged: true })).status, 200);
+    assert.equal(authorized.calls[0].args.p_patch.rescheduleFee, 300);
+    Date.now = () => Date.parse("2027-06-15T10:00:00+08:00");
+    const ended = { ...loaded, canChangeDetails: false, lockedReason: "This stay has ended." };
+    const newEdit = { ...moved, lateRescheduleAcknowledged: true, expectedTotal: 9100 };
+    assert.equal((await routeHarness({ loaded: ended }).patch(newEdit)).status, 200);
+    assert.equal((await routeHarness({ loaded: ended }).patch({ ...newEdit, adultCount: 21 })).status, 400);
+    assert.equal((await routeHarness({ loaded: { ...ended, reservation: { ...reservation, status: "completed" } } }).patch(newEdit)).status, 400);
+  } finally { Date.now = originalNow; }
+});
+
+test("date-rate reductions retain the bill and date-rate increases are charged using booked prices", () => {
+  const monday = { ...edit, startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00" };
+  const saturday = { ...reservation, start_datetime: "2027-06-19T08:00:00+08:00", end_datetime: "2027-06-19T16:00:00+08:00" };
+  const lower = helper.previewReservationEdit(saturday, bill, existing, catalog, monday, legacyRates, Date.parse("2027-05-01"));
+  assert.equal(lower.packageDelta, 0); assert.equal(lower.dateRateAdjustment, 0); assert.equal(lower.total, 8650);
+  const higher = helper.previewReservationEdit(reservation, bill, existing, catalog, { ...edit, startDatetime: saturday.start_datetime, endDatetime: saturday.end_datetime }, legacyRates, Date.parse("2027-05-01"));
+  assert.equal(higher.dateRateAdjustment, 500); assert.equal(higher.total, 9150); assert.equal(higher.paid, 8000);
 });

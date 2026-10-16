@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
         { count: "exact" }
       )
       .eq("is_approved", true)
+      .is("archived_at", null)
       .order("created_at", { ascending: false });
 
     // Optional filters

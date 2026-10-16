@@ -69,7 +69,9 @@ REMINDERS
 
 - we are not liable of any accidents like alcohol intoxication or drowning but we have lifeguard to guide you, remind you of your actions and save you in case of drowning, doing fake or prank drowning will be asked to leave the pool or resort -Rescue officers or baranggay officials will be called in case of emergency or chaos for safety of everyone inside the resort 
 
-- Guest-initiated cancellation retains the initial 20% deposit; other remaining verified payments may be refunded after prior refunds. Resort-attributable cancellation refunds all remaining verified payments, including the deposit. Eligible requests are automatic, but review, administrator approval, manual payout and staff verification are required; reschedule is allowed 2 weeks before the date of swimming for peak months (Ber months and Summer) or 1 week for non peak months. (change of schedule will be charged 50 for 6days, 100 for 3 days, 300 for 1-2days notice and 500 for on the day or past date notice)
+- Guest-initiated cancellation retains the initial 20% deposit; other remaining verified payments may be refunded after prior refunds. Resort-attributable cancellation refunds all remaining verified payments, including the deposit. Eligible requests are automatic, but review, administrator approval, manual payout and staff verification are required.
+- Rescheduling requires at least 14 Philippine calendar days' notice before the original swimming date in peak months (March-May summer and September-December Ber months), or at least 7 days in other months. Guest Manage Booking enforces this deadline. Shorter notice requires an authorized, documented staff exception for a confirmed reservation, including a still-confirmed past-date reservation. Completed/cancelled reservations cannot be reopened. The booked package, start time and duration stay fixed, and the new date must be available.
+- Change-of-schedule fees use Philippine calendar days before the original date: PHP 50 for 6 or more days, PHP 100 for 3-5 days, PHP 300 for 1-2 days, and PHP 500 on or after the original date. On-time changes still carry PHP 50. Add any higher-date-rate difference using the booked package rates; a cheaper date does not automatically reduce billing. Show the fee before saving, preserve existing payments and charges, and audit the change. Service-only edits have no reschedule fee.
 
 WEEKEND & HOLIDAY RATES 
 
@@ -169,3 +171,13 @@ PAYMENT
 Gcash
 Franklin O.
 09282245826
+
+
+## Guest account access
+
+Administrators can search registered guests and deactivate/reactivate access under Users > Guest Accounts. Staff-generated guest profiles are excluded; walk-in profiles remain separate. Deactivation clears the website session, blocks guest sign-in and protected actions, and records the actor/status/reason in the audit log. It does not cancel reservations or change payments/refunds. Reactivation requires a new sign-in. Apply docs/guest-account-status-migration.sql before deploying this feature.
+
+
+## Cash received at the resort
+
+Online bookings and guest payment submissions remain GCash only. Authorized staff can receive cash at check-in and record a full or partial balance settlement in Transactions > Transaction Ledger > Record cash / Settle in cash. This credits the actual cash received, updates the bill, issues a printable receipt and records an audit entry atomically. Cash is hidden from the public payment catalog. Apply docs/staff-cash-payments-migration.sql after the existing billing/refund/permission migrations before deploying.

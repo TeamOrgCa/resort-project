@@ -51,13 +51,13 @@ export async function loginAccess(kind: LoginKind, body: unknown) {
   if (existingUser && existingUser.email?.toLowerCase() !== credentials.email) {
     const [{ data: currentStaff }, { data: currentGuest }, { data: { session } }] = await Promise.all([
       admin.from("staff_users").select("active_session_id, is_active").eq("id", existingUser.id).maybeSingle(),
-      admin.from("guests").select("active_session_id").eq("id", existingUser.id).maybeSingle(),
+      admin.from("guests").select("active_session_id, is_active").eq("id", existingUser.id).maybeSingle(),
       supabase.auth.getSession(),
     ]);
     const authSessionId = getAuthSessionId(session?.access_token);
     const active = currentStaff
       ? Boolean(currentStaff.is_active && authSessionId && currentStaff.active_session_id === authSessionId)
-      : Boolean(currentGuest && authSessionId && currentGuest.active_session_id === authSessionId);
+      : Boolean(currentGuest?.is_active && authSessionId && currentGuest.active_session_id === authSessionId);
     if (active) {
       await recordAttempt(admin, credentials.email, deviceId, kind, "device_conflict");
       return { response: finish(loginError("Sign out of the current account before signing in to another.", 409)) };

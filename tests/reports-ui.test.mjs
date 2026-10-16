@@ -27,6 +27,7 @@ async function mount({ tabs = ["Guest Report"], fetcher, filename = "components/
   window.print = () => { const report = document.querySelector("#admin-report-print"); printed = report?.textContent; printedCharts = [...report?.querySelectorAll("svg") ?? []].map(svg => svg.getAttribute("aria-label")); assert.equal(report?.querySelector("select"), null); window.dispatchEvent(new dom.window.Event("afterprint")); };
   globalThis.fetch = async (url, options) => {
     requests.push({ url, options });
+    if (url.startsWith("/api/admin/analytics/feedback")) return Response.json({ success: true, rows: [], total: 0, pageSize: 10, canArchive: false });
     if (fetcher) return fetcher(url, options, requests.length);
     const params = new URL(url, "http://localhost").searchParams;
     return Response.json({ success: true, report: makeReport(params.get("tab")) });
@@ -247,4 +248,28 @@ test("analytics retries failures and aborts stale data and feedback after date c
     await act(async () => resolveFeedback(Response.json({ success: true, sentiment: feedbackFixture })));
     assert.doesNotMatch(h.container.textContent, /Friendly staff/); assert.equal(button(h.container, "Analyze feedback").disabled, false);
   } finally { await h.close(); }
+});
+
+
+test("staff can settle a reservation balance in cash, acknowledge receipt and see the issued receipt",async()=>{
+ let saved=false,fail=true;const posted=[];
+ const client={auth:{getUser:async()=>({data:{user:{id:"admin"}}})},from:table=>{
+   const result=()=>({error:null,data:table==="staff_users"?{role:"admin",is_active:true}:table==="transactions"?[{transaction_id:"txn",reservation_id:"booking",total_amount:3000,paid_amount:saved?3000:600,balance:saved?0:2400,overpaid_amount:0,status:saved?"paid":"partial",updated_at:"2026-10-15T01:00:00Z"}]:table==="reservations"?[{reservation_id:"booking",reference_number:"MV-CASH",booking_type:"online",status:"confirmed"}]:table==="receipts"&&saved?[{receipt_id:"receipt",payment_id:"cash",receipt_number:"RCPT-CASH",issued_at:"2026-10-15T01:00:00Z",is_active:true}]:[]});
+   const q={select:()=>q,eq:()=>q,in:()=>q,order:()=>q,limit:()=>q,range:async(from,to)=>{const response=result();return{...response,data:response.data.slice(from,to+1)};},maybeSingle:async()=>result(),then:(resolve,reject)=>Promise.resolve(result()).then(resolve,reject)};return q;
+ }};
+ const h=await mount({filename:"app/admin/(portal)/transactions/page.tsx",extraMocks:{"@/lib/supabase/client":{createClient:()=>client}},fetcher:(url,options)=>{
+   assert.equal(url,"/api/admin/payments/manual-entry");posted.push(JSON.parse(options.body));
+   if(fail)return Response.json({success:false,message:"Please retry with the same cash reference"},{status:503});saved=true;
+   return Response.json({success:true,message:"Cash payment recorded",receipt:{receipt_number:"RCPT-CASH"},remainingBalance:0});
+ }});
+ try{
+   await click(button(h.container,"Settle in cash"));const modal=h.container.querySelector('[role="dialog"]');
+   assert.match(modal.textContent,/Cash \(staff only\)/);assert.equal(modal.querySelector('input[type="number"]').value,"2400.00");
+   assert.equal(button(modal,"Record payment and issue receipt").disabled,true);
+   await click(modal.querySelector('input[type="checkbox"]'));await click(button(modal,"Record payment and issue receipt"));assert.match(modal.textContent,/same cash reference/);
+   fail=false;await click(button(modal,"Record payment and issue receipt"));assert.equal(posted[0].paymentReference,posted[1].paymentReference);
+   assert.equal(posted[1].paymentMethod,"cash");assert.equal(posted[1].cashReceived,true);assert.equal(posted[1].expectedBalance,2400);
+   assert.equal(h.container.querySelector('[role="dialog"]'),null);assert.match(h.container.querySelector('[role="status"]').textContent,/RCPT-CASH/);
+   assert.equal(button(h.container,"Settle in cash").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
+ }finally{await h.close();}
 });

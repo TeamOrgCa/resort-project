@@ -127,7 +127,7 @@ test("chatbot quotes saved prices and cannot fall back to the static swimming pr
   assert.doesNotMatch(resortContext, /7,500|14,500|15,000/);
 });
 
-function bookingHarness({ version = 2, insertError = null, manual = false } = {}) {
+function bookingHarness({ version = 2, insertError = null, manual = false, services = [], conflict = false } = {}) {
   const writes = [];
   const rates = copy(); rates.weekday.day = { baseRate: 4321.25, addOnPerHead: 123.45 };
   const client = {
@@ -136,11 +136,11 @@ function bookingHarness({ version = 2, insertError = null, manual = false } = {}
     from: table => {
       let operation = "select";
       const result = () => ({ error: table === "reservations" && operation === "insert" ? insertError : null,
-        data: table === "units" ? { unit_id: "unit", base_price: 1, is_active: true, archived_at: null }
+        data: table === "services" ? services : table === "units" ? { unit_id: "unit", base_price: 1, is_active: true, archived_at: null }
           : table === "walk_in_guests" ? { walk_in_guest_id: "walk-in" }
           : table === "reservations" && operation === "insert" ? { reservation_id: "reservation", reference_number: "TEST", status: "pending" } : null });
       const query = {
-        select: () => query, eq: () => query,
+        select: () => query, eq: () => query, in: () => query,
         insert: payload => { operation = "insert"; writes.push({ table, payload }); return query; },
         upsert: payload => { operation = "upsert"; writes.push({ table, payload }); return query; },
         delete: () => { operation = "delete"; writes.push({ table, operation }); return query; },
@@ -153,7 +153,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false } = {}
   const route = loadTsModule(manual ? "app/api/admin/reservations/create/route.ts" : "app/api/reservations/create/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: client }), createAuditLog: async () => true },
-    "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict: false, error: null }) },
+    "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict, error: null }) },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { reservation: [] } },
   });
   const { LEGAL_POLICY_VERSION } = loadTsModule("lib/legal/policies.ts");
@@ -192,4 +192,27 @@ test("manual bookings use saved rates and clean up a walk-in profile if prices c
   assert.equal((await racing.save()).status, 409);
   assert.ok(racing.writes.some(w => w.table === "walk_in_guests" && w.operation === "delete"));
   assert.equal(racing.writes.some(w => w.table === "transactions"), false);
+});
+
+test("manual service selections use catalog prices, persist quantities, and are included in the actual bill", async () => {
+  const h = bookingHarness({ manual: true, services: [{ service_id: "karaoke", price: 500, is_active: true }, { service_id: "chairs", price: 100, is_active: true }] });
+  const response = await h.save({ selectedServices: [{ serviceId: "karaoke", quantity: 2, price: 1 }, { serviceId: "chairs", quantity: 3 }], totalAmount: 1 });
+  assert.equal(response.status, 201);
+  assert.equal(h.writes.find(write => write.table === "transactions").payload.total_amount, 5868.15);
+  assert.deepEqual(h.writes.find(write => write.table === "reservation_services").payload.map(row => [row.service_id, row.quantity, row.price_at_time]), [["karaoke", 2, 500], ["chairs", 3, 100]]);
+});
+
+test("manual booking rejects invalid quantities, duplicate services and inactive services without saving a reservation", async () => {
+  for (const selectedServices of [[{ serviceId: "karaoke", quantity: 0 }], [{ serviceId: "karaoke", quantity: 1.5 }], [{ serviceId: "karaoke", quantity: 10001 }], [{ serviceId: "karaoke" }, { serviceId: "karaoke" }], "invalid"]) {
+    const h = bookingHarness({ manual: true }); assert.equal((await h.save({ selectedServices })).status, 400); assert.equal(h.writes.length, 0);
+  }
+  const h = bookingHarness({ manual: true, services: [{ service_id: "karaoke", price: 500, is_active: false }] });
+  assert.equal((await h.save({ selectedServices: [{ serviceId: "karaoke", quantity: 1 }] })).status, 400);
+  assert.equal(h.writes.some(write => write.table === "reservations"), false);
+});
+
+test("manual booking rechecks conflicts on the server and rejects a slot claimed after the calendar loaded", async () => {
+  const h = bookingHarness({ manual: true, conflict: true });
+  assert.equal((await h.save()).status, 409);
+  assert.equal(h.writes.some(write => write.table === "reservations"), false);
 });

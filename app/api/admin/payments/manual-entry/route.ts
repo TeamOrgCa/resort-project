@@ -3,6 +3,7 @@ import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { staffHasPermission } from "@/lib/server/role-permissions";
 import { createNotifications } from "@/lib/notifications";
 import { emailBillingDocuments } from "@/lib/server/billing-email";
+import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
 
 type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
 
@@ -14,6 +15,8 @@ interface ManualPaymentPayload {
   accountName?: string;
   accountNumber?: string;
   proofPath?: string;
+  expectedBalance?: number;
+  cashReceived?: boolean;
 }
 
 interface ReservationRow {
@@ -75,6 +78,8 @@ const parsePayload = (value: unknown): ManualPaymentPayload | null => {
     accountName: typeof payload.accountName === "string" ? payload.accountName.trim() : undefined,
     accountNumber: typeof payload.accountNumber === "string" ? payload.accountNumber.trim() : undefined,
     proofPath: typeof payload.proofPath === "string" ? payload.proofPath.trim() : undefined,
+    expectedBalance: typeof payload.expectedBalance === "number" ? payload.expectedBalance : undefined,
+    cashReceived: payload.cashReceived === true,
   };
 };
 
@@ -109,7 +114,54 @@ export async function POST(request: Request) {
       );
     }
 
-    if (payload.paymentMethod !== "cash") {
+    if (payload.paymentMethod === "cash") {
+      if (!isValidPaymentAmount(payload.amount) || !isValidPaymentAmount(payload.expectedBalance ?? 0) || !payload.cashReceived) {
+        return NextResponse.json({ success: false, message: "Enter a valid cash amount and confirm that the cash was received." }, { status: 400 });
+      }
+      const { data, error } = await staffContext.supabase.rpc("record_staff_cash_payment", {
+        p_reservation: payload.reservationId, p_amount: payload.amount, p_reference: payload.paymentReference,
+        p_expected_balance: payload.expectedBalance, p_received: payload.cashReceived,
+      });
+      if (error || !data) {
+        const code = error?.code ?? "NO_RESULT";
+        console.error("Staff cash payment failed", {
+          code, message: error?.message, details: error?.details, hint: error?.hint,
+          reservationId: payload.reservationId, paymentReference: payload.paymentReference,
+        });
+        const status = error?.code === "42501" ? 403 : error?.code === "P0002" ? 404
+          : error?.code === "40001" || error?.code === "23505" ? 409
+            : error?.code === "22023" || error?.code === "23514" ? 400 : 503;
+        const missingRpc = code === "PGRST202" || (code === "42883" && /record_staff_cash_payment/i.test(error?.message ?? ""));
+        let message: string;
+        if (missingRpc) {
+          message = "The cash-payment function is unavailable to the API. If the migration is already installed, run NOTIFY pgrst, 'reload schema'; in the same Supabase project's SQL editor, then retry with the same cash reference.";
+        } else if (status < 500 || code === "55000") {
+          message = error?.message ?? "Cash payment could not be recorded.";
+        } else if (["42P01", "42703", "42883"].includes(code)) {
+          message = "Cash payment reached the database, but a required table, column or function is missing. Check the server log for the exact dependency and apply its billing migration. Retry with the same cash reference afterward.";
+        } else {
+          message = "Cash payment could not be confirmed. Check the server log for the database error and retry with the same cash reference; do not create a new payment reference.";
+        }
+        return NextResponse.json({ success: false, errorCode: code, message: `${message} (Error ${code})` }, { status });
+      }
+      let billingEmails = { receiptSent: false, invoiceSent: false };
+      if (!data.alreadyRecorded) {
+        try { billingEmails = await emailBillingDocuments(staffContext.supabase, data.reservation, data.payment.payment_id, Number(data.payment.amount)); }
+        catch (cause) { console.warn("Cash was recorded, but billing email delivery failed.", cause); }
+        if (data.reservation.guest_id) {
+          try { await createNotifications({ actorId: staffContext.staffUser.id, guestId: data.reservation.guest_id,
+            title: "Cash payment recorded", message: `The resort recorded your cash payment. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
+            entityType: "payment", entityId: data.payment.payment_id, guestActionUrl: "/manage" }); }
+          catch (cause) { console.warn("Cash was recorded, but its notification could not be delivered.", cause); }
+        }
+      }
+      return NextResponse.json({ success: true, payment: data.payment, receipt: data.receipt,
+        reservationId: payload.reservationId, remainingBalance: Number(data.remainingBalance), overpaidAmount: Number(data.overpaidAmount ?? 0),
+        alreadyRecorded: data.alreadyRecorded, billingEmails,
+        message: data.alreadyRecorded ? "This cash payment was already recorded. No duplicate payment was created." : "Cash payment recorded and receipt issued." }, { status: data.alreadyRecorded ? 200 : 201 });
+    }
+
+    {
       if (!payload.accountName || !payload.accountNumber || !payload.proofPath) {
         return NextResponse.json(
           {
@@ -203,9 +255,9 @@ export async function POST(request: Request) {
         payment_type: "additional",
         status: "pending",
         reference_number: payload.paymentReference,
-        account_name: payload.paymentMethod === "cash" ? "Cash Payment" : payload.accountName,
-        account_number: payload.paymentMethod === "cash" ? null : payload.accountNumber,
-        proof_path: payload.paymentMethod === "cash" ? "" : payload.proofPath,
+        account_name: payload.accountName,
+        account_number: payload.accountNumber,
+        proof_path: payload.proofPath,
       })
       .select(
         "payment_id, reservation_id, amount, payment_method_id, payment_type, status, paid_at, reference_number, proof_path"
@@ -220,17 +272,6 @@ export async function POST(request: Request) {
             message: "Generated payment reference already exists. Please try again.",
           },
           { status: 409 }
-        );
-      }
-
-      if (insertError?.code === "23514" && payload.paymentMethod === "cash") {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Cash method is blocked by current database constraint. Please update payments.payment_method check to include 'cash'.",
-          },
-          { status: 400 }
         );
       }
 

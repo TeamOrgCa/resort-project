@@ -1,15 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MAX_GUESTS } from "@/lib/booking/guest-count";
-import { previewReservationEdit, type EditDetail, type ReservationEdit } from "@/lib/booking/reservation-edit";
-import type { BookingMode } from "@/lib/booking/policy";
+import { moveReservationToDate, previewReservationEdit, validateEditWindow, type EditDetail, type ReservationEdit } from "@/lib/booking/reservation-edit";
+import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
+import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
+import { isWindowAvailable } from "@/lib/booking/availability";
+import { manilaDateKey } from "@/lib/booking/manila-date";
+import { reschedulePolicy, RESCHEDULE_POLICY_TEXT, RESCHEDULE_FEE_TEXT } from "@/lib/booking/reschedule-charge-policy";
+import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
 
 const currency = (amount: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(amount);
 const localTime = (value: string) => new Date(Date.parse(value) + 8 * 3600000).toISOString().slice(0, 16);
-const isoTime = (value: string) => new Date(`${value}:00+08:00`).toISOString();
-const inputClass = "mt-1 w-full rounded-lg border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral disabled:bg-neutral/5 disabled:text-neutral/60 focus:outline-none focus:ring-2 focus:ring-primary";
+const inputClass = "mt-1 min-h-11 w-full min-w-0 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-[16px] text-black disabled:bg-neutral/5 disabled:text-neutral/60 focus:outline-none focus:ring-2 focus:ring-primary";
 type Draft = Omit<ReservationEdit, "version" | "expectedTotal">;
+
+const monthsInWindow = (start: string, end: string) => {
+  if (!Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return [];
+  const first = new Date(`${start.slice(0, 7)}-01T00:00:00Z`);
+  const last = end.slice(0, 7), months: string[] = [];
+  for (let i = 0; i < 14 && first.toISOString().slice(0, 7) <= last; i++) {
+    months.push(first.toISOString().slice(0, 7)); first.setUTCMonth(first.getUTCMonth() + 1);
+  }
+  return months;
+};
 
 export default function ReservationEditor({ reservationId, onSaved }: { reservationId: string; onSaved: () => void }) {
   const [detail, setDetail] = useState<EditDetail | null>(null);
@@ -19,6 +33,12 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [lateAcknowledged, setLateAcknowledged] = useState(false);
+  const saving = useRef(false);
+  const [calendarMonth, setCalendarMonth] = useState("");
+  const availability = useBookingAvailability([
+    calendarMonth, ...monthsInWindow(draft?.startDatetime ?? "", draft?.endDatetime ?? ""),
+  ], Boolean(detail?.canEdit && (detail.canChangeDetails || detail.canRescheduleException) && (!detail.lockedReason || detail.canRescheduleException) && !loading), reservationId);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -28,7 +48,8 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
         if (!response.ok) throw new Error(data.message ?? "Unable to load reservation details.");
         if (controller.signal.aborted) return;
         const d = data as EditDetail;
-        setDetail(d);
+        setDetail(d); setLateAcknowledged(false);
+        setCalendarMonth(localTime(d.reservation.start_datetime).slice(0, 7));
         setDraft({ bookingMode: d.reservation.booking_mode ?? "day", startDatetime: localTime(d.reservation.start_datetime),
           endDatetime: localTime(d.reservation.end_datetime), adultCount: d.reservation.adult_count, childCount: d.reservation.child_count,
           unitId: d.units.length === 1 && d.units[0].quantity === 1 ? d.units[0].unit_id : null,
@@ -45,37 +66,71 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
 
   const canEdit = detail.canEdit && !detail.lockedReason;
   const canChange = canEdit && detail.canChangeDetails;
+  const noticePolicy = reschedulePolicy(detail.reservation.start_datetime, availability.now);
+  const canMove = canChange || Boolean(detail.canRescheduleException && lateAcknowledged);
   const toEdit = () => ({ ...draft,
-    startDatetime: draft.startDatetime === localTime(detail.reservation.start_datetime) ? detail.reservation.start_datetime : isoTime(draft.startDatetime),
-    endDatetime: draft.endDatetime === localTime(detail.reservation.end_datetime) ? detail.reservation.end_datetime : isoTime(draft.endDatetime),
-    version: detail.version, expectedTotal: 0 });
+    ...moveReservationToDate(detail.reservation, draft.startDatetime.slice(0, 10)),
+    bookingMode: detail.reservation.booking_mode ?? "day", lateRescheduleAcknowledged: lateAcknowledged, version: detail.version, expectedTotal: 0 });
   let preview: ReturnType<typeof previewReservationEdit> | null = null;
-  try { preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, toEdit(), detail.packageRates); } catch { /* Incomplete datetime input: show a prompt in the bill preview. */ }
+  try { preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, toEdit(), detail.packageRates, availability.now); } catch { /* Incomplete datetime input: show a prompt in the bill preview. */ }
   const visibleServices = detail.catalogServices.filter(s => s.is_active || detail.services.some(e => e.service_id === s.service_id));
   // Keep historical selections visible even if their catalog record was removed.
   for (const s of detail.services) if (!visibleServices.some(e => e.service_id === s.service_id)) visibleServices.push({ service_id: s.service_id, name: "Previously booked service", price: Number(s.price_at_time), is_active: false });
 
-  function updateSchedule(start: string, mode: BookingMode) {
-    if (!draft) return;
-    const hours = { day: 8, night: 12, whole_day: 22 };
-    let end = draft.endDatetime;
-    if (mode !== "custom" && start && Number.isFinite(Date.parse(`${start}:00+08:00`))) end = localTime(new Date(Date.parse(`${start}:00+08:00`) + hours[mode] * 3600000).toISOString());
-    setDraft({ ...draft, startDatetime: start, endDatetime: end, bookingMode: mode });
+  const sameSchedule = (candidate: Pick<Draft, "bookingMode" | "startDatetime" | "endDatetime">) => candidate.bookingMode === detail.reservation.booking_mode
+    && candidate.startDatetime === localTime(detail.reservation.start_datetime) && candidate.endDatetime === localTime(detail.reservation.end_datetime);
+  const scheduleChanged = !sameSchedule(draft);
+
+  function windowIssue(candidate: Pick<Draft, "bookingMode" | "startDatetime" | "endDatetime">): string | null {
+    if (!draft || !detail) return "Load the reservation first.";
+    if (!availability.ready) return availability.error ?? "Loading available dates...";
+    try {
+      const { startDatetime: start, endDatetime: end } = moveReservationToDate(detail.reservation, candidate.startDatetime.slice(0, 10));
+      if (!sameSchedule(candidate)) {
+        if (!noticePolicy.allowed && (!lateAcknowledged || !detail.canApproveLateReschedule)) return noticePolicy.blockedReason;
+        if (!isBookingStartAllowed(start, availability.now)) return BOOKING_LEAD_MESSAGE;
+        const validation = validateEditWindow({ ...draft, ...candidate, startDatetime: start, endDatetime: end, version: detail.version, expectedTotal: 0 });
+        if (!validation.valid) return validation.message ?? "Choose a valid schedule.";
+      }
+      if (!isWindowAvailable(start, end, availability.reservations)) return "Already reserved for this package or time slot.";
+      const startDay = manilaDateKey(start), endDay = manilaDateKey(new Date(Date.parse(end) - 1));
+      if (availability.blockedDates.some(block => block.start_date <= endDay && block.end_date >= startDay)) return "Closed for maintenance.";
+      return null;
+    } catch { return "Complete the arrival and departure times."; }
   }
+
+  const dateIssue = (date: string) => {
+    const moved = moveReservationToDate(detail.reservation, date);
+    return windowIssue({ bookingMode: draft.bookingMode, startDatetime: localTime(moved.startDatetime), endDatetime: localTime(moved.endDatetime) });
+  };
+  const chooseDate = (date: string) => {
+    if (dateIssue(date)) return;
+    const moved = moveReservationToDate(detail.reservation, date);
+    setDraft({ ...draft, startDatetime: localTime(moved.startDatetime), endDatetime: localTime(moved.endDatetime) });
+    setError(null);
+  };
+  const selectedIssue = scheduleChanged ? windowIssue(draft) : null;
+  const packageName = ({ day: "Day swimming", night: "Night swimming", whole_day: "Whole-day swimming", custom: "Custom schedule" })[detail.reservation.booking_mode ?? "day"];
+  const packageLabel = detail.reservation.booking_mode === "whole_day"
+    ? `${packageName} - Variant ${localTime(detail.reservation.start_datetime).slice(11, 16) === "18:00" ? "B" : "A"}` : packageName;
+  const scheduleLabel = (value: string) => Number.isFinite(Date.parse(`${value}:00+08:00`))
+    ? new Date(`${value}:00+08:00`).toLocaleString("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Choose a time";
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    if (!draft || !detail || !preview || !canEdit) return;
+    if (!draft || !detail || !preview || (!canEdit && !(canMove && scheduleChanged)) || saving.current) return;
+    if (selectedIssue) { setError(selectedIssue); return; }
+    saving.current = true;
     setBusy(true); setError(null); setSuccess(null);
     try {
       const response = await fetch(`/api/admin/reservations/${reservationId}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...toEdit(), expectedTotal: preview.total }) });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.message ?? "Unable to save reservation.");
+      if (!response.ok) { if (response.status === 409) availability.refresh(); throw new Error(result.message ?? "Unable to save reservation."); }
       setSuccess(result.message);
       reloadDetails(); onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to save reservation."); }
-    finally { setBusy(false); }
+    finally { saving.current = false; setBusy(false); }
   }
 
   return <form onSubmit={save} className="mt-5 space-y-5">
@@ -88,23 +143,36 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
     {error && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800"><p>{error}</p><button type="button" disabled={busy} onClick={reloadDetails} className="mt-2 underline">Reload reservation</button></div>}
     {!canEdit && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{detail.lockedReason ?? "Your role has view-only access. An administrator can grant permission to edit reservations."}</p>}
     {canEdit && !canChange && <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">The stay has started. Add services or update notes below. Existing services remain on the bill.</p>}
-    <fieldset disabled={busy || !canChange} className="grid gap-4 sm:grid-cols-2">
+    {(canChange || detail.canRescheduleException) && <div className="rounded-xl border border-neutral/10 bg-base p-4 text-sm text-neutral">
+      <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
+      <p className="mt-2">Original swimming date: {manilaDateKey(detail.reservation.start_datetime)}. Standard notice deadline: {noticePolicy.deadline} (Philippines).</p>
+      {!noticePolicy.allowed && <p role="alert" className="mt-2 text-amber-900">{noticePolicy.blockedReason}</p>}
+      {!noticePolicy.allowed && detail.canApproveLateReschedule && detail.canRescheduleException && <label className="mt-3 flex items-start gap-3"><input type="checkbox" disabled={busy} checked={lateAcknowledged} onChange={event => setLateAcknowledged(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" />I authorize this late reschedule exception after reviewing the guest request. The notice fee will be added; I will document the reason below.</label>}
+    </div>}
+    <fieldset disabled={busy || !canMove} className="grid gap-4 sm:grid-cols-2">
       <legend className="mb-3 font-semibold text-neutral">Reservation details</legend>
-      <label className="text-sm text-neutral/70">Booking package<select className={inputClass} value={draft.bookingMode} onChange={e => {
-        const mode = e.target.value as BookingMode;
-        const start = mode === "custom" ? draft.startDatetime : `${draft.startDatetime.slice(0, 10)}T${mode === "night" ? "18:00" : "08:00"}`;
-        updateSchedule(start, mode);
-      }}>
-        <option value="day">Day · 8 hours</option><option value="night">Night · 12 hours</option><option value="whole_day">Whole day · 22 hours</option><option value="custom">Custom schedule</option>
-      </select></label>
+      <div className="mx-auto w-full min-w-0 max-w-md space-y-3 sm:col-span-2">
+        {(canChange || detail.canRescheduleException) && !availability.ready && !availability.error && <p role="status" className="text-sm text-neutral/60">Loading available dates...</p>}
+        {(canChange || detail.canRescheduleException) && availability.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
+        <BookingDateCalendar value={draft.startDatetime.slice(0, 10)} onChange={chooseDate} onMonthChange={setCalendarMonth}
+          minDate={manilaDateKey(new Date(availability.now))} minimumDateReason="Past date" title="Arrival date"
+          disabled={busy || !canMove} getUnavailableReason={canMove ? dateIssue : undefined}
+          footnote="Choose a date available for the booked package. Its original times and duration stay fixed. The current reservation is excluded from conflicts; other bookings and maintenance closures are checked." />
+      </div>
+      <label className="min-w-0 text-sm text-neutral/70">Booked package<input readOnly className={inputClass} value={packageLabel} />
+        <span className="mt-1 block text-xs text-neutral/60">Package and time slot cannot be changed.</span>
+      </label>
       <label className="text-sm text-neutral/70">Accommodation<select className={inputClass} disabled={!canChange || detail.units.length > 1 || detail.units.some(u => u.quantity !== 1)} value={draft.unitId ?? ""} onChange={e => setDraft({ ...draft, unitId: e.target.value || null })}>
         {!draft.unitId && <option value="">{detail.units.length ? "Multiple accommodations (retained)" : "No accommodation selected"}</option>}
         {detail.catalogUnits.filter(u => (u.is_active && !u.archived_at) || detail.units.some(e => e.unit_id === u.unit_id)).map(u => <option key={u.unit_id} value={u.unit_id} disabled={(!u.is_active || Boolean(u.archived_at)) && u.unit_id !== draft.unitId}>{u.name}{!u.is_active || u.archived_at ? " (archived)" : ""}</option>)}
       </select></label>
-      <label className="text-sm text-neutral/70">Arrival<input required type="datetime-local" className={inputClass} value={draft.startDatetime} onChange={e => updateSchedule(e.target.value, draft.bookingMode)} /></label>
-      <label className="text-sm text-neutral/70">Departure<input required type="datetime-local" disabled={!canChange || draft.bookingMode !== "custom"} className={inputClass} value={draft.endDatetime} onChange={e => setDraft({ ...draft, endDatetime: e.target.value })} /></label>
-      <label className="text-sm text-neutral/70">Adults<input required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value) })} /></label>
-      <label className="text-sm text-neutral/70">Children<input required type="number" min={0} max={MAX_GUESTS - 1} className={inputClass} value={draft.childCount} onChange={e => setDraft({ ...draft, childCount: Number(e.target.value) })} /></label>
+      <dl className="grid min-w-0 gap-2 rounded-xl bg-base p-3 text-sm text-neutral sm:col-span-2 sm:grid-cols-2">
+        <div><dt className="text-xs text-neutral/60">Arrival (Philippines)</dt><dd>{scheduleLabel(draft.startDatetime)}</dd></div>
+        <div><dt className="text-xs text-neutral/60">Departure (Philippines)</dt><dd>{scheduleLabel(draft.endDatetime)}</dd></div>
+      </dl>
+      {selectedIssue && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2">{selectedIssue} Choose another date or time slot.</p>}
+      <label className="text-sm text-neutral/70">Adults<input disabled={!canChange} required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value) })} /></label>
+      <label className="text-sm text-neutral/70">Children<input disabled={!canChange} required type="number" min={0} max={MAX_GUESTS - 1} className={inputClass} value={draft.childCount} onChange={e => setDraft({ ...draft, childCount: Number(e.target.value) })} /></label>
       <p className="text-xs text-neutral/60 sm:col-span-2">Times are in Philippine time. Up to {MAX_GUESTS} guests. Package rates apply to the selected schedule and guest count.</p>
     </fieldset>
     <fieldset disabled={busy || !canEdit} className="space-y-3">
@@ -129,6 +197,7 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
       {preview ? <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
         <dt className="text-neutral/60">Previous total</dt><dd className="text-right">{currency(Number(detail.bill.total_amount))}</dd>
         <dt className="text-neutral/60">Package adjustment</dt><dd className="text-right">{currency(preview.packageDelta)}</dd>
+        <dt className="text-neutral/60">Reschedule notice fee</dt><dd className="text-right">{currency(preview.rescheduleFee)}</dd>
         <dt className="text-neutral/60">Services total</dt><dd className="text-right">{currency(preview.servicesTotal)}</dd>
         <dt className="font-semibold">New total</dt><dd className="text-right font-semibold">{currency(preview.total)}</dd>
         <dt className="text-neutral/60">Already paid</dt><dd className="text-right">{currency(preview.paid)}</dd>
@@ -137,7 +206,7 @@ export default function ReservationEditor({ reservationId, onSaved }: { reservat
       </dl> : <p className="mt-2 text-sm text-neutral/60">Complete the schedule to preview the bill.</p>}
       <p className="mt-3 text-xs text-neutral/60">Payments and issued receipts are retained. The current invoice follows the updated bill. Handle any overpayment in Transactions.</p>
     </div>
-    {canEdit && <><label className="block text-sm text-neutral/70">Reason for change <span className="text-red-600">*</span><textarea required maxLength={1000} disabled={busy} rows={2} className={inputClass} placeholder="Example: Guest requested a new date by Messenger, or added services at check-in." value={draft.reason} onChange={e => setDraft({ ...draft, reason: e.target.value })} /></label>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4"><a href="/admin/transactions" className="text-sm text-primary hover:underline">View transactions and receipts</a><button type="submit" disabled={busy || !preview || preview.total < 0} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">{busy ? "Saving…" : "Save reservation"}</button></div></>}
+    {(canEdit || detail.canRescheduleException) && <><label className="block text-sm text-neutral/70">Reason for change <span className="text-red-600">*</span><textarea required maxLength={1000} disabled={busy} rows={2} className={inputClass} placeholder="Example: Guest requested a new date by Messenger, or added services at check-in." value={draft.reason} onChange={e => setDraft({ ...draft, reason: e.target.value })} /></label>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4"><a href="/admin/transactions" className="text-sm text-primary hover:underline">View transactions and receipts</a><button type="submit" disabled={busy || !preview || preview.total < 0 || Boolean(selectedIssue) || (!canEdit && !scheduleChanged)} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">{busy ? "Saving…" : "Save reservation"}</button></div></>}
   </form>;
 }

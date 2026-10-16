@@ -2,8 +2,9 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
-import { User } from "@supabase/supabase-js";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type NotificationItem = {
   notification_id: string;
@@ -25,9 +26,43 @@ export default function UserMenu() {
   const [profile, setProfile] = useState<GuestProfile | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [markingRead, setMarkingRead] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+  const [position, setPosition] = useState({ left: 8, top: 88, width: 320, maxHeight: 480 });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    panel.current?.querySelector<HTMLAnchorElement>('a[href="/profile"]')?.focus();
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !panel.current?.contains(event.target) && !trigger.current?.contains(event.target)) setIsOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setIsOpen(false); trigger.current?.focus(); }
+    };
+    const dismiss = () => setIsOpen(false);
+    const scrollOutside = (event: Event) => {
+      if (event.target instanceof Node && panel.current?.contains(event.target)) return;
+      dismiss();
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", scrollOutside, true);
+    window.visualViewport?.addEventListener("resize", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", scrollOutside, true);
+      window.visualViewport?.removeEventListener("resize", dismiss);
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     const getUser = async () => {
@@ -44,6 +79,7 @@ export default function UserMenu() {
         
         setProfile(data);
       } else {
+        setIsOpen(false);
         setProfile(null);
         setNotifications([]);
       }
@@ -54,6 +90,7 @@ export default function UserMenu() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (!session?.user) {
+        setIsOpen(false);
         setProfile(null);
         setNotifications([]);
       }
@@ -64,8 +101,9 @@ export default function UserMenu() {
 
   const fetchNotifications = useCallback(async (activeUser: User) => {
     setNotificationsLoading(true);
-
-    const { data } = await supabase
+    setNotificationError(null);
+    try {
+      const { data, error } = await supabase
       .from("notifications")
       .select("notification_id, title, message, action_url, is_read, created_at")
       .eq("recipient_role", "guest")
@@ -73,12 +111,24 @@ export default function UserMenu() {
       .order("created_at", { ascending: false })
       .limit(5);
 
-    setNotifications((data as NotificationItem[] | null) ?? []);
-    setNotificationsLoading(false);
+      if (error) throw error;
+      setNotifications((data as NotificationItem[] | null) ?? []);
+    } catch {
+      setNotificationError("Unable to load notifications. Please try again.");
+    } finally { setNotificationsLoading(false); }
   }, [supabase]);
 
   const handleMenuToggle = async () => {
     const nextOpen = !isOpen;
+    if (nextOpen) {
+      const rect = trigger.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.min(352, window.innerWidth - 16);
+      const height = Math.min(600, window.innerHeight - 16);
+      const top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - height - 8));
+      setPosition({ left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+        top, width, maxHeight: window.innerHeight - top - 8 });
+    }
     setIsOpen(nextOpen);
 
     if (nextOpen && user) {
@@ -126,6 +176,7 @@ export default function UserMenu() {
       return "";
     }
     return date.toLocaleString("en-PH", {
+      timeZone: "Asia/Manila",
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -134,19 +185,24 @@ export default function UserMenu() {
   };
 
   const markAllNotificationsRead = async () => {
-    if (!user) return;
+    if (!user || markingRead) return;
 
     const unreadIds = notifications.filter((item) => !item.is_read).map((item) => item.notification_id);
     if (!unreadIds.length) return;
 
-    const { error } = await supabase
+    setMarkingRead(true);
+    setNotificationError(null);
+    try {
+      const { error } = await supabase
       .from("notifications")
       .update({ is_read: true })
+      .eq("recipient_role", "guest")
+      .eq("recipient_id", user.id)
       .in("notification_id", unreadIds);
-
-    if (!error) {
+      if (error) throw error;
       setNotifications((prev) => prev.map((item) => ({ ...item, is_read: true })));
-    }
+    } catch { setNotificationError("Could not mark notifications as read. Please try again."); }
+    finally { setMarkingRead(false); }
   };
 
   if (!user) {
@@ -168,16 +224,19 @@ export default function UserMenu() {
     );
   }
 
-  const displayName = profile 
-    ? `${profile.first_name} ${profile.last_name}`
-    : user.email?.split('@')[0];
+  const displayName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || user.email?.split("@")[0] || "Guest";
 
   return (
     <div className="relative">
       <button
+        ref={trigger}
+        type="button"
         onClick={handleMenuToggle}
-        className="flex items-center gap-2 text-neutral hover:text-primary transition-colors"
+        className="flex min-h-11 items-center gap-2 text-neutral hover:text-primary transition-colors"
         aria-label="Open user menu"
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? panelId : undefined}
       >
         <div className="relative w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
           <span className="text-primary font-semibold">
@@ -193,35 +252,43 @@ export default function UserMenu() {
         </svg>
       </button>
 
-      {isOpen && (
-        <>
-          <div 
-            className="fixed inset-0 z-40" 
-            onClick={() => setIsOpen(false)}
-          />
-          <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl z-50 py-2 border border-neutral/10">
-            <div className="px-4 py-3 border-b border-neutral/10">
-              <p className="text-sm font-semibold text-neutral">{displayName}</p>
-              <p className="text-xs text-neutral/60">{user.email}</p>
+      {isOpen && createPortal(
+          <div ref={panel} id={panelId} role="dialog" aria-label="Your account and notifications" style={position}
+            className="fixed z-[80] flex max-w-[calc(100vw-16px)] flex-col overflow-y-auto overscroll-contain rounded-2xl border border-neutral/10 bg-white py-2 text-neutral shadow-2xl">
+            <div className="flex shrink-0 items-start gap-2 border-b border-neutral/10 px-4 py-3">
+              <div className="min-w-0 flex-1"><p title={displayName} className="truncate text-sm font-semibold text-neutral">{displayName}</p>
+              <p title={user.email} className="truncate text-xs text-neutral/60">{user.email}</p></div>
+              <button type="button" aria-label="Close user menu" onClick={() => { setIsOpen(false); trigger.current?.focus(); }}
+                className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-neutral/70 hover:bg-base">×</button>
             </div>
-
-            <div className="border-b border-neutral/10 px-4 py-3">
+            <div className="shrink-0 border-b border-neutral/10 py-1" aria-label="Account actions">
+              <a href="/profile" onClick={() => setIsOpen(false)} className="flex min-h-11 items-center px-4 py-2 text-sm font-medium text-neutral transition-colors hover:bg-base">Profile Settings</a>
+              <a href="/manage" onClick={() => setIsOpen(false)} className="flex min-h-11 items-center px-4 py-2 text-sm text-neutral transition-colors hover:bg-base">My Bookings</a>
+              <button type="button" onClick={handleLogout} disabled={isLoggingOut}
+                className="flex min-h-11 w-full items-center px-4 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50">{isLoggingOut ? "Signing out..." : "Sign Out"}</button>
+              {logoutError && <p role="alert" className="px-4 py-2 text-xs text-red-600">{logoutError}</p>}
+            </div>
+            <section aria-label="Notifications" className="flex min-h-0 flex-1 flex-col px-4 py-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wide text-neutral/60">Notifications</p>
                 {unreadCount > 0 ? (
                   <button
                     type="button"
                     onClick={markAllNotificationsRead}
-                    className="text-xs font-medium text-primary hover:text-primary/80"
+                    disabled={markingRead || notificationsLoading}
+                    className="min-h-11 text-xs font-medium text-primary hover:text-primary/80 disabled:opacity-50"
                   >
-                    Mark all read
+                    {markingRead ? "Saving..." : "Mark all read"}
                   </button>
                 ) : null}
               </div>
-              <div className="mt-2 space-y-2">
+              {notificationError && <div role="alert" className="mb-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">{notificationError}
+                <button type="button" disabled={notificationsLoading || markingRead} onClick={() => void fetchNotifications(user)} className="ml-2 min-h-11 font-semibold underline disabled:opacity-50">Retry</button>
+              </div>}
+              <div className="mt-2 min-h-0 max-h-[35dvh] space-y-2 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]" tabIndex={0} aria-label="Recent notifications" aria-busy={notificationsLoading}>
                 {notificationsLoading ? (
                   <p className="text-xs text-neutral/60">Loading notifications...</p>
-                ) : notifications.length === 0 ? (
+                ) : notifications.length === 0 && !notificationError ? (
                   <p className="text-xs text-neutral/60">No notifications yet.</p>
                 ) : (
                   notifications.map((item) => {
@@ -261,37 +328,9 @@ export default function UserMenu() {
                   })
                 )}
               </div>
-            </div>
-            
-            <a
-              href="/manage"
-              className="block px-4 py-2 text-sm text-neutral hover:bg-neutral/5 transition-colors"
-              onClick={() => setIsOpen(false)}
-            >
-              My Bookings
-            </a>
-            
-            <a
-              href="/profile"
-              className="block px-4 py-2 text-sm text-neutral hover:bg-neutral/5 transition-colors"
-              onClick={() => setIsOpen(false)}
-            >
-              Profile Settings
-            </a>
-            
-            <div className="border-t border-neutral/10 mt-2 pt-2">
-              <button
-                onClick={handleLogout}
-                disabled={isLoggingOut}
-                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-              >
-                {isLoggingOut ? "Signing out..." : "Sign Out"}
-              </button>
-              {logoutError ? <p role="alert" className="px-4 py-2 text-xs text-red-600">{logoutError}</p> : null}
-            </div>
+            </section>
           </div>
-        </>
-      )}
+      , document.body)}
     </div>
   );
 }

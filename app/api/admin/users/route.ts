@@ -4,6 +4,7 @@ import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
 import { tryCreateAdminClient } from "@/lib/supabase/admin";
 import { isStaffRole, type StaffRole } from "@/lib/auth/staff-auth";
 import type { StaffUserRecord } from "@/components/admin/users/types";
+import { isValidStaffEmail, STAFF_EMAIL_ERROR } from "@/lib/auth/staff-email";
 
 interface CreateStaffPayload {
   fullName: string;
@@ -91,10 +92,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = parseCreatePayload(await request.json());
+    const payload = parseCreatePayload(await request.json().catch(() => null));
 
     if (!payload) {
       return NextResponse.json({ success: false, message: "Invalid staff payload." }, { status: 400 });
+    }
+
+    if (!isValidStaffEmail(payload.email)) {
+      return NextResponse.json({ success: false, field: "email", message: STAFF_EMAIL_ERROR }, { status: 400 });
     }
 
     const adminSupabase = tryCreateAdminClient();
@@ -112,7 +117,7 @@ export async function POST(request: Request) {
     const { data: existingStaff } = await adminSupabase
       .from("staff_users")
       .select("id")
-      .ilike("email", payload.email)
+      .ilike("email", payload.email.replace(/[\\%_]/g, "\\$&"))
       .maybeSingle();
 
     if (existingStaff) {

@@ -1,7 +1,7 @@
 import type { AdminNavItem } from "@/components/admin/types";
 import type { StaffRole } from "./staff-auth";
 
-export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_review", "refund_payout", "refund_verify", "records", "reports", "analytics", "audit", "configuration", "catalog", "users"] as const;
+export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_review", "refund_payout", "refund_verify", "records", "reports", "analytics", "feedback_archive", "audit", "configuration", "catalog", "users"] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_LABELS: Record<Permission, string> = {
   dashboard: "Dashboard", reservations: "View reservations", create_reservation: "Add reservation",
@@ -11,8 +11,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   payment_approval: "Approve or reject payments", payment_entry: "Record payments",
   refund_review: "Review refund payment records (approval is admin-only)", refund_payout: "Record refund payout", refund_verify: "Verify refund payout",
   records: "View records", reports: "View and export reports", analytics: "View analytics",
+  feedback_archive: "Archive and restore guest feedback (also requires Analytics)",
   audit: "View audit log", configuration: "Resort configuration", catalog: "Manage catalog",
-  users: "Manage staff users",
+  users: "Manage staff and guest accounts (admin only)",
 };
 
 export function hasPermission(role: StaffRole, granted: readonly string[], permission: Permission): boolean {
@@ -44,6 +45,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/payments/")) return "payment_approval";
   if (path.startsWith("/api/admin/refunds")) return "transactions";
   if (path.startsWith("/api/admin/transactions/")) return "transactions";
+  if (path.startsWith("/api/admin/analytics/feedback") && method === "PATCH") return "feedback_archive";
   if (path.startsWith("/api/admin/analytics")) return "analytics";
   if (path.startsWith("/api/admin/reports")) return "reports";
   if (path.startsWith("/api/admin/audit")) return "audit";

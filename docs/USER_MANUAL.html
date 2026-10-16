@@ -145,6 +145,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p>Only one device session is active per account. Signing in on another device ends the previous session; sign in again on the device you intend to use. Separate guests should use their own accounts.</p>
+<p>If your account has been deactivated, sign-in and protected booking actions are blocked. Contact the resort for help. After staff restore access, sign in again. Existing reservation, payment and refund records remain with the resort.</p>
 <h3 id="client-forgot-your-password">Forgot your password?</h3>
 <ol>
 <li>Select <strong>Forgot password?</strong> on the sign-in page.
@@ -219,6 +220,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p><strong>Expected result:</strong> The booking is saved with a temporary hold. Saving alone does not confirm a paid reservation. A new unpaid hold normally lasts <strong>30 minutes</strong>; submit valid payment proof before the displayed deadline. Payment submission then waits for staff review.</p>
 <p>If prices changed while you were filling in the form, return to the booking form and review the refreshed total before saving. If saving reports an unavailable date, choose another available date/package.</p>
 <h2 id="client-5-pay-through-gcash">5. Pay through GCash</h2>
+<p>Online payment submissions use GCash. If you pay an outstanding balance in cash at the resort, staff will record the received cash and issue a receipt. Check your updated balance in Manage Booking afterward.</p>
 <h3 id="client-step-a-select-what-to-pay">Step A — Select what to pay</h3>
 <ol>
 <li>Confirm that your booking reference and total are correct.
@@ -336,6 +338,8 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </ol>
 <p><strong>Expected result:</strong> A pending request does not immediately move the reservation. The original dates remain reserved while staff reviews it. Approval can add a notice fee and a higher-date-rate adjustment; moving to a cheaper date does not automatically refund the difference.</p>
 <p>Rescheduling requires a confirmed payment, an eligible available date and the applicable booking rules. The new start must remain at least 30 minutes away. Contact staff if <strong>Reschedule</strong> is disabled or your requested change is outside the available options.</p>
+<p>The original swimming date requires at least <strong>14 Philippine calendar days&#x27; notice</strong> for March-May and September-December, or <strong>7 days</strong> for other months. The dialog displays your deadline and notice fee. Late requests are disabled; contact the resort to ask about a staff-reviewed exception. Your package, original time and duration stay fixed.</p>
+<p>Notice fees are <strong>PHP 50 for 6+ days</strong>, <strong>PHP 100 for 3-5 days</strong>, <strong>PHP 300 for 1-2 days</strong>, and <strong>PHP 500 on or after the original date</strong>. Short-notice changes require an authorized staff exception. On-time requests carry PHP 50 plus any higher-date-rate adjustment when approved. Your existing payments remain on the bill.</p>
 <h2 id="client-9-cancel-a-booking">9. Cancel a booking</h2>
 <ol>
 <li>Open <strong>Manage Booking</strong> and open the reservation&#x27;s <strong>three-dot options menu</strong> and select <strong>Cancel reservation</strong>.
@@ -419,7 +423,8 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p><strong>Expected result:</strong> Your review is saved. The current system automatically publishes newly submitted reviews; public photos are shown for approved reviews. Use <strong>View full photo</strong> on a review to open its image.</p>
-<p>The system currently permits <strong>one review per guest account</strong>. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.</p>
+<p>You may submit <strong>multiple reviews per guest account</strong>, with a <strong>10-minute wait between submissions</strong> and a <strong>maximum of 3 reviews per rolling 24 hours</strong>. Repeating the same review text within 24 hours is blocked, even if you change its title. Each linked reservation can still have only one review. If a limit is reached, a popup explains when to retry and keeps your text/photo selected. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.</p>
+<p>Authorized staff can archive feedback. Archived reviews and their photos are hidden from the public list, while the resort retains the record for documentation.</p>
 <h2 id="client-13-understand-booking-and-refund-statuses">13. Understand booking and refund statuses</h2>
 <h3 id="client-reservation-status">Reservation status</h3>
 <div class="table-wrap"><table><thead><tr><th scope="col">Status shown or described</th><th scope="col">What it means</th><th scope="col">What to do</th></tr></thead><tbody>
@@ -609,13 +614,13 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ul>
 </li>
-<li>Choose the <strong>Booking date</strong>, <strong>Booking package</strong> and, if applicable, <strong>Whole-day variant</strong>.
+<li>Click a selectable day in the custom <strong>Booking date</strong> calendar. Use the arrows to change months. Booked dates, maintenance closures and past dates are disabled. <strong>Day only</strong> or <strong>Night only</strong> means the other start is unavailable. Choose an available <strong>Booking package</strong> and, if applicable, <strong>Whole-day variant</strong>. Overnight and whole-day availability includes the following day. Fixed start times must be at least 30 minutes from now in Philippine time.
 </li>
 <li>Select the <strong>Unit</strong>, and enter the adults and children counts.
 </li>
-<li>Add special requests. Include the booking channel or relevant guest instructions when helpful.
+<li>Under <strong>Additional services</strong>, check the services requested and enter a whole-number quantity for each. Add special requests, including the booking channel or relevant guest instructions when helpful.
 </li>
-<li>Review the current package-price preview.
+<li>Review the package, extra guests, service charges, total and minimum downpayment in <strong>Billing preview</strong>. Availability refreshes automatically and is checked again by the server when saving. Use <strong>Retry availability</strong> if loading fails; creating a reservation stays blocked until availability loads.
 </li>
 <li>Select <strong>Create Manual Reservation</strong> and wait for the calendar to reload.
 </li>
@@ -623,7 +628,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p><strong>Expected result:</strong> A reservation, guest association and initial bill are recorded. The entry starts unpaid/pending; creating a manual booking does not itself record money or issue a payment receipt. Observe its payment hold/deadline and current status.</p>
-<p>The creation dialog does not offer service selection. Open the saved reservation editor to add services. A walk-in profile is separate from a registered website account, so its reservation may not appear in a guest&#x27;s personal Manage Booking page.</p>
+<p>Selected services and quantities are attached to the reservation using current catalog prices. Open the saved reservation editor to add or update services later. A walk-in profile is separate from a registered website account, so its reservation may not appear in a guest&#x27;s personal Manage Booking page.</p>
 <p>If a save reports that a booking was created but a follow-up action failed, look up the reference before retrying. Avoid duplicating the booking.</p>
 <h2 id="admin-6-edit-reservation-details-and-add-services">6. Edit reservation details and add services</h2>
 <p><strong>Required permission:</strong> Edit reservations and services.</p>
@@ -633,11 +638,11 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>Review the original schedule and <strong>Updated bill</strong> preview.
 </li>
-<li>Change the allowed package, arrival, guest counts, accommodation or services. Fixed packages calculate departure from their duration; custom schedules expose the relevant departure fields.
+<li>Use the custom <strong>Arrival date</strong> calendar to choose a date available for the <strong>Booked package</strong>. The booked package, whole-day variant, original start time and duration cannot be changed. A date stays disabled when that package conflicts, even if another package has a free slot. The reservation being edited is excluded from conflicts. Existing custom schedules also retain their original times and duration when moved. Change guest counts or accommodation if needed.
 </li>
 <li>Adjust service selections/quantities and special requests as required.
 </li>
-<li>Review <strong>Previous total</strong>, <strong>Package adjustment</strong>, <strong>Services total</strong>, <strong>New total</strong>, <strong>Already paid</strong>, <strong>Amount payable</strong> and any <strong>Overpayment</strong>.
+<li>Review <strong>Previous total</strong>, <strong>Package adjustment</strong>, <strong>Reschedule notice fee</strong>, <strong>Services total</strong>, <strong>New total</strong>, <strong>Already paid</strong>, <strong>Amount payable</strong> and any <strong>Overpayment</strong>. A service-only edit has no reschedule notice fee.
 </li>
 <li>Enter a specific <strong>Reason for change</strong>, such as “Guest requested a date change through Messenger.”
 </li>
@@ -661,6 +666,8 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </ol>
 <p><strong>Expected result:</strong> Reservation details and the current bill/invoice update together, with a recorded reason. Existing payments and issued receipts keep their original amounts.</p>
 <p>Once the stay starts, schedule/details changes are restricted and previously booked services cannot be removed or reduced. Ended, closed or expired bookings and bookings awaiting payment/reschedule review can be read-only. An unavailable date or a concurrent change can also stop saving; reload and inspect the current record before trying again.</p>
+<p><strong>Reschedule notice:</strong> The original swimming date requires at least 14 Philippine calendar days&#x27; notice in March-May and September-December, or 7 days in other months. The editor displays the deadline. Notice fees are PHP 50 for 6+ days, PHP 100 for 3-5 days, PHP 300 for 1-2 days, and PHP 500 on or after the original date. Ordinary on-time reschedules still carry PHP 50.</p>
+<p><strong>Late exceptions:</strong> Staff need both <strong>Edit reservation</strong> and <strong>Reschedule approval</strong> permissions. For a confirmed reservation, check the late-exception acknowledgement, choose an available future date, review the charge, and document the guest request in <strong>Reason for change</strong>. A still-confirmed reservation with a past schedule may be moved; completed/cancelled bookings cannot be reopened. Existing accommodation and guest counts remain locked after the original arrival. Resolve pending reviews/open refunds first. Date, bill, invoice and audit changes save together; a linked guest receives an in-app notification when delivery succeeds. Apply <code>docs/reschedule-policy-migration.sql</code> before using this feature.</p>
 <p>Existing reservations use their booked package-rate schedule for package differences. Existing services retain their booked prices; newly added services use their available catalog prices. A later Catalog price change does not reprice all existing bookings. Changing accommodation still follows package-based billing; inspect the preview rather than assuming a unit rate replaces the package bill.</p>
 <p>Reservation editing does not automatically pay a refund or send a new billing email. Handle an exposed overpayment in <strong>Refund Requests</strong>, and check the revised invoice separately.</p>
 <h2 id="admin-7-review-a-reschedule-request">7. Review a reschedule request</h2>
@@ -682,6 +689,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p><strong>Expected result:</strong> Approval updates the schedule and adds the notice fee plus any higher-date-rate adjustment to billing. A rejection leaves the original reservation schedule in place. The original booking remains occupied while the request is pending.</p>
+<p>Notice eligibility and fees are based on the request&#x27;s submission date, not the later approval date. Legacy requests submitted outside the notice period must be rejected and processed in the reservation editor as an authorized late exception.</p>
 <p>Approval can fail if another booking/maintenance block conflicts or the requested start is too near/past. A lower-date rate does not automatically create a refund. Explain any additional balance to the guest; they can pay through Manage Booking when eligible.</p>
 <h2 id="admin-8-approve-an-ocular-visit">8. Approve an ocular visit</h2>
 <p><strong>Required permissions:</strong> Records access and ocular approval.</p>
@@ -761,20 +769,22 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p><strong>Required permissions:</strong> Transactions access and manual payment entry.</p>
 <p>This is the staff cash workflow. Online guest payment submission remains GCash only.</p>
 <ol>
-<li>Open <strong>Transaction Ledger</strong> and find the reservation.
+<li>Open <strong>Transactions &gt; Transaction Ledger</strong> and find the reservation.
 </li>
-<li>Select <strong>Settle</strong> on its row, or use <strong>Post Payment</strong> and then select the correct reservation in the dialog.
+<li>Select <strong>Settle in cash</strong> on its row, or use <strong>Record cash</strong> and select the correct reservation.
 </li>
-<li>Check the reservation reference and balance in <strong>Record cash payment</strong>.
+<li>Check the reservation reference and outstanding balance. The form fills in the full balance; lower <strong>Cash applied to this bill</strong> if the guest is making a partial payment.
 </li>
-<li>Enter the actual <strong>Amount received</strong> and required <strong>Cash reference</strong>.
+<li>Count the physical cash. If the guest tenders more than the bill, give change separately and record only the amount applied to the bill.
 </li>
-<li>Select <strong>Record payment and issue receipt</strong>.
+<li>Check <strong>I have counted and received this cash from the guest</strong>, then select <strong>Record payment and issue receipt</strong>.
 </li>
-<li>Verify the updated balance and corresponding receipt.
+<li>Read the result and remaining balance. Open <strong>Issued Receipts</strong> to view or print the receipt.
 </li>
 </ol>
-<p><strong>Expected result:</strong> The received cash is recorded and a separate receipt is issued for that payment. The form caps the amount at the current outstanding balance. Record money already received; this button does not collect money from the guest.</p>
+<p><strong>Expected result:</strong> The payment, balance, receipt and audit record are saved together. An initial payment on a pending reservation must cover the required 20% downpayment. A full settlement sets the outstanding balance to zero, including additional services already added to the bill. Cash is verified by the authorized staff member receiving it; no GCash screenshot or separate online-payment approval is needed.</p>
+<p>The cash reference is generated automatically. If a save fails, retry in the same dialog with the same reference; a saved payment will not be recorded twice. If the balance changed, close the dialog, refresh the ledger and check the payment records before starting another entry. Pending payment/reschedule reviews and open refunds must be resolved first. Cancelled or completed reservations cannot receive new cash entries.</p>
+<p>Administrators have cash-entry access. Other staff need the <strong>Record payments</strong> permission and Transactions access. Keep <strong>Cash</strong> active under <strong>Business Catalog &gt; Payment methods</strong>; cash does not need a payment account or QR code.</p>
 <h2 id="admin-13-review-and-pay-a-refund">13. Review and pay a refund</h2>
 <h3 id="admin-cancel-a-reservation-and-preview-its-refund">Cancel a reservation and preview its refund</h3>
 <ol>
@@ -933,7 +943,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <tr><td>Bookings</td><td>Reservations created and their sources; includes all statuses, not occupancy or arrivals</td></tr>
 <tr><td>Collection forecast</td><td>Actual verified collections plus a separately labelled estimate from historical averages</td></tr>
 <tr><td>Operations</td><td>Payment submissions/pending reviews within the selected dates and logged activity</td></tr>
-<tr><td>Guest feedback</td><td>An on-demand AI summary of up to 100 latest approved reviews created within the dates</td></tr>
+<tr><td>Guest feedback</td><td>Actual submitted reviews, permission-controlled archiving/restoring, and optional AI analysis of up to 100 latest approved active reviews</td></tr>
 </tbody></table></div>
 <h3 id="admin-collection-forecast">Collection forecast</h3>
 <p>The formula is <strong>actual gross collections ÷ selected calendar days × forecast days</strong>. Days with no payments are included. Forecast length is one day for Daily/Custom, seven days for Weekly and 30 days for Monthly. The forecast starts after the selected end date; a past range produces a historical estimate.</p>
@@ -943,16 +953,19 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p>Pending submissions count only payments submitted within the selected dates, not all outstanding payments. The payment-status pie compares payments with payments; the activity graph counts audit entries separately. Follow the task explanation to open Transactions or Audit Log for details.</p>
 <h3 id="admin-guest-feedback">Guest feedback</h3>
 <ol>
-<li>Select <strong>Guest feedback</strong>, then <strong>Analyze feedback</strong>.
+<li>Select <strong>Guest feedback</strong>. Actual reviews within the selected dates load automatically, without running AI analysis.
 </li>
-<li>Wait for the analysis and read the review sample size, sentiment percentages, summary and themes.
+<li>Read the guest name, rating, text, publication/archive status and any attached photo. Use live text search, <strong>Feedback status</strong>, <strong>Previous reviews</strong>, <strong>Next reviews</strong> or <strong>Refresh reviews</strong> to find records.
 </li>
-<li>Change chart style or export/print the result if needed.
+<li>With both <strong>Analytics</strong> and <strong>Archive and restore guest feedback</strong> permissions, select <strong>Archive feedback</strong>, enter a reason and confirm. The review is preserved but hidden from public reviews and future analysis. <strong>Archived</strong> status lets you find it and use <strong>Restore feedback</strong>, also with a documented reason. Administrators have access; other roles must receive both permissions in the Role Permission Matrix.
 </li>
-<li>Use <strong>Analyze again</strong> to refresh the analysis.
+<li>Optionally select <strong>Analyze feedback</strong> to summarize up to 100 latest approved, non-archived reviews in the date range. Read the sample size, sentiment percentages, summary and themes.
+</li>
+<li>Change chart style or export/print the analysis if needed. Use <strong>Analyze again</strong> to refresh it.
 </li>
 </ol>
-<p>These are AI-generated interpretations of the sampled reviews, not a survey of every guest. No approved reviews produces a no-data result. If analysis is unavailable, ask the administrator to check the service. Changing dates or refreshing analytics clears the previous analysis so results are not reused for the wrong period.</p>
+<p>These are AI-generated interpretations of sampled reviews, not a survey of every guest. No approved active reviews produces a no-data result. If analysis is unavailable, the review list remains usable. Changing dates, refreshing analytics, archiving or restoring clears the displayed analysis. Archive/restore actions require a current staff session and are audited; the permission does not allow changing another guest&#x27;s text or rating.</p>
+<p>Guests can submit multiple reviews, subject to 10 minutes between submissions, at most 3 per rolling 24 hours, duplicate-text blocking within 24 hours and one review per linked reservation. Archiving/deleting a review does not reset those limits. Apply <code>docs/review-feedback-management-migration.sql</code> before using the new workflow.</p>
 <h2 id="admin-17-manage-catalog-items-and-payment-qr-codes">17. Manage catalog items and payment QR codes</h2>
 <p><strong>Required role:</strong> Admin.</p>
 <h3 id="admin-add-or-edit-an-item">Add or edit an item</h3>
@@ -1091,6 +1104,20 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p>Your own admin role cannot be removed through this workflow. Check that the staff member has the appropriate role before sharing access.</p>
+<h3 id="admin-deactivate-or-reactivate-a-guest-account">Deactivate or reactivate a guest account</h3>
+<ol>
+<li>Open <strong>Users</strong>, then select <strong>Guest Accounts</strong>.
+</li>
+<li>Type a name, email or phone to filter guests automatically, or filter by <strong>Active</strong> / <strong>Inactive</strong>. Use <strong>Previous</strong>, <strong>Next</strong> and <strong>Refresh guests</strong> when needed.
+</li>
+<li>Select <strong>Deactivate</strong> on the correct guest. Review the confirmation and optionally document a reason.
+</li>
+<li>Select <strong>Confirm deactivation</strong>, then check the success message and <strong>Inactive</strong> status.
+</li>
+<li>To restore access, select <strong>Reactivate</strong> and <strong>Confirm reactivation</strong>. The guest must sign in again.
+</li>
+</ol>
+<p>Only an administrator can change guest access. Deactivation blocks website sign-in, ends the stored website session and displays an account-deactivated message. Guest profiles, reservations, payments and refunds remain recorded; deactivation does not cancel a booking or issue a refund. The audit log records the administrator, previous/new status and reason. Staff accounts and walk-in profiles do not appear in this guest list.</p>
 <h3 id="admin-change-role-permissions">Change role permissions</h3>
 <ol>
 <li>Open <strong>Role Permission Matrix</strong> on Users.

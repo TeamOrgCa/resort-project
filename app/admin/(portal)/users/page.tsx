@@ -11,10 +11,11 @@ import CreateStaffDialog from "@/components/admin/users/CreateStaffDialog";
 import EditStaffDialog from "@/components/admin/users/EditStaffDialog";
 import ResetPasswordDialog from "@/components/admin/users/ResetPasswordDialog";
 import RolePermissionsEditor from "@/components/admin/users/RolePermissionsEditor";
+import GuestAccountsPanel from "@/components/admin/users/GuestAccountsPanel";
 import type { StaffUserFormValues, StaffUserTableRow } from "@/components/admin/users/types";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 
-const userTabs = ["Staff Accounts", "Role Permission Matrix"] as const;
+const userTabs = ["Staff Accounts", "Guest Accounts", "Role Permission Matrix"] as const;
 
 type StaffUserRecord = {
   id: string;
@@ -280,7 +281,7 @@ export default function AdminUsersPage() {
     <div>
       <AdminSectionHeader
         title="User Management and Access Control"
-        subtitle="Manage staff accounts, assign roles, and enforce access-level boundaries."
+        subtitle="Manage staff and guest access, assign staff roles, and enforce access-level boundaries."
       />
 
       {toast ? (
@@ -315,7 +316,7 @@ export default function AdminUsersPage() {
           })}
         </div>
 
-        {pageError ? <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{pageError}</div> : null}
+        {pageError && activeTab === "Staff Accounts" ? <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{pageError}</div> : null}
 
         {activeTab === "Staff Accounts" && (
           <AdminTablePreview
@@ -337,6 +338,7 @@ export default function AdminUsersPage() {
         )}
 
         {activeTab === "Role Permission Matrix" && <RolePermissionsEditor />}
+        {activeTab === "Guest Accounts" && <GuestAccountsPanel />}
       </section>
 
       <CreateStaffDialog
@@ -374,7 +376,7 @@ export default function AdminUsersPage() {
         onSubmit={handleResetPassword}
       />
 
-      {isLoading ? (
+      {isLoading && activeTab === "Staff Accounts" ? (
         <div className="mt-4 text-sm text-neutral/70">Loading staff accounts...</div>
       ) : null}
     </div>

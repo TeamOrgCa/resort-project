@@ -49,7 +49,7 @@ test("analytics paginates all sources and returns honest empty estimates", async
 
 function route({ active = true, allowed = true, reviews = [], modelResult } = {}) {
   const calls = [];
-  const query = { select: () => query, eq: (key, value) => { calls.push([key, value]); return query; }, gte: () => query, lt: () => query, order: () => query, limit: async size => { calls.push(["limit", size]); return { data: reviews.slice(0, size), error: null }; } };
+  const query = { select: () => query, eq: (key, value) => { calls.push([key, value]); return query; }, is: (key, value) => { calls.push([key, value]); return query; }, gte: () => query, lt: () => query, order: () => query, limit: async size => { calls.push(["limit", size]); return { data: reviews.slice(0, size), error: null }; } };
   const handlers = loadTsModule("app/api/admin/analytics/route.ts", {
     "@/lib/server/admin-audit": { requireActiveStaff: async () => active ? { supabase: {}, staffUser: { role: "staff" } } : null },
     "@/lib/server/role-permissions": { staffHasPermission: async (_client, _role, permission) => { calls.push(["permission", permission]); return allowed; } },
@@ -78,7 +78,7 @@ test("feedback analysis handles empty reviews, caps the sample and rejects malfo
     const empty = await (await route().POST(post({ action: "sentiment" }))).json(); assert.equal(empty.sentiment.sampleSize, 0); assert.equal(empty.sentiment.overallSentiment, "No approved reviews");
     const reviews = Array.from({ length: 101 }, () => ({ review_text: "Great stay", overall_rating: 5 }));
     const h = route({ reviews, modelResult: '```json\n{"overallSentiment":"Positive","positivePercent":80,"neutralPercent":15,"negativePercent":5,"themes":["Pool"],"summary":"Mostly positive."}\n```' });
-    const response = await h.POST(post({ action: "sentiment" })); const { sentiment } = await response.json(); assert.equal(response.status, 200); assert.equal(sentiment.sampleSize, 100); assert.equal(sentiment.positivePercent, 80); assert.ok(h.calls.some(c => c[0] === "is_approved" && c[1] === true));
+    const response = await h.POST(post({ action: "sentiment" })); const { sentiment } = await response.json(); assert.equal(response.status, 200); assert.equal(sentiment.sampleSize, 100); assert.equal(sentiment.positivePercent, 80); assert.ok(h.calls.some(c => c[0] === "is_approved" && c[1] === true)); assert.ok(h.calls.some(c => c[0] === "archived_at" && c[1] === null));
     const malformed = route({ reviews, modelResult: '{"overallSentiment":"Positive","positivePercent":500,"neutralPercent":0,"negativePercent":0,"themes":[],"summary":"Broken"}' });
     assert.equal((await malformed.POST(post({ action: "sentiment" }))).status, 500);
     delete process.env.GEMINI_API_KEY; assert.equal((await route({ reviews }).POST(post({ action: "sentiment" }))).status, 503);

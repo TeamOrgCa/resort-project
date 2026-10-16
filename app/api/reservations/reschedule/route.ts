@@ -7,6 +7,7 @@ import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start
 import { calculateRescheduleCharges } from "@/lib/booking/reschedule-charges";
 import type { BookingMode } from "@/lib/booking/policy";
 import { loadPackageRates, PackageRatesError } from "@/lib/server/package-rates";
+import { reschedulePolicy } from "@/lib/booking/reschedule-charge-policy";
 
 interface ReschedulePayload {
   reservationId: string;
@@ -192,6 +193,9 @@ export async function POST(request: Request) {
       );
     }
 
+    const policy = reschedulePolicy(reservation.start_datetime);
+    if (!policy.allowed) return NextResponse.json({ success: false, code: "RESCHEDULE_NOTICE_REQUIRED", message: policy.blockedReason, policy }, { status: 400 });
+
     if (reservation.status !== "confirmed") {
       return NextResponse.json({ success: false, message: "Payment must be approved before rescheduling this reservation." }, { status: 400 });
     }
@@ -268,12 +272,13 @@ export async function POST(request: Request) {
       .single<{ reschedule_id: string }>();
 
     if (insertError) {
+      const status = ["40001", "23P01"].includes(insertError.code) ? 409 : ["22023", "42501"].includes(insertError.code) ? 400 : 500;
       return NextResponse.json(
         {
           success: false,
-          message: "Failed to create reschedule request.",
+          message: status === 500 ? "Failed to create reschedule request. Please retry." : insertError.message,
         },
-        { status: 500 }
+        { status }
       );
     }
 
@@ -303,21 +308,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: notificationError } = await createNotifications({
-      actorId: user.id,
-      guestId: reservation.guest_id,
-      staffRoles: NOTIFICATION_AUDIENCES.reservation,
-      title: "Reschedule requested",
-      message: `Reschedule request submitted for reservation ${reservation.reference_number}.`,
-      entityType: "reservation_reschedule",
-      entityId: reservation.reservation_id,
-      guestActionUrl: "/manage",
-      staffActionUrl: "/admin/reservations",
-    });
+    try {
+      const { error: notificationError } = await createNotifications({
+        actorId: user.id,
+        guestId: reservation.guest_id,
+        staffRoles: NOTIFICATION_AUDIENCES.reservation,
+        title: "Reschedule requested",
+        message: `Reschedule request submitted for reservation ${reservation.reference_number}.`,
+        entityType: "reservation_reschedule",
+        entityId: reservation.reservation_id,
+        guestActionUrl: "/manage",
+        staffActionUrl: "/admin/reservations",
+      });
 
-    if (notificationError) {
-      console.warn("Failed to create reschedule notifications:", notificationError);
-    }
+      if (notificationError) console.warn("Failed to create reschedule notifications:", notificationError);
+    } catch (notificationError) { console.warn("Reschedule request saved but notification failed:", notificationError); }
 
     /* -----------------------------
        SUCCESS RESPONSE

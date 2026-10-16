@@ -118,16 +118,16 @@ Calendar indicators distinguish reservations, items needing attention, ocular vi
 2. In **New Manual Reservation**, select **Guest type**:
    - **Existing account:** Select the correct registered guest.
    - **Walk-in guest:** Enter the first name, last name, email, phone and address required by the form. This option also supports people booking by phone or Messenger without a website account.
-3. Choose the **Booking date**, **Booking package** and, if applicable, **Whole-day variant**.
+3. Click a selectable day in the custom **Booking date** calendar. Use the arrows to change months. Booked dates, maintenance closures and past dates are disabled. **Day only** or **Night only** means the other start is unavailable. Choose an available **Booking package** and, if applicable, **Whole-day variant**. Overnight and whole-day availability includes the following day. Fixed start times must be at least 30 minutes from now in Philippine time.
 4. Select the **Unit**, and enter the adults and children counts.
-5. Add special requests. Include the booking channel or relevant guest instructions when helpful.
-6. Review the current package-price preview.
+5. Under **Additional services**, check the services requested and enter a whole-number quantity for each. Add special requests, including the booking channel or relevant guest instructions when helpful.
+6. Review the package, extra guests, service charges, total and minimum downpayment in **Billing preview**. Availability refreshes automatically and is checked again by the server when saving. Use **Retry availability** if loading fails; creating a reservation stays blocked until availability loads.
 7. Select **Create Manual Reservation** and wait for the calendar to reload.
 8. Find the new reference in the calendar and Transactions. Record any money actually received through the appropriate payment workflow promptly.
 
 **Expected result:** A reservation, guest association and initial bill are recorded. The entry starts unpaid/pending; creating a manual booking does not itself record money or issue a payment receipt. Observe its payment hold/deadline and current status.
 
-The creation dialog does not offer service selection. Open the saved reservation editor to add services. A walk-in profile is separate from a registered website account, so its reservation may not appear in a guest's personal Manage Booking page.
+Selected services and quantities are attached to the reservation using current catalog prices. Open the saved reservation editor to add or update services later. A walk-in profile is separate from a registered website account, so its reservation may not appear in a guest's personal Manage Booking page.
 
 If a save reports that a booking was created but a follow-up action failed, look up the reference before retrying. Avoid duplicating the booking.
 
@@ -139,9 +139,9 @@ If a save reports that a booking was created but a follow-up action failed, look
 
 1. Select the reservation in **Reservations**.
 2. Review the original schedule and **Updated bill** preview.
-3. Change the allowed package, arrival, guest counts, accommodation or services. Fixed packages calculate departure from their duration; custom schedules expose the relevant departure fields.
+3. Use the custom **Arrival date** calendar to choose a date available for the **Booked package**. The booked package, whole-day variant, original start time and duration cannot be changed. A date stays disabled when that package conflicts, even if another package has a free slot. The reservation being edited is excluded from conflicts. Existing custom schedules also retain their original times and duration when moved. Change guest counts or accommodation if needed.
 4. Adjust service selections/quantities and special requests as required.
-5. Review **Previous total**, **Package adjustment**, **Services total**, **New total**, **Already paid**, **Amount payable** and any **Overpayment**.
+5. Review **Previous total**, **Package adjustment**, **Reschedule notice fee**, **Services total**, **New total**, **Already paid**, **Amount payable** and any **Overpayment**. A service-only edit has no reschedule notice fee.
 6. Enter a specific **Reason for change**, such as “Guest requested a date change through Messenger.”
 7. Select **Save reservation**.
 8. Check the success result, refreshed calendar and saved bill. Open **View transactions and receipts** if you need billing records.
@@ -157,6 +157,10 @@ If a save reports that a booking was created but a follow-up action failed, look
 **Expected result:** Reservation details and the current bill/invoice update together, with a recorded reason. Existing payments and issued receipts keep their original amounts.
 
 Once the stay starts, schedule/details changes are restricted and previously booked services cannot be removed or reduced. Ended, closed or expired bookings and bookings awaiting payment/reschedule review can be read-only. An unavailable date or a concurrent change can also stop saving; reload and inspect the current record before trying again.
+
+**Reschedule notice:** The original swimming date requires at least 14 Philippine calendar days' notice in March-May and September-December, or 7 days in other months. The editor displays the deadline. Notice fees are PHP 50 for 6+ days, PHP 100 for 3-5 days, PHP 300 for 1-2 days, and PHP 500 on or after the original date. Ordinary on-time reschedules still carry PHP 50.
+
+**Late exceptions:** Staff need both **Edit reservation** and **Reschedule approval** permissions. For a confirmed reservation, check the late-exception acknowledgement, choose an available future date, review the charge, and document the guest request in **Reason for change**. A still-confirmed reservation with a past schedule may be moved; completed/cancelled bookings cannot be reopened. Existing accommodation and guest counts remain locked after the original arrival. Resolve pending reviews/open refunds first. Date, bill, invoice and audit changes save together; a linked guest receives an in-app notification when delivery succeeds. Apply `docs/reschedule-policy-migration.sql` before using this feature.
 
 Existing reservations use their booked package-rate schedule for package differences. Existing services retain their booked prices; newly added services use their available catalog prices. A later Catalog price change does not reprice all existing bookings. Changing accommodation still follows package-based billing; inspect the preview rather than assuming a unit rate replaces the package bill.
 
@@ -175,6 +179,8 @@ Reservation editing does not automatically pay a refund or send a new billing em
 7. For an approval, verify the new dates in Reservations and the additional payable amount in Transactions.
 
 **Expected result:** Approval updates the schedule and adds the notice fee plus any higher-date-rate adjustment to billing. A rejection leaves the original reservation schedule in place. The original booking remains occupied while the request is pending.
+
+Notice eligibility and fees are based on the request's submission date, not the later approval date. Legacy requests submitted outside the notice period must be rejected and processed in the reservation editor as an authorized late exception.
 
 Approval can fail if another booking/maintenance block conflicts or the requested start is too near/past. A lower-date rate does not automatically create a refund. Explain any additional balance to the guest; they can pay through Manage Booking when eligible.
 
@@ -247,14 +253,18 @@ If a payment decision succeeds but an email/notification follow-up fails, refres
 
 This is the staff cash workflow. Online guest payment submission remains GCash only.
 
-1. Open **Transaction Ledger** and find the reservation.
-2. Select **Settle** on its row, or use **Post Payment** and then select the correct reservation in the dialog.
-3. Check the reservation reference and balance in **Record cash payment**.
-4. Enter the actual **Amount received** and required **Cash reference**.
-5. Select **Record payment and issue receipt**.
-6. Verify the updated balance and corresponding receipt.
+1. Open **Transactions > Transaction Ledger** and find the reservation.
+2. Select **Settle in cash** on its row, or use **Record cash** and select the correct reservation.
+3. Check the reservation reference and outstanding balance. The form fills in the full balance; lower **Cash applied to this bill** if the guest is making a partial payment.
+4. Count the physical cash. If the guest tenders more than the bill, give change separately and record only the amount applied to the bill.
+5. Check **I have counted and received this cash from the guest**, then select **Record payment and issue receipt**.
+6. Read the result and remaining balance. Open **Issued Receipts** to view or print the receipt.
 
-**Expected result:** The received cash is recorded and a separate receipt is issued for that payment. The form caps the amount at the current outstanding balance. Record money already received; this button does not collect money from the guest.
+**Expected result:** The payment, balance, receipt and audit record are saved together. An initial payment on a pending reservation must cover the required 20% downpayment. A full settlement sets the outstanding balance to zero, including additional services already added to the bill. Cash is verified by the authorized staff member receiving it; no GCash screenshot or separate online-payment approval is needed.
+
+The cash reference is generated automatically. If a save fails, retry in the same dialog with the same reference; a saved payment will not be recorded twice. If the balance changed, close the dialog, refresh the ledger and check the payment records before starting another entry. Pending payment/reschedule reviews and open refunds must be resolved first. Cancelled or completed reservations cannot receive new cash entries.
+
+Administrators have cash-entry access. Other staff need the **Record payments** permission and Transactions access. Keep **Cash** active under **Business Catalog > Payment methods**; cash does not need a payment account or QR code.
 
 ## 13. Review and pay a refund
 
@@ -372,7 +382,7 @@ Trends initially use a line graph; breakdowns initially use a pie. Switching cha
 | Bookings | Reservations created and their sources; includes all statuses, not occupancy or arrivals |
 | Collection forecast | Actual verified collections plus a separately labelled estimate from historical averages |
 | Operations | Payment submissions/pending reviews within the selected dates and logged activity |
-| Guest feedback | An on-demand AI summary of up to 100 latest approved reviews created within the dates |
+| Guest feedback | Actual submitted reviews, permission-controlled archiving/restoring, and optional AI analysis of up to 100 latest approved active reviews |
 
 ### Collection forecast
 
@@ -388,12 +398,15 @@ Pending submissions count only payments submitted within the selected dates, not
 
 ### Guest feedback
 
-1. Select **Guest feedback**, then **Analyze feedback**.
-2. Wait for the analysis and read the review sample size, sentiment percentages, summary and themes.
-3. Change chart style or export/print the result if needed.
-4. Use **Analyze again** to refresh the analysis.
+1. Select **Guest feedback**. Actual reviews within the selected dates load automatically, without running AI analysis.
+2. Read the guest name, rating, text, publication/archive status and any attached photo. Use live text search, **Feedback status**, **Previous reviews**, **Next reviews** or **Refresh reviews** to find records.
+3. With both **Analytics** and **Archive and restore guest feedback** permissions, select **Archive feedback**, enter a reason and confirm. The review is preserved but hidden from public reviews and future analysis. **Archived** status lets you find it and use **Restore feedback**, also with a documented reason. Administrators have access; other roles must receive both permissions in the Role Permission Matrix.
+4. Optionally select **Analyze feedback** to summarize up to 100 latest approved, non-archived reviews in the date range. Read the sample size, sentiment percentages, summary and themes.
+5. Change chart style or export/print the analysis if needed. Use **Analyze again** to refresh it.
 
-These are AI-generated interpretations of the sampled reviews, not a survey of every guest. No approved reviews produces a no-data result. If analysis is unavailable, ask the administrator to check the service. Changing dates or refreshing analytics clears the previous analysis so results are not reused for the wrong period.
+These are AI-generated interpretations of sampled reviews, not a survey of every guest. No approved active reviews produces a no-data result. If analysis is unavailable, the review list remains usable. Changing dates, refreshing analytics, archiving or restoring clears the displayed analysis. Archive/restore actions require a current staff session and are audited; the permission does not allow changing another guest's text or rating.
+
+Guests can submit multiple reviews, subject to 10 minutes between submissions, at most 3 per rolling 24 hours, duplicate-text blocking within 24 hours and one review per linked reservation. Archiving/deleting a review does not reset those limits. Apply `docs/review-feedback-management-migration.sql` before using the new workflow.
 
 ## 17. Manage catalog items and payment QR codes
 
@@ -502,6 +515,16 @@ Other Configuration categories include ocular, payment and notification settings
 4. Use **Reset Password** to set a temporary password when needed. The staff member changes it on next access when prompted.
 
 Your own admin role cannot be removed through this workflow. Check that the staff member has the appropriate role before sharing access.
+
+### Deactivate or reactivate a guest account
+
+1. Open **Users**, then select **Guest Accounts**.
+2. Type a name, email or phone to filter guests automatically, or filter by **Active** / **Inactive**. Use **Previous**, **Next** and **Refresh guests** when needed.
+3. Select **Deactivate** on the correct guest. Review the confirmation and optionally document a reason.
+4. Select **Confirm deactivation**, then check the success message and **Inactive** status.
+5. To restore access, select **Reactivate** and **Confirm reactivation**. The guest must sign in again.
+
+Only an administrator can change guest access. Deactivation blocks website sign-in, ends the stored website session and displays an account-deactivated message. Guest profiles, reservations, payments and refunds remain recorded; deactivation does not cancel a booking or issue a refund. The audit log records the administrator, previous/new status and reason. Staff accounts and walk-in profiles do not appear in this guest list.
 
 ### Change role permissions
 

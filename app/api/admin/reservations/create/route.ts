@@ -132,6 +132,19 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     return null;
   }
 
+  const selectedServices: ServiceSelectionInput[] = [];
+  if (payload.selectedServices !== undefined) {
+    if (!Array.isArray(payload.selectedServices) || payload.selectedServices.length > 100) return null;
+    const seen = new Set<string>();
+    for (const item of payload.selectedServices) {
+      if (!item || typeof item.serviceId !== "string" || !item.serviceId.trim()) return null;
+      const serviceId = item.serviceId.trim();
+      const quantity = item.quantity === undefined ? 1 : item.quantity;
+      if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 10000 || seen.has(serviceId)) return null;
+      seen.add(serviceId); selectedServices.push({ serviceId, quantity });
+    }
+  }
+
   return {
     guestType,
     packageRateVersion: Number(payload.packageRateVersion),
@@ -151,14 +164,7 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     childCount: payload.childCount,
     unitId: payload.unitId.trim(),
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
-    selectedServices: Array.isArray(payload.selectedServices)
-      ? payload.selectedServices
-          .filter((item): item is ServiceSelectionInput => typeof item?.serviceId === "string")
-          .map((item) => ({
-            serviceId: item.serviceId,
-            quantity: Number.isInteger(item.quantity) && (item.quantity ?? 0) > 0 ? item.quantity : 1,
-          }))
-      : [],
+    selectedServices,
   };
 };
 
