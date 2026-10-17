@@ -15,13 +15,18 @@ import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { isWindowAvailable, type ReservedWindow } from "@/lib/booking/availability";
-import { manilaDateKey } from "@/lib/booking/manila-date";
+import { formatManilaDate, isValidManilaDate, manilaCalendarDate, manilaDateKey, manilaMonthDate } from "@/lib/booking/manila-date";
 
 interface OcularAvailabilityRow {
   scheduled_date: string;
   time_slot_id: string;
   status: "pending" | "confirmed" | "cancelled";
 }
+
+const formatDateForStore = manilaDateKey;
+const toDateKey = manilaDateKey;
+const parseLocalDateValue = (value: string) => isValidManilaDate(value) ? manilaCalendarDate(value) : null;
+const parseDateKey = parseLocalDateValue;
 
 export default function Booking() {
   const { schedule: packageSchedule, error: packageRatesError } = usePackageRates();
@@ -41,7 +46,7 @@ export default function Booking() {
   const [selectedTime, setSelectedTime] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [bookingRef, setBookingRef] = useState("");
-  const [currentMonth, setCurrentMonth] = useState(() => new Date(`${manilaDateKey(new Date())}T12:00:00`));
+  const [currentMonth, setCurrentMonth] = useState(() => manilaCalendarDate(manilaDateKey(new Date())));
   const [visitScheduled, setVisitScheduled] = useState(false);
   const [ocularSubmitting, setOcularSubmitting] = useState(false);
   const [ocularError, setOcularError] = useState<string | null>(null);
@@ -61,47 +66,6 @@ export default function Booking() {
       window.removeEventListener("focus", refreshClock);
     };
   }, []);
-
-  const formatDateForStore = (date: Date) => {
-    const year = date.getFullYear();
-    const month = `${date.getMonth() + 1}`.padStart(2, "0");
-    const day = `${date.getDate()}`.padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  const parseLocalDateValue = (value: string) => {
-    const parts = value.split("-");
-    if (parts.length !== 3) return null;
-
-    const year = Number(parts[0]);
-    const month = Number(parts[1]);
-    const day = Number(parts[2]);
-    if (!year || !month || !day) return null;
-
-    const parsed = new Date(year, month - 1, day);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  };
-
-  const toDateKey = (date: Date) => {
-    const year = date.getFullYear();
-    const month = `${date.getMonth() + 1}`.padStart(2, "0");
-    const day = `${date.getDate()}`.padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  const parseDateKey = (value: string) => {
-    const parts = value.split("-");
-    if (parts.length !== 3) return null;
-
-    const year = Number(parts[0]);
-    const month = Number(parts[1]);
-    const day = Number(parts[2]);
-
-    if (!year || !month || !day) return null;
-
-    const parsed = new Date(year, month - 1, day);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -160,7 +124,7 @@ export default function Booking() {
   useEffect(() => {
     let active = true;
     let requestId = 0;
-    const month = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}`;
+    const month = manilaDateKey(currentMonth).slice(0, 7);
     const loadAvailability = async () => {
       const currentRequest = ++requestId;
       try {
@@ -210,11 +174,11 @@ export default function Booking() {
     if (!packageSchedule) { setStayError(packageRatesError ?? "Please wait while package prices load."); return; }
     const generatedWindow = buildBookingWindow({ packageTimes: packageSchedule?.times,
       bookingMode,
-      date: selectedStayDate,
+      date: toDateKey(selectedStayDate),
       wholeDayVariant,
       customStartTime,
       customEndTime,
-      customEndDate: selectedCustomEndDate ?? undefined,
+      customEndDate: selectedCustomEndDate ? toDateKey(selectedCustomEndDate) : undefined,
     });
 
     if ("error" in generatedWindow) {
@@ -281,10 +245,8 @@ export default function Booking() {
   };
 
   const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const days = new Date(year, month + 1, 0).getDate();
-    const firstDay = new Date(year, month, 1).getDay();
+    const days = manilaMonthDate(date, 1, 0).getUTCDate();
+    const firstDay = manilaMonthDate(date).getUTCDay();
     return { days, firstDay };
   };
 
@@ -301,7 +263,7 @@ export default function Booking() {
 
   const packageAvailable = (date: Date, mode: BookingMode, variant: WholeDayVariant = "day_to_night") => {
     if (!packageSchedule) return false;
-    const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date, wholeDayVariant: variant });
+    const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date: toDateKey(date), wholeDayVariant: variant });
     return typeof window.startDatetime === "string" && typeof window.endDatetime === "string" &&
       isBookingStartAllowed(window.startDatetime, now) &&
       isBookingWindowAvailable(window.startDatetime, window.endDatetime);
@@ -320,7 +282,7 @@ export default function Booking() {
 
   const isDateSelected = (date: Date) => {
     if (!selectedStayDate) return false;
-    return date.toDateString() === selectedStayDate.toDateString();
+    return toDateKey(date) === toDateKey(selectedStayDate);
   };
 
   const handleDateClick = (date: Date) => {
@@ -412,12 +374,12 @@ export default function Booking() {
 
   const nextMonth = () => {
     setSelectedStayDate(null);
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
+    setCurrentMonth(manilaMonthDate(currentMonth, 1));
   };
 
   const prevMonth = () => {
     setSelectedStayDate(null);
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
+    setCurrentMonth(manilaMonthDate(currentMonth, -1));
   };
 
   const { days, firstDay } = getDaysInMonth(currentMonth);
@@ -459,7 +421,7 @@ export default function Booking() {
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Visit Date</span>
-                <span className="font-semibold text-neutral">{selectedDate?.toLocaleDateString()}</span>
+                <span className="font-semibold text-neutral">{formatManilaDate(selectedDate)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Time</span>
@@ -517,12 +479,12 @@ export default function Booking() {
 
   const summaryWindow = selectedStayDate ? buildBookingWindow({ packageTimes: packageSchedule?.times,
     bookingMode,
-    date: selectedStayDate,
+    date: toDateKey(selectedStayDate),
     wholeDayVariant,
     customStartTime,
     customEndTime,
     customEndDate: bookingMode === "custom"
-      ? parseLocalDateValue(customEndDate || formatDateForStore(selectedStayDate)) ?? selectedStayDate
+      ? customEndDate || toDateKey(selectedStayDate)
       : undefined,
   }) : null;
   const validSummaryWindow = summaryWindow && "startDatetime" in summaryWindow
@@ -780,7 +742,7 @@ export default function Booking() {
 
                 <div className="mb-6">
                   <h3 className="text-lg sm:text-2xl font-semibold text-neutral text-center mb-2">
-                    {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                    {monthNames[currentMonth.getUTCMonth()]} {currentMonth.getUTCFullYear()}
                   </h3>
                   {bookingType === "stay" && availabilityLoading && <p className="text-center text-sm text-neutral/60">Loading available dates...</p>}
                   {bookingType === "stay" && availabilityError && <p role="alert" className="text-center text-sm text-red-700">Unable to load available dates. Retrying automatically.</p>}
@@ -800,11 +762,11 @@ export default function Booking() {
                     <div key={`empty-${index}`} className="aspect-square"></div>
                   ))}
                   {Array.from({ length: days }).map((_, index) => {
-                    const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), index + 1);
+                    const date = manilaMonthDate(currentMonth, 0, index + 1);
                     const isPast = toDateKey(date) < manilaDateKey(new Date(now));
 
                     if (bookingType === "ocular") {
-                      const isSelected = selectedDate?.toDateString() === date.toDateString();
+                      const isSelected = selectedDate ? toDateKey(selectedDate) === toDateKey(date) : false;
                       return (
                         <button
                           key={index}
@@ -1011,7 +973,7 @@ export default function Booking() {
                       <div>
                         <label className="text-sm font-medium text-neutral/70">Selected Date</label>
                         <p className="text-lg font-semibold text-neutral mt-1">
-                          {selectedDate ? selectedDate.toLocaleDateString() : "Not selected"}
+                          {selectedDate ? formatManilaDate(selectedDate) : "Not selected"}
                         </p>
                       </div>
 

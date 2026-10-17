@@ -13,7 +13,7 @@ import ReservationPaymentReview from "@/components/admin/transactions/Reservatio
 import { ATTENTION_LABELS, calendarBookingKind, reservationAttention, type AttentionFlag, type CalendarSignals } from "@/lib/booking/calendar-attention";
 import { hasPermission, type Permission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
-import { manilaDateKey } from "@/lib/booking/manila-date";
+import { formatManilaDate, manilaCalendarDate, manilaDateKey } from "@/lib/booking/manila-date";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { buildBookingWindow } from "@/lib/booking/policy";
 import { isWindowAvailable } from "@/lib/booking/availability";
@@ -79,15 +79,14 @@ const eventStyles: Record<EventKind, { label: string; className: string; dotClas
   maintenance: { label: "Maintenance", className: "border-slate-500 bg-slate-100 text-slate-700", dotClassName: "bg-slate-500" },
 };
 
-const pad = (value: number) => String(value).padStart(2, "0");
-const dateKey = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+const dateKey = manilaDateKey;
+const addDays = (date: Date, amount: number) => new Date(date.getTime() + amount * 86_400_000);
 const startOfMonthGrid = (date: Date) => {
-  const first = new Date(date.getFullYear(), date.getMonth(), 1);
-  const mondayOffset = (first.getDay() + 6) % 7;
-  return new Date(first.getFullYear(), first.getMonth(), 1 - mondayOffset);
+  const first = manilaCalendarDate(`${dateKey(date).slice(0, 7)}-01`);
+  const mondayOffset = (first.getUTCDay() + 6) % 7;
+  return addDays(first, -mondayOffset);
 };
-const addDays = (date: Date, amount: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount);
-const addDaysUtc = (date: Date, amount: number) => new Date(date.getTime() + amount * 86_400_000);
+const addDaysUtc = addDays;
 const formatTime = (value: string) => new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
@@ -97,7 +96,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
 }) {
   const { schedule: packageSchedule } = usePackageRates();
   const initiallyAllowed = (permission: Permission) => Boolean(initialAccess && hasPermission(initialAccess.role, initialAccess.permissions, permission));
-  const [month, setMonth] = useState(() => new Date(`${initialDate ?? manilaDateKey(new Date())}T12:00:00`));
+  const [month, setMonth] = useState(() => manilaCalendarDate(initialDate ?? manilaDateKey(new Date())));
   const [refreshKey, setRefreshKey] = useState(0);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [ocularVisits, setOcularVisits] = useState<OcularVisit[]>([]);
@@ -259,7 +258,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       setBlockMessage(result.message ?? "Dates blocked and guest alerts created.");
       setShowBlockForm(false);
       setSearchTerm(""); setAttentionFilter("all");
-      setMonth(new Date(`${blockStart}T12:00:00`)); setSelectedDay(blockStart);
+      setMonth(manilaCalendarDate(blockStart)); setSelectedDay(blockStart);
       setRefreshKey(key => key + 1);
     } catch (error) { setBlockError(error instanceof Error ? error.message : "Unable to create block."); }
     finally { setBlockBusy(false); }
@@ -353,7 +352,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     return Object.fromEntries(calendarDays.map((date) => {
       const key = dateKey(date);
       const isAvailable = (mode: "day" | "night" | "whole_day", wholeDayVariant: "day_to_night" | "night_to_day" = "day_to_night") => {
-        const window = buildBookingWindow({ bookingMode: mode, date, wholeDayVariant, packageTimes: packageSchedule?.times });
+        const window = buildBookingWindow({ bookingMode: mode, date: key, wholeDayVariant, packageTimes: packageSchedule?.times });
         if (typeof window.startDatetime !== "string" || typeof window.endDatetime !== "string") return false;
         const lastDay = manilaDateKey(new Date(new Date(window.endDatetime).getTime() - 1));
         if (maintenanceBlocks.some((block) => block.status === "active" && block.start_date <= lastDay && block.end_date >= key)) return false;
@@ -362,7 +361,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       return [key, { day: isAvailable("day"), night: isAvailable("night"), whole: isAvailable("whole_day") || isAvailable("whole_day", "night_to_day") }];
     })) as Record<string, { day: boolean; night: boolean; whole: boolean }>;
   }, [calendarDays, maintenanceBlocks, now, reservations, packageSchedule]);
-  const monthLabel = month.toLocaleDateString("en-PH", { month: "long", year: "numeric" });
+  const monthLabel = formatManilaDate(month, { month: "long", year: "numeric" });
   const today = manilaDateKey(new Date(now));
   const upcomingCount = new Set(calendarEvents.filter(event => event.reservationId && event.date >= today && !["cancelled", "rejected", "completed"].includes(event.status ?? "")).map(event => event.reservationId)).size;
   const attentionCount = new Set(calendarEvents.filter(event => event.flags?.length).map(event => event.reservationId)).size;
@@ -373,7 +372,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const selectedFlags = selectedReservation ? reservationAttention(selectedReservation, signals[selectedReservation.reservation_id], now) : [];
   const flagCount = (flag: AttentionFlag) => new Set(calendarEvents.filter(event => event.flags?.includes(flag)).map(event => event.reservationId)).size;
   const openEvent = (event: CalendarEvent) => { setSelectedEvent(event); setArrivalConfirmed(false); setDepartureConfirmed(false); setCheckInError(null); };
-  const changeMonth = (offset: number) => { const next = new Date(month.getFullYear(), month.getMonth() + offset, 1); setMonth(next); setSelectedDay(dateKey(next)); };
+  const changeMonth = (offset: number) => { const next = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + offset, 1, 4)); setMonth(next); setSelectedDay(dateKey(next)); };
   const recordArrival = async () => {
     if (!selectedReservation || !arrivalConfirmed || attendanceSubmitting.current) return;
     attendanceSubmitting.current = true;
@@ -401,18 +400,18 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     } catch (cause) { setCheckInError(cause instanceof Error ? cause.message : "Unable to record checkout. Refresh the calendar before retrying."); }
     finally { attendanceSubmitting.current = false; setCheckInBusy(false); }
   };
-  const selectedDate = new Date(`${selectedDay}T12:00:00`);
-  const weekStart = addDays(selectedDate, -((selectedDate.getDay() + 6) % 7));
+  const selectedDate = manilaCalendarDate(selectedDay);
+  const weekStart = addDays(selectedDate, -((selectedDate.getUTCDay() + 6) % 7));
   const weekEnd = addDays(weekStart, 7);
   const mobileDays = calendarDays.filter(day => mobileView === "Week"
     ? dateKey(day) >= dateKey(weekStart) && dateKey(day) < dateKey(weekEnd)
-    : mobileView === "Month" ? day.getMonth() === month.getMonth() : true)
+    : mobileView === "Month" ? day.getUTCMonth() === month.getUTCMonth() : true)
     .filter(day => (filteredEventsByDay[dateKey(day)] ?? []).length > 0);
   const moveMobilePeriod = (offset: number) => {
     if (mobileView !== "Week") { changeMonth(offset); return; }
-    const next = addDays(new Date(`${selectedDay}T12:00:00`), offset * 7);
+    const next = addDays(manilaCalendarDate(selectedDay), offset * 7);
     setSelectedDay(dateKey(next));
-    setMonth(new Date(next.getFullYear(), next.getMonth(), 1));
+    setMonth(manilaCalendarDate(`${dateKey(next).slice(0, 7)}-01`));
   };
   const openMaintenance = () => { setBlockError(null); setShowBlockForm(true); };
   const renderEvent = (event: CalendarEvent) => {
@@ -461,7 +460,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     <section aria-label="Desktop reservation calendar" aria-busy={isLoading} className="hidden overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm md:block">
       <div className="flex items-center justify-between gap-4 border-b border-neutral/10 p-4"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Month view calendar</p><h2 className="mt-1 text-xl font-semibold text-neutral">{monthLabel}</h2></div><div className="flex gap-2">
         <button type="button" onClick={() => changeMonth(-1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Previous month">&larr;</button>
-        <button type="button" onClick={() => { setMonth(new Date(`${today}T12:00:00`)); setSelectedDay(today); }} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-xs font-semibold hover:bg-base">Today</button>
+        <button type="button" onClick={() => { setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-xs font-semibold hover:bg-base">Today</button>
         <button type="button" onClick={() => changeMonth(1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Next month">&rarr;</button>
       </div></div>
       <div className="flex flex-wrap gap-x-5 gap-y-2 border-b border-neutral/10 px-4 py-3 text-xs text-neutral/70">{Object.entries(eventStyles).map(([kind, style]) => <span key={kind} className="inline-flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${style.dotClassName}`} />{style.label}</span>)}<span className="font-semibold text-red-700">! Needs attention</span></div>
@@ -472,16 +471,16 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             const dayEvents = filteredEventsByDay[dayKey] ?? [];
             const dayReservation = dayEvents.find((event) => event.reservationId && !["cancelled", "rejected"].includes(event.status ?? ""))
               ?? dayEvents.find((event) => event.reservationId);
-            const isCurrentMonth = day.getMonth() === month.getMonth();
+            const isCurrentMonth = day.getUTCMonth() === month.getUTCMonth();
             const isToday = dayKey === today;
             const availability = availabilityByDay[dayKey];
             const maintenanceBlocked = (eventsByDay[dayKey] ?? []).some((event) => event.kind === "maintenance");
             const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : availability?.whole ? "Whole day available" : "Fully booked";
             return <div key={dayKey} className={`min-h-28 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
               {dayReservation ? (
-                <button type="button" onClick={() => openEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</button>
+                <button type="button" onClick={() => openEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getUTCDate()}</button>
               ) : (
-                <div className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</div>
+                <div className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getUTCDate()}</div>
               )}
               <p className={`mb-1 rounded px-1 py-0.5 text-[10px] font-medium ${isLoading || error ? "bg-neutral/5 text-neutral/60" : availability?.day && availability?.night ? "bg-green-50 text-green-800" : availability?.day || availability?.night || availability?.whole ? "bg-amber-50 text-amber-900" : "bg-neutral/10 text-neutral/60"}`} title={availabilityLabel}>{availabilityLabel}</p>
               <div className="space-y-1">
@@ -534,17 +533,17 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         </div>
     </section>
     <section aria-label="Mobile reservation calendar" aria-busy={isLoading} className="rounded-2xl border border-neutral/10 bg-base/80 p-3 shadow-sm md:hidden">
-      <h2 className="px-1 text-sm font-bold">{month.toLocaleDateString("en-PH", { month: "short", year: "numeric" })}</h2>
+      <h2 className="px-1 text-sm font-bold">{formatManilaDate(month, { month: "short", year: "numeric" })}</h2>
       <div className="mt-3 flex items-center justify-between gap-1">
         <button type="button" onClick={() => moveMobilePeriod(-1)} aria-label="Previous calendar period" className="flex min-h-11 min-w-9 items-center justify-center rounded-full bg-white text-primary">&lsaquo;</button>
         <div role="group" aria-label="Mobile calendar view" className="flex min-w-0 gap-1">{(["Week", "Month", "Agenda"] as const).map(view => <button key={view} type="button" aria-pressed={mobileView === view} onClick={() => setMobileView(view)} className={`inline-flex min-h-11 items-center gap-1 rounded-full border px-1.5 text-[10px] font-semibold ${mobileView === view ? "border-primary text-primary" : "border-transparent bg-white text-neutral"}`}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" className="h-3 w-3 shrink-0" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2" /><path d="M5 1v4m6-4v4M2 7h12" /></svg>{view}</button>)}</div>
         <button type="button" onClick={() => moveMobilePeriod(1)} aria-label="Next calendar period" className="flex min-h-11 min-w-9 items-center justify-center rounded-full bg-white text-primary">&rsaquo;</button>
       </div>
-      <div className="my-3"><button type="button" onClick={() => { setMonth(new Date(`${today}T12:00:00`)); setSelectedDay(today); }} className="min-h-11 px-1 text-xs font-medium text-neutral/65">Today</button></div>
-      {mobileView === "Week" && <p className="mb-3 text-xs text-neutral/65">{weekStart.toLocaleDateString("en-PH", { month: "short", day: "numeric" })} - {addDays(weekEnd, -1).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}</p>}
+      <div className="my-3"><button type="button" onClick={() => { setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 px-1 text-xs font-medium text-neutral/65">Today</button></div>
+      {mobileView === "Week" && <p className="mb-3 text-xs text-neutral/65">{formatManilaDate(weekStart, { month: "short", day: "numeric" })} - {formatManilaDate(addDays(weekEnd, -1), { month: "short", day: "numeric" })}</p>}
       <div aria-label="Mobile calendar entries" className="space-y-1 rounded-xl bg-white p-1.5">
         {mobileDays.map(day => <section key={dateKey(day)} aria-label={`Bookings for ${dateKey(day)}`} className="rounded-xl p-1">
-          <h3 className={`mb-1.5 text-xs font-bold ${dateKey(day) === today ? "text-primary" : "text-neutral"}`}>{day.toLocaleDateString("en-PH", { weekday: "short" })}<span className="ml-2">{mobileView === "Agenda" ? day.toLocaleDateString("en-PH", { month: "short", day: "numeric" }) : day.getDate()}</span>{dateKey(day) === today && <span className="ml-2 text-[10px] font-medium">Today</span>}</h3>
+          <h3 className={`mb-1.5 text-xs font-bold ${dateKey(day) === today ? "text-primary" : "text-neutral"}`}>{formatManilaDate(day, { weekday: "short" })}<span className="ml-2">{mobileView === "Agenda" ? formatManilaDate(day, { month: "short", day: "numeric" }) : day.getUTCDate()}</span>{dateKey(day) === today && <span className="ml-2 text-[10px] font-medium">Today</span>}</h3>
           <div className="space-y-1">{(filteredEventsByDay[dateKey(day)] ?? []).map(renderEvent)}</div>
         </section>)}
         {mobileDays.length === 0 && <p role="status" className="p-4 text-xs text-neutral/60">{isLoading ? "Loading bookings..." : "No entries match this period and your filters."}</p>}

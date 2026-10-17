@@ -1,6 +1,7 @@
 "use client";
 
 import type { InvoiceViewDetails } from "./types";
+import { formatManilaDate, formatManilaDateTime } from "@/lib/booking/manila-date";
 
 interface InvoiceDetailsModalProps {
   isOpen: boolean;
@@ -18,34 +19,11 @@ const formatCurrency = (value: number) =>
   }).format(value);
 
 const formatDateTime = (value: string) => {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
-
-  return `${date.toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  })} ${date.toLocaleTimeString("en-PH", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  return formatManilaDateTime(value);
 };
 
 const formatDate = (value: string) => {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
-
-  return date.toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return formatManilaDate(value);
 };
 
 const toTitleCase = (value: string) =>

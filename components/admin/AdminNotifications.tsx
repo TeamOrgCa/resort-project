@@ -1,5 +1,7 @@
 "use client";
 
+import { formatManilaDateTime } from "@/lib/booking/manila-date";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { StaffRole } from "@/lib/auth/staff-auth";
@@ -75,16 +77,12 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
   );
 
   const formatNotificationTime = (value: string) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return "";
-    }
-    return date.toLocaleString("en-PH", {
+    return formatManilaDateTime(value, {
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
-    });
+    }, "");
   };
 
   const markAllNotificationsRead = async () => {

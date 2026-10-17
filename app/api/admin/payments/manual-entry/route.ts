@@ -4,6 +4,7 @@ import { staffHasPermission } from "@/lib/server/role-permissions";
 import { createNotifications } from "@/lib/notifications";
 import { emailBillingDocuments } from "@/lib/server/billing-email";
 import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
+import { generateReceiptNumber } from "@/lib/booking/receipt-number";
 
 type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
 
@@ -48,9 +49,6 @@ interface CreatedPaymentRow {
   reference_number: string;
   proof_path: string;
 }
-
-const generateReceiptNumber = (paymentId: string) =>
-  `RCPT-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${paymentId.slice(0, 6).toUpperCase()}`;
 
 const parsePayload = (value: unknown): ManualPaymentPayload | null => {
   if (typeof value !== "object" || value === null) {

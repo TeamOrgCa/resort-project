@@ -140,6 +140,7 @@ test("payment API saves actual OCR amount and canonical reference for larger dow
   assert.equal(response.status, 201); assert.equal(h.inspected[0].minimumAmount, 1000);
   assert.equal(h.inserted[0].amount, 1500); assert.equal(body.payment.amount, 1500);
   assert.equal(h.inserted[0].reference_number, "1234567890123");
+  assert.match(h.inserted[0].ocr_checked_at, /T\d{2}:\d{2}:\d{2}\.\d{3}\+08:00$/);
   assert.equal(h.inserted[0].receipt_paid_at, "2026-10-13T01:15:00.000Z");
   assert.equal(h.inserted[0].status, "pending");
 });

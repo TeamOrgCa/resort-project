@@ -4,6 +4,7 @@ import { staffHasPermission } from "@/lib/server/role-permissions";
 import { sendReservationConfirmedEmail } from "@/lib/email";
 import { createNotifications } from "@/lib/notifications";
 import { emailBillingDocuments } from "@/lib/server/billing-email";
+import { generateReceiptNumber } from "@/lib/booking/receipt-number";
 
 interface ApprovePaymentPayload {
   paymentId: string;
@@ -58,9 +59,6 @@ const parsePayload = (value: unknown): ApprovePaymentPayload | null => {
     screenshotReviewed: payload.screenshotReviewed === true,
   };
 };
-
-const generateReceiptNumber = (paymentId: string) =>
-  `RCPT-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${paymentId.slice(0, 6).toUpperCase()}`;
 
 export async function POST(request: Request) {
   try {

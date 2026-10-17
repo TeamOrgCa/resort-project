@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 
 import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
@@ -74,7 +75,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ staff
       role: payload.role,
       is_active: payload.isActive,
       active_session_id: payload.isActive ? existingStaff.active_session_id : null,
-      last_logout_at: payload.isActive ? existingStaff.last_logout_at : new Date().toISOString(),
+      last_logout_at: payload.isActive ? existingStaff.last_logout_at : manilaTimestamp(),
     };
 
     const { data: updatedStaff, error: updateError } = await adminSupabase

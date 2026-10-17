@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useState } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import { formatManilaDate, manilaCalendarDate, manilaDateKey, manilaMonthDate } from "@/lib/booking/manila-date";
 
 export default function OcularVisit() {
   const [bookingRef, setBookingRef] = useState("");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState("");
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [currentMonth, setCurrentMonth] = useState(() => manilaCalendarDate(manilaDateKey(new Date())));
   const [visitScheduled, setVisitScheduled] = useState(false);
 
   const availableTimes = [
@@ -19,23 +20,21 @@ export default function OcularVisit() {
   ];
 
   const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const days = new Date(year, month + 1, 0).getDate();
-    const firstDay = new Date(year, month, 1).getDay();
+    const days = manilaMonthDate(date, 1, 0).getUTCDate();
+    const firstDay = manilaMonthDate(date).getUTCDay();
     return { days, firstDay };
   };
 
   const nextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
+    setCurrentMonth(manilaMonthDate(currentMonth, 1));
   };
 
   const prevMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
+    setCurrentMonth(manilaMonthDate(currentMonth, -1));
   };
 
   const handleDateClick = (date: Date) => {
-    const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+    const isPast = manilaDateKey(date) < manilaDateKey(new Date());
     if (!isPast) {
       setSelectedDate(date);
     }
@@ -70,7 +69,7 @@ export default function OcularVisit() {
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Visit Date</span>
-                <span className="font-semibold text-neutral">{selectedDate?.toLocaleDateString()}</span>
+                <span className="font-semibold text-neutral">{formatManilaDate(selectedDate)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">Time</span>
@@ -170,7 +169,7 @@ export default function OcularVisit() {
 
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
                     <h3 className="text-lg sm:text-2xl font-semibold text-neutral">
-                      {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                      {monthNames[currentMonth.getUTCMonth()]} {currentMonth.getUTCFullYear()}
                     </h3>
                     <div className="flex gap-2">
                       <button type="button" onClick={prevMonth} className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
@@ -199,9 +198,9 @@ export default function OcularVisit() {
                       <div key={`empty-${index}`} className="aspect-square"></div>
                     ))}
                     {Array.from({ length: days }).map((_, index) => {
-                      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), index + 1);
-                      const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
-                      const isSelected = selectedDate?.toDateString() === date.toDateString();
+                      const date = manilaMonthDate(currentMonth, 0, index + 1);
+                      const isPast = manilaDateKey(date) < manilaDateKey(new Date());
+                      const isSelected = selectedDate ? manilaDateKey(selectedDate) === manilaDateKey(date) : false;
 
                       return (
                         <button
@@ -265,7 +264,7 @@ export default function OcularVisit() {
                     <div>
                       <label className="text-sm font-medium text-neutral/70">Selected Date</label>
                       <p className="text-lg font-semibold text-neutral mt-1">
-                        {selectedDate ? selectedDate.toLocaleDateString() : "Not selected"}
+                        {selectedDate ? formatManilaDate(selectedDate) : "Not selected"}
                       </p>
                     </div>
 

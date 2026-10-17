@@ -129,7 +129,10 @@ export const validateBookingWindow = (input: BookingWindowInput, times: PackageT
   return { valid: true, durationHours };
 };
 
-const calendarDateKey = (date: Date) => {
+const calendarDateKey = (date: Date | string) => {
+  // Admin calendars already hold a Philippine calendar date. Do not parse it
+  // through the browser's timezone before applying the saved package clock.
+  if (typeof date === "string") return date;
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
@@ -138,7 +141,7 @@ const calendarDateKey = (date: Date) => {
 
 export const toIsoLocalDay = (date: Date) => manilaDateKey(date);
 
-const atTime = (date: Date, hour: number, minute = 0) => {
+const atTime = (date: Date | string, hour: number, minute = 0) => {
   const clock = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   return new Date(`${calendarDateKey(date)}T${clock}:00+08:00`);
 };
@@ -146,11 +149,11 @@ const atTime = (date: Date, hour: number, minute = 0) => {
 export interface BuildBookingWindowInput {
   packageTimes?: PackageTimes;
   bookingMode: BookingMode;
-  date: Date;
+  date: Date | string;
   wholeDayVariant?: WholeDayVariant;
   customStartTime?: string;
   customEndTime?: string;
-  customEndDate?: Date;
+  customEndDate?: Date | string;
 }
 
 export const buildBookingWindow = (input: BuildBookingWindowInput) => {

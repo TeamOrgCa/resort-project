@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { saveGuestBookingPhone, GuestBookingPhoneError } from "@/lib/server/guest-booking-phone";
 import { NextResponse } from "next/server";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
@@ -602,7 +603,7 @@ export async function POST(request: Request) {
         proof_path: payload.payment.proofPath,
         ocr_status: ocr.status,
         ocr_notes: ocr.notes,
-        ocr_checked_at: new Date().toISOString(),
+        ocr_checked_at: manilaTimestamp(),
       })
       .select("payment_id, status, ocr_status")
       .single();

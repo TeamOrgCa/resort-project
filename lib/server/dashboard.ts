@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { manilaDateKey } from "@/lib/booking/manila-date";
+import { manilaDateKey, manilaTimestamp } from "@/lib/booking/manila-date";
 import { reportBucket, reportWindow } from "@/lib/reports/periods";
 import type { DashboardSnapshot } from "@/lib/dashboard/types";
 import { fetchAllPages } from "./fetch-all-pages";
@@ -91,7 +91,7 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
     sources.set(channel, (sources.get(channel) ?? 0) + 1);
   }
   return {
-    generatedAt: now.toISOString(), today, arrivalEndDate: manilaDateKey(new Date(arrivalEnd.getTime() - 1)),
+    generatedAt: manilaTimestamp(now), today, arrivalEndDate: manilaDateKey(new Date(arrivalEnd.getTime() - 1)),
     startDate: window.startDate, endDate: window.endDate,
     arrivalsToday: active.filter(r => manilaDateKey(r.start_datetime) === today).length,
     scheduledNow: active.filter(r => ["confirmed", "reschedule_requested"].includes(r.status) && Date.parse(r.start_datetime) <= now.getTime() && Date.parse(r.end_datetime) > now.getTime()).length,

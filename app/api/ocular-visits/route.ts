@@ -4,6 +4,7 @@ import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications
 import { sendOcularVisitScheduledEmail } from "@/lib/email";
 import { getActiveOcularSlots, type OcularSlotRecord } from "@/repositories/catalogRepository";
 import { BOOKING_LEAD_MESSAGE, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
+import { isValidManilaDate, manilaDateKey } from "@/lib/booking/manila-date";
 interface OcularVisitPayload {
   scheduledDate: string;
   timeSlot: string;
@@ -17,11 +18,6 @@ interface OcularVisitInsertRow {
   status: string;
   created_at: string;
 }
-
-const isValidDate = (value: string) => {
-  const parsed = new Date(value);
-  return !Number.isNaN(parsed.getTime());
-};
 
 const slotLabel = (slot: OcularSlotRecord) => `${slot.start_time.slice(0, 5)}-${slot.end_time.slice(0, 5)}`;
 
@@ -47,7 +43,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<OcularVisitPayload>;
 
-    if (!body.scheduledDate || typeof body.scheduledDate !== "string" || !isValidDate(body.scheduledDate)) {
+    if (!isValidManilaDate(body.scheduledDate)) {
       return NextResponse.json(
         {
           success: false,
@@ -67,13 +63,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const scheduledDate = new Date(body.scheduledDate);
-    scheduledDate.setHours(0, 0, 0, 0);
-
-    if (scheduledDate < today) {
+    if (body.scheduledDate < manilaDateKey(new Date())) {
       return NextResponse.json(
         {
           success: false,

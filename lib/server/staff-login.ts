@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 
 import { STAFF_SESSION_COOKIE, type StaffUserProfile } from "@/lib/auth/staff-auth";
@@ -27,8 +28,8 @@ export async function completeStaffLogin(context: StaffLoginContext) {
 
   const { error: updateError } = await admin.from("staff_users").update({
     active_session_id: authSessionId,
-    last_login_at: new Date().toISOString(),
-    ...(staff.active_session_id ? { last_logout_at: new Date().toISOString() } : {}),
+    last_login_at: manilaTimestamp(),
+    ...(staff.active_session_id ? { last_logout_at: manilaTimestamp() } : {}),
   }).eq("id", staff.id);
   if (updateError) throw updateError;
   const { error: revokeError } = await supabase.auth.signOut({ scope: "others" });

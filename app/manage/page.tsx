@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
-import { manilaDateKey } from "@/lib/booking/manila-date";
+import { manilaDateKey, manilaDateTimeLocal } from "@/lib/booking/manila-date";
 import GuestRefundStatus from "@/components/GuestRefundStatus";
 import CancellationDialog from "@/components/CancellationDialog";
 import ManageIcon from "@/components/manage/ManageIcon";
@@ -197,12 +197,7 @@ const toDateTimeLocal = (value: string) => {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  const year = parsed.getFullYear();
-  const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
-  const day = `${parsed.getDate()}`.padStart(2, "0");
-  const hours = `${parsed.getHours()}`.padStart(2, "0");
-  const minutes = `${parsed.getMinutes()}`.padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  return manilaDateTimeLocal(parsed);
 };
 
 const getMinRescheduleDate = (booking: BookingRecord | null) => {

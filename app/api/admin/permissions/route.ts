@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 import { PERMISSIONS } from "@/lib/auth/role-access";
 import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
@@ -23,7 +24,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ message: "Invalid role permissions." }, { status: 400 });
   }
   const { error } = await createAdminClient().from("role_permissions").upsert(updates.map(item => ({
-    role: item.role, permissions: item.permissions, updated_at: new Date().toISOString(), updated_by: staff.staffUser.id,
+    role: item.role, permissions: item.permissions, updated_at: manilaTimestamp(), updated_by: staff.staffUser.id,
   })));
   if (error) return NextResponse.json({ message: error.message }, { status: 500 });
   await createAuditLog(staff, { action: "Updated role permissions", entityType: "role_permissions", entityId: updates.length === 1 ? updates[0].role : "all", details: { roles: updates } });

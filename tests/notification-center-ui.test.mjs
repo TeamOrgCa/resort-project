@@ -152,6 +152,19 @@ test("guest and admin menus share one feed; open menus keep account controls cle
   }
 });
 
+test("admin payment notifications show the Philippine date after midnight even on a UTC device", async () => {
+  const original = process.env.TZ; process.env.TZ = "UTC";
+  const h = await mount({ menus: "admin", rows: [row("payment", { title: "Recent payment", created_at: "2026-10-16T16:30:00Z" })] });
+  try {
+    await click(h.container.querySelector('[aria-label="Open admin notifications"]'));
+    assert.match(h.container.textContent, /Recent payment/);
+    assert.match(h.container.textContent, /Oct 17.*12:30 AM/);
+    assert.doesNotMatch(h.container.textContent, /Oct 16/);
+  } finally {
+    await h.close(); if (original === undefined) delete process.env.TZ; else process.env.TZ = original;
+  }
+});
+
 test("anonymous users do not subscribe or fetch; unsafe action URLs never become popup links", async () => {
   const anonymous = await mount({ userId: null });
   try { assert.equal(anonymous.calls.reads.length, 0); assert.equal(anonymous.channels.length, 0); assert.equal(alerts(), null); }

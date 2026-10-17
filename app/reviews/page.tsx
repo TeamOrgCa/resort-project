@@ -521,6 +521,7 @@ export default function Reviews() {
                       </div>
                       <p className="text-sm text-neutral/60">
                         {new Date(review.created_at).toLocaleDateString("en-US", {
+                          timeZone: "Asia/Manila",
                           year: "numeric",
                           month: "long",
                           day: "numeric",

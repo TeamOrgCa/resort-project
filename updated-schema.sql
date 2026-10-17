@@ -19,8 +19,8 @@ create table public.staff_users (
   last_login_at timestamptz,
   last_logout_at timestamptz,
 
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
 alter table public.staff_users enable row level security;
@@ -54,7 +54,7 @@ create table public.audit_logs (
   auth_user_id uuid,
   device_id uuid,
 
-  created_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null
 );
 
 alter table public.audit_logs enable row level security;
@@ -187,8 +187,8 @@ create table public.guests (
   phone_number text not null,
   address text not null,
 
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
 create index guests_active_session_idx on public.guests(active_session_id);
@@ -248,8 +248,8 @@ create table public.walk_in_guests (
   phone_number text not null,
   address text not null,
 
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
 alter table public.walk_in_guests enable row level security;
@@ -366,8 +366,8 @@ create table public.reservations (
   adult_rate_at_booking numeric(10,2),
   child_rate_at_booking numeric(10,2),
   
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null,
 
   -- Constraints
   check (end_datetime > start_datetime),
@@ -425,7 +425,7 @@ create table public.reservation_reschedules (
 
   rejection_reason text,
 
-  created_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null
 );
 
 -- BUSINESS SETTINGS -- 
@@ -536,8 +536,8 @@ create table public.units (
   description text,
   capacity int not null,
   base_price numeric(10,2) not null,
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null,
   is_active boolean default true,
   archived_at timestamptz
 );
@@ -581,7 +581,7 @@ create table public.reservation_units (
   quantity int default 1,
   price_per_night numeric(10,2) not null,
 
-  created_at timestamptz default timezone('utc', now()) not null,
+  created_at timestamptz default now() not null,
 
   unique (reservation_id, unit_id)
 );
@@ -602,8 +602,8 @@ create table public.services (
 
   is_active boolean default true,
 
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
 create trigger on_services_updated
@@ -626,7 +626,7 @@ create table public.reservation_services (
   quantity int default 1,
   price_at_time numeric(10,2) not null,
 
-  created_at timestamptz default timezone('utc', now()) not null,
+  created_at timestamptz default now() not null,
 
   unique (reservation_id, service_id)
 );
@@ -679,8 +679,8 @@ create table public.transactions (
   status text check (status in ('unpaid', 'partial', 'paid'))
     default 'unpaid',
 
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
 create trigger on_transactions_updated
@@ -721,11 +721,11 @@ create table public.payments (
 
   status text check (status in ('pending', 'verified', 'rejected')) default 'pending',
 
-  paid_at timestamptz default timezone('utc', now()),
+  paid_at timestamptz default now(),
   receipt_paid_at timestamptz,
 
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null,
   reference_number text unique not null,
   account_name text not null,
   account_number text,
@@ -862,7 +862,7 @@ create table public.receipts (
   payment_id uuid unique not null
     references public.payments(payment_id) on delete cascade,
   receipt_number text unique not null,
-  issued_at timestamptz default timezone('utc', now()) not null,
+  issued_at timestamptz default now() not null,
   email_sent boolean default false,
   email_sent_at timestamptz,
   email_error text,
@@ -904,7 +904,7 @@ begin
         values (
             new.payment_id,
             'RCPT-' ||
-            to_char(now(), 'YYYYMMDD') ||
+            to_char(now() at time zone 'Asia/Manila', 'YYYYMMDD') ||
             '-' ||
             substr(new.payment_id::text, 1, 6),
             new.amount,
@@ -1076,8 +1076,8 @@ create table public.invoices (
   email_sent boolean default false,
   email_sent_at timestamptz,
   email_error text,
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
 -- Trigger to update invoice total when reservation units or services change
@@ -1359,7 +1359,7 @@ create table public.ocular_visits (
   status text check (status in ('pending', 'confirmed', 'cancelled'))
     default 'pending',
   
-  created_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null
 );
 
 -- =========================
@@ -1429,7 +1429,7 @@ create table public.notifications (
   entity_id uuid,
 
   is_read boolean default false,
-  created_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null
 );
 
 alter table public.notifications enable row level security;
@@ -1512,8 +1512,8 @@ create table public.reviews (
   -- Moderation (set to true for now, can be used later if you want to implement review approval)
   is_approved boolean default true,
 
-  created_at timestamptz default timezone('utc', now()) not null,
-  updated_at timestamptz default timezone('utc', now()) not null
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
 );
 
 -- ENFORCE ONE REVIEW PER GUEST (can be relaxed if you want to allow multiple reviews for multiple stays)
@@ -1575,10 +1575,10 @@ as $$
   select
     case
       when report_period = 'daily'
-        then to_char(created_at, 'Dy')
+        then to_char(created_at at time zone 'Asia/Manila', 'Dy')
       when report_period = 'weekly'
-        then 'Week ' || extract(week from created_at)
-      else to_char(created_at, 'Mon')
+        then 'Week ' || extract(week from created_at at time zone 'Asia/Manila')
+      else to_char(created_at at time zone 'Asia/Manila', 'Mon')
     end as label,
 
     sum(total_amount) as revenue,

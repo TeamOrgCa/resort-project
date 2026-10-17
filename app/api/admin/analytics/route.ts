@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
     const { data, error } = await createAdminClient().from("reviews").select("overall_rating, title, review_text, would_recommend").eq("is_approved", true).is("archived_at", null).gte("created_at", window.start.toISOString()).lt("created_at", window.end.toISOString()).order("created_at", { ascending: false }).limit(100);
     if (error) throw error;
     const reviews = data ?? [];
-    const metadata = { sampleSize: reviews.length, startDate: window.startDate, endDate: window.endDate, generatedAt: new Date().toISOString() };
+    const metadata = { sampleSize: reviews.length, startDate: window.startDate, endDate: window.endDate, generatedAt: manilaTimestamp() };
     if (!reviews.length) return json({ success: true, sentiment: { ...metadata, overallSentiment: "No approved reviews", positivePercent: 0, neutralPercent: 0, negativePercent: 0, themes: [], summary: "No approved guest reviews were created during these dates." } });
     if (!process.env.GEMINI_API_KEY) return json({ success: false, message: "Feedback analysis is unavailable. Ask your administrator to configure the feedback analysis service." }, 503);
     const model = new GoogleGenerativeAI(process.env.GEMINI_API_KEY).getGenerativeModel({ model: "gemini-2.5-flash" });

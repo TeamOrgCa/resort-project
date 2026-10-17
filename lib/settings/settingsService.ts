@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { settingDefinitions } from "./catalog";
 import type { BusinessSetting, SettingValue, SettingsMap, SettingsUpdate } from "./types";
@@ -33,7 +34,7 @@ export async function updateSettings(
     setting_key: key,
     setting_value: value as SettingValue,
     description: settingDefinitions.find((definition) => definition.key === key)?.description ?? null,
-    updated_at: new Date().toISOString(),
+    updated_at: manilaTimestamp(),
   }));
 
   const { error } = await supabase.from("business_settings").upsert(rows, { onConflict: "setting_key" });

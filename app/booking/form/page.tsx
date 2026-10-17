@@ -11,6 +11,7 @@ import { computeBookingPricing } from "@/lib/booking/pricing";
 import { validateBookingWindow } from "@/lib/booking/policy";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
+import { manilaDateKey } from "@/lib/booking/manila-date";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { DOWN_PAYMENT_PERCENT } from "@/lib/booking/payment-policy";
 import { isValidName, sanitizeName } from "@/lib/helper/validation";
@@ -189,11 +190,7 @@ function BookingFormContent() {
   };
 
   const fallbackStartDate = useMemo(() => new Date(), []);
-  const fallbackEndDate = useMemo(() => {
-    const date = new Date();
-    date.setHours(date.getHours() + 8);
-    return date;
-  }, []);
+  const fallbackEndDate = useMemo(() => new Date(fallbackStartDate.getTime() + 8 * 3_600_000), [fallbackStartDate]);
 
   if (!packageSchedule || packageRatesError) return <div className="min-h-screen bg-base"><Navigation /><main className="mx-auto max-w-3xl px-4 py-36"><p role={packageRatesError ? "alert" : "status"} className="text-neutral">{packageRatesError ?? "Loading current booking prices…"}</p>{packageRatesError && <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-lg bg-primary px-4 py-2 text-white">Try again</button>}</main><Footer /></div>;
 
@@ -250,10 +247,10 @@ function BookingFormContent() {
     }
 
     setBookingDraft({
-      checkIn: effectiveStartDate.toISOString().slice(0, 10),
+      checkIn: manilaDateKey(effectiveStartDate),
       packageRates: packageSchedule.rates,
       packageRateVersion: packageSchedule.version,
-      checkOut: effectiveEndDate.toISOString().slice(0, 10),
+      checkOut: manilaDateKey(effectiveEndDate),
       startDatetime: effectiveStartDate.toISOString(),
       endDatetime: effectiveEndDate.toISOString(),
       firstName: formData.firstName,

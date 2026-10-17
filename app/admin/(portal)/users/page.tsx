@@ -15,6 +15,7 @@ import RolePermissionsEditor from "@/components/admin/users/RolePermissionsEdito
 import GuestAccountsPanel from "@/components/admin/users/GuestAccountsPanel";
 import type { StaffUserFormValues, StaffUserTableRow } from "@/components/admin/users/types";
 import type { StaffRole } from "@/lib/auth/staff-auth";
+import { formatManilaDateTime } from "@/lib/booking/manila-date";
 
 const userTabs = ["Staff Accounts", "Guest Accounts", "Role Permission Matrix"] as const;
 
@@ -94,14 +95,8 @@ export default function AdminUsersPage() {
         email: row.email,
         role: row.role === "staff" ? "Manager" : row.role === "admin" ? "Admin" : "Cashier",
         status: row.is_active ? "Active" : "Inactive",
-        lastLogin: row.last_login_at ? new Date(row.last_login_at).toLocaleString("en-PH", {
-          dateStyle: "medium",
-          timeStyle: "short",
-        }) : "Never",
-        createdAt: new Date(row.created_at).toLocaleString("en-PH", {
-          dateStyle: "medium",
-          timeStyle: "short",
-        }),
+        lastLogin: formatManilaDateTime(row.last_login_at, undefined, "Never"),
+        createdAt: formatManilaDateTime(row.created_at),
       })),
     [rows]
   );

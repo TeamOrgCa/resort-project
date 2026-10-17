@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
 
     const { error: updateError } = await supabase
       .from("ocular_visits")
-      .update({ status: "cancelled", cancelled_at: new Date().toISOString(), cancellation_reason: "Guest requested for cancellation" })
+      .update({ status: "cancelled", cancelled_at: manilaTimestamp(), cancellation_reason: "Guest requested for cancellation" })
       .eq("visit_id", ocularVisit.visit_id);
 
     if (updateError) {
