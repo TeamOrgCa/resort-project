@@ -55,14 +55,15 @@ export default function EditStaffDialog({
   }
 
   const isCurrentUser = staffUser.id === currentStaffUserId;
+  const isAdminAccount = staffUser.role === "admin";
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     await onSubmit({
       fullName: fullName.trim(),
-      role,
-      isActive,
+      role: isAdminAccount ? staffUser.role : role,
+      isActive: isAdminAccount && staffUser.is_active ? true : isActive,
     });
   };
 
@@ -93,7 +94,7 @@ export default function EditStaffDialog({
             <select
               value={role}
               onChange={(event) => setRole(event.target.value as StaffRole)}
-              disabled={isCurrentUser}
+              disabled={isSubmitting || isCurrentUser || isAdminAccount}
               className="w-full rounded-xl border border-neutral/20 px-3 py-2.5 focus:border-primary focus:outline-none disabled:bg-base"
             >
               {roleOptions.map((option) => (
@@ -110,14 +111,14 @@ export default function EditStaffDialog({
             type="checkbox"
             checked={isActive}
             onChange={(event) => setIsActive(event.target.checked)}
-            disabled={isCurrentUser && isActive && role === "admin"}
+            disabled={isSubmitting || (isAdminAccount && staffUser.is_active)}
             className="h-4 w-4 rounded border-neutral/30"
           />
           Active account
         </label>
 
-        {isCurrentUser ? (
-          <p className="text-xs text-neutral/60">Your own admin role cannot be removed.</p>
+        {isAdminAccount ? (
+          <p className="text-xs text-neutral/60">Admin accounts cannot be disabled or have their admin role removed.</p>
         ) : null}
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t border-neutral/10 pt-5">

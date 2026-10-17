@@ -20,13 +20,11 @@ const parseUpdatePayload = (value: unknown): UpdateStaffPayload | null => {
   const payload = value as Partial<UpdateStaffPayload>;
   const fullName = typeof payload.fullName === "string" ? payload.fullName.trim() : "";
   const role = payload.role === "admin" || payload.role === "staff" || payload.role === "cashier" ? payload.role : null;
-  const isActive = typeof payload.isActive === "boolean" ? payload.isActive : false;
-
-  if (!fullName || !role) {
+  if (!fullName || !role || typeof payload.isActive !== "boolean") {
     return null;
   }
 
-  return { fullName, role, isActive };
+  return { fullName, role, isActive: payload.isActive };
 };
 
 export async function PATCH(request: Request, context: { params: Promise<{ staffId: string }> }) {
@@ -70,6 +68,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ staff
       return NextResponse.json({ success: false, message: "You cannot remove your own admin role." }, { status: 400 });
     }
 
+    if (existingStaff.role === "admin") {
+      if (existingStaff.is_active && !payload.isActive) {
+        return NextResponse.json({ success: false, message: "Admin accounts cannot be disabled." }, { status: 403 });
+      }
+      if (payload.role !== "admin") {
+        return NextResponse.json({ success: false, message: "Admin roles cannot be removed through staff management." }, { status: 403 });
+      }
+    }
+
     const nextValues = {
       full_name: payload.fullName,
       role: payload.role,
@@ -82,11 +89,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ staff
       .from("staff_users")
       .update(nextValues)
       .eq("id", staffId)
+      .eq("role", existingStaff.role)
+      .eq("is_active", existingStaff.is_active)
       .select("id, full_name, email, role, is_active, active_session_id, last_login_at, last_logout_at, created_at, updated_at")
-      .single<StaffUserRecord>();
+      .maybeSingle<StaffUserRecord>();
 
-    if (updateError || !updatedStaff) {
+    if (updateError) {
       return NextResponse.json({ success: false, message: "Failed to update staff user." }, { status: 500 });
+    }
+    if (!updatedStaff) {
+      return NextResponse.json({ success: false, message: "This account changed. Reload staff accounts before trying again." }, { status: 409 });
     }
 
     const auditSuccess = await createAuditLog(staffContext, {
