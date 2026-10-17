@@ -5,6 +5,7 @@ import { tryCreateAdminClient } from "@/lib/supabase/admin";
 import { isStaffRole, type StaffRole } from "@/lib/auth/staff-auth";
 import type { StaffUserRecord } from "@/components/admin/users/types";
 import { isValidStaffEmail, STAFF_EMAIL_ERROR } from "@/lib/auth/staff-email";
+import { normalizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 interface CreateStaffPayload {
   fullName: string;
@@ -26,7 +27,7 @@ const parseCreatePayload = (value: unknown): CreateStaffPayload | null => {
   }
 
   const payload = value as Partial<CreateStaffPayload>;
-  const fullName = typeof payload.fullName === "string" ? payload.fullName.trim() : "";
+  const fullName = normalizePersonName(payload.fullName);
   const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
   const password = typeof payload.password === "string" ? payload.password : "";
   const role = typeof payload.role === "string" && isStaffRole(payload.role) ? payload.role : null;
@@ -92,7 +93,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = parseCreatePayload(await request.json().catch(() => null));
+    const body = await request.json().catch(() => null);
+    if (!normalizePersonName(body?.fullName)) return NextResponse.json({ success: false, field: "fullName", message: PERSON_NAME_ERROR }, { status: 400 });
+    const payload = parseCreatePayload(body);
 
     if (!payload) {
       return NextResponse.json({ success: false, message: "Invalid staff payload." }, { status: 400 });

@@ -5,6 +5,7 @@ import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
 import { tryCreateAdminClient } from "@/lib/supabase/admin";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import type { StaffUserRecord } from "@/components/admin/users/types";
+import { normalizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 interface UpdateStaffPayload {
   fullName: string;
@@ -18,7 +19,7 @@ const parseUpdatePayload = (value: unknown): UpdateStaffPayload | null => {
   }
 
   const payload = value as Partial<UpdateStaffPayload>;
-  const fullName = typeof payload.fullName === "string" ? payload.fullName.trim() : "";
+  const fullName = normalizePersonName(payload.fullName);
   const role = payload.role === "admin" || payload.role === "staff" || payload.role === "cashier" ? payload.role : null;
   if (!fullName || !role || typeof payload.isActive !== "boolean") {
     return null;
@@ -36,7 +37,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ staff
     }
 
     const { staffId } = await context.params;
-    const payload = parseUpdatePayload(await request.json());
+    const body = await request.json().catch(() => null);
+    if (!normalizePersonName(body?.fullName)) return NextResponse.json({ success: false, field: "fullName", message: PERSON_NAME_ERROR }, { status: 400 });
+    const payload = parseUpdatePayload(body);
 
     if (!payload) {
       return NextResponse.json({ success: false, message: "Invalid staff payload." }, { status: 400 });

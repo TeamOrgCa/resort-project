@@ -1,12 +1,10 @@
-
+import { normalizePersonName, sanitizePersonName } from "@/lib/validation/name";
 export const sanitizeName = (value: string) => {
-  return value
-    .replace(/[^\p{L}\s'-]/gu, "")
-    .replace(/\s+/g, " ");
+  return sanitizePersonName(value).replace(/ +/g, " ");
 };
 
 export const isValidName = (name: string) =>
-  /^[\p{L}\s'-]+$/u.test(name);
+  normalizePersonName(name) !== null;
 
 export const sanitizeAccountNumber = (value: string) => value.replace(/\D/g, "").slice(0, 20);
 

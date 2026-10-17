@@ -189,6 +189,21 @@ async function fillGuest(c) {
   }
 }
 
+test("manual entry filters numbers and emojis from both walk-in names", async () => {
+  const h = await mount();
+  try {
+    for (const label of ["First name", "Last name"]) {
+      const field = [...h.container.querySelectorAll("label")].find(item => item.textContent === label).querySelector("input");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(field, "José123 😀 ９");
+        field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+      assert.equal(field.value, "José  ");
+    }
+    assert.equal(h.requests.length, 0);
+  } finally { await h.close(); }
+});
+
 test("manual entry blocks invalid phone numbers and saves valid contacts with the country code", async () => {
   const h = await mount();
   try {

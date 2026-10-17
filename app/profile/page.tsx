@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
-import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
+import { sanitizePersonName } from "@/lib/validation/name";
+import { validateGuestProfile } from "@/lib/auth/guest-profile";
 
 export default function Profile() {
   const router = useRouter();
@@ -59,47 +60,32 @@ export default function Profile() {
   }, [supabase, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value,
+      [name]: ["firstName", "lastName", "middleName"].includes(name) ? sanitizePersonName(value) : value,
     });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const phone = normalizePhilippineMobile(formData.phoneNumber);
-    if (!phone) { setError(PH_MOBILE_ERROR); setSuccess(false); return; }
+    const validation = validateGuestProfile(formData);
+    if (!validation.value) { setError(validation.error); setSuccess(false); return; }
     setSaving(true);
     setError("");
     setSuccess(false);
 
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      setError("Not authenticated");
-      setSaving(false);
-      return;
-    }
-
-    const { error: updateError } = await supabase
-      .from('guests')
-      .update({
-        first_name: formData.firstName,
-        last_name: formData.lastName,
-        middle_name: formData.middleName || null,
-        phone_number: phone,
-        address: formData.address,
-      })
-      .eq('id', user.id);
-
-    if (updateError) {
-      setError(updateError.message);
-    } else {
+    try {
+      const response = await fetch("/api/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
+      const result = await response.json() as { success?: boolean; message?: string };
+      if (!response.ok || !result.success) { setError(result.message ?? "Unable to update your profile."); return; }
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
+    } catch {
+      setError("Unable to connect to the server. Please try again.");
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
   };
 
   if (loading) {
