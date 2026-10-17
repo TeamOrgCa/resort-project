@@ -18,18 +18,25 @@ export async function retryGcashNumericLines(bytes: Buffer, page: ReceiptPage, w
     const width = Math.min((metadata.width ?? 0) - left, Math.ceil(line.bbox.x1) - left + 8);
     const height = Math.min((metadata.height ?? 0) - top, Math.ceil(line.bbox.y1) - top + 8);
     if (![left, top, width, height].every(Number.isFinite) || width < 20 || width > 2000 || height < 12 || height > 180) continue;
-    const crop = await sharp(bytes).extract({ left, top, width, height }).grayscale().normalise().resize({ width: width * 2 }).png().toBuffer();
-    const retry = (await worker.recognize(crop, {}, { text: true, blocks: true })).data;
-    if (!inspectReceiptReadability(retry, { nativeScale: 2 }).accepted) continue;
-    const retryLines = (retry.blocks ?? []).flatMap(block => block.paragraphs.flatMap(paragraph => paragraph.lines));
-    if (retryLines.length !== 1 || !line.text.trim() || !retry.text.trim()) continue;
-    const replacement = retryLines[0];
-    // Keep coordinates in the original screenshot for subsequent field/mask checks.
-    replacements.set(line, { ...line, text: retry.text.trim(), words: replacement.words.map(word => ({ ...word, bbox: {
-      x0: left + word.bbox.x0 / 2, x1: left + word.bbox.x1 / 2,
-      y0: top + word.bbox.y0 / 2, y1: top + word.bbox.y1 / 2,
-    } })) });
-    text = text.replace(line.text.trim(), retry.text.trim());
+    // Two-column footers can lose confidence in an otherwise clear reference
+    // when a 2x retry improves the smaller date text. Try a second segmentation
+    // scale before rejecting, with the same confidence and native-size limits.
+    const source = sharp(bytes).extract({ left, top, width, height }).grayscale().normalise();
+    for (const scale of [2, 3]) {
+      const crop = await source.clone().resize({ width: width * scale }).png().toBuffer();
+      const retry = (await worker.recognize(crop, {}, { text: true, blocks: true })).data;
+      if (!inspectReceiptReadability(retry, { nativeScale: scale }).accepted) continue;
+      const retryLines = (retry.blocks ?? []).flatMap(block => block.paragraphs.flatMap(paragraph => paragraph.lines));
+      if (retryLines.length !== 1 || !line.text.trim() || !retry.text.trim()) continue;
+      const replacement = retryLines[0];
+      // Keep coordinates in the original screenshot for subsequent field/mask checks.
+      replacements.set(line, { ...line, text: retry.text.trim(), words: replacement.words.map(word => ({ ...word, bbox: {
+        x0: left + word.bbox.x0 / scale, x1: left + word.bbox.x1 / scale,
+        y0: top + word.bbox.y0 / scale, y1: top + word.bbox.y1 / scale,
+      } })) });
+      text = text.replace(line.text.trim(), retry.text.trim());
+      break;
+    }
   }
   return { ...page, text, blocks: page.blocks?.map(block => ({ ...block, paragraphs: block.paragraphs.map(paragraph => ({ ...paragraph,
     lines: paragraph.lines.map(line => replacements.get(line) ?? line),

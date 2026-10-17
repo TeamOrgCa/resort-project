@@ -33,6 +33,36 @@ test("uncertain transaction lines are retried from cropped pixels and coordinate
   assert.equal(word.bbox.x0, 72); assert.equal(word.bbox.y0, 692);
 });
 
+test("a clear two-column footer gets a second scale when the first retry leaves uncertain digits", async () => {
+  const png = await androidSendMoneyReceiptImage({ date: "Oct 13, 2026 7:14 PM" });
+  const sizes = [];
+  const result = await retryGcashNumericLines(png, receiptPage(text), { recognize: async bytes => {
+    sizes.push((await sharp(bytes).metadata()).width);
+    if (sizes.length === 1) return retryResult({ confidence: 73 });
+    const retry = retryResult({ confidence: 95, height: 72 });
+    retry.data.blocks[0].paragraphs[0].lines[0].words[0].bbox = { x0: 24, x1: 1752, y0: 24, y1: 96 };
+    return retry;
+  } });
+  assert.deepEqual(sizes, [1184, 1776]);
+  assert.equal(result.text, text);
+  assert.equal(inspectReceiptReadability(result, { gcash: true }).accepted, true);
+  const word = result.blocks[0].paragraphs[0].lines[0].words[0];
+  assert.equal(word.bbox.x0, 72); assert.equal(word.bbox.y0, 692);
+  assert.equal(word.bbox.y1 - word.bbox.y0, 24, "3x coordinates must be scaled back to native pixels");
+});
+
+test("the second scale cannot turn tiny native digits into readable transaction evidence", async () => {
+  const png = await androidSendMoneyReceiptImage({ date: "Oct 13, 2026 7:14 PM" });
+  let calls = 0;
+  const result = await retryGcashNumericLines(png, receiptPage(text), { recognize: async () => {
+    calls++;
+    return calls === 1 ? retryResult({ confidence: 60 }) : retryResult({ confidence: 95, height: 30 });
+  } });
+  assert.equal(calls, 2, "retries stay bounded");
+  assert.equal(inspectReceiptReadability(result, { gcash: true }).accepted, false);
+  assert.equal(result.blocks[0].paragraphs[0].lines[0].words[0].confidence, 50);
+});
+
 test("low-confidence or too-small retry numbers never replace the original uncertain field", async () => {
   const png = await androidSendMoneyReceiptImage({ date: "Oct 13, 2026 7:14 PM" });
   for (const options of [{ confidence: 60 }, { height: 20 }]) {
