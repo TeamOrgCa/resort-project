@@ -1,6 +1,6 @@
 PRICING ADMINISTRATION
 
-The swimming package prices below are initial reference values. Current online weekday/weekend package prices and additional-guest charges are managed in Admin > Catalog > Package rates. Package times remain fixed. Existing reservations retain their booked rate schedule. See docs/PACKAGE_RATES.md and docs/package-rates-migration.sql.
+The swimming package prices and times below are initial reference values. Current online weekday/weekend package prices, additional-guest charges and package time slots are managed in Admin > Catalog > Package rates. Times use Philippine time and apply to both weekday/weekend prices. Restore defaults resets prices and time slots in the form; Save package rates publishes them for new bookings. Existing reservations retain their booked rate schedule and exact arrival/departure times. See docs/PACKAGE_RATES.md; apply docs/package-times-migration.sql after docs/package-rates-migration.sql for editable time slots.
 
 LOCATION & CONTACT INFO
 

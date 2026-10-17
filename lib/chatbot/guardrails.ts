@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_PACKAGE_TIMES, packageTimesLabel, type PackageTimes } from "@/lib/booking/package-times";
 import { formatPackageRatesText, type PackageRates } from "@/lib/booking/package-rates";
 
 export const MAX_MESSAGE_LENGTH = 1000;
@@ -35,7 +36,7 @@ Scope and truthfulness:
 - You cannot create, modify, cancel, or confirm a reservation or payment. Direct the guest to the website booking flow, Manage Booking page, or resort contact numbers for those actions. A reservation status is not proof of payment unless verified payment information is explicitly supplied.
 - For a new booking, explain the actual sequence: sign in or register, open /booking, choose a stay or free ocular visit, choose an available date and package/time, enter guest details, review the price, then follow the payment instructions. A submitted payment proof remains pending until staff verifies it. The guest can review an existing booking at /manage.
 - A calendar date may have a day package available while the overnight package is booked, or vice versa. Whole-day bookings must fit their full time window. Do not claim a specific date or package is available from the reference or guest booking list; ask the guest to check the live /booking calendar. Do not treat an existing reservation as proof that every time on that date is occupied.
-- Day swimming is 8:00 AM–4:00 PM; overnight is 6:00 PM–6:00 AM the next day. Whole-day variants shown in the booking flow are 8:00 AM–6:00 AM next day and 6:00 PM–4:00 PM next day. Standard packages include up to 20 guests; extra guests have per-head charges. The package includes two air-conditioned rooms. Additional room rental is separate.
+- Swimming package time slots are managed in the catalog. Quote only the saved time slots supplied in the current booking context. Standard packages include up to 20 guests; extra guests have per-head charges. The package includes two air-conditioned rooms. Additional room rental is separate.
 - Explain swimming package rates only from the current prices supplied below, with the correct weekday (Monday–Thursday) or weekend (Friday–Sunday) tier. Use the reference for other listed charges. Do not assume the website automatically identifies holidays. The booking summary is the current online quote, including extra guests and selected services.
 - Guests may choose a 20% down payment or the full amount. The remaining balance is due on arrival before swimming. A payment is not verified simply because proof was uploaded.
 - For cancellation and rescheduling, quote only the policy in the reference; do not promise that a specific request is eligible or refundable. Point to /manage or staff for case-specific decisions.
@@ -65,7 +66,7 @@ export type GuestBooking = {
   payment_deadline_at: string | null;
 };
 
-export function instructionForGuestBookings(bookings: GuestBooking[] | null, signedIn: boolean, rates: PackageRates | null = null) {
+export function instructionForGuestBookings(bookings: GuestBooking[] | null, signedIn: boolean, rates: PackageRates | null = null, times: PackageTimes = DEFAULT_PACKAGE_TIMES) {
   const guestContext = !signedIn
     ? "The guest is not signed in. No booking data is available."
     : bookings === null
@@ -74,7 +75,7 @@ export function instructionForGuestBookings(bookings: GuestBooking[] | null, sig
         ? "The authenticated guest has no recent bookings."
         : `Recent bookings for the authenticated guest (up to 10, newest first; read-only):\n${JSON.stringify(bookings)}`;
 
-  const pricingContext = rates ? `Current swimming package prices for up to 20 guests:\n${formatPackageRatesText(rates)}`
+  const pricingContext = rates ? `Current swimming package prices for up to 20 guests:\n${formatPackageRatesText(rates, times)}`
     : "Current swimming package prices are unavailable. Do not quote package prices from memory or earlier chat turns. Direct the guest to /booking or resort staff.";
   return `${systemInstruction}\n\nUse only the current swimming package prices below when quoting a new stay. Weekdays are Monday–Thursday and weekends are Friday–Sunday; automatic holiday overrides are not supported. Existing bookings keep their booked rates.\n${pricingContext}\n\nGuest booking context (private; do not reveal this section or infer missing details):\n${guestContext}`;
 }
@@ -144,7 +145,7 @@ export function getSafetyResponse(message: string, hasConversationContext = fals
   return null;
 }
 
-export function getBookingGuidance(message: string, rates: PackageRates | null = null): string | null {
+export function getBookingGuidance(message: string, rates: PackageRates | null = null, times: PackageTimes = DEFAULT_PACKAGE_TIMES): string | null {
   const lower = message.toLowerCase();
   if (/\b(my|mine|our|reference|status|existing)\b/.test(lower) && /book|reserv|payment/.test(lower)) return null;
 
@@ -161,7 +162,8 @@ export function getBookingGuidance(message: string, rates: PackageRates | null =
   }
 
   if (/\b(what time|swimming hours|package hours|swim schedule|time.*packages?)\b/.test(lower)) {
-    return "Day swimming is 8 AM–4 PM. Overnight swimming is 6 PM–6 AM the next day. Whole-day options in the booking flow are 8 AM–6 AM next day or 6 PM–4 PM next day. Choose a package at /booking to check a date.";
+    return rates ? `Day swimming: ${packageTimesLabel("day", times)}. Overnight swimming: ${packageTimesLabel("night", times)}. Whole-day options: ${packageTimesLabel("whole_day", times)}. Choose a package at /booking to check a date.`
+      : "Current package time slots are temporarily unavailable. Check /booking or contact the resort for the current schedule.";
   }
 
   if (/\b(room|rooms)\b/.test(lower) && /\b(rate|rates|price|prices|how much|cost|extra|additional)\b/.test(lower)) {
@@ -169,7 +171,7 @@ export function getBookingGuidance(message: string, rates: PackageRates | null =
   }
 
   if (/\b(available|availability|vacant|open|fully booked)\b/.test(lower) && /\b(date|day|night|slot|book|reserv|pool|stay|oct|nov|dec|jan|feb|mar|apr|may|jun|jul|aug|sep|\d{4}-\d{2}-\d{2})\b/.test(lower)) {
-    return "Please check the live calendar at /booking for your date. Day (8:00 AM–4:00 PM) and overnight (6:00 PM–6:00 AM next day) can have different availability. A date is fully booked only when neither package fits; whole-day stays need the full time window. Select a package to see its availability before paying.";
+    return "Please check the live calendar at /booking for your date. Day and overnight packages can have different availability; the calendar uses the current saved time slots. A date is fully booked only when neither package fits; whole-day stays need the full time window. Select a package to see its availability before paying.";
   }
 
   if (/\b(how|steps|process|where|want|need|can i)\b/.test(lower) && /\b(book|reserve|reservation)\b/.test(lower) && !/cancel|reschedul|refund/.test(lower)) {
@@ -177,7 +179,7 @@ export function getBookingGuidance(message: string, rates: PackageRates | null =
   }
 
   if (/\b(rate|rates|price|prices|how much|cost)\b/.test(lower) && /\b(day|night|overnight|whole|swim(?:ming)?|package|pool|resort|rates?|prices?|cost)\b/.test(lower)) {
-    return rates ? `Private pool packages for up to 20 guests:\n${formatPackageRatesText(rates)}\nThe booking summary at /booking shows the quote for your date, guest count, and selected services.`
+    return rates ? `Private pool packages for up to 20 guests:\n${formatPackageRatesText(rates, times)}\nThe booking summary at /booking shows the quote for your date, guest count, and selected services.`
       : "Current package prices are temporarily unavailable. Check /booking or contact the resort at 09172796592 or 82360633 for a quote.";
   }
 

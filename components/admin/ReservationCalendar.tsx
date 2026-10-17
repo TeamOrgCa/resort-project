@@ -14,6 +14,7 @@ import { ATTENTION_LABELS, calendarBookingKind, reservationAttention, type Atten
 import { hasPermission, type Permission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { manilaDateKey } from "@/lib/booking/manila-date";
+import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { buildBookingWindow } from "@/lib/booking/policy";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { createClient } from "@/lib/supabase/client";
@@ -94,6 +95,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   initialReservationId?: string; initialDate?: string; openNew?: boolean;
   initialAccess?: { role: StaffRole; permissions: string[] };
 }) {
+  const { schedule: packageSchedule } = usePackageRates();
   const initiallyAllowed = (permission: Permission) => Boolean(initialAccess && hasPermission(initialAccess.role, initialAccess.permissions, permission));
   const [month, setMonth] = useState(() => new Date(`${initialDate ?? manilaDateKey(new Date())}T12:00:00`));
   const [refreshKey, setRefreshKey] = useState(0);
@@ -350,16 +352,16 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     );
     return Object.fromEntries(calendarDays.map((date) => {
       const key = dateKey(date);
-      const isAvailable = (mode: "day" | "night") => {
-        const window = buildBookingWindow({ bookingMode: mode, date });
+      const isAvailable = (mode: "day" | "night" | "whole_day", wholeDayVariant: "day_to_night" | "night_to_day" = "day_to_night") => {
+        const window = buildBookingWindow({ bookingMode: mode, date, wholeDayVariant, packageTimes: packageSchedule?.times });
         if (typeof window.startDatetime !== "string" || typeof window.endDatetime !== "string") return false;
         const lastDay = manilaDateKey(new Date(new Date(window.endDatetime).getTime() - 1));
         if (maintenanceBlocks.some((block) => block.status === "active" && block.start_date <= lastDay && block.end_date >= key)) return false;
         return isWindowAvailable(window.startDatetime, window.endDatetime, activeReservations);
       };
-      return [key, { day: isAvailable("day"), night: isAvailable("night") }];
-    })) as Record<string, { day: boolean; night: boolean }>;
-  }, [calendarDays, maintenanceBlocks, now, reservations]);
+      return [key, { day: isAvailable("day"), night: isAvailable("night"), whole: isAvailable("whole_day") || isAvailable("whole_day", "night_to_day") }];
+    })) as Record<string, { day: boolean; night: boolean; whole: boolean }>;
+  }, [calendarDays, maintenanceBlocks, now, reservations, packageSchedule]);
   const monthLabel = month.toLocaleDateString("en-PH", { month: "long", year: "numeric" });
   const today = manilaDateKey(new Date(now));
   const upcomingCount = new Set(calendarEvents.filter(event => event.reservationId && event.date >= today && !["cancelled", "rejected", "completed"].includes(event.status ?? "")).map(event => event.reservationId)).size;
@@ -474,14 +476,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             const isToday = dayKey === today;
             const availability = availabilityByDay[dayKey];
             const maintenanceBlocked = (eventsByDay[dayKey] ?? []).some((event) => event.kind === "maintenance");
-            const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : "Fully booked";
+            const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : availability?.whole ? "Whole day available" : "Fully booked";
             return <div key={dayKey} className={`min-h-28 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
               {dayReservation ? (
                 <button type="button" onClick={() => openEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</button>
               ) : (
                 <div className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getDate()}</div>
               )}
-              <p className={`mb-1 rounded px-1 py-0.5 text-[10px] font-medium ${isLoading || error ? "bg-neutral/5 text-neutral/60" : availability?.day && availability?.night ? "bg-green-50 text-green-800" : availability?.day || availability?.night ? "bg-amber-50 text-amber-900" : "bg-neutral/10 text-neutral/60"}`} title={availabilityLabel}>{availabilityLabel}</p>
+              <p className={`mb-1 rounded px-1 py-0.5 text-[10px] font-medium ${isLoading || error ? "bg-neutral/5 text-neutral/60" : availability?.day && availability?.night ? "bg-green-50 text-green-800" : availability?.day || availability?.night || availability?.whole ? "bg-amber-50 text-amber-900" : "bg-neutral/10 text-neutral/60"}`} title={availabilityLabel}>{availabilityLabel}</p>
               <div className="space-y-1">
                 {dayEvents.map((event) => {
                   const style = eventStyles[event.kind];

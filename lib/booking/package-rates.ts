@@ -1,21 +1,23 @@
+import { DEFAULT_PACKAGE_TIMES, parsePackageTimes, packageTimesLabel, type PackageTimes } from "./package-times";
+
 export const RATE_TIERS = ["weekday", "weekend"] as const;
 export const PACKAGE_MODES = ["day", "night", "whole_day"] as const;
 export type RateTier = typeof RATE_TIERS[number];
 export type PackageMode = typeof PACKAGE_MODES[number];
 export type PackageRate = { baseRate: number; addOnPerHead: number };
 export type PackageRates = Record<RateTier, Record<PackageMode, PackageRate>>;
-export type PackageRateSchedule = { version: number; rates: PackageRates };
+export type PackageRateSchedule = { version: number; rates: PackageRates; times?: PackageTimes };
 
-export const PACKAGE_LABELS: Record<PackageMode, { name: string; times: string }> = {
-  day: { name: "Day swimming", times: "8:00 AM – 4:00 PM" },
-  night: { name: "Night swimming", times: "6:00 PM – 6:00 AM next day" },
-  whole_day: { name: "Whole-day swimming", times: "8:00 AM – 6:00 AM or 6:00 PM – 4:00 PM next day" },
+export const PACKAGE_LABELS: Record<PackageMode, { name: string }> = {
+  day: { name: "Day swimming" },
+  night: { name: "Night swimming" },
+  whole_day: { name: "Whole-day swimming" },
 };
 
-export function formatPackageRatesText(rates: PackageRates): string {
+export function formatPackageRatesText(rates: PackageRates, times = DEFAULT_PACKAGE_TIMES): string {
   const currency = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 });
   return RATE_TIERS.map(tier => `${tier === "weekday" ? "Monday–Thursday" : "Friday–Sunday"}:\n${PACKAGE_MODES.map(mode =>
-    `${PACKAGE_LABELS[mode].name} (${PACKAGE_LABELS[mode].times}): ${currency.format(rates[tier][mode].baseRate)}, plus ${currency.format(rates[tier][mode].addOnPerHead)} per extra guest.`
+    `${PACKAGE_LABELS[mode].name} (${packageTimesLabel(mode, times)}): ${currency.format(rates[tier][mode].baseRate)}, plus ${currency.format(rates[tier][mode].addOnPerHead)} per extra guest.`
   ).join("\n")}`).join("\n\n");
 }
 
@@ -47,5 +49,6 @@ export function parsePackageRateSchedule(value: unknown): PackageRateSchedule | 
   if (!value || typeof value !== "object") return null;
   const v = value as PackageRateSchedule;
   const rates = parsePackageRates(v.rates);
-  return Number.isSafeInteger(Number(v.version)) && Number(v.version) > 0 && rates ? { version: Number(v.version), rates } : null;
+  const times = v.times === undefined ? DEFAULT_PACKAGE_TIMES : parsePackageTimes(v.times);
+  return Number.isSafeInteger(Number(v.version)) && Number(v.version) > 0 && rates && times ? { version: Number(v.version), rates, times } : null;
 }

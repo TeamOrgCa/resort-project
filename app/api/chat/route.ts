@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = await createClient();
     const schedule = await loadPackageRates(supabase).catch(() => null);
-    const bookingGuidance = getBookingGuidance(message, schedule?.rates ?? null);
+    const bookingGuidance = getBookingGuidance(message, schedule?.rates ?? null, schedule?.times);
     if (bookingGuidance) return NextResponse.json({ reply: bookingGuidance });
 
     if (!geminiApiKey) {
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     const genAI = new GoogleGenerativeAI(geminiApiKey);
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
-      systemInstruction: instructionForGuestBookings(bookings, Boolean(user && !userError), schedule?.rates ?? null),
+      systemInstruction: instructionForGuestBookings(bookings, Boolean(user && !userError), schedule?.rates ?? null, schedule?.times),
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens: MAX_OUTPUT_TOKENS,

@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { validateBookingWindow } from "@/lib/booking/policy";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { DOWN_PAYMENT_PERCENT } from "@/lib/booking/payment-policy";
 import { isValidName, sanitizeName } from "@/lib/helper/validation";
@@ -220,6 +221,11 @@ function BookingFormContent() {
   const downPayment = pricing.downPaymentMin;
 
   const handleContinueToPayment = () => {
+    if ((bookingDraft.packageRateVersion && bookingDraft.packageRateVersion !== packageSchedule.version)
+      || !validateBookingWindow({ ...bookingDraft, startDatetime: effectiveStartDate.toISOString(), endDatetime: effectiveEndDate.toISOString() }, packageSchedule.times).valid) {
+      setFormError("Package prices or times changed. Return to the booking calendar to review the current schedule.");
+      return;
+    }
     if (!selectedRoom || !bookingDraft.startDatetime || !bookingDraft.endDatetime) {
       setFormError("Select valid booking dates and an available room first.");
       return;

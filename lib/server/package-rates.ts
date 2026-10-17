@@ -8,12 +8,12 @@ export class PackageRatesError extends Error {
 export async function loadPackageRates(client: SupabaseClient, version: number | null = null) {
   const { data, error } = await client.rpc("get_package_rates", { p_version: version }).maybeSingle();
   const schedule = parsePackageRateSchedule(data);
-  if (error || !schedule) throw new PackageRatesError("Package rates are unavailable. Ask an administrator to apply the package-rates migration.");
+  if (error || !schedule) throw new PackageRatesError("Package prices and times are unavailable. Ask an administrator to apply the package-rates and package-times migrations.");
   return schedule;
 }
 
 export async function loadQuotedPackageRates(client: SupabaseClient, expectedVersion: number) {
   const current = await loadPackageRates(client);
-  if (current.version !== expectedVersion) throw new PackageRatesError("Package rates changed. Return to the booking form to review the new total before saving.", 409);
+  if (current.version !== expectedVersion) throw new PackageRatesError("Package prices or times changed. Return to the booking calendar to review the current schedule and total before saving.", 409);
   return current;
 }

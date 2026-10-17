@@ -211,7 +211,7 @@ export async function POST(request: Request) {
       wholeDayVariant: payload.wholeDayVariant,
       customStartTime: payload.customStartTime,
       customEndTime: payload.customEndTime,
-    });
+    }, packageSchedule.times);
 
     if (!bookingValidation.valid) {
       return NextResponse.json(

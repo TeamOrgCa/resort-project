@@ -235,24 +235,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const bookingValidation = validateBookingWindow({
-      bookingMode: payload.bookingMode,
-      startDatetime: payload.startDatetime,
-      endDatetime: payload.endDatetime,
-      wholeDayVariant: payload.wholeDayVariant,
-      customStartTime: payload.customStartTime,
-      customEndTime: payload.customEndTime,
-    });
 
-    if (!bookingValidation.valid) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: bookingValidation.message || "Invalid booking window.",
-        },
-        { status: 400 }
-      );
-    }
 
     const supabase = await createClient();
     const {
@@ -377,6 +360,24 @@ export async function POST(request: Request) {
     }, 0);
 
     const packageSchedule = await loadQuotedPackageRates(supabase, payload.packageRateVersion);
+    const bookingValidation = validateBookingWindow({
+      bookingMode: payload.bookingMode,
+      startDatetime: payload.startDatetime,
+      endDatetime: payload.endDatetime,
+      wholeDayVariant: payload.wholeDayVariant,
+      customStartTime: payload.customStartTime,
+      customEndTime: payload.customEndTime,
+    }, packageSchedule.times);
+
+    if (!bookingValidation.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: bookingValidation.message || "Invalid booking window.",
+        },
+        { status: 400 }
+      );
+    }
     const pricing = computeBookingPricing({
       bookingMode: payload.bookingMode,
       startDatetime: payload.startDatetime,

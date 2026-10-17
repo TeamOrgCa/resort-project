@@ -1,4 +1,5 @@
 import { manilaDateKey } from "@/lib/booking/manila-date";
+import { DEFAULT_PACKAGE_TIMES, packageSlotHours, type PackageTimes } from "./package-times";
 
 export type BookingMode = "day" | "night" | "whole_day" | "custom";
 export type WholeDayVariant = "day_to_night" | "night_to_day";
@@ -22,12 +23,6 @@ export const CUSTOM_START_HOUR = 8;
 export const CUSTOM_END_HOUR = 22;
 export const CUSTOM_MIN_DURATION_HOURS = 3;
 
-const HOURS_BY_MODE: Record<Exclude<BookingMode, "custom">, number> = {
-  day: 8,
-  night: 12,
-  whole_day: 22,
-};
-
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 const parseClock = (value: string | null | undefined) => {
@@ -44,7 +39,7 @@ const parseClock = (value: string | null | undefined) => {
   return { hour, minute, minutesOfDay: hour * 60 + minute };
 };
 
-export const validateBookingWindow = (input: BookingWindowInput): BookingWindowValidationResult => {
+export const validateBookingWindow = (input: BookingWindowInput, times: PackageTimes = DEFAULT_PACKAGE_TIMES): BookingWindowValidationResult => {
   const start = new Date(input.startDatetime);
   const end = new Date(input.endDatetime);
 
@@ -106,7 +101,8 @@ export const validateBookingWindow = (input: BookingWindowInput): BookingWindowV
     return { valid: true, durationHours };
   }
 
-  const expected = HOURS_BY_MODE[input.bookingMode];
+  const slot = input.bookingMode === "whole_day" ? times.whole_day[input.wholeDayVariant ?? "day_to_night"] : times[input.bookingMode];
+  const expected = packageSlotHours(slot);
   if (Math.abs(durationHours - expected) > 0.01) {
     return {
       valid: false,
@@ -121,6 +117,13 @@ export const validateBookingWindow = (input: BookingWindowInput): BookingWindowV
       message: "Whole-day bookings must specify the whole-day variant.",
       durationHours,
     };
+  }
+
+  const startClock = new Date(start.getTime() + 8 * 3600000).toISOString().slice(11, 16);
+  const endClock = new Date(end.getTime() + 8 * 3600000).toISOString().slice(11, 16);
+  if (startClock !== slot.start || endClock !== slot.end || start.getUTCSeconds() !== 0 || end.getUTCSeconds() !== 0
+    || start.getUTCMilliseconds() !== 0 || end.getUTCMilliseconds() !== 0) {
+    return { valid: false, message: "Choose the saved package time slot. Refresh the booking form if times have changed.", durationHours };
   }
 
   return { valid: true, durationHours };
@@ -141,6 +144,7 @@ const atTime = (date: Date, hour: number, minute = 0) => {
 };
 
 export interface BuildBookingWindowInput {
+  packageTimes?: PackageTimes;
   bookingMode: BookingMode;
   date: Date;
   wholeDayVariant?: WholeDayVariant;
@@ -153,24 +157,13 @@ export const buildBookingWindow = (input: BuildBookingWindowInput) => {
   let start: Date;
   let end: Date;
 
-  if (input.bookingMode === "day") {
-    start = atTime(input.date, 8);
-    end = atTime(input.date, 16);
-  } else if (input.bookingMode === "night") {
-    start = atTime(input.date, 18);
-    end = atTime(input.date, 6);
-    end = new Date(end.getTime() + 86_400_000);
-  } else if (input.bookingMode === "whole_day") {
-    const variant = input.wholeDayVariant ?? "day_to_night";
-    if (variant === "day_to_night") {
-      start = atTime(input.date, 8);
-      end = atTime(input.date, 6);
-      end = new Date(end.getTime() + 86_400_000);
-    } else {
-      start = atTime(input.date, 18);
-      end = atTime(input.date, 16);
-      end = new Date(end.getTime() + 86_400_000);
-    }
+  if (input.bookingMode !== "custom") {
+    const times = input.packageTimes ?? DEFAULT_PACKAGE_TIMES;
+    const slot = input.bookingMode === "whole_day" ? times.whole_day[input.wholeDayVariant ?? "day_to_night"] : times[input.bookingMode];
+    const startClock = parseClock(slot.start)!;
+    const endClock = parseClock(slot.end)!;
+    start = atTime(input.date, startClock.hour, startClock.minute);
+    end = new Date(atTime(input.date, endClock.hour, endClock.minute).getTime() + slot.endDayOffset * 86_400_000);
   } else {
     const startClock = parseClock(input.customStartTime ?? null);
     const endClock = parseClock(input.customEndTime ?? null);
