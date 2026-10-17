@@ -5,7 +5,7 @@ const { validateGuestRegistration } = loadTsModule("lib/auth/guest-registration.
 
 const valid = {
   firstName: "  María  ", lastName: "Dela Cruz", middleName: "",
-  email: " GUEST@EXAMPLE.COM ", phoneNumber: "+639171234567",
+  email: "GUEST@EXAMPLE.COM", phoneNumber: "+639171234567",
   address: "Taytay, Rizal", password: "secret123", confirmPassword: "secret123",
 };
 
@@ -20,6 +20,12 @@ test("accepts a valid guest without a middle name and normalizes contact details
 test("accepts an optional valid middle name", () => {
   const result = validateGuestRegistration({ ...valid, middleName: "O'Neil" });
   assert.equal(result.value?.middleName, "O'Neil");
+});
+
+test("rejects email spaces, padding and invisible whitespace before normalization", () => {
+  for (const email of [" guest@example.com", "guest@example.com ", "guest @example.com", "guest@example .com", "guest\t@example.com", "guest\n@example.com", "guest\u00a0@example.com", "guest\u200b@example.com", "   "]) {
+    assert.match(validateGuestRegistration({ ...valid, email }).error, /without spaces/, JSON.stringify(email));
+  }
 });
 
 for (const [description, change] of [

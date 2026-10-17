@@ -105,3 +105,21 @@ test("registration rejects an invalid mobile contact before calling the server",
     assert.equal(h.container.querySelector('[name="phoneNumber"]').value, "+6309171234567");
   } finally { await h.close(); }
 });
+
+test("registration removes typed and pasted email whitespace before submission", async () => {
+  const requests = [];
+  const h = await mount(async (_url, options) => {
+    requests.push(JSON.parse(options.body));
+    return Response.json({ success: true, needsEmailConfirmation: true });
+  });
+  try {
+    for (const value of ["guest @example.com", "  guest\u00a0\u200b @example.com  "]) {
+      await input(h.container, "email", value);
+      assert.equal(h.container.querySelector('[name="email"]').value, "guest@example.com");
+    }
+    await h.submit();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].email, "guest@example.com");
+    assert.equal(h.container.querySelector("h2").textContent, "Check your email");
+  } finally { await h.close(); }
+});
