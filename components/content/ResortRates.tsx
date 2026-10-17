@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SiteImage, SiteText, contentText, useSiteContent } from "@/components/content/SiteContent";
 import { isContentImageUrl, publicContentDefaults } from "@/lib/settings/public-content";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
+import { packageTimesLabel } from "@/lib/booking/package-times";
 import { PACKAGE_LABELS, PACKAGE_MODES, RATE_TIERS } from "@/lib/booking/package-rates";
 import { INCLUDED_GUESTS } from "@/lib/booking/guest-count";
 
@@ -30,7 +31,7 @@ export default function ResortRates() {
             {PACKAGE_MODES.map(mode => (
               <article key={mode} className="rounded-2xl border border-neutral/10 bg-base p-5 shadow-sm sm:p-6">
                 <h3 className="text-xl font-bold text-primary">{PACKAGE_LABELS[mode].name}</h3>
-                <p className="mt-2 min-h-12 text-sm leading-relaxed text-neutral/70">{PACKAGE_LABELS[mode].times}</p>
+                <p className="mt-2 min-h-12 text-sm leading-relaxed text-neutral/70">{packageTimesLabel(mode, schedule.times)}</p>
                 <dl className="mt-5 space-y-4">
                   {RATE_TIERS.map(tier => (
                     <div key={tier} className="rounded-xl bg-white p-4">

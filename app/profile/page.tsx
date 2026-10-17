@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
+import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 
 export default function Profile() {
   const router = useRouter();
@@ -65,6 +67,8 @@ export default function Profile() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const phone = normalizePhilippineMobile(formData.phoneNumber);
+    if (!phone) { setError(PH_MOBILE_ERROR); setSuccess(false); return; }
     setSaving(true);
     setError("");
     setSuccess(false);
@@ -83,7 +87,7 @@ export default function Profile() {
         first_name: formData.firstName,
         last_name: formData.lastName,
         middle_name: formData.middleName || null,
-        phone_number: formData.phoneNumber,
+        phone_number: phone,
         address: formData.address,
       })
       .eq('id', user.id);
@@ -211,15 +215,8 @@ export default function Profile() {
                     <label htmlFor="phoneNumber" className="block text-sm font-medium text-neutral mb-2">
                       Phone Number *
                     </label>
-                    <input
-                      type="tel"
-                      id="phoneNumber"
-                      name="phoneNumber"
-                      value={formData.phoneNumber}
-                      onChange={handleChange}
-                      required
-                      className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
+                    <PhilippinePhoneInput id="phoneNumber" name="phoneNumber" value={formData.phoneNumber}
+                      onChange={phoneNumber => setFormData(current => ({ ...current, phoneNumber }))} />
                   </div>
 
                   <div>

@@ -143,6 +143,16 @@ test("payment API saves actual OCR amount and canonical reference for larger dow
   assert.equal(h.inserted[0].receipt_paid_at, "2026-10-13T01:15:00.000Z");
   assert.equal(h.inserted[0].status, "pending");
 });
+
+test("payment API rejects alphanumeric references before reading a receipt or saving a payment", async () => {
+  for (const referenceNumber of ["ABC1234567890123", "123456789012A", "1e12345678", "+1234567890123", "1234.567890123"]) {
+    const h = paymentHarness();
+    const response = await h.post({ ...paymentBody, payment: { ...paymentBody.payment, referenceNumber } });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).message, /numeric GCash reference/);
+    assert.equal(h.inspected.length, 0); assert.equal(h.inserted.length, 0);
+  }
+});
 test("full balance payments require the current outstanding amount and allow excess", async () => {
   for (const [amount, status] of [[3499.99, 400], [3500, 201], [4000, 201]]) {
     const h = paymentHarness({ paid: 1500 });

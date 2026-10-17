@@ -8,6 +8,9 @@ import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { computeBookingPricing } from "@/lib/booking/pricing";
+import { validateBookingWindow } from "@/lib/booking/policy";
+import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
+import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { DOWN_PAYMENT_PERCENT } from "@/lib/booking/payment-policy";
 import { isValidName, sanitizeName } from "@/lib/helper/validation";
@@ -167,7 +170,6 @@ function BookingFormContent() {
     value = sanitizeName(String(value));
   }
 
-  if (name === "phone") value = String(value).replace(/\D/g, "").slice(0, 15);
 
   if (name === "adultCount" || name === "childCount") {
     value = Number(value);
@@ -220,6 +222,11 @@ function BookingFormContent() {
   const downPayment = pricing.downPaymentMin;
 
   const handleContinueToPayment = () => {
+    if ((bookingDraft.packageRateVersion && bookingDraft.packageRateVersion !== packageSchedule.version)
+      || !validateBookingWindow({ ...bookingDraft, startDatetime: effectiveStartDate.toISOString(), endDatetime: effectiveEndDate.toISOString() }, packageSchedule.times).valid) {
+      setFormError("Package prices or times changed. Return to the booking calendar to review the current schedule.");
+      return;
+    }
     if (!selectedRoom || !bookingDraft.startDatetime || !bookingDraft.endDatetime) {
       setFormError("Select valid booking dates and an available room first.");
       return;
@@ -236,8 +243,9 @@ function BookingFormContent() {
       setFormError("Enter a valid email address.");
       return;
     }
-    if (!/^\d{7,15}$/.test(formData.phone)) {
-      setFormError("Enter a phone number with 7–15 digits.");
+    const phone = normalizePhilippineMobile(formData.phone);
+    if (!phone) {
+      setFormError(PH_MOBILE_ERROR);
       return;
     }
 
@@ -251,7 +259,7 @@ function BookingFormContent() {
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,
-      phone: formData.phone,
+      phone,
       address: formData.address,
       adultCount: formData.adultCount,
       childCount: formData.childCount,
@@ -349,17 +357,9 @@ function BookingFormContent() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Phone Number *</label>
-                      <input
-                        type="tel"
-                        inputMode="numeric"
-                        maxLength={15}
-                        name="phone"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                        required
-                      />
+                      <label htmlFor="booking-phone" className="block text-sm font-medium text-neutral/70 mb-2">Phone Number *</label>
+                      <PhilippinePhoneInput id="booking-phone" name="phone" value={formData.phone}
+                        onChange={phone => { setFormData(current => ({ ...current, phone })); setFormError(null); }} />
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium text-neutral/70 mb-2">Address</label>

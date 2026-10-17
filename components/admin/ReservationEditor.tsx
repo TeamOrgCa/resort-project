@@ -91,7 +91,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
       if (!sameSchedule(candidate)) {
         if (!noticePolicy.allowed && (!lateAcknowledged || !detail.canApproveLateReschedule)) return noticePolicy.blockedReason;
         if (!isBookingStartAllowed(start, availability.now)) return BOOKING_LEAD_MESSAGE;
-        const validation = validateEditWindow({ ...draft, ...candidate, startDatetime: start, endDatetime: end, version: detail.version, expectedTotal: 0 });
+        const validation = validateEditWindow({ ...draft, ...candidate, startDatetime: start, endDatetime: end, version: detail.version, expectedTotal: 0 }, detail.packageTimes, detail.reservation);
         if (!validation.valid) return validation.message ?? "Choose a valid schedule.";
       }
       if (!isWindowAvailable(start, end, availability.reservations)) return "Already reserved for this package or time slot.";

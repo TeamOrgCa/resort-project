@@ -3,6 +3,8 @@ import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-rates";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import { isStaffBookingWindowAllowed, STAFF_BOOKING_WINDOW_MESSAGE } from "@/lib/booking/start-time";
+import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { staffHasPermission } from "@/lib/server/role-permissions";
@@ -73,7 +75,7 @@ const parseWalkInGuest = (value: unknown): WalkInGuestPayload | null => {
   const firstName = typeof payload.firstName === "string" ? payload.firstName.trim() : "";
   const lastName = typeof payload.lastName === "string" ? payload.lastName.trim() : "";
   const email = typeof payload.email === "string" ? payload.email.trim() : "";
-  const phoneNumber = typeof payload.phoneNumber === "string" ? payload.phoneNumber.trim() : "";
+  const phoneNumber = normalizePhilippineMobile(payload.phoneNumber);
   const address = typeof payload.address === "string" ? payload.address.trim() : "";
 
   if (!firstName || !lastName || !email || !phoneNumber || !address) {
@@ -192,10 +194,16 @@ export async function POST(request: Request) {
     if (body && typeof body === "object" && (body.guestType === "existing" || body.guestId || body.guestEmail)) {
       return NextResponse.json({ success: false, message: "Registered guests must create bookings through their own account. Manual entry is for guests without an account." }, { status: 400 });
     }
+    if (!normalizePhilippineMobile(body?.walkInGuest?.phoneNumber)) {
+      return NextResponse.json({ success: false, message: PH_MOBILE_ERROR }, { status: 400 });
+    }
     const payload = parsePayload(body);
 
     if (!payload) {
       return NextResponse.json({ success: false, message: "Invalid request payload." }, { status: 400 });
+    }
+    if (!isStaffBookingWindowAllowed(payload.startDatetime, payload.endDatetime)) {
+      return NextResponse.json({ success: false, message: STAFF_BOOKING_WINDOW_MESSAGE }, { status: 400 });
     }
 
     const { data: registeredGuest, error: guestLookupError } = await staffContext.supabase.from("guests")
@@ -211,7 +219,7 @@ export async function POST(request: Request) {
       wholeDayVariant: payload.wholeDayVariant,
       customStartTime: payload.customStartTime,
       customEndTime: payload.customEndTime,
-    });
+    }, packageSchedule.times);
 
     if (!bookingValidation.valid) {
       return NextResponse.json(

@@ -37,6 +37,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/catalog") || path.startsWith("/api/admin/payment-accounts")) return "catalog";
   if (path.startsWith("/api/admin/maintenance-blocks")) return method === "GET" ? "reservations" : "configuration";
   if (path.startsWith("/api/admin/reservations/create")) return "create_reservation";
+  if (path.startsWith("/api/admin/records/")) return "records";
   if (path === "/api/admin/reservations/check-in") return "edit_reservation";
   if (path.startsWith("/api/admin/reservations/cancel")) return "cancel_reservation";
   if (/^\/api\/admin\/reservations\/[\da-f-]+$/i.test(path)) return method === "GET" ? "reservations" : "edit_reservation";

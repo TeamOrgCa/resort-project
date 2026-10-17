@@ -1,3 +1,4 @@
+import { DEFAULT_PACKAGE_TIMES, type PackageTimes } from "./package-times";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { validateBookingWindow, type BookingMode } from "@/lib/booking/policy";
 import { computeBookingPricing } from "@/lib/booking/pricing";
@@ -32,7 +33,7 @@ export type EditDetail = {
   reservation: EditableReservation; guest: { first_name: string; last_name: string; email: string | null; phone_number: string | null } | null;
   services: SelectedService[]; units: SelectedUnit[]; catalogServices: CatalogService[]; catalogUnits: CatalogUnit[];
   bill: Bill; version: string; canEdit: boolean; canChangeDetails: boolean; lockedReason: string | null;
-  packageRates: PackageRates;
+  packageRates: PackageRates; packageTimes?: PackageTimes;
   canApproveLateReschedule?: boolean;
   canRescheduleException?: boolean;
 };
@@ -97,9 +98,17 @@ export function detailsChanged(r: EditableReservation, edit: ReservationEdit) {
     Date.parse(r.end_datetime) !== Date.parse(edit.endDatetime) || r.adult_count !== edit.adultCount || r.child_count !== edit.childCount;
 }
 
-export function validateEditWindow(edit: ReservationEdit) {
+export function validateEditWindow(edit: ReservationEdit, times: PackageTimes = DEFAULT_PACKAGE_TIMES, original?: EditableReservation) {
+  // Historical bookings retain their actual clocks, including older imported
+  // windows that did not exactly match the catalog's original fixed times.
+  if (original && !bookedPackageChangeReason(original, edit)) {
+    const durationHours = (Date.parse(edit.endDatetime) - Date.parse(edit.startDatetime)) / 3600000;
+    if (durationHours > 0 && durationHours <= 366 * 24) return { valid: true, durationHours };
+  }
   const clock = (v: string) => new Date(Date.parse(v) + 8 * 3600000).toISOString().slice(11, 16);
-  return validateBookingWindow({ ...edit, wholeDayVariant: "day_to_night", customStartTime: clock(edit.startDatetime), customEndTime: clock(edit.endDatetime) });
+  const inputs = { ...edit, customStartTime: clock(edit.startDatetime), customEndTime: clock(edit.endDatetime) };
+  const first = validateBookingWindow({ ...inputs, wholeDayVariant: "day_to_night" }, times);
+  return first.valid || edit.bookingMode !== "whole_day" ? first : validateBookingWindow({ ...inputs, wholeDayVariant: "night_to_day" }, times);
 }
 
 // Apply the package difference to the recorded bill. This retains historical

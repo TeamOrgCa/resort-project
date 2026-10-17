@@ -1,3 +1,4 @@
+import { saveGuestBookingPhone, GuestBookingPhoneError } from "@/lib/server/guest-booking-phone";
 import { NextResponse } from "next/server";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
@@ -25,6 +26,7 @@ interface ServiceSelectionInput {
 
 interface CheckoutPayload {
   packageRateVersion: number;
+  phoneNumber?: string;
   bookingMode: BookingMode;
   startDatetime: string;
   endDatetime: string;
@@ -125,6 +127,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
   if (!value || typeof value !== "object") return null;
 
   const payload = value as Partial<CheckoutPayload>;
+  if (payload.phoneNumber !== undefined && typeof payload.phoneNumber !== "string") return null;
 
   if (
     (payload.bookingMode !== "day" && payload.bookingMode !== "night" && payload.bookingMode !== "whole_day" && payload.bookingMode !== "custom") ||
@@ -166,6 +169,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
   }
 
   return {
+    phoneNumber: payload.phoneNumber,
     bookingMode: payload.bookingMode,
     startDatetime: payload.startDatetime,
     endDatetime: payload.endDatetime,
@@ -235,24 +239,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const bookingValidation = validateBookingWindow({
-      bookingMode: payload.bookingMode,
-      startDatetime: payload.startDatetime,
-      endDatetime: payload.endDatetime,
-      wholeDayVariant: payload.wholeDayVariant,
-      customStartTime: payload.customStartTime,
-      customEndTime: payload.customEndTime,
-    });
 
-    if (!bookingValidation.valid) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: bookingValidation.message || "Invalid booking window.",
-        },
-        { status: 400 }
-      );
-    }
 
     const supabase = await createClient();
     const {
@@ -377,6 +364,24 @@ export async function POST(request: Request) {
     }, 0);
 
     const packageSchedule = await loadQuotedPackageRates(supabase, payload.packageRateVersion);
+    const bookingValidation = validateBookingWindow({
+      bookingMode: payload.bookingMode,
+      startDatetime: payload.startDatetime,
+      endDatetime: payload.endDatetime,
+      wholeDayVariant: payload.wholeDayVariant,
+      customStartTime: payload.customStartTime,
+      customEndTime: payload.customEndTime,
+    }, packageSchedule.times);
+
+    if (!bookingValidation.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: bookingValidation.message || "Invalid booking window.",
+        },
+        { status: 400 }
+      );
+    }
     const pricing = computeBookingPricing({
       bookingMode: payload.bookingMode,
       startDatetime: payload.startDatetime,
@@ -431,6 +436,7 @@ export async function POST(request: Request) {
     }
     if (!isVerifiedGcashReceipt(ocr)) return NextResponse.json({ success: false, code: "RECEIPT_VALIDATION_FAILED", issues: receiptValidationIssues(ocr.notes), message: `Payment was not submitted: ${ocr.notes}. Upload a clear, complete receipt showing today's Philippine date and time.` }, { status: 422 });
 
+    await saveGuestBookingPhone(supabase, user.id, payload.phoneNumber);
     const reservationReference = await generateReferenceNumber(supabase);
 
     if (!reservationReference) {
@@ -656,6 +662,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof GuestBookingPhoneError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "RATES_CHANGED" : "RATES_UNAVAILABLE" }, { status: error.status });
     console.error("[checkout] Unexpected error", error);
 

@@ -2,15 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { DEFAULT_PACKAGE_TIMES, formatPackageTimeSlot, packageTimesLabel } from "@/lib/booking/package-times";
 import { buildBookingWindow, toIsoLocalDay, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { isWindowAvailable } from "@/lib/booking/availability";
-import { isBookingStartAllowed } from "@/lib/booking/start-time";
+import { isStaffBookingWindowAllowed, STAFF_BOOKING_WINDOW_MESSAGE } from "@/lib/booking/start-time";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
+import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
+import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 
 type Unit = { unit_id: string; name: string; capacity: number };
 type Service = { service_id: string; name: string; description: string | null; price: number };
@@ -67,9 +70,9 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
   const packageIssue = (date: string, mode: PackageMode, variant: WholeDayVariant = "day_to_night"): string | null => {
     if (!date) return "Choose a booking date.";
     if (!availability.ready) return availability.error ?? "Loading available dates...";
-    const window = buildBookingWindow({ bookingMode: mode, date: new Date(`${date}T00:00:00`), wholeDayVariant: variant });
+    const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date: new Date(`${date}T00:00:00`), wholeDayVariant: variant });
     if ("error" in window || !window.startDatetime || !window.endDatetime) return "Invalid booking schedule.";
-    if (!isBookingStartAllowed(window.startDatetime, availability.now)) return "Choose a start time at least 30 minutes from now.";
+    if (!isStaffBookingWindowAllowed(window.startDatetime, window.endDatetime, availability.now)) return STAFF_BOOKING_WINDOW_MESSAGE;
     if (!isWindowAvailable(window.startDatetime, window.endDatetime, availability.reservations)) return "Already reserved for this package.";
     const start = manilaDateKey(window.startDatetime);
     const end = manilaDateKey(new Date(Date.parse(window.endDatetime) - 1));
@@ -77,14 +80,17 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     return null;
   };
   const dateIssue = (date: string) => {
-    const day = packageIssue(date, "day"), night = packageIssue(date, "night");
-    return !day || !night ? null : day === night ? day : "No available package start times.";
+    const issues = [packageIssue(date, "day"), packageIssue(date, "night"),
+      packageIssue(date, "whole_day", "day_to_night"), packageIssue(date, "whole_day", "night_to_day")];
+    return issues.some(issue => !issue) ? null : issues.every(issue => issue === issues[0]) ? issues[0] : "No available package start times.";
   };
   const chooseDate = (date: string) => {
     if (dateIssue(date)) return;
     setForm(current => {
       if (!packageIssue(date, current.bookingMode, current.wholeDayVariant)) return { ...current, bookingDate: date };
-      return { ...current, bookingDate: date, bookingMode: !packageIssue(date, "day") ? "day" : "night" };
+      if (!packageIssue(date, "day")) return { ...current, bookingDate: date, bookingMode: "day" };
+      if (!packageIssue(date, "night")) return { ...current, bookingDate: date, bookingMode: "night" };
+      return { ...current, bookingDate: date, bookingMode: "whole_day", wholeDayVariant: !packageIssue(date, "whole_day", "day_to_night") ? "day_to_night" : "night_to_day" };
     });
     setError(null);
   };
@@ -93,7 +99,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
   const selectedServices = Object.entries(serviceQuantities).map(([serviceId, quantity]) => ({ serviceId, quantity: Number(quantity) }));
   const quantitiesValid = Object.values(serviceQuantities).every(validQuantity);
   const servicesTotal = services.reduce((total, service) => total + (validQuantity(serviceQuantities[service.service_id] ?? "") ? Number(service.price) * Number(serviceQuantities[service.service_id]) : 0), 0);
-  const previewWindow = buildBookingWindow({ bookingMode: form.bookingMode, date: new Date(`${form.bookingDate}T00:00:00`), wholeDayVariant: form.wholeDayVariant });
+  const previewWindow = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: form.bookingMode, date: new Date(`${form.bookingDate}T00:00:00`), wholeDayVariant: form.wholeDayVariant });
   const preview = packageSchedule && !("error" in previewWindow) && isValidGuestCounts(Number(form.adultCount), Number(form.childCount))
     ? computeBookingPricing({ bookingMode: form.bookingMode, startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime, adultCount: Number(form.adultCount), childCount: Number(form.childCount), servicesTotal }, packageSchedule.rates) : null;
 
@@ -109,10 +115,12 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     const adults = Number(form.adultCount), children = Number(form.childCount);
     if (!form.unitId || !isValidGuestCounts(adults, children)) { setError("Select a unit and enter valid guest counts."); return; }
     if (Object.values(walkIn).some(value => !value.trim())) { setError("Complete all walk-in guest details."); return; }
+    const phoneNumber = normalizePhilippineMobile(walkIn.phoneNumber);
+    if (!phoneNumber) { setError(PH_MOBILE_ERROR); return; }
     saving.current = true; setIsSaving(true);
     try {
       const response = await fetch("/api/admin/reservations/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        packageRateVersion: packageSchedule.version, guestType: "walk_in", walkInGuest: walkIn, bookingMode: form.bookingMode,
+        packageRateVersion: packageSchedule.version, guestType: "walk_in", walkInGuest: { ...walkIn, phoneNumber }, bookingMode: form.bookingMode,
         wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : null,
         startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime,
         adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests, selectedServices,
@@ -141,7 +149,9 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
         <fieldset disabled={isSaving} className="min-w-0 space-y-5">
           <div className="grid gap-4 md:grid-cols-2">
             <p className="text-sm text-neutral/65 md:col-span-2">For guests without an account who book by phone, Messenger or walk-in. Registered guests should book through their own account.</p>
-            {(Object.keys(walkIn) as Array<keyof typeof walkIn>).map(key => <Input key={key} label={({ firstName: "First name", lastName: "Last name", email: "Email", phoneNumber: "Phone", address: "Address" })[key]} type={key === "email" ? "email" : "text"} value={walkIn[key]} onChange={value => setWalkIn(current => ({ ...current, [key]: value }))} />)}
+            {(Object.keys(walkIn) as Array<keyof typeof walkIn>).map(key => key === "phoneNumber"
+              ? <div key={key}><label htmlFor="walk-in-phone" className="block text-sm text-neutral">Phone</label><PhilippinePhoneInput id="walk-in-phone" name="phoneNumber" value={walkIn.phoneNumber} onChange={phoneNumber => setWalkIn(current => ({ ...current, phoneNumber }))} /></div>
+              : <Input key={key} label={({ firstName: "First name", lastName: "Last name", email: "Email", address: "Address" })[key]} type={key === "email" ? "email" : "text"} value={walkIn[key]} onChange={value => setWalkIn(current => ({ ...current, [key]: value }))} />)}
           </div>
           <div className="grid min-w-0 gap-4 md:grid-cols-2">
             <div className="min-w-0 space-y-3">
@@ -149,8 +159,8 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
               {availability.error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
               <BookingDateCalendar value={form.bookingDate} onChange={chooseDate} onMonthChange={setCalendarMonth} minDate={manilaDateKey(new Date(availability.now))} minimumDateReason="Past date"
                 getUnavailableReason={dateIssue} disabled={isSaving}
-                getDateHint={date => !packageIssue(date, "day") && !packageIssue(date, "night") ? "Day / Night" : !packageIssue(date, "day") ? "Day only" : "Night only"}
-                footnote="Dates show remaining day/night starts. Unavailable packages are disabled. Times are fixed in Philippine time; availability is checked again before saving." />
+                getDateHint={date => !packageIssue(date, "day") && !packageIssue(date, "night") ? "Day / Night" : !packageIssue(date, "day") ? "Day only" : !packageIssue(date, "night") ? "Night only" : "Whole day only"}
+                footnote="Staff can record today's available packages even after their start time, until the package ends. Scheduled package times and prices still apply; availability is checked again before saving." />
             </div>
             <div className="min-w-0 space-y-4">
               <SelectField label="Booking package" value={form.bookingMode} onChange={value => {
@@ -158,13 +168,13 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
                   setForm(current => ({ ...current, bookingMode: "whole_day", wholeDayVariant: current.wholeDayVariant === "day_to_night" ? "night_to_day" : "day_to_night" }));
                 } else updateForm("bookingMode", value);
               }} options={[
-                { value: "day", label: "Day - 8:00 AM to 4:00 PM", disabled: Boolean(packageIssue(form.bookingDate, "day")) },
-                { value: "night", label: "Night - 6:00 PM to 6:00 AM", disabled: Boolean(packageIssue(form.bookingDate, "night")) },
-                { value: "whole_day", label: "Whole Day - 22 hours", disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "day_to_night") && packageIssue(form.bookingDate, "whole_day", "night_to_day")) },
+                { value: "day", label: `Day - ${packageTimesLabel("day", packageSchedule?.times)}`, disabled: Boolean(packageIssue(form.bookingDate, "day")) },
+                { value: "night", label: `Night - ${packageTimesLabel("night", packageSchedule?.times)}`, disabled: Boolean(packageIssue(form.bookingDate, "night")) },
+                { value: "whole_day", label: "Whole Day - choose a time slot", disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "day_to_night") && packageIssue(form.bookingDate, "whole_day", "night_to_day")) },
               ]} />
               {form.bookingMode === "whole_day" && <SelectField label="Whole-day variant" value={form.wholeDayVariant} onChange={value => updateForm("wholeDayVariant", value)} options={[
-                { value: "day_to_night", label: "A - 8:00 AM to 6:00 AM next day", disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "day_to_night")) },
-                { value: "night_to_day", label: "B - 6:00 PM to 4:00 PM next day", disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "night_to_day")) },
+                { value: "day_to_night", label: `A - ${formatPackageTimeSlot((packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES).whole_day.day_to_night)}`, disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "day_to_night")) },
+                { value: "night_to_day", label: `B - ${formatPackageTimeSlot((packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES).whole_day.night_to_day)}`, disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "night_to_day")) },
               ]} />}
               {availability.ready && selectedIssue && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{selectedIssue} Choose another date or an available package.</p>}
               <SelectField label="Unit" value={form.unitId} onChange={value => updateForm("unitId", value)} options={units.map(unit => ({ value: unit.unit_id, label: `${unit.name} - ${unit.capacity} pax` }))} />

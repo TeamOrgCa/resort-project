@@ -20,7 +20,7 @@ async function select(container, label, next) {
     element.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
 }
-async function mount(fetcher = () => Response.json({ success: true, reservation: { referenceNumber: "MB-CALENDAR" } }), { availabilityFetcher = () => Response.json({ reservations: [], blockedDates: [] }) } = {}) {
+async function mount(fetcher = () => Response.json({ success: true, reservation: { referenceNumber: "MB-CALENDAR" } }), { availabilityFetcher = () => Response.json({ reservations: [], blockedDates: [] }), times } = {}) {
   const originalFetch = globalThis.fetch, requests = []; let created = 0;
   globalThis.fetch = async (url, options) => {
     if (url.startsWith("/api/booking/availability")) return availabilityFetcher(url, options);
@@ -37,7 +37,7 @@ async function mount(fetcher = () => Response.json({ success: true, reservation:
   } };
   const Component = loadTsModule("components/admin/ManualBookingDialog.tsx", {
     "@/lib/supabase/client": { createClient: () => client },
-    "@/lib/booking/use-package-rates": { usePackageRates: () => ({ schedule: { version: 9, rates: legacyRates }, error: null }) },
+    "@/lib/booking/use-package-rates": { usePackageRates: () => ({ schedule: { version: 9, rates: legacyRates, times }, error: null }) },
   }).default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(createElement(Component, { isOpen: true, onClose: () => {}, onCreated: () => created++ })));
@@ -183,7 +183,112 @@ test("a stale availability response cannot overwrite a newer refresh",async()=>{
 
 async function fillGuest(c) {
   for (const [label,next] of Object.entries({ "First name":"Test", "Last name":"Guest", Email:"walkin@example.com", Phone:"09123456789", Address:"Manila" })) {
-    const element=[...c.querySelectorAll("label")].find(item=>item.textContent===label)?.querySelector("input");
+    const fieldLabel=[...c.querySelectorAll("label")].find(item=>item.textContent===label);
+    const element=fieldLabel?.control??fieldLabel?.querySelector("input");
     assert.ok(element,label);await input(element,next);
   }
 }
+
+test("manual entry blocks invalid phone numbers and saves valid contacts with the country code", async () => {
+  const h = await mount();
+  try {
+    const c = h.container;
+    await click(c.querySelector('[aria-label="Next month"]'));
+    await click(c.querySelector("[data-date]")); await fillGuest(c);
+    const phone = c.querySelector("#walk-in-phone");
+    assert.match(phone.parentElement.textContent, /\+63/);
+    for (const value of ["0917abc4567", "+649171234567", "+63 917 123 4567"]) {
+      await input(phone, value);
+      await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+      if (value === "+63 917 123 4567") {
+        assert.equal(h.requests.length, 1);
+        assert.equal(h.requests[0].body.walkInGuest.phoneNumber, "+639171234567");
+      } else {
+        assert.equal(h.requests.length, 0);
+        assert.match(c.textContent, /valid Philippine mobile number/);
+      }
+    }
+  } finally { await h.close(); }
+});
+
+
+test("manual booking labels and submitted windows follow edited catalog time slots", async () => {
+  const { DEFAULT_PACKAGE_TIMES } = loadTsModule("lib/booking/package-times.ts");
+  const times = structuredClone(DEFAULT_PACKAGE_TIMES);
+  times.day = { start: "09:30", end: "17:00", endDayOffset: 0 };
+  const h = await mount(undefined, { times });
+  try {
+    const c = h.container;
+    assert.match(c.textContent, /9:30 AM/);
+    await click(c.querySelector('[aria-label="Next month"]'));
+    await click(c.querySelector('button[data-date]:not([disabled])'));
+    await fillGuest(c);
+    await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(h.requests.length, 1);
+    assert.match(h.requests[0].body.startDatetime, /T01:30:00.000Z$/);
+    assert.match(h.requests[0].body.endDatetime, /T09:00:00.000Z$/);
+  } finally { await h.close(); }
+});
+
+test("an independently edited whole-day slot remains selectable when day and night are occupied", async () => {
+  const { DEFAULT_PACKAGE_TIMES } = loadTsModule("lib/booking/package-times.ts");
+  const times = structuredClone(DEFAULT_PACKAGE_TIMES);
+  times.day = { start: "08:00", end: "10:00", endDayOffset: 0 };
+  times.night = { start: "11:00", end: "13:00", endDayOffset: 0 };
+  times.whole_day.day_to_night = { start: "14:00", end: "16:00", endDayOffset: 0 };
+  times.whole_day.night_to_day = { start: "17:00", end: "19:00", endDayOffset: 0 };
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const date = monthAfter(today.slice(0, 7)) + "-05";
+  const h = await mount(undefined, { times, availabilityFetcher: () => Response.json({ reservations: [
+    { start_datetime: date + "T08:00:00+08:00", end_datetime: date + "T10:00:00+08:00" },
+    { start_datetime: date + "T11:00:00+08:00", end_datetime: date + "T13:00:00+08:00" },
+  ], blockedDates: [] }) });
+  try {
+    const c = h.container;
+    await click(c.querySelector('[aria-label="Next month"]'));
+    const day = c.querySelector(`[data-date="${date}"]`);
+    assert.match(day.textContent, /Whole day only/);
+    await click(day); await fillGuest(c);
+    await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(h.requests[0].body.bookingMode, "whole_day");
+    assert.equal(h.requests[0].body.wholeDayVariant, "day_to_night");
+    assert.equal(h.requests[0].body.startDatetime, date + "T06:00:00.000Z");
+  } finally { await h.close(); }
+});
+
+test("staff can select and submit today's ongoing package without changing its scheduled start", async () => {
+  const originalNow = Date.now;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  Date.now = () => Date.parse(today + "T12:00:00+08:00");
+  let h;
+  try {
+    h = await mount();
+    const c = h.container;
+    await click(c.querySelector(`[data-date="${today}"]`));
+    const dayOption = [...c.querySelectorAll("label")].find(label => label.textContent.startsWith("Booking package")).querySelector('option[value="day"]');
+    assert.equal(dayOption.disabled, false);
+    assert.doesNotMatch(c.textContent, /Choose a start time at least 30 minutes/);
+    await select(c, "Booking package", "day"); await fillGuest(c);
+    await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.requests[0].body.startDatetime, today + "T00:00:00.000Z");
+    assert.equal(h.requests[0].body.endDatetime, today + "T08:00:00.000Z");
+  } finally { if (h) await h.close(); Date.now = originalNow; }
+});
+
+test("staff cannot select or submit today's fully ended package", async () => {
+  const originalNow = Date.now;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  Date.now = () => Date.parse(today + "T16:00:00+08:00");
+  let h;
+  try {
+    h = await mount();
+    const c = h.container;
+    const dayOption = [...c.querySelectorAll("label")].find(label => label.textContent.startsWith("Booking package")).querySelector('option[value="day"]');
+    assert.equal(dayOption.disabled, true);
+    await fillGuest(c);
+    await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(h.requests.length, 0);
+    assert.match(c.textContent, /has not ended/);
+  } finally { if (h) await h.close(); Date.now = originalNow; }
+});

@@ -8,6 +8,7 @@ import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { createClient } from "@/lib/supabase/client";
+import { DEFAULT_PACKAGE_TIMES, PACKAGE_TIME_KEYS, packageTimeSlot, formatPackageTimeSlot, packageTimesLabel } from "@/lib/booking/package-times";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
@@ -26,6 +27,7 @@ export default function Booking() {
   const { schedule: packageSchedule, error: packageRatesError } = usePackageRates();
   const router = useRouter();
   const setBookingWindow = useBookingStore((state) => state.setBookingWindow);
+  const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const resetBookingDraft = useBookingStore((state) => state.resetBookingDraft);
   const [bookingType, setBookingType] = useState<"stay" | "ocular">("stay");
   const [bookingMode, setBookingMode] = useState<BookingMode>("day");
@@ -206,7 +208,7 @@ export default function Booking() {
     }
 
     if (!packageSchedule) { setStayError(packageRatesError ?? "Please wait while package prices load."); return; }
-    const generatedWindow = buildBookingWindow({
+    const generatedWindow = buildBookingWindow({ packageTimes: packageSchedule?.times,
       bookingMode,
       date: selectedStayDate,
       wholeDayVariant,
@@ -227,7 +229,7 @@ export default function Booking() {
       wholeDayVariant,
       customStartTime,
       customEndTime,
-    });
+    }, packageSchedule?.times);
 
     if (!validation.valid) {
       setStayError(validation.message || "Invalid booking window.");
@@ -256,6 +258,7 @@ export default function Booking() {
           : "",
       customDurationHours: generatedWindow.customDurationHours,
     });
+    setBookingDraft({ packageRateVersion: packageSchedule.version, packageRates: packageSchedule.rates });
     router.push("/booking/form");
   };
 
@@ -297,7 +300,8 @@ export default function Booking() {
   };
 
   const packageAvailable = (date: Date, mode: BookingMode, variant: WholeDayVariant = "day_to_night") => {
-    const window = buildBookingWindow({ bookingMode: mode, date, wholeDayVariant: variant });
+    if (!packageSchedule) return false;
+    const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date, wholeDayVariant: variant });
     return typeof window.startDatetime === "string" && typeof window.endDatetime === "string" &&
       isBookingStartAllowed(window.startDatetime, now) &&
       isBookingWindowAvailable(window.startDatetime, window.endDatetime);
@@ -306,11 +310,12 @@ export default function Booking() {
   const dateAvailability = (date: Date) => ({
     day: packageAvailable(date, "day"),
     night: packageAvailable(date, "night"),
+    whole: packageAvailable(date, "whole_day", "day_to_night") || packageAvailable(date, "whole_day", "night_to_day"),
   });
 
   const isDateBooked = (date: Date) => {
-    const { day, night } = dateAvailability(date);
-    return !day && !night;
+    const { day, night, whole } = dateAvailability(date);
+    return !day && !night && !whole;
   };
 
   const isDateSelected = (date: Date) => {
@@ -332,6 +337,14 @@ export default function Booking() {
       if (isPast) return;
 
       setSelectedStayDate(date);
+      if (bookingMode !== "custom" && !packageAvailable(date, bookingMode, wholeDayVariant)) {
+        if (packageAvailable(date, "day")) setBookingMode("day");
+        else if (packageAvailable(date, "night")) setBookingMode("night");
+        else {
+          setBookingMode("whole_day");
+          setWholeDayVariant(packageAvailable(date, "whole_day", "day_to_night") ? "day_to_night" : "night_to_day");
+        }
+      }
       if (bookingMode === "custom") {
         if (!customEndDate) {
           setCustomEndDate(formatDateForStore(date));
@@ -502,7 +515,7 @@ export default function Booking() {
     );
   }
 
-  const summaryWindow = selectedStayDate ? buildBookingWindow({
+  const summaryWindow = selectedStayDate ? buildBookingWindow({ packageTimes: packageSchedule?.times,
     bookingMode,
     date: selectedStayDate,
     wholeDayVariant,
@@ -522,7 +535,7 @@ export default function Booking() {
       wholeDayVariant,
       customStartTime,
       customEndTime,
-    }).valid ? { startDatetime: summaryWindow.startDatetime, endDatetime: summaryWindow.endDatetime } : null;
+    }, packageSchedule?.times).valid ? { startDatetime: summaryWindow.startDatetime, endDatetime: summaryWindow.endDatetime } : null;
   const summaryPricing = validSummaryWindow && packageSchedule ? computeBookingPricing({
     bookingMode,
     startDatetime: validSummaryWindow.startDatetime,
@@ -618,9 +631,9 @@ export default function Booking() {
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                 {(() => {
                   const modes: { value: BookingMode; label: string; subtitle: string }[] = [
-                    { value: "day", label: "Day", subtitle: "8:00 AM - 4:00 PM" },
-                    { value: "night", label: "Night", subtitle: "6:00 PM - 6:00 AM" },
-                    { value: "whole_day", label: "Whole-Day", subtitle: "22-hour package" },
+                    { value: "day", label: "Day", subtitle: packageTimesLabel("day", packageSchedule?.times) },
+                    { value: "night", label: "Night", subtitle: packageTimesLabel("night", packageSchedule?.times) },
+                    { value: "whole_day", label: "Whole-Day", subtitle: "Choose a time slot below" },
                   ];
 
                   if (ENABLE_CUSTOM_BOOKING) {
@@ -665,7 +678,7 @@ export default function Booking() {
                     className={`rounded-lg border px-4 py-3 text-sm text-left disabled:cursor-not-allowed disabled:opacity-40 ${wholeDayVariant === "day_to_night" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
                   >
                     <p className="font-semibold text-neutral">Variant A</p>
-                    <p className="text-neutral/70">8:00 AM - 6:00 AM (next day)</p>
+                    <p className="text-neutral/70">{formatPackageTimeSlot((packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES).whole_day.day_to_night)}</p>
                   </button>
                   <button
                     type="button"
@@ -674,7 +687,7 @@ export default function Booking() {
                     className={`rounded-lg border px-4 py-3 text-sm text-left disabled:cursor-not-allowed disabled:opacity-40 ${wholeDayVariant === "night_to_day" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
                   >
                     <p className="font-semibold text-neutral">Variant B</p>
-                    <p className="text-neutral/70">6:00 PM - 4:00 PM (next day)</p>
+                    <p className="text-neutral/70">{formatPackageTimeSlot((packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES).whole_day.night_to_day)}</p>
                   </button>
                 </div>
               )}
@@ -808,11 +821,11 @@ export default function Booking() {
                         </button>
                       );
                     } else {
-                    const { day, night } = dateAvailability(date);
+                    const { day, night, whole } = dateAvailability(date);
                     const isMaintenance = blockedDateRanges.some(block => block.start_date <= toDateKey(date) && block.end_date >= toDateKey(date));
-                    const isBooked = !day && !night;
-                    const noRemainingStarts = !isBookingStartAllowed(buildBookingWindow({ bookingMode: "day", date }).startDatetime!, now)
-                      && !isBookingStartAllowed(buildBookingWindow({ bookingMode: "night", date }).startDatetime!, now);
+                    const isBooked = !day && !night && !whole;
+                    const noRemainingStarts = PACKAGE_TIME_KEYS.every(key => !isBookingStartAllowed(
+                      `${toDateKey(date)}T${packageTimeSlot(packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES,key).start}:00+08:00`,now));
                     const unavailableLabel = isMaintenance ? "Closed for maintenance" : noRemainingStarts ? "No remaining start times" : "Fully booked";
                     const isSelected = isDateSelected(date);
 
@@ -822,8 +835,8 @@ export default function Booking() {
                           type="button"
                           onClick={() => handleDateClick(date)}
                           disabled={availabilityLoading || availabilityError || isBooked || isPast}
-                          aria-label={`${toDateKey(date)}: ${isBooked ? unavailableLabel : `${day ? "day available" : "day unavailable"}, ${night ? "night available" : "night unavailable"}`}`}
-                          title={isBooked ? unavailableLabel : `${day ? "Day available" : "Day unavailable"} · ${night ? "Night available" : "Night unavailable"}`}
+                          aria-label={`${toDateKey(date)}: ${isBooked ? unavailableLabel : `${day ? "day available" : "day unavailable"}, ${night ? "night available" : "night unavailable"}, ${whole ? "whole day available" : "whole day unavailable"}`}`}
+                          title={isBooked ? unavailableLabel : `${day ? "Day available" : "Day unavailable"} · ${night ? "Night available" : "Night unavailable"} · ${whole ? "Whole day available" : "Whole day unavailable"}`}
                           style={isMaintenance ? { backgroundColor: "#6A7282", border: "1px solid #6A7282", color: "#FFFFFF" } : undefined}
                           className={`min-h-11 aspect-square rounded-lg flex flex-col items-center justify-center font-medium transition-all
                             ${isMaintenance ? "border border-gray-500 bg-gray-500 text-white cursor-not-allowed" : isBooked ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}
@@ -833,7 +846,7 @@ export default function Booking() {
                           `}
                         >
                           <span>{index + 1}</span>
-                          {!isBooked && !isPast && <span className="text-[9px] leading-tight">{day && night ? "Day · Night" : day ? "Day only" : "Night only"}</span>}
+                          {!isBooked && !isPast && <span className="text-[9px] leading-tight">{day && night ? "Day · Night" : day ? "Day only" : night ? "Night only" : "Whole day only"}</span>}
                         </button>
                       );
                     }

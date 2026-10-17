@@ -62,7 +62,7 @@ export async function PATCH(request: Request, context: Context) {
     if (lateAuthorized && !detail.canChangeDetails && (unitChanged || edit.adultCount !== detail.reservation.adult_count || edit.childCount !== detail.reservation.child_count)) return fail("A late exception may move the booked schedule; existing accommodation and guest counts must be retained.", 400);
     if (changed) {
       if (scheduleChanged && !isBookingStartAllowed(edit.startDatetime, now)) return fail(BOOKING_LEAD_MESSAGE, 400);
-      const window = validateEditWindow(edit);
+      const window = validateEditWindow(edit, detail.packageTimes, detail.reservation);
       if (!window.valid) return fail(window.message ?? "Invalid booking window.", 400);
     }
     if (scheduleChanged) {
