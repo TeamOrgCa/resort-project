@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+@layer base {
+  :where(a[href], button, summary, select, input:is([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="file"]), [role="button"]):not(:disabled):not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  :where(a[href], button, summary, select, input, [role="button"]):is(:disabled, [aria-disabled="true"]) {
+    cursor: not-allowed;
+  }
+}
+
 :root {
   color-scheme: only light;
   --primary: #A9442B;
