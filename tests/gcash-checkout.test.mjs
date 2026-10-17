@@ -60,6 +60,16 @@ test("legacy checkout rejects alphanumeric GCash references without reading a re
     assert.equal(h.inspected.length, 0); assert.equal(h.writes.length, 0);
   }
 });
+
+test("legacy checkout rejects numeric or emoji sender names before OCR or any writes", async () => {
+  for (const accountName of ["Guest123", "Guest 😀", "Guest 1️⃣", "１２３", "---"]) {
+    const h = harness();
+    const response = await h.post({ ...body, payment: { ...body.payment, accountName } });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).message, /sender name/);
+    assert.equal(h.inspected.length, 0); assert.equal(h.writes.length, 0);
+  }
+});
 test("reference reuse cleans up only the newly created reservation and returns conflict", async () => {
   const h = harness({ insertError: { code: "23505", message: "Reference used" } });
   assert.equal((await h.post(body)).status, 409); assert.equal(h.writes.filter(w => w.operation === "delete").length, 1);

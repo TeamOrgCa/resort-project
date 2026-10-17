@@ -16,13 +16,15 @@ async function mount() {
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   let submitted = 0;
   function Fixture() {
-    const [name, setName] = useState("Guest"), [notes, setNotes] = useState("");
+    const [name, setName] = useState("Guest"), [notes, setNotes] = useState(""), [email, setEmail] = useState("");
     return createElement("div", null, createElement(Guard),
       createElement("form", { onSubmit: event => { event.preventDefault(); submitted++; } },
         createElement("input", { "aria-label": "Guest name", value: name, onChange: event => setName(event.target.value) }),
+        createElement("input", { "aria-label": "Email", type: "email", value: email, onChange: event => setEmail(event.target.value) }),
         createElement("input", { "aria-label": "Password", type: "password", defaultValue: "secret123" }),
         createElement("button", { type: "submit" }, "Save")),
       createElement("output", { "aria-label": "Guest value" }, name),
+      createElement("output", { "aria-label": "Email value" }, email),
       createPortal(createElement("div", { role: "dialog" },
         createElement("textarea", { "aria-label": "Admin notes", value: notes, onChange: event => setNotes(event.target.value) }),
         createElement("output", { "aria-label": "Admin value" }, notes)), document.body));
@@ -38,6 +40,27 @@ async function nativeInput(input, value, composing = false) {
     input.dispatchEvent(new window.InputEvent("input", { bubbles: true, isComposing: composing }));
   });
 }
+
+test("email fields block spaces from typing and paste and clean whitespace in controlled values", async () => {
+  const h = await mount();
+  try {
+    const email = field("Email");
+    const event = new window.InputEvent("beforeinput", { bubbles: true, cancelable: true, data: " " });
+    await act(async () => email.dispatchEvent(event));
+    assert.equal(event.defaultPrevented, true);
+    assert.match(document.querySelector('[role="alert"]').textContent, /without spaces/);
+    const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { getData: () => "guest @example.com" } });
+    await act(async () => email.dispatchEvent(paste));
+    assert.equal(paste.defaultPrevented, true);
+    await nativeInput(email, "guest\u00a0\u200b @example.com");
+    assert.equal(email.value, "guest@example.com");
+    assert.equal(field("Email value").textContent, "guest@example.com");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(email, "guest @example.com");
+    await act(async () => h.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(h.submitted(), 0);
+  } finally { await h.close(); }
+});
 
 test("client fields and admin portal fields reject emoji typing, paste and drag-and-drop with a visible alert", async () => {
   const h = await mount();

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
 
 interface LoginApiResponse {
   success: boolean;
@@ -24,6 +25,7 @@ export default function AdminLoginForm() {
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+    if (!isValidLoginEmail(email)) { setError(EMAIL_INPUT_ERROR); return; }
     setIsSubmitting(true);
 
     try {
@@ -60,7 +62,7 @@ export default function AdminLoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {searchParams.get("reason") === "session-replaced" && <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-neutral">This account was signed in on another device. Your session here has ended. Sign in again to continue.</p>}
-      {error ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
       {!requiresOtp ? <div>
         <label htmlFor="admin-email" className="mb-2 block text-sm font-medium text-neutral">
@@ -70,7 +72,11 @@ export default function AdminLoginForm() {
           id="admin-email"
           type="email"
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={(event) => setEmail(sanitizeEmailInput(event.target.value))}
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          maxLength={254}
           required
           className="w-full rounded-xl border border-neutral/20 px-3 py-2 focus:border-primary focus:outline-none"
           placeholder="staff@marville.example"

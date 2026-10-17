@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DEACTIVATED_GUEST_MESSAGE } from "@/lib/auth/guest-access";
+import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
 
 function LoginContent() {
   const router = useRouter();
@@ -21,8 +22,9 @@ function LoginContent() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError("");
+    if (!isValidLoginEmail(email)) { setError(EMAIL_INPUT_ERROR); return; }
+    setLoading(true);
 
     try {
       const response = await fetch("/api/auth/login", {
@@ -83,7 +85,11 @@ function LoginContent() {
                 type="email"
                 id="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={254}
                 required
                 className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 placeholder="your@email.com"

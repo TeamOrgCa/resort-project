@@ -16,6 +16,13 @@ test("staff cash entry is permission-gated and requires acknowledgement and vali
  const h=harness();for(const body of[{cashReceived:false},{amount:0},{amount:1.001},{expectedBalance:undefined}])assert.equal((await h.post(body)).status,400);
  assert.equal(h.calls.length,0);
 });
+test("staff non-cash entry rejects sender digits and emoji before processing a payment",async()=>{
+ for(const accountName of ["Guest123", "Guest 😀", "Guest 1️⃣", "---"]){
+  const h=harness();const r=await h.post({paymentMethod:"e_wallet",accountName,accountNumber:"09171234567",proofPath:"proof.png"});
+  assert.equal(r.status,400);assert.match((await r.json()).message,/sender name/);
+  assert.equal(h.calls.length,0);assert.equal(h.emails.length,0);assert.equal(h.notifications.length,0);
+ }
+});
 test("cash recording uses the atomic RPC, returns the issued receipt and avoids duplicate delivery on retries",async()=>{
  const h=harness();const r=await h.post();assert.equal(r.status,201);const data=await r.json();assert.equal(data.receipt.receipt_number,"RCPT-CASH");assert.equal(data.remainingBalance,0);
  assert.equal(h.calls[0].name,"record_staff_cash_payment");assert.equal(h.calls[0].args.p_received,true);assert.equal(h.emails.length,1);assert.equal(h.notifications.length,1);

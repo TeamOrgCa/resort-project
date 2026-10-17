@@ -5,6 +5,7 @@ import { createNotifications } from "@/lib/notifications";
 import { emailBillingDocuments } from "@/lib/server/billing-email";
 import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
 import { generateReceiptNumber } from "@/lib/booking/receipt-number";
+import { normalizeSenderName, SENDER_NAME_ERROR } from "@/lib/validation/sender-name";
 
 type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
 
@@ -170,6 +171,10 @@ export async function POST(request: Request) {
         );
       }
     }
+
+    const senderName = normalizeSenderName(payload.accountName);
+    if (!senderName) return NextResponse.json({ success: false, message: SENDER_NAME_ERROR }, { status: 400 });
+    payload.accountName = senderName;
 
     const { data: paymentMethod, error: paymentMethodError } = await staffContext.supabase
       .from("payment_methods")

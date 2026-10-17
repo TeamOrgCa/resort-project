@@ -6,11 +6,13 @@ import { createClient } from "@/lib/supabase/server";
 import { DEVICE_COOKIE, isDeviceId, loginError } from "@/lib/server/login-access";
 import { completeStaffLogin } from "@/lib/server/staff-login";
 import { getAuthSessionId } from "@/lib/auth/auth-session";
+import { EMAIL_INPUT_ERROR, isValidLoginEmail } from "@/lib/validation/email";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { email?: unknown; token?: unknown };
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    if (!isValidLoginEmail(body.email)) return loginError(EMAIL_INPUT_ERROR, 400);
+    const email = body.email.toLowerCase();
     const token = typeof body.token === "string" ? body.token.trim() : "";
     if (!email || !token || !/^\d{6,8}$/.test(token)) {
       return loginError("Enter the verification code from your email.", 400);

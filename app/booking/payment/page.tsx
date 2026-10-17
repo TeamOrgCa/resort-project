@@ -15,6 +15,7 @@ import { isValidAccountNumber, sanitizeAccountNumber } from "@/lib/helper/valida
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
 import PaymentQr from "@/components/PaymentQr";
 import PaymentErrorAlert from "@/components/booking/PaymentErrorAlert";
+import { normalizeSenderName, sanitizeSenderName, SENDER_NAME_ERROR } from "@/lib/validation/sender-name";
 
 const proofInputClass = "block w-full min-w-0 cursor-pointer rounded-xl border border-primary/25 bg-white p-2 text-sm text-neutral file:mr-3 file:min-h-12 file:cursor-pointer file:rounded-lg file:border-0 file:bg-primary file:px-5 file:py-3 file:text-sm file:font-semibold file:text-white file:shadow-sm hover:file:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2";
 
@@ -344,6 +345,8 @@ function PaymentContent() {
   const handlePaymentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSubmitError(null);
+    const senderName = normalizeSenderName(paymentMethod === "bank" ? bankDetails.accountName : ewalletDetails.accountName);
+    if (!senderName) { setSubmitError(SENDER_NAME_ERROR); return; }
     if (referenceInputError) {
       setSubmitError(referenceInputError);
       return;
@@ -450,10 +453,7 @@ function PaymentContent() {
               paymentMethod === "bank"
                 ? bankDetails.referenceNumber
                 : ewalletDetails.referenceNumber,
-            accountName:
-              paymentMethod === "bank"
-                ? bankDetails.accountName
-                : ewalletDetails.accountName,
+            accountName: senderName,
             accountNumber:
               paymentMethod === "bank"
                 ? null
@@ -803,14 +803,18 @@ function PaymentContent() {
 
                       <div className="space-y-4">
                         <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Account Name *</label>
+                          <label htmlFor="bank-sender-name" className="block text-sm font-medium text-neutral/70 mb-2">Sender Name *</label>
                           <input
+                            id="bank-sender-name"
+                            aria-describedby="bank-sender-name-hint"
                             type="text"
+                            maxLength={100}
                             value={bankDetails.accountName}
-                            onChange={(e) => setBankDetails({ ...bankDetails, accountName: e.target.value })}
+                            onChange={(e) => setBankDetails({ ...bankDetails, accountName: sanitizeSenderName(e.target.value) })}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
                           />
+                          <p id="bank-sender-name-hint" className="mt-1 text-xs text-neutral/60">Use letters and name punctuation. No numbers or emojis.</p>
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-neutral/70 mb-2">Reference Number *</label>
@@ -900,14 +904,18 @@ function PaymentContent() {
 
                       <div className="space-y-4">
                         <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Account Name *</label>
+                          <label htmlFor="gcash-sender-name" className="block text-sm font-medium text-neutral/70 mb-2">Sender Name *</label>
                           <input
+                            id="gcash-sender-name"
+                            aria-describedby="gcash-sender-name-hint"
                             type="text"
+                            maxLength={100}
                             value={ewalletDetails.accountName}
-                            onChange={(e) => setEwalletDetails({ ...ewalletDetails, accountName: e.target.value })}
+                            onChange={(e) => setEwalletDetails({ ...ewalletDetails, accountName: sanitizeSenderName(e.target.value) })}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
                           />
+                          <p id="gcash-sender-name-hint" className="mt-1 text-xs text-neutral/60">Use letters and name punctuation. No numbers or emojis.</p>
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-neutral/70 mb-2">Your Account Number *</label>
