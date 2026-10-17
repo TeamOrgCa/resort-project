@@ -8,6 +8,7 @@ import { DOWN_PAYMENT_PERCENT, downPaymentAmount, amountMeetsMinimum, isValidPay
 import { isGcashMethod, isVerifiedGcashReceipt, normalizeGcashReference } from "@/lib/booking/gcash-receipt";
 import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
 import { isValidAccountNumber } from "@/lib/helper/validation";
+import { normalizeSenderName, SENDER_NAME_ERROR } from "@/lib/validation/sender-name";
 
 export const runtime = "nodejs";
 
@@ -102,6 +103,10 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const senderName = normalizeSenderName(payload.payment.accountName);
+    if (!senderName) return NextResponse.json({ success: false, message: SENDER_NAME_ERROR }, { status: 400 });
+    payload.payment.accountName = senderName;
 
     const supabase = await createClient();
     const { data: paymentMethod, error: paymentMethodError } = await supabase

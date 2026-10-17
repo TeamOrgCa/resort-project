@@ -8,6 +8,7 @@ import { sanitizeName } from "@/lib/helper/validation";
 import { validateGuestRegistration } from "@/lib/auth/guest-registration";
 import FormErrorDialog from "@/components/ui/FormErrorDialog";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
+import { sanitizeEmailInput } from "@/lib/validation/email";
 
 export default function Register() {
   const router = useRouter();
@@ -62,6 +63,7 @@ export default function Register() {
     if (name === "firstName" || name === "lastName" || name === "middleName") {
       value = sanitizeName(value);
     }
+    if (name === "email") value = sanitizeEmailInput(value);
     setFormData((previous) => ({ ...previous, [name]: value }));
     if (name === "email" && emailAlreadyRegistered) { setError(""); setEmailAlreadyRegistered(false); }
   };
@@ -220,6 +222,9 @@ export default function Register() {
                     ref={emailInput}
                     id="email"
                     name="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     value={formData.email}
                     onChange={handleChange}
                     required

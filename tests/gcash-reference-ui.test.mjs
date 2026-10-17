@@ -33,6 +33,12 @@ test("GCash reference entry blocks letters, keeps leading zeroes and normalizes 
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   try {
     await act(async () => root.render(createElement(Component)));
+    const sender = container.querySelector("#gcash-sender-name"); assert.ok(sender);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(sender, "José 123 O’Neil 😀 Jr.");
+      sender.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    assert.equal(sender.value, "José  O’Neil  Jr.");
     const field = container.querySelector("#gcash-reference-number"); assert.ok(field);
     assert.equal(field.labels[0].textContent, "Reference Number *");
     assert.equal(field.inputMode, "numeric");
@@ -54,6 +60,14 @@ test("GCash reference entry blocks letters, keeps leading zeroes and normalizes 
     await input("00000000123456789012");
     assert.equal(field.value, "00000000123456789012"); assert.equal(field.checkValidity(), true);
     assert.equal(field.hasAttribute("aria-invalid"), false); assert.equal(container.querySelector("#gcash-reference-error"), null);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(sender, "123😀");
+      sender.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    assert.equal(sender.value, "");
+    await act(async () => container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.match(container.textContent, /Enter a sender name/);
+    assert.equal(posts.length, 0);
   } finally {
     await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch;
   }

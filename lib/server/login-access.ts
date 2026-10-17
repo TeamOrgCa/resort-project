@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthSessionId } from "@/lib/auth/auth-session";
+import { isValidLoginEmail } from "@/lib/validation/email";
 
 export const DEVICE_COOKIE = "resort_device_id";
 const DEVICE_COOKIE_AGE = 60 * 60 * 24 * 365;
@@ -18,8 +19,8 @@ export function parseCredentials(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const { email, password } = value as Record<string, unknown>;
   if (typeof email !== "string" || typeof password !== "string") return null;
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail || normalizedEmail.length > 320 || !password) return null;
+  if (!isValidLoginEmail(email) || !password.trim()) return null;
+  const normalizedEmail = email.toLowerCase();
   return { email: normalizedEmail, password };
 }
 

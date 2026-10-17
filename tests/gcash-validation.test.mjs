@@ -154,6 +154,19 @@ test("payment API rejects alphanumeric references before reading a receipt or sa
     assert.equal(h.inspected.length, 0); assert.equal(h.inserted.length, 0);
   }
 });
+
+test("payment API rejects sender digits and emojis before OCR or payment creation", async () => {
+  for (const accountName of ["Guest123", "12345", "Guest ９", "Guest 😀", "Guest 1️⃣", "...", "Guest\tName"]) {
+    const h = paymentHarness();
+    const response = await h.post({ ...paymentBody, payment: { ...paymentBody.payment, accountName } });
+    assert.equal(response.status, 400, accountName);
+    assert.match((await response.json()).message, /sender name/);
+    assert.equal(h.inspected.length, 0); assert.equal(h.inserted.length, 0);
+  }
+  const h = paymentHarness();
+  assert.equal((await h.post({ ...paymentBody, payment: { ...paymentBody.payment, accountName: "  José  O’Neil Jr.  " } })).status, 201);
+  assert.equal(h.inserted[0].account_name, "José O’Neil Jr.");
+});
 test("full balance payments require the current outstanding amount and allow excess", async () => {
   for (const [amount, status] of [[3499.99, 400], [3500, 201], [4000, 201]]) {
     const h = paymentHarness({ paid: 1500 });

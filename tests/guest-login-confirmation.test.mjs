@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
-const credentials = { email: " Guest@Example.com ", password: "correct-password" };
+const credentials = { email: "Guest@Example.com", password: "correct-password" };
 const deviceId = "00000000-0000-4000-8000-000000000001";
 function harness({ code = "email_not_confirmed", locked = false, verified = false, active = true, deactivateDuringLogin = false } = {}) {
   const attempts = []; const signIns = []; const signOuts = []; const updates = [];
@@ -73,6 +73,26 @@ test("staff login retains its current error handling", async () => {
   assert.equal(access.response.status, 401);
   assert.equal((await access.response.json()).message, "Invalid credentials.");
   assert.equal(h.attempts[0].p_kind, "staff"); assert.equal(h.attempts[0].p_result, "failed");
+});
+
+test("guest and staff logins reject whitespace emails and blank passwords before authentication", async () => {
+  for (const kind of ["guest", "staff"]) {
+    for (const email of [" Guest@Example.com", "Guest@Example.com ", "guest @example.com", "guest@example .com", "guest\t@example.com", "guest\u00a0@example.com", "guest\u200b@example.com", "   ", "invalid"]) {
+      const h = harness();
+      const result = await h.loginAccess(kind, { ...credentials, email });
+      assert.equal(result.response.status, 400, `${kind}: ${JSON.stringify(email)}`);
+      assert.equal(h.signIns.length, 0); assert.equal(h.attempts.length, 0);
+    }
+    const h = harness();
+    assert.equal((await h.loginAccess(kind, { ...credentials, password: "   " })).response.status, 400);
+    assert.equal(h.signIns.length, 0);
+  }
+});
+
+test("login preserves spaces within a real password", async () => {
+  const h = harness();
+  await h.loginAccess("guest", { ...credentials, password: " secret with spaces " });
+  assert.equal(h.signIns[0].password, " secret with spaces ");
 });
 
 

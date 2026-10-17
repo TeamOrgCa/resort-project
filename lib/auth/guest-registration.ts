@@ -1,4 +1,5 @@
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
+import { EMAIL_INPUT_ERROR, hasEmailWhitespace } from "@/lib/validation/email";
 
 export type GuestRegistration = {
   firstName: string;
@@ -30,7 +31,8 @@ export function validateGuestRegistration(input: unknown):
   }
 
   if (typeof fields.email !== "string") return { error: "Please enter a valid email address." };
-  const email = fields.email.trim().toLowerCase();
+  if (hasEmailWhitespace(fields.email)) return { error: EMAIL_INPUT_ERROR };
+  const email = fields.email.toLowerCase();
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { error: "Please enter a valid email address." };
   }

@@ -13,6 +13,7 @@ import { isValidAccountNumber } from "@/lib/helper/validation";
 import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
+import { normalizeSenderName, SENDER_NAME_ERROR } from "@/lib/validation/sender-name";
 
 export const runtime = "nodejs";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
@@ -241,6 +242,10 @@ export async function POST(request: Request) {
     }
 
 
+
+    const senderName = normalizeSenderName(payload.payment.accountName);
+    if (!senderName) return NextResponse.json({ success: false, message: SENDER_NAME_ERROR }, { status: 400 });
+    payload.payment.accountName = senderName;
 
     const supabase = await createClient();
     const {

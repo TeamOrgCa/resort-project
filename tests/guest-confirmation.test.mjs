@@ -69,7 +69,7 @@ test("verified email registration is rejected without issuing confirmation or mo
   for (const configured of [true, false]) {
     const h = harness({ existing: true, confirmed: true, configured });
     const before = structuredClone(h.database.tables.guests);
-    const response = await h.register({ ...guest, email: " GUEST@EXAMPLE.COM ", password: "different123", confirmPassword: "different123", firstName: "Changed" });
+    const response = await h.register({ ...guest, email: "GUEST@EXAMPLE.COM", password: "different123", confirmPassword: "different123", firstName: "Changed" });
     const result = await response.json();
     assert.equal(response.status, 409); assert.equal(result.code, "EMAIL_ALREADY_REGISTERED");
     assert.match(result.message, /already registered/); assert.match(result.message, /sign in or reset your password/);
@@ -127,6 +127,19 @@ test("confirmation requests share a cooldown across signup and resend", async ()
 test("invalid forms are rejected before account creation or delivery", async () => {
   const h = harness(); assert.equal((await h.register({ ...guest, email: "invalid" })).status, 400);
   assert.equal((await h.resend({ email: "invalid" })).status, 400); assert.equal(h.calls.created.length, 0);
+});
+test("registration API rejects spaced emails before creating accounts or sending confirmation", async () => {
+  for (const configured of [true, false]) {
+    const h = harness({ configured });
+    for (const email of [" guest@example.com", "guest@example.com ", "guest @example.com", "guest\u00a0@example.com", "guest\u200b@example.com"]) {
+      const response = await h.register({ ...guest, email });
+      assert.equal(response.status, 400);
+      assert.match((await response.json()).message, /without spaces/);
+    }
+    assert.equal(h.calls.created.length, 0); assert.equal(h.calls.signup.length, 0);
+    assert.equal(h.calls.links.length, 0); assert.equal(h.calls.emails.length, 0);
+    assert.equal(h.database.writes.length, 0);
+  }
 });
 test("deployments without app SMTP preserve Supabase's mail delivery path", async () => {
   const h = harness({ configured: false }); assert.equal((await h.register()).status, 200); assert.equal(h.calls.signup.length, 1);

@@ -155,10 +155,10 @@ export default function Home() {
           <p className="text-xl text-base/90 mb-10"><SiteText contentKey="content.home.book_your_dream_vacation_today_and_experience" /></p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/booking">
-              <button className="bg-base text-neutral px-10 py-4 rounded-full text-lg font-semibold hover:bg-base/90 transition-all transform hover:scale-105"><SiteText contentKey="content.home.check_availability" /></button>
+              <button className="bg-base text-neutral cursor-pointer px-10 py-4 rounded-full text-lg font-semibold hover:bg-base/90 transition-all transform hover:scale-105"><SiteText contentKey="content.home.check_availability" /></button>
             </Link>
             <Link href="/about">
-              <button className="bg-accent text-base px-10 py-4 rounded-full text-lg font-semibold hover:bg-accent/90 transition-all transform hover:scale-105"><SiteText contentKey="content.home.contact_us" /></button>
+              <button className="bg-accent text-base cursor-pointer px-10 py-4 rounded-full text-lg font-semibold hover:bg-accent/90 transition-all transform hover:scale-105"><SiteText contentKey="content.home.contact_us" /></button>
             </Link>
           </div>
         </div>
