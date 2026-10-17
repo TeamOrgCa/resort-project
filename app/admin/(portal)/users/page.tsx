@@ -241,6 +241,10 @@ export default function AdminUsersPage() {
     }
 
     if (action === "Toggle Status") {
+      if (staffRecord.role === "admin" && staffRecord.is_active) {
+        showToast("error", "Admin accounts cannot be disabled.");
+        return;
+      }
       setEditError("");
       setSelectedStaff(staffRecord);
       setIsEditing(true);
@@ -312,6 +316,7 @@ export default function AdminUsersPage() {
             onAction={() => setIsCreateOpen(true)}
             rowActions={["Edit", "Toggle Status", "Reset Password"]}
             getRowActionLabel={(action, row) => (action === "Toggle Status" ? (row.status === "Active" ? "Disable" : "Enable") : action)}
+            isRowActionDisabled={(action, row) => isEditing || (action === "Toggle Status" && row.role === "Admin" && row.status === "Active")}
             onRowAction={(action: string, row) => handleRowAction(action, row as StaffUserTableRow)}
             sortable
           />
