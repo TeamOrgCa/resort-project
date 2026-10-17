@@ -7,12 +7,12 @@ import { moveReservationToDate, previewReservationEdit, validateEditWindow, type
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
 import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
 import { isWindowAvailable } from "@/lib/booking/availability";
-import { manilaDateKey } from "@/lib/booking/manila-date";
+import { manilaDateKey, manilaDateTimeLocal } from "@/lib/booking/manila-date";
 import { reschedulePolicy, RESCHEDULE_POLICY_TEXT, RESCHEDULE_FEE_TEXT } from "@/lib/booking/reschedule-charge-policy";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
 
 const currency = (amount: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(amount);
-const localTime = (value: string) => new Date(Date.parse(value) + 8 * 3600000).toISOString().slice(0, 16);
+const localTime = manilaDateTimeLocal;
 const inputClass = "admin-field mt-1 w-full";
 type Draft = Omit<ReservationEdit, "version" | "expectedTotal">;
 

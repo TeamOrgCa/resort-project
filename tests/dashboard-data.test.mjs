@@ -21,6 +21,7 @@ test("dashboard totals use Philippine dates and verification dates with a legacy
   const snapshot = await h.generateDashboard(now);
   assert.equal(snapshot.today, "2026-10-13"); assert.equal(snapshot.startDate, "2026-10-07"); assert.equal(snapshot.endDate, "2026-10-13"); assert.equal(snapshot.arrivalEndDate, "2026-11-11");
   assert.equal(snapshot.collectionsToday, 1500); assert.equal(snapshot.verifiedToday, 2); assert.equal(snapshot.collections.reduce((sum, p) => sum + p.value, 0), 1800);
+  assert.equal(snapshot.generatedAt, "2026-10-13T00:30:00.000+08:00");
   assert.equal(snapshot.collections.at(-1).value, 1500); assert.equal(snapshot.collections.at(-2).value, 300); assert.equal(snapshot.collections.length, 7);
   assert.equal(snapshot.queues.payments, 1, "Older unresolved payments remain in the queue");
 });

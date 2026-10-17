@@ -70,7 +70,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
   const packageIssue = (date: string, mode: PackageMode, variant: WholeDayVariant = "day_to_night"): string | null => {
     if (!date) return "Choose a booking date.";
     if (!availability.ready) return availability.error ?? "Loading available dates...";
-    const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date: new Date(`${date}T00:00:00`), wholeDayVariant: variant });
+    const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date, wholeDayVariant: variant });
     if ("error" in window || !window.startDatetime || !window.endDatetime) return "Invalid booking schedule.";
     if (!isStaffBookingWindowAllowed(window.startDatetime, window.endDatetime, availability.now)) return STAFF_BOOKING_WINDOW_MESSAGE;
     if (!isWindowAvailable(window.startDatetime, window.endDatetime, availability.reservations)) return "Already reserved for this package.";
@@ -99,7 +99,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
   const selectedServices = Object.entries(serviceQuantities).map(([serviceId, quantity]) => ({ serviceId, quantity: Number(quantity) }));
   const quantitiesValid = Object.values(serviceQuantities).every(validQuantity);
   const servicesTotal = services.reduce((total, service) => total + (validQuantity(serviceQuantities[service.service_id] ?? "") ? Number(service.price) * Number(serviceQuantities[service.service_id]) : 0), 0);
-  const previewWindow = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: form.bookingMode, date: new Date(`${form.bookingDate}T00:00:00`), wholeDayVariant: form.wholeDayVariant });
+  const previewWindow = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: form.bookingMode, date: form.bookingDate, wholeDayVariant: form.wholeDayVariant });
   const preview = packageSchedule && !("error" in previewWindow) && isValidGuestCounts(Number(form.adultCount), Number(form.childCount))
     ? computeBookingPricing({ bookingMode: form.bookingMode, startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime, adultCount: Number(form.adultCount), childCount: Number(form.childCount), servicesTotal }, packageSchedule.rates) : null;
 

@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -157,7 +158,7 @@ export async function DELETE(request: Request) {
     const id = url.searchParams.get("id");
     if (!isCatalogResource(resource) || !isCatalogUuid(id)) return invalid("Invalid catalog record.");
     const definition = catalogResources[resource];
-    const update = resource === "units" ? { is_active: false, archived_at: new Date().toISOString() } : { is_active: false };
+    const update = resource === "units" ? { is_active: false, archived_at: manilaTimestamp() } : { is_active: false };
     const { data, error } = await createAdminClient().from(resource).update(update).eq(definition.id, id).select(definition.select).maybeSingle<CatalogRecord>();
     if (error) return databaseFailure(error);
     if (!data) return invalid("This catalog record no longer exists.", 404);

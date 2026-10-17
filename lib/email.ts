@@ -76,6 +76,7 @@ const formatDateLabel = (value?: string | null) => {
   }
 
   return date.toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
     year: "numeric",
     month: "long",
     day: "numeric",

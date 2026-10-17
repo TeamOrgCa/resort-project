@@ -11,7 +11,7 @@ export default function RescheduleCalendar({ value, onChange, minDate, originalD
   month?: string; loading?: boolean;
   disabledReason?: string;
 }) {
-  const hasAvailableDate = !month || Array.from({ length: new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate() }, (_, index) =>
+  const hasAvailableDate = !month || Array.from({ length: new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate() }, (_, index) =>
     `${month}-${String(index + 1).padStart(2, "0")}`).some(date => date >= minDate && date !== originalDate && !getUnavailableReason?.(date));
   return <><BookingDateCalendar value={value} onChange={onChange} minDate={minDate} disabled={disabled} disabledReason={disabledReason}
     onMonthChange={onMonthChange} visibleMonth={month}

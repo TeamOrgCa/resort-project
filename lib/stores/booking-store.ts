@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { PackageRates } from "@/lib/booking/package-rates";
+import { manilaDateKey } from "@/lib/booking/manila-date";
 
 export interface BookingServiceItem {
   id: string;
@@ -123,8 +124,8 @@ export const useBookingStore = create<BookingStoreState>()(
             customEndTime: options?.customEndTime ?? state.bookingDraft.customEndTime,
             customEndDate: options?.customEndDate ?? state.bookingDraft.customEndDate,
             customDurationHours: options?.customDurationHours ?? state.bookingDraft.customDurationHours,
-            checkIn: startDatetime ? startDatetime.slice(0, 10) : state.bookingDraft.checkIn,
-            checkOut: endDatetime ? endDatetime.slice(0, 10) : state.bookingDraft.checkOut,
+            checkIn: startDatetime ? manilaDateKey(startDatetime) : state.bookingDraft.checkIn,
+            checkOut: endDatetime ? manilaDateKey(endDatetime) : state.bookingDraft.checkOut,
             reservationId: "",
             reservationReference: "",
           },

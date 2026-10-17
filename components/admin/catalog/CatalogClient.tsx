@@ -10,6 +10,7 @@ import PackageRatesEditor from "./PackageRatesEditor";
 import { catalogResources, catalogResourceKeys, catalogRecordName, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource, type CatalogStatus } from "@/lib/catalog/catalog";
 import { validateCatalogRecord } from "@/lib/catalog/validation";
 import { isContentImageUrl } from "@/lib/settings/public-content";
+import { formatManilaDate, formatManilaTime } from "@/lib/booking/manila-date";
 
 const visibleCatalogResources = catalogResourceKeys.filter(key => key !== "unit_rates" && key !== "guest_rates");
 
@@ -145,8 +146,8 @@ export default function CatalogClient() {
     if (value === null || value === undefined || value === "") return key === "effective_to" ? "No end date" : "—";
     const field = definition.fields.find((field) => field.key === key);
     if (field?.kind === "money") return money.format(Number(value));
-    if (field?.kind === "date") return new Date(`${value}T00:00:00Z`).toLocaleDateString("en-PH", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
-    if (field?.kind === "time") return new Date(`2000-01-01T${String(value).slice(0, 8)}Z`).toLocaleTimeString("en-PH", { timeZone: "UTC", hour: "numeric", minute: "2-digit" });
+    if (field?.kind === "date") return formatManilaDate(String(value));
+    if (field?.kind === "time") return formatManilaTime(`2000-01-01T${String(value).slice(0, 8)}+08:00`);
     return String(value);
   };
   const actionName = action ? catalogRecordName(action.resource, action.record, references) : "";

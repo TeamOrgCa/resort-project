@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { formatManilaDateTime } from "@/lib/booking/manila-date";
 
 type Booking = { id: string; reference: string };
 type Receipt = { receipt_id: string; payment_id: string; receipt_number: string; issued_at: string;
@@ -44,7 +45,7 @@ export default function GuestReceipts({ bookings }: { bookings: Booking[] }) {
       <p>Billed to: {receipt.billed_to_name || "Guest"}</p>
       <p>Amount paid: {new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(receipt.amount_paid ?? 0))}</p>
       <p>Balance after payment: {new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(receipt.balance_after_payment ?? 0))}</p>
-      <p>Issued {new Date(receipt.issued_at).toLocaleString("en-PH")}</p>
+      <p>Issued {formatManilaDateTime(receipt.issued_at)} (Philippine time)</p>
     </div>)}</div>
   </section>;
 }

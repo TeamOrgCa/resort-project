@@ -16,7 +16,7 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
   const originalFetch = globalThis.fetch, pushes = [];
   globalThis.fetch = async () => Response.json({ success: true, catalog: { units: [{ unit_id: "pool", name: "Pool", base_price: 7500 }], services: [] } });
   const store = create(set => ({ bookingDraft: {
-    bookingMode: "day", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00",
+    bookingMode: "night", startDatetime: "2027-06-14T18:00:00+08:00", endDatetime: "2027-06-15T06:00:00+08:00",
     firstName: "Maria", lastName: "Cruz", email: "guest@example.com", address: "Taytay", phone: "09171234567",
     unitId: "pool", adultCount: 2, childCount: 0, services: [],
   }, setBookingDraft: patch => set(state => ({ bookingDraft: { ...state.bookingDraft, ...patch } })) }));
@@ -44,6 +44,8 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
       if (next === "+63 917 123 4567") {
         assert.deepEqual(pushes, ["/booking/details"]);
         assert.equal(store.getState().bookingDraft.phone, "+639171234567");
+        assert.equal(store.getState().bookingDraft.checkIn, "2027-06-14");
+        assert.equal(store.getState().bookingDraft.checkOut, "2027-06-15", "early departures must keep their Philippine date");
       } else {
         assert.deepEqual(pushes, []);
         assert.match(container.querySelector('[role="alert"]').textContent, /valid Philippine mobile number/);

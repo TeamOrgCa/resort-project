@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOcularSlots } from "@/repositories/catalogRepository";
 import { BOOKING_LEAD_MESSAGE, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
+import { isValidManilaDate, manilaDateKey } from "@/lib/booking/manila-date";
 
 export async function POST(request: Request) {
   try {
@@ -11,11 +12,7 @@ export async function POST(request: Request) {
     const visitId = typeof body?.visitId === "string" ? body.visitId.trim() : "";
     const scheduledDate = typeof body?.scheduledDate === "string" ? body.scheduledDate : "";
     const timeSlotId = typeof body?.timeSlotId === "string" ? body.timeSlotId.trim() : "";
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(scheduledDate) ? new Date(`${scheduledDate}T00:00:00`) : null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const localDate = date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}` : "";
-    if (!visitId || !timeSlotId || !date || Number.isNaN(date.getTime()) || localDate !== scheduledDate || date < today) {
+    if (!visitId || !timeSlotId || !isValidManilaDate(scheduledDate) || scheduledDate < manilaDateKey(new Date())) {
       return NextResponse.json({ success: false, message: "Choose a valid future date and time slot." }, { status: 400 });
     }
 

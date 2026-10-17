@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { reportBucket, reportWindow } from "@/lib/reports/periods";
 import type { ReportDateRange, ReportMetric, ReportPeriod } from "@/lib/reports/types";
 import type { AnalyticsReports } from "@/lib/reports/analytics-types";
@@ -26,7 +27,7 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
     for (const item of items) { const bucket = reportBucket(item.date, window); if (bucket >= 0) totals[bucket] += item.value; }
     return window.labels.map((label, i) => ({ label, value: Math.round(totals[i] * 100) / 100 }));
   };
-  const metadata = { startDate: window.startDate, endDate: window.endDate, generatedAt: now.toISOString() };
+  const metadata = { startDate: window.startDate, endDate: window.endDate, generatedAt: manilaTimestamp(now) };
   const bookingTrend = trend(reservations.map(r => ({ date: r.created_at, value: 1 })));
   const online = reservations.filter(r => r.booking_type === "online").length;
   const staff = reservations.filter(r => r.booking_type === "walk_in").length;

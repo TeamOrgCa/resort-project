@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { sendOcularVisitCancelledEmail } from "@/lib/email";
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
       .from("ocular_visits")
       .update({
         status: "cancelled",
-        cancelled_at: new Date().toISOString(),
+        cancelled_at: manilaTimestamp(),
         cancellation_reason: payload.cancellationReason,
       })
       .eq("visit_id", ocularVisit.visit_id);

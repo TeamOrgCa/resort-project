@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { createNotifications } from "@/lib/notifications";
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
       .update({
         status: "rejected",
         approved_by: staffContext.staffUser.id,
-        approved_at: new Date().toISOString(),
+        approved_at: manilaTimestamp(),
         rejection_reason: payload.rejectionReason,
       })
       .eq("reschedule_id", requestRow.reschedule_id);

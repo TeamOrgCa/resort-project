@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 
 import { STAFF_SESSION_COOKIE } from "@/lib/auth/staff-auth";
@@ -19,7 +20,7 @@ export async function POST() {
       .from("staff_users")
       .update({
         active_session_id: null,
-        last_logout_at: new Date().toISOString(),
+        last_logout_at: manilaTimestamp(),
       })
       .eq("id", staffContext.staffUser.id);
 

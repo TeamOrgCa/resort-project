@@ -2,10 +2,10 @@
 
 import { useId, useState } from "react";
 import ManageIcon from "@/components/manage/ManageIcon";
-import { manilaDateKey } from "@/lib/booking/manila-date";
+import { formatManilaDate, manilaDateKey } from "@/lib/booking/manila-date";
 
-const dateLabel = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString("en-PH", {
-  timeZone: "UTC", month: "long", day: "numeric", year: "numeric",
+const dateLabel = (date: string) => formatManilaDate(date, {
+  month: "long", day: "numeric", year: "numeric",
 });
 
 type BookingDateCalendarProps = {
@@ -48,7 +48,7 @@ export default function BookingDateCalendar({ value, onChange, title = "Booking 
     </div>
     <div className="mb-3 flex items-center gap-2">
       <button type="button" aria-label="Previous month" disabled={disabled || Boolean(minDate && month <= minDate.slice(0, 7))} onClick={() => moveMonth(-1)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"><ManageIcon name="arrow" className="h-5 w-5 rotate-180" /></button>
-      <p aria-live="polite" className="min-w-0 flex-1 text-center text-sm font-semibold text-neutral sm:text-lg">{new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleDateString("en-PH", { timeZone: "UTC", month: "long", year: "numeric" })}</p>
+      <p aria-live="polite" className="min-w-0 flex-1 text-center text-sm font-semibold text-neutral sm:text-lg">{formatManilaDate(`${month}-01`, { month: "long", year: "numeric" })}</p>
       <button type="button" aria-label="Next month" disabled={disabled} onClick={() => moveMonth(1)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><ManageIcon name="arrow" className="h-5 w-5" /></button>
     </div>
     <div className="grid grid-cols-7 gap-1 sm:gap-2">

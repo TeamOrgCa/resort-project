@@ -1,3 +1,4 @@
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { NextResponse } from "next/server";
 
 import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
@@ -62,7 +63,7 @@ export async function POST(request: Request, context: { params: Promise<{ staffI
       .update({
         active_session_id: null,
         must_change_password: true,
-        last_logout_at: new Date().toISOString(),
+        last_logout_at: manilaTimestamp(),
       })
       .eq("id", staffId);
 

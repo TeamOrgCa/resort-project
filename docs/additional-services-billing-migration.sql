@@ -189,7 +189,7 @@ begin
       where r.reservation_id = new.reservation_id;
     insert into public.receipts(payment_id, receipt_number, amount_paid,
       transaction_total_at_time, balance_after_payment, billed_to_name)
-      values(new.payment_id, 'RCPT-' || to_char(now(), 'YYYYMMDD') || '-' || substr(new.payment_id::text, 1, 6),
+      values(new.payment_id, 'RCPT-' || to_char(now() at time zone 'Asia/Manila', 'YYYYMMDD') || '-' || substr(new.payment_id::text, 1, 6),
         new.amount, v_total, greatest(coalesce(v_total, 0) - v_paid, 0), v_name)
       on conflict (payment_id) do nothing;
   end if;

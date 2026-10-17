@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { InvalidDateRangeError } from "@/lib/server/custom-date-range";
+import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { fetchAllPages } from "@/lib/server/fetch-all-pages";
 import { parseReportPeriod, reportBucket, reportWindow } from "@/lib/reports/periods";
 import type { ReportData, ReportMetric, ReportRow, ReportTab } from "@/lib/reports/types";
@@ -30,7 +31,7 @@ function trend(window: Window, records: { date: string; value: number }[]) {
   for (const record of records) { const index = reportBucket(record.date, window); if (index >= 0) totals[index] += record.value; }
   return window.labels.map((label, index) => ({ label, value: rounded(totals[index]) }));
 }
-const base = (window: Window, now: Date) => ({ startDate: window.startDate, endDate: window.endDate, generatedAt: now.toISOString() });
+const base = (window: Window, now: Date) => ({ startDate: window.startDate, endDate: window.endDate, generatedAt: manilaTimestamp(now) });
 
 /** Chunk lookups and paginate history so PostgREST limits never truncate totals. */
 async function byIds<T>(client: Client, table: string, columns: string, idColumn: string, ids: string[], before?: string): Promise<T[]> {
