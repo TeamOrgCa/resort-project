@@ -6,6 +6,7 @@ import StaffDialogShell from "@/components/admin/users/StaffDialogShell";
 import type { StaffUserFormValues } from "@/components/admin/users/types";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { isValidStaffEmail, STAFF_EMAIL_ERROR } from "@/lib/auth/staff-email";
+import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 interface CreateStaffDialogProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
   const [password, setPassword] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [emailError, setEmailError] = useState("");
+  const [nameError, setNameError] = useState("");
   const emailInput = useRef<HTMLInputElement>(null);
   const emailHelpId = useId();
 
@@ -34,6 +36,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
     }
 
     setFullName("");
+    setNameError("");
     setEmail("");
     setRole("staff");
     setPassword("");
@@ -45,6 +48,9 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (isSubmitting) return;
+    const normalizedName = normalizePersonName(fullName);
+    if (!normalizedName) { setNameError(PERSON_NAME_ERROR); return; }
+    setNameError("");
     const normalizedEmail = email.trim().toLowerCase();
     if (!isValidStaffEmail(normalizedEmail)) {
       setEmailError(STAFF_EMAIL_ERROR);
@@ -54,7 +60,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
     setEmailError("");
 
     await onSubmit({
-      fullName: fullName.trim(),
+      fullName: normalizedName,
       email: normalizedEmail,
       role,
       password,
@@ -72,13 +78,16 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error ? <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+        {nameError && <p role="alert" className="text-sm text-red-700">{nameError}</p>}
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
             <span className="block text-sm font-medium text-neutral">Full Name</span>
             <input
               value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
+              onChange={(event) => { setFullName(sanitizePersonName(event.target.value)); setNameError(""); }}
+              autoComplete="name"
+              maxLength={100}
               required
               className="admin-field w-full"
               placeholder="Alex Mendoza"

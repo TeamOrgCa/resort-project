@@ -123,3 +123,15 @@ test("registration removes typed and pasted email whitespace before submission",
     assert.equal(h.container.querySelector("h2").textContent, "Check your email");
   } finally { await h.close(); }
 });
+
+test("registration filters every personal name and preserves accents, initials and name punctuation", async () => {
+  const requests = [];
+  const h = await mount(async (_url, options) => { requests.push(JSON.parse(options.body)); return Response.json({ success: true, needsEmailConfirmation: true }); });
+  try {
+    for (const [field, value, expected] of [["firstName", "José123 😀", "José "], ["lastName", "O’Neil Jr. ９1️⃣", "O’Neil Jr. "], ["middleName", "J. 👩‍👩‍👧‍👦٣", "J. "]]) {
+      await input(h.container, field, value);
+      assert.equal(h.container.querySelector(`[name="${field}"]`).value, expected);
+    }
+    await h.submit(); assert.equal(requests.length, 1);
+  } finally { await h.close(); }
+});

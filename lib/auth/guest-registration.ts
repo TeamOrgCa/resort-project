@@ -1,5 +1,6 @@
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 import { EMAIL_INPUT_ERROR, hasEmailWhitespace } from "@/lib/validation/email";
+import { normalizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 export type GuestRegistration = {
   firstName: string;
@@ -24,11 +25,10 @@ export function validateGuestRegistration(input: unknown):
     return { error: "Please enter a valid first and last name." };
   }
 
-  const [firstName, lastName, middleName] = (names as string[]).map((name) => name.trim().replace(/\s+/g, " "));
-  const validName = (name: string) => name.length <= 100 && /^[\p{L}]+(?:[\p{L}\s'-]*[\p{L}])?$/u.test(name);
-  if (!validName(firstName) || !validName(lastName) || (middleName && !validName(middleName))) {
-    return { error: "Please enter valid names using letters, spaces, apostrophes, or hyphens." };
-  }
+  const firstName = normalizePersonName(fields.firstName);
+  const lastName = normalizePersonName(fields.lastName);
+  const middleName = (fields.middleName as string).trim() ? normalizePersonName(fields.middleName) : "";
+  if (!firstName || !lastName || middleName === null) return { error: PERSON_NAME_ERROR };
 
   if (typeof fields.email !== "string") return { error: "Please enter a valid email address." };
   if (hasEmailWhitespace(fields.email)) return { error: EMAIL_INPUT_ERROR };

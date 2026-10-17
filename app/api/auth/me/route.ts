@@ -1,5 +1,22 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { validateGuestProfile } from "@/lib/auth/guest-profile";
+
+export async function PATCH(request: Request) {
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return NextResponse.json({ success: false, message: "Please sign in to update your profile." }, { status: 401 });
+    const validation = validateGuestProfile(await request.json().catch(() => null));
+    if (!validation.value) return NextResponse.json({ success: false, message: validation.error }, { status: 400 });
+    const { data, error } = await supabase.from("guests").update(validation.value).eq("id", user.id).eq("is_active", true).select("id").maybeSingle();
+    if (error) return NextResponse.json({ success: false, message: "Unable to update your profile. Please try again." }, { status: 500 });
+    if (!data) return NextResponse.json({ success: false, message: "An active guest profile was not found." }, { status: 404 });
+    return NextResponse.json({ success: true, message: "Profile updated." });
+  } catch {
+    return NextResponse.json({ success: false, message: "Unable to update your profile. Please try again." }, { status: 500 });
+  }
+}
 
 export async function GET() {
   try {

@@ -54,3 +54,17 @@ test("native invalid events show the same field message, and reopening clears st
     assert.equal(h.container.querySelector('[role="alert"]'), null);
   } finally { await h.close(); }
 });
+
+test("staff full name removes numbers and emojis and cannot submit an empty or punctuation-only name", async () => {
+  const h = await mount();
+  try {
+    await value(h.email(), "staff@example.com");
+    const name = h.container.querySelector('input[placeholder="Alex Mendoza"]');
+    await value(name, "José 123 Peña 😀"); assert.equal(name.value, "José  Peña ");
+    await h.submit(); assert.equal(h.submissions[0].fullName, "José Peña");
+    for (const next of ["123😀", "---"]) {
+      await value(name, next); await h.submit();
+      assert.equal(h.submissions.length, 1); assert.match(h.container.querySelector('[role="alert"]').textContent, /Names must use letters/);
+    }
+  } finally { await h.close(); }
+});

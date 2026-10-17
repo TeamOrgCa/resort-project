@@ -37,6 +37,12 @@ test("edit dialog protects both peer and current admins while allowing profile e
       });
       await h.submit();
       assert.deepEqual(h.submissions, [{ fullName: "Updated Admin", role: "admin", isActive: true }]);
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(name, "123😀");
+        name.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+      assert.equal(name.value, ""); await h.submit();
+      assert.equal(h.submissions.length, 1); assert.match(h.container.querySelector('[role="alert"]').textContent, /Names must use letters/);
     } finally { await h.close(); }
   }
 });

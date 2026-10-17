@@ -8,6 +8,7 @@ import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/pho
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { staffHasPermission } from "@/lib/server/role-permissions";
+import { normalizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 type GuestType = "walk_in";
 
@@ -72,20 +73,21 @@ const parseWalkInGuest = (value: unknown): WalkInGuestPayload | null => {
   }
 
   const payload = value as Partial<WalkInGuestPayload>;
-  const firstName = typeof payload.firstName === "string" ? payload.firstName.trim() : "";
-  const lastName = typeof payload.lastName === "string" ? payload.lastName.trim() : "";
+  const firstName = normalizePersonName(payload.firstName);
+  const lastName = normalizePersonName(payload.lastName);
+  const middleName = payload.middleName === undefined || payload.middleName === "" ? "" : normalizePersonName(payload.middleName);
   const email = typeof payload.email === "string" ? payload.email.trim() : "";
   const phoneNumber = normalizePhilippineMobile(payload.phoneNumber);
   const address = typeof payload.address === "string" ? payload.address.trim() : "";
 
-  if (!firstName || !lastName || !email || !phoneNumber || !address) {
+  if (!firstName || !lastName || middleName === null || !email || !phoneNumber || !address) {
     return null;
   }
 
   return {
     firstName,
     lastName,
-    middleName: typeof payload.middleName === "string" ? payload.middleName.trim() : undefined,
+    middleName: middleName || undefined,
     email,
     phoneNumber,
     address,
@@ -196,6 +198,11 @@ export async function POST(request: Request) {
     }
     if (!normalizePhilippineMobile(body?.walkInGuest?.phoneNumber)) {
       return NextResponse.json({ success: false, message: PH_MOBILE_ERROR }, { status: 400 });
+    }
+    const guest = body?.walkInGuest;
+    if (!normalizePersonName(guest?.firstName) || !normalizePersonName(guest?.lastName)
+      || (guest?.middleName !== undefined && guest.middleName !== "" && !normalizePersonName(guest.middleName))) {
+      return NextResponse.json({ success: false, message: PERSON_NAME_ERROR }, { status: 400 });
     }
     const payload = parsePayload(body);
 

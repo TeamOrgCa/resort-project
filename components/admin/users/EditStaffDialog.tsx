@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import StaffDialogShell from "@/components/admin/users/StaffDialogShell";
 import type { StaffRole } from "@/lib/auth/staff-auth";
+import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 interface StaffUserSnapshot {
   id: string;
@@ -37,6 +38,7 @@ export default function EditStaffDialog({
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<StaffRole>("staff");
   const [isActive, setIsActive] = useState(true);
+  const [nameError, setNameError] = useState("");
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -45,6 +47,7 @@ export default function EditStaffDialog({
     }
 
     setFullName(staffUser.full_name);
+    setNameError("");
     setRole(staffUser.role);
     setIsActive(staffUser.is_active);
   }, [isOpen, staffUser]);
@@ -59,9 +62,13 @@ export default function EditStaffDialog({
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSubmitting) return;
+    const normalizedName = normalizePersonName(fullName);
+    if (!normalizedName) { setNameError(PERSON_NAME_ERROR); return; }
+    setNameError("");
 
     await onSubmit({
-      fullName: fullName.trim(),
+      fullName: normalizedName,
       role: isAdminAccount ? staffUser.role : role,
       isActive: isAdminAccount && staffUser.is_active ? true : isActive,
     });
@@ -77,13 +84,16 @@ export default function EditStaffDialog({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error ? <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+        {nameError && <p role="alert" className="text-sm text-red-700">{nameError}</p>}
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
             <span className="block text-sm font-medium text-neutral">Full Name</span>
             <input
               value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
+              onChange={(event) => { setFullName(sanitizePersonName(event.target.value)); setNameError(""); }}
+              autoComplete="name"
+              maxLength={100}
               required
               className="admin-field w-full"
             />
