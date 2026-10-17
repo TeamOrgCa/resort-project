@@ -139,6 +139,20 @@ function PaymentContent() {
     referenceNumber: "",
     uploadProof: null as File | null,
   });
+  const [referenceInputError, setReferenceInputError] = useState<string | null>(null);
+  const handleGcashReferenceChange = (value: string) => {
+    if (!/^[0-9\s-]*$/.test(value)) {
+      setReferenceInputError("GCash reference numbers must contain digits only.");
+      return;
+    }
+    const digits = value.replace(/[\s-]/g, "");
+    if (digits.length > 20) {
+      setReferenceInputError("GCash reference numbers must contain 8–20 digits.");
+      return;
+    }
+    setReferenceInputError(null);
+    setEwalletDetails(current => ({ ...current, referenceNumber: digits }));
+  };
 
   const [bankProofPreviewUrl, setBankProofPreviewUrl] = useState<string | null>(null);
   const [ewalletProofPreviewUrl, setEwalletProofPreviewUrl] = useState<string | null>(null);
@@ -330,12 +344,16 @@ function PaymentContent() {
   const handlePaymentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSubmitError(null);
+    if (referenceInputError) {
+      setSubmitError(referenceInputError);
+      return;
+    }
     if (!amountIsValid) {
       setSubmitError(`Amount sent must be at least PHP ${payableNow.toFixed(2)} and have no more than two decimal places.`);
       return;
     }
     if (!normalizeGcashReference(ewalletDetails.referenceNumber)) {
-      setSubmitError("Enter the complete numeric GCash reference number (8–20 digits). Spaces and hyphens are allowed.");
+      setSubmitError("Enter the complete numeric GCash reference number (8–20 digits).");
       return;
     }
 
@@ -906,16 +924,24 @@ function PaymentContent() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Reference Number *</label>
+                          <label htmlFor="gcash-reference-number" className="block text-sm font-medium text-neutral/70 mb-2">Reference Number *</label>
                           <input
+                            id="gcash-reference-number"
                             type="text"
                             value={ewalletDetails.referenceNumber}
                             inputMode="numeric"
+                            pattern="[0-9]{8,20}"
+                            minLength={8}
                             maxLength={40}
-                            onChange={(e) => setEwalletDetails({ ...ewalletDetails, referenceNumber: e.target.value })}
+                            title="Enter the complete numeric GCash reference number (8–20 digits)."
+                            aria-invalid={Boolean(referenceInputError) || undefined}
+                            aria-describedby={`gcash-reference-help${referenceInputError ? " gcash-reference-error" : ""}`}
+                            onChange={(e) => handleGcashReferenceChange(e.target.value)}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
                           />
+                          <p id="gcash-reference-help" className="mt-1 text-xs text-neutral/60">8–20 digits only. Leading zeroes are kept; pasted spaces and hyphens are removed.</p>
+                          {referenceInputError && <p id="gcash-reference-error" role="alert" className="mt-1 text-sm text-red-700">{referenceInputError}</p>}
                         </div>
                         <div className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
                           <label htmlFor="gcash-payment-proof" className="mb-2 flex items-center gap-2 text-base font-semibold text-neutral">

@@ -4,6 +4,8 @@ The swimming package prices and times below are initial reference values. Curren
 
 LOCATION & CONTACT INFO
 
+Guest registration, profiles, online bookings and staff manual entries require a Philippine mobile contact. Forms show a fixed +63 prefix and accept 10 national digits starting with 9; pasted 09..., 639... and +639... formats are normalized and saved as +639XXXXXXXXX. Registration and reservation APIs validate the same format. Online booking saves the validated contact to the authenticated guest profile used by reservation records. This validates the number format, not ownership through SMS.
+
 Marville Resort, Cabrera Road Hapay na Mangga Brgy. 
 Dolores, Taytay, Rizal 1920 
 
@@ -190,9 +192,11 @@ Guests can update adult and child counts before check-in (at least one adult, ma
 ADMIN RESERVATION CALENDAR AND ARRIVAL RECORDS
 
 - Booking requests (pending/payment submitted), confirmed reservations and closed bookings have separate calendar labels. Attention flags do not replace their reservation status.
+- Records > Reservation Records includes a View action for every reservation status. Its read-only dialog shows the linked registered or walk-in guest, original schedule, attendance, accommodation/services, recorded bill and notes. Records permission is sufficient; viewing does not grant reservation editing or payment approval. Walk-in names also appear on related reschedule records, using the reservation owner when there is no registered requester.
 - Calendar filters identify submitted payments, pending reschedules, open refunds, unpaid balances and confirmed arrivals today without recorded check-in. Dates and arrival flags use Philippine time. Cancelled reservations can still need refund processing.
 - Authorized staff with Edit reservations permission record actual arrival for a confirmed reservation arriving today, after acknowledging that the guest is present. Check-in records server time, staff identity and an audit entry; it does not settle the bill or change reservation status.
 - Manual entry is only for guests without an account who book through phone, Messenger or walk-in. Existing guest accounts must book through their own account. The server rejects existing-account payloads and registered email addresses supplied as walk-in guests.
+- Staff can create a manual booking for an available package arriving today even after its scheduled start, until its scheduled end. Staff entry has no 30-minute lead requirement; past arrival dates and ended packages are rejected. Package times/prices, availability, payment verification and actual check-in remain separate. Guest online bookings still require a start at least 30 minutes ahead.
 - Guest cancellation first offers rescheduling instead, retaining all notice, availability, fixed-package and approval rules. Availability loading allows choosing a candidate date but cannot enable submission until the date is checked.
 
 

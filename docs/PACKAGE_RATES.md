@@ -16,6 +16,8 @@ Default time slots:
 
 Packages still include 20 guests, with a maximum of 30. The start date in Manila determines the weekday/weekend tier. Automatic holiday overrides are not part of the current booking rules.
 
+For staff-entered walk-ins, today's available package can be selected after its start time while its end time remains in the future; the 30-minute lead rule applies to guest online bookings. Staff entry rejects past arrival dates and ended windows, keeps the package's saved clocks and full price, and rechecks conflicts/maintenance. Recording a booking does not record actual check-in or verify payment.
+
 The migrations seed the prices and times previously documented in `RESORT_CONTEXT.md`. Guest booking previews, manual bookings, calendar availability, server validation, public rate cards and chatbot quotes read the saved schedule. A guest continuing with an outdated schedule must return to the calendar to review it. Free ocular requests remain available.
 
 Each published schedule is retained, and each reservation records its booked schedule. New prices and times apply to new bookings. Existing transaction totals, payments, invoices, receipts and arrival/departure times are not changed by a Catalog update. Reservation edits and reschedules use the reservation's booked schedule and preserve its original time and duration; service additions retain the existing service billing rules. Changing catalog times is not an extension of an existing stay.

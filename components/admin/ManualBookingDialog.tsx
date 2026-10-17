@@ -9,9 +9,11 @@ import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { isWindowAvailable } from "@/lib/booking/availability";
-import { isBookingStartAllowed } from "@/lib/booking/start-time";
+import { isStaffBookingWindowAllowed, STAFF_BOOKING_WINDOW_MESSAGE } from "@/lib/booking/start-time";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
+import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
+import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 
 type Unit = { unit_id: string; name: string; capacity: number };
 type Service = { service_id: string; name: string; description: string | null; price: number };
@@ -70,7 +72,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     if (!availability.ready) return availability.error ?? "Loading available dates...";
     const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date: new Date(`${date}T00:00:00`), wholeDayVariant: variant });
     if ("error" in window || !window.startDatetime || !window.endDatetime) return "Invalid booking schedule.";
-    if (!isBookingStartAllowed(window.startDatetime, availability.now)) return "Choose a start time at least 30 minutes from now.";
+    if (!isStaffBookingWindowAllowed(window.startDatetime, window.endDatetime, availability.now)) return STAFF_BOOKING_WINDOW_MESSAGE;
     if (!isWindowAvailable(window.startDatetime, window.endDatetime, availability.reservations)) return "Already reserved for this package.";
     const start = manilaDateKey(window.startDatetime);
     const end = manilaDateKey(new Date(Date.parse(window.endDatetime) - 1));
@@ -113,10 +115,12 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     const adults = Number(form.adultCount), children = Number(form.childCount);
     if (!form.unitId || !isValidGuestCounts(adults, children)) { setError("Select a unit and enter valid guest counts."); return; }
     if (Object.values(walkIn).some(value => !value.trim())) { setError("Complete all walk-in guest details."); return; }
+    const phoneNumber = normalizePhilippineMobile(walkIn.phoneNumber);
+    if (!phoneNumber) { setError(PH_MOBILE_ERROR); return; }
     saving.current = true; setIsSaving(true);
     try {
       const response = await fetch("/api/admin/reservations/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        packageRateVersion: packageSchedule.version, guestType: "walk_in", walkInGuest: walkIn, bookingMode: form.bookingMode,
+        packageRateVersion: packageSchedule.version, guestType: "walk_in", walkInGuest: { ...walkIn, phoneNumber }, bookingMode: form.bookingMode,
         wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : null,
         startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime,
         adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests, selectedServices,
@@ -145,7 +149,9 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
         <fieldset disabled={isSaving} className="min-w-0 space-y-5">
           <div className="grid gap-4 md:grid-cols-2">
             <p className="text-sm text-neutral/65 md:col-span-2">For guests without an account who book by phone, Messenger or walk-in. Registered guests should book through their own account.</p>
-            {(Object.keys(walkIn) as Array<keyof typeof walkIn>).map(key => <Input key={key} label={({ firstName: "First name", lastName: "Last name", email: "Email", phoneNumber: "Phone", address: "Address" })[key]} type={key === "email" ? "email" : "text"} value={walkIn[key]} onChange={value => setWalkIn(current => ({ ...current, [key]: value }))} />)}
+            {(Object.keys(walkIn) as Array<keyof typeof walkIn>).map(key => key === "phoneNumber"
+              ? <div key={key}><label htmlFor="walk-in-phone" className="block text-sm text-neutral">Phone</label><PhilippinePhoneInput id="walk-in-phone" name="phoneNumber" value={walkIn.phoneNumber} onChange={phoneNumber => setWalkIn(current => ({ ...current, phoneNumber }))} /></div>
+              : <Input key={key} label={({ firstName: "First name", lastName: "Last name", email: "Email", address: "Address" })[key]} type={key === "email" ? "email" : "text"} value={walkIn[key]} onChange={value => setWalkIn(current => ({ ...current, [key]: value }))} />)}
           </div>
           <div className="grid min-w-0 gap-4 md:grid-cols-2">
             <div className="min-w-0 space-y-3">
@@ -154,7 +160,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
               <BookingDateCalendar value={form.bookingDate} onChange={chooseDate} onMonthChange={setCalendarMonth} minDate={manilaDateKey(new Date(availability.now))} minimumDateReason="Past date"
                 getUnavailableReason={dateIssue} disabled={isSaving}
                 getDateHint={date => !packageIssue(date, "day") && !packageIssue(date, "night") ? "Day / Night" : !packageIssue(date, "day") ? "Day only" : !packageIssue(date, "night") ? "Night only" : "Whole day only"}
-                footnote="Dates show remaining package starts, including whole-day variants. Times follow the saved package schedule in Philippine time; availability is checked again before saving." />
+                footnote="Staff can record today's available packages even after their start time, until the package ends. Scheduled package times and prices still apply; availability is checked again before saving." />
             </div>
             <div className="min-w-0 space-y-4">
               <SelectField label="Booking package" value={form.bookingMode} onChange={value => {

@@ -1,3 +1,4 @@
+import { saveGuestBookingPhone, GuestBookingPhoneError } from "@/lib/server/guest-booking-phone";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { computeBookingPricing } from "@/lib/booking/pricing";
@@ -23,6 +24,7 @@ interface ServiceSelectionInput {
 
 interface CreateReservationPayload {
   packageRateVersion: number;
+  phoneNumber?: string;
   bookingMode: BookingMode;
   startDatetime: string;
   endDatetime: string;
@@ -88,6 +90,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
   if (!value || typeof value !== "object") return null;
 
   const payload = value as Partial<CreateReservationPayload>;
+  if (payload.phoneNumber !== undefined && typeof payload.phoneNumber !== "string") return null;
 
   if (
     (payload.bookingMode !== "day" && payload.bookingMode !== "night" && payload.bookingMode !== "whole_day" && payload.bookingMode !== "custom") ||
@@ -112,6 +115,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
   }
 
   return {
+    phoneNumber: payload.phoneNumber,
     bookingMode: payload.bookingMode,
     startDatetime: payload.startDatetime,
     endDatetime: payload.endDatetime,
@@ -311,6 +315,7 @@ export async function POST(request: Request) {
     }, packageSchedule.rates);
     const totalAmount = pricing.total;
 
+    await saveGuestBookingPhone(supabase, user.id, payload.phoneNumber);
     const reservationReference = await generateReferenceNumber(supabase);
 
     if (!reservationReference) {
@@ -441,6 +446,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof GuestBookingPhoneError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "RATES_CHANGED" : "RATES_UNAVAILABLE" }, { status: error.status });
     if (reservationId) {
       const supabase = await createClient();

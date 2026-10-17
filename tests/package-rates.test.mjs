@@ -144,6 +144,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
         select: () => query, eq: () => query, in: () => query, ilike: () => query, limit: () => query,
         insert: payload => { operation = "insert"; writes.push({ table, payload }); return query; },
         upsert: payload => { operation = "upsert"; writes.push({ table, payload }); return query; },
+        update: payload => { operation = "update"; writes.push({ table, payload }); return query; },
         delete: () => { operation = "delete"; writes.push({ table, operation }); return query; },
         maybeSingle: async () => result(), single: async () => result(),
         then: (resolve, reject) => Promise.resolve(result()).then(resolve, reject),
@@ -161,7 +162,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
   const { LEGAL_POLICY_VERSION } = loadTsModule("lib/legal/policies.ts");
   return { writes, save: (overrides = {}) => route.POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({
     bookingMode: "day", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00",
-    unitId: "unit", adultCount: 22, childCount: 0, packageRateVersion: 2, bookingPolicyVersion: 1,
+    unitId: "unit", adultCount: 22, childCount: 0, packageRateVersion: 2, bookingPolicyVersion: 1, phoneNumber: "09171234567",
     ...(manual ? { guestType: "walk_in", walkInGuest: { firstName: "Test", lastName: "Guest", email: "test@example.com", phoneNumber: "09123456789", address: "Test address" } } : {}),
     acceptedPoliciesVersion: LEGAL_POLICY_VERSION, ...overrides,
   }) })) };
@@ -240,4 +241,41 @@ test("manual booking rejects existing accounts including a registered email pass
   const h=bookingHarness({manual:true,registered:true});const response=await h.save();assert.equal(response.status,409);assert.equal(h.writes.length,0);
   assert.match((await response.json()).message,/already has a guest account/);
   const denied=bookingHarness({manual:true,permitted:false});assert.equal((await denied.save()).status,403);assert.equal(denied.writes.length,0);
+});
+
+test("manual API accepts ongoing and imminent slots, keeps online lead time and rejects ended staff entries", async () => {
+  const originalNow = Date.now;
+  Date.now = () => Date.parse("2027-06-14T12:00:00+08:00");
+  try {
+    const ongoing = bookingHarness({ manual: true });
+    assert.equal((await ongoing.save()).status, 201);
+    assert.equal(ongoing.writes.find(write => write.table === "reservations").payload.start_datetime, "2027-06-14T08:00:00+08:00");
+    const online = bookingHarness();
+    assert.equal((await online.save({ booking_type: "walk_in" })).status, 400);
+    assert.equal(online.writes.length, 0);
+    const times = structuredClone(DEFAULT_PACKAGE_TIMES);
+    times.day = { start: "12:15", end: "16:00", endDayOffset: 0 };
+    const imminent = bookingHarness({ manual: true, times });
+    assert.equal((await imminent.save({ startDatetime: "2027-06-14T12:15:00+08:00" })).status, 201);
+    const onlineSoon = bookingHarness({ times });
+    assert.equal((await onlineSoon.save({ startDatetime: "2027-06-14T12:15:00+08:00" })).status, 400);
+    assert.equal(onlineSoon.writes.length, 0);
+    Date.now = () => Date.parse("2027-06-14T16:00:00+08:00");
+    const ended = bookingHarness({ manual: true });
+    assert.equal((await ended.save()).status, 400);
+    assert.equal(ended.writes.length, 0);
+  } finally { Date.now = originalNow; }
+});
+
+test("guest booking and manual entry reject malformed contact numbers before creating any records", async () => {
+  for (const phone of ["1234567", "+649171234567", "+6309171234567", "0917ABC4567"]) {
+    const guest = bookingHarness(); assert.equal((await guest.save({ phoneNumber: phone })).status, 400); assert.equal(guest.writes.length, 0);
+    const staff = bookingHarness({ manual: true });
+    assert.equal((await staff.save({ walkInGuest: { firstName: "Test", lastName: "Guest", email: "test@example.com", address: "Taytay", phoneNumber: phone } })).status, 400);
+    assert.equal(staff.writes.length, 0);
+  }
+  const guest = bookingHarness(); assert.equal((await guest.save({ phoneNumber: "0917-123-4567" })).status, 201);
+  assert.deepEqual(guest.writes.find(write => write.table === "guests").payload, { phone_number: "+639171234567" });
+  const staff = bookingHarness({ manual: true }); assert.equal((await staff.save()).status, 201);
+  assert.equal(staff.writes.find(write => write.table === "walk_in_guests").payload.phone_number, "+639123456789");
 });

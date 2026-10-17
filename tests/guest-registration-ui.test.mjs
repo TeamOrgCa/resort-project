@@ -47,6 +47,7 @@ test("already registered email shows recovery links, keeps the form and allows r
   const { container } = h;
   try {
     await h.submit();
+    assert.equal(requests[0].body.phoneNumber, "+639171234567");
     const alert = popup(); assert.match(alert.textContent, /already registered/);
     assert.equal(container.contains(alert), false); assert.match(alert.parentElement.className, /fixed inset-0/);
     assert.equal(alert.getAttribute("aria-modal"), "true"); assert.equal(document.body.style.overflow, "hidden");
@@ -92,4 +93,15 @@ test("validation and network failures are visible in popups and retain the form 
     assert.match(popup().textContent, /Unable to connect to the server/); assert.equal(requests, 1);
     assert.equal(h.container.querySelector('[name="email"]').value, "guest@example.com");
   } finally { await h.close(); assert.equal(document.body.style.overflow, ""); }
+});
+
+test("registration rejects an invalid mobile contact before calling the server", async () => {
+  let requests = 0;
+  const h = await mount(async () => { requests++; return Response.json({ success: true }); });
+  try {
+    await input(h.container, "phoneNumber", "+6309171234567"); await h.submit();
+    assert.equal(requests, 0);
+    assert.match(popup().textContent, /valid Philippine mobile number/);
+    assert.equal(h.container.querySelector('[name="phoneNumber"]').value, "+6309171234567");
+  } finally { await h.close(); }
 });

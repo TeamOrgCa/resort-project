@@ -10,6 +10,8 @@ import { hasPermission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { useModuleTab } from "@/lib/admin/use-module-tab";
 import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
+import RecordDialog from "@/components/manage/RecordDialog";
+import ReservationRecordDetails from "@/components/admin/ReservationRecordDetails";
 
 const tabs = ["Reservation Records", "Reschedule Requests", "Ocular Visit Records"] as const;
 const reservationColumns: AdminTableColumn[] = [
@@ -34,6 +36,7 @@ const dateOnly = (value: string | null) => value ? new Date(value).toLocaleDateS
 const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 type Guest = { id: string; first_name: string; last_name: string };
+type WalkInGuest = Omit<Guest, "id"> & { walk_in_guest_id: string };
 
 export default function AdminRecordsPage() {
   const [activeTab, setActiveTab] = useModuleTab<(typeof tabs)[number]>("Reservation Records", {
@@ -49,6 +52,7 @@ export default function AdminRecordsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [canApproveReschedules, setCanApproveReschedules] = useState(false);
   const [canApproveOcular, setCanApproveOcular] = useState(false);
+  const [selectedReservation, setSelectedReservation] = useState<AdminTableRow | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -56,7 +60,7 @@ export default function AdminRecordsPage() {
       try {
         const supabase = createClient();
         const [{ data: reservationData, error: reservationError }, { data: rescheduleData, error: rescheduleError }, { data: ocularData, error: ocularError }, { data: slotData, error: slotError }] = await Promise.all([
-          fetchAllPages((from, to) => supabase.from("reservations").select("reservation_id, reference_number, guest_id, start_datetime, end_datetime, adult_count, child_count, status, created_at").order("created_at", { ascending: false }).order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
+          fetchAllPages((from, to) => supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, created_at").order("created_at", { ascending: false }).order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
           fetchAllPages((from, to) => supabase.from("reservation_reschedules").select("reschedule_id, reservation_id, requested_by, old_start, old_end, new_start, new_end, reschedule_fee, rate_adjustment, status, created_at").order("created_at", { ascending: false }).order("reschedule_id").range(from, to)).then(data => ({ data, error: null })),
           fetchAllPages((from, to) => supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, time_slot_id, status, created_at").order("created_at", { ascending: false }).order("visit_id").range(from, to)).then(data => ({ data, error: null })),
           supabase.from("ocular_time_slots").select("slot_id, start_time, end_time"),
@@ -64,14 +68,25 @@ export default function AdminRecordsPage() {
         if (reservationError || rescheduleError || ocularError || slotError) throw reservationError ?? rescheduleError ?? ocularError ?? slotError;
         const reservationRows = (reservationData as Array<Record<string, string | number | null>> | null) ?? [];
         const guestIds = [...new Set([...reservationRows, ...((ocularData as Array<Record<string, string | number | null>> | null) ?? []), ...((rescheduleData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ guest_id: row.requested_by }))].map((row) => String(row.guest_id ?? "")).filter(Boolean))];
-        const guestData = await fetchByIds<Guest>(guestIds, (ids, from, to) => supabase.from("guests")
-          .select("id, first_name, last_name").in("id", ids).order("id").range(from, to));
+        const walkInIds = reservationRows.map(row => String(row.walk_in_guest_id ?? "")).filter(Boolean);
+        const [guestData, walkInData] = await Promise.all([
+          fetchByIds<Guest>(guestIds, (ids, from, to) => supabase.from("guests")
+            .select("id, first_name, last_name").in("id", ids).order("id").range(from, to)),
+          fetchByIds<WalkInGuest>(walkInIds, (ids, from, to) => supabase.from("walk_in_guests")
+            .select("walk_in_guest_id, first_name, last_name").in("walk_in_guest_id", ids).order("walk_in_guest_id").range(from, to)),
+        ]);
         if (!mounted) return;
         const guestMap = ((guestData as Guest[] | null) ?? []).reduce<Record<string, Guest>>((map, guest) => ({ ...map, [guest.id]: guest }), {});
+        const walkInMap = Object.fromEntries(walkInData.map(guest => [guest.walk_in_guest_id, guest]));
+        const reservationMap = Object.fromEntries(reservationRows.map(row => [String(row.reservation_id), row]));
+        const reservationGuestName = (row: (typeof reservationRows)[number]) => {
+          const profile = guestMap[String(row.guest_id ?? "")] ?? walkInMap[String(row.walk_in_guest_id ?? "")];
+          return profile ? `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim() || "Guest profile unavailable" : "Guest profile unavailable";
+        };
         const guestName = (id: string | number | null) => guestMap[String(id ?? "")] ? `${guestMap[String(id)].first_name} ${guestMap[String(id)].last_name}` : "-";
-        setReservations(reservationRows.map((row) => ({ id: String(row.reservation_id), reference: String(row.reference_number), guest: guestName(row.guest_id), checkIn: dateTime(String(row.start_datetime)), checkOut: dateTime(String(row.end_datetime)), guests: String(Number(row.adult_count ?? 0) + Number(row.child_count ?? 0)), status: titleCase(String(row.status ?? "")) })));
+        setReservations(reservationRows.map((row) => ({ id: String(row.reservation_id), reference: String(row.reference_number), guest: reservationGuestName(row), checkIn: dateTime(String(row.start_datetime)), checkOut: dateTime(String(row.end_datetime)), guests: String(Number(row.adult_count ?? 0) + Number(row.child_count ?? 0)), status: titleCase(String(row.status ?? "")) })));
         const reservationReference = reservationRows.reduce<Record<string, string>>((map, row) => ({ ...map, [String(row.reservation_id)]: String(row.reference_number) }), {});
-        setReschedules((((rescheduleData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.reschedule_id), reference: reservationReference[String(row.reservation_id)] ?? "-", guest: guestName(row.requested_by), oldDates: `${dateTime(String(row.old_start))} - ${dateTime(String(row.old_end))}`, newDates: `${dateTime(String(row.new_start))} - ${dateTime(String(row.new_end))}`, additionalCharge: `₱${(Number(row.reschedule_fee ?? 0) + Number(row.rate_adjustment ?? 0)).toFixed(2)}`, status: titleCase(String(row.status ?? "")), requestedAt: dateTime(String(row.created_at)) }))));
+        setReschedules((((rescheduleData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.reschedule_id), reference: reservationReference[String(row.reservation_id)] ?? "-", guest: reservationMap[String(row.reservation_id)] ? reservationGuestName(reservationMap[String(row.reservation_id)]) : guestName(row.requested_by), oldDates: `${dateTime(String(row.old_start))} - ${dateTime(String(row.old_end))}`, newDates: `${dateTime(String(row.new_start))} - ${dateTime(String(row.new_end))}`, additionalCharge: `₱${(Number(row.reschedule_fee ?? 0) + Number(row.rate_adjustment ?? 0)).toFixed(2)}`, status: titleCase(String(row.status ?? "")), requestedAt: dateTime(String(row.created_at)) }))));
         const slots = Object.fromEntries(((slotData as Array<{ slot_id: string; start_time: string; end_time: string }> | null) ?? []).map((slot) => [slot.slot_id, `${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)}`]));
         setOcularVisits((((ocularData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.visit_id), reference: String(row.reference_number), guest: guestName(row.guest_id), scheduledDate: dateOnly(String(row.scheduled_date)), timeSlot: slots[String(row.time_slot_id)] ?? "-", status: titleCase(String(row.status ?? "")), createdAt: dateTime(String(row.created_at)) }))));
         const { data: { user } } = await supabase.auth.getUser();
@@ -137,11 +152,14 @@ export default function AdminRecordsPage() {
           showResetFilters
           defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule Requests" ? "requestedAt" : "scheduledDate", direction: "desc" }}
           filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
-          rowActions={activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" && canApproveOcular ? ["Approve", "Reject"] : []}
-          onRowAction={(action, row) => void review(action as "Approve" | "Reject", row)}
-          isRowActionDisabled={(_action, row) => Boolean(busyId) || row.status !== "Pending"}
+          rowActions={activeTab === "Reservation Records" ? ["View"] : activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" && canApproveOcular ? ["Approve", "Reject"] : []}
+          onRowAction={(action, row) => { if (action === "View") setSelectedReservation(row); else void review(action as "Approve" | "Reject", row); }}
+          isRowActionDisabled={(action, row) => action === "View" ? false : Boolean(busyId) || row.status !== "Pending"}
         />
       </section>
+      {selectedReservation && <RecordDialog variant="admin" title="Reservation record" reference={selectedReservation.reference} busy={false} onClose={() => setSelectedReservation(null)}>
+        <ReservationRecordDetails key={selectedReservation.id} reservationId={selectedReservation.id} />
+      </RecordDialog>}
     </div>
   );
 }

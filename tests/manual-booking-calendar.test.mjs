@@ -183,10 +183,33 @@ test("a stale availability response cannot overwrite a newer refresh",async()=>{
 
 async function fillGuest(c) {
   for (const [label,next] of Object.entries({ "First name":"Test", "Last name":"Guest", Email:"walkin@example.com", Phone:"09123456789", Address:"Manila" })) {
-    const element=[...c.querySelectorAll("label")].find(item=>item.textContent===label)?.querySelector("input");
+    const fieldLabel=[...c.querySelectorAll("label")].find(item=>item.textContent===label);
+    const element=fieldLabel?.control??fieldLabel?.querySelector("input");
     assert.ok(element,label);await input(element,next);
   }
 }
+
+test("manual entry blocks invalid phone numbers and saves valid contacts with the country code", async () => {
+  const h = await mount();
+  try {
+    const c = h.container;
+    await click(c.querySelector('[aria-label="Next month"]'));
+    await click(c.querySelector("[data-date]")); await fillGuest(c);
+    const phone = c.querySelector("#walk-in-phone");
+    assert.match(phone.parentElement.textContent, /\+63/);
+    for (const value of ["0917abc4567", "+649171234567", "+63 917 123 4567"]) {
+      await input(phone, value);
+      await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+      if (value === "+63 917 123 4567") {
+        assert.equal(h.requests.length, 1);
+        assert.equal(h.requests[0].body.walkInGuest.phoneNumber, "+639171234567");
+      } else {
+        assert.equal(h.requests.length, 0);
+        assert.match(c.textContent, /valid Philippine mobile number/);
+      }
+    }
+  } finally { await h.close(); }
+});
 
 
 test("manual booking labels and submitted windows follow edited catalog time slots", async () => {
@@ -231,4 +254,41 @@ test("an independently edited whole-day slot remains selectable when day and nig
     assert.equal(h.requests[0].body.wholeDayVariant, "day_to_night");
     assert.equal(h.requests[0].body.startDatetime, date + "T06:00:00.000Z");
   } finally { await h.close(); }
+});
+
+test("staff can select and submit today's ongoing package without changing its scheduled start", async () => {
+  const originalNow = Date.now;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  Date.now = () => Date.parse(today + "T12:00:00+08:00");
+  let h;
+  try {
+    h = await mount();
+    const c = h.container;
+    await click(c.querySelector(`[data-date="${today}"]`));
+    const dayOption = [...c.querySelectorAll("label")].find(label => label.textContent.startsWith("Booking package")).querySelector('option[value="day"]');
+    assert.equal(dayOption.disabled, false);
+    assert.doesNotMatch(c.textContent, /Choose a start time at least 30 minutes/);
+    await select(c, "Booking package", "day"); await fillGuest(c);
+    await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.requests[0].body.startDatetime, today + "T00:00:00.000Z");
+    assert.equal(h.requests[0].body.endDatetime, today + "T08:00:00.000Z");
+  } finally { if (h) await h.close(); Date.now = originalNow; }
+});
+
+test("staff cannot select or submit today's fully ended package", async () => {
+  const originalNow = Date.now;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  Date.now = () => Date.parse(today + "T16:00:00+08:00");
+  let h;
+  try {
+    h = await mount();
+    const c = h.container;
+    const dayOption = [...c.querySelectorAll("label")].find(label => label.textContent.startsWith("Booking package")).querySelector('option[value="day"]');
+    assert.equal(dayOption.disabled, true);
+    await fillGuest(c);
+    await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(h.requests.length, 0);
+    assert.match(c.textContent, /has not ended/);
+  } finally { if (h) await h.close(); Date.now = originalNow; }
 });

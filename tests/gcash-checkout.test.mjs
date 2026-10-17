@@ -4,7 +4,7 @@ import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
 const guest = "11111111-1111-4111-8111-111111111111";
 const account = "22222222-2222-4222-8222-222222222222";
-const body = { bookingMode: "day", packageRateVersion: 1, startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
+const body = { bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
   payment: { paymentMethodId: "gcash", receivingAccountId: account, type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guest}/proof.png` } };
 function harness({ status = "consistent", method = "GCash", insertError = null, notificationFails = false } = {}) {
   const writes = [], inspected = [], accountFilters = [];
@@ -19,6 +19,7 @@ function harness({ status = "consistent", method = "GCash", insertError = null, 
       const query = { select: () => query, eq: (field, value) => { if (table === "payment_accounts") accountFilters.push({ field, value }); return query; }, not: () => query, order: () => query, limit: () => query,
         insert: payload => { operation = "insert"; writes.push({ table, operation, payload }); return query; },
         upsert: payload => { operation = "upsert"; writes.push({ table, operation, payload }); return query; },
+        update: payload => { operation = "update"; writes.push({ table, operation, payload }); return query; },
         delete: () => { operation = "delete"; writes.push({ table, operation }); return query; },
         maybeSingle: async () => result(), single: async () => result(), then: (resolve, reject) => Promise.resolve(result()).then(resolve, reject) };
       return query;
@@ -48,6 +49,16 @@ test("legacy checkout uses the displayed recipient account, server minimum and a
   const payment = h.writes.find(w => w.table === "payments").payload;
   assert.equal(payment.amount, 1500); assert.equal(payment.reference_number, "1234567890123"); assert.equal(payment.receipt_paid_at, "2026-10-13T01:00:00Z");
   assert.equal((await response.json()).payment.amount, 1500);
+});
+
+test("legacy checkout rejects alphanumeric GCash references without reading a receipt or creating records", async () => {
+  for (const referenceNumber of ["ABC1234567890123", "123456789012A", "1e12345678"]) {
+    const h = harness();
+    const response = await h.post({ ...body, payment: { ...body.payment, referenceNumber } });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).message, /numeric GCash reference/);
+    assert.equal(h.inspected.length, 0); assert.equal(h.writes.length, 0);
+  }
 });
 test("reference reuse cleans up only the newly created reservation and returns conflict", async () => {
   const h = harness({ insertError: { code: "23505", message: "Reference used" } });

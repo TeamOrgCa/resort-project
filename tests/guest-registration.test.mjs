@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateGuestRegistration } from "../lib/auth/guest-registration.ts";
+import { loadTsModule } from "./helpers/load-ts-module.mjs";
+const { validateGuestRegistration } = loadTsModule("lib/auth/guest-registration.ts");
 
 const valid = {
   firstName: "  María  ", lastName: "Dela Cruz", middleName: "",

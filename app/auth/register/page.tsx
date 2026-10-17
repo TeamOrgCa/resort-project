@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { sanitizeName } from "@/lib/helper/validation";
 import { validateGuestRegistration } from "@/lib/auth/guest-registration";
 import FormErrorDialog from "@/components/ui/FormErrorDialog";
+import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 
 export default function Register() {
   const router = useRouter();
@@ -61,9 +62,6 @@ export default function Register() {
     if (name === "firstName" || name === "lastName" || name === "middleName") {
       value = sanitizeName(value);
     }
-    if (name === "phoneNumber") {
-      value = `${value.startsWith("+") ? "+" : ""}${value.replace(/\D/g, "")}`.slice(0, 16);
-    }
     setFormData((previous) => ({ ...previous, [name]: value }));
     if (name === "email" && emailAlreadyRegistered) { setError(""); setEmailAlreadyRegistered(false); }
   };
@@ -74,7 +72,7 @@ export default function Register() {
     setError("");
     setEmailAlreadyRegistered(false);
     const validation = validateGuestRegistration(formData);
-    if (validation.error) {
+    if (!validation.value) {
       setError(validation.error);
       setErrorOpen(true);
       return;
@@ -85,7 +83,7 @@ export default function Register() {
       const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, phoneNumber: validation.value.phoneNumber }),
       });
       const result = (await response.json()) as { success?: boolean; message?: string; code?: string; needsEmailConfirmation?: boolean; confirmationEmailSent?: boolean };
       if (!response.ok || !result.success) {
@@ -237,20 +235,8 @@ export default function Register() {
                   <label htmlFor="phoneNumber" className="block text-sm font-medium text-neutral mb-2">
                     Phone Number *
                   </label>
-                  <input
-                    type="tel"
-                    id="phoneNumber"
-                    name="phoneNumber"
-                    value={formData.phoneNumber}
-                    onChange={handleChange}
-                    required
-                    inputMode="tel"
-                    maxLength={16}
-                    pattern="[+]?[0-9]{7,15}"
-                    title="Use 7 to 15 digits, optionally starting with +"
-                    className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="+63 XXX XXX XXXX"
-                  />
+                  <PhilippinePhoneInput id="phoneNumber" name="phoneNumber" value={formData.phoneNumber}
+                    onChange={phoneNumber => setFormData(current => ({ ...current, phoneNumber }))} />
                 </div>
 
                 <div>

@@ -1,3 +1,5 @@
+import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
+
 export type GuestRegistration = {
   firstName: string;
   lastName: string;
@@ -33,11 +35,8 @@ export function validateGuestRegistration(input: unknown):
     return { error: "Please enter a valid email address." };
   }
 
-  if (typeof fields.phoneNumber !== "string") return { error: "Please enter a valid phone number." };
-  const phoneNumber = fields.phoneNumber.trim();
-  if (!/^\+?\d{7,15}$/.test(phoneNumber)) {
-    return { error: "Phone number must contain 7 to 15 digits, with an optional leading +." };
-  }
+  const phoneNumber = normalizePhilippineMobile(fields.phoneNumber);
+  if (!phoneNumber) return { error: PH_MOBILE_ERROR };
 
   if (typeof fields.address !== "string") return { error: "Please enter your address." };
   const address = fields.address.trim();
