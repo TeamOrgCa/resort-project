@@ -10,8 +10,9 @@ globalThis.HTMLElement = dom.window.HTMLElement; globalThis.IS_REACT_ACT_ENVIRON
 const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 const id = "11111111-1111-4111-8111-111111111111", walkId = "22222222-2222-4222-8222-222222222222";
-async function mount({ failProfiles = false, detailFails = false } = {}) {
+async function mount({ failProfiles = false, detailFails = false, reviewable = false } = {}) {
   const originalFetch = globalThis.fetch, reads = [], requests = []; let failDetail = detailFails;
+  const state = { reviewError: false, deferReview: null };
   const r = { reservation_id: id, reference_number: "MV-WALKIN", guest_id: null, walk_in_guest_id: walkId,
     start_datetime: "2027-06-14T08:00:00+08:00", end_datetime: "2027-06-14T16:00:00+08:00", adult_count: 20, child_count: 2,
     status: "completed", created_at: "2027-06-01T08:00:00+08:00", booking_type: "walk_in", booking_mode: "day",
@@ -24,6 +25,12 @@ async function mount({ failProfiles = false, detailFails = false } = {}) {
     reservation_reschedules: [{ reschedule_id: "reschedule", reservation_id: id, requested_by: null, old_start: r.start_datetime, old_end: r.end_datetime, new_start: r.start_datetime, new_end: r.end_datetime, reschedule_fee: 50, rate_adjustment: 0, status: "approved", created_at: r.created_at }],
     ocular_visits: [], ocular_time_slots: [], staff_users: [{ id: "staff", role: "staff" }], role_permissions: [{ role: "staff", permissions: ["records"] }],
   };
+  if (reviewable) {
+    data.reservation_reschedules[0].status = "pending";
+    data.ocular_visits.push({ visit_id: "visit", reference_number: "MV-VISIT", guest_id: walkId, scheduled_date: "2027-06-14", time_slot_id: "slot", status: "pending", created_at: r.created_at });
+    data.ocular_time_slots.push({ slot_id: "slot", start_time: "09:00", end_time: "10:00" });
+    data.role_permissions[0].permissions.push("reschedule_approval", "ocular_approval");
+  }
   const client = { auth: { getUser: async () => ({ data: { user: { id: "staff" } } }) }, from(table) {
     const predicates = []; let fields = null, range = null;
     reads.push({ table });
@@ -41,6 +48,16 @@ async function mount({ failProfiles = false, detailFails = false } = {}) {
     return q;
   } };
   globalThis.fetch = async (url, options) => {
+    if (options?.method === "POST") {
+      requests.push({ url, method: "POST", body: JSON.parse(options.body) });
+      const finish = () => {
+        if (state.reviewError) return Response.json({ success: false, message: "Review could not be saved. Please retry." }, { status: 503 });
+        const ocular = url.includes("ocular-visits"), approval = url.endsWith("/approve");
+        (ocular ? data.ocular_visits[0] : data.reservation_reschedules[0]).status = approval ? (ocular ? "confirmed" : "approved") : "rejected";
+        return Response.json({ success: true, message: "Review saved." });
+      };
+      return state.deferReview ? state.deferReview(finish) : finish();
+    }
     requests.push({ url, method: options?.method ?? "GET" });
     if (failDetail) return Response.json({ message: "Unable to load this reservation record. Please retry." }, { status: 503 });
     return Response.json({ detail: { reservation: r, guest,
@@ -53,7 +70,7 @@ async function mount({ failProfiles = false, detailFails = false } = {}) {
   }).default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(createElement(Component)));
-  return { container, reads, requests, allowDetail: () => { failDetail = false; }, async close() {
+  return { container, reads, requests, state, allowDetail: () => { failDetail = false; }, async close() {
     await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch;
   } };
 }
@@ -97,5 +114,75 @@ test("profile and detail failures show errors, and details can be retried", asyn
     assert.match(dialog.textContent, /Unable to load this reservation record/);
     h.allowDetail(); await click([...dialog.querySelectorAll("button")].find(button => button.textContent === "Retry details"));
     assert.match(dialog.textContent, /Maria Walkin/);
+  } finally { await h.close(); }
+});
+
+const button = (container, text) => [...container.querySelectorAll("button")].find(button => button.textContent.trim() === text);
+async function typeReason(dialog, value) {
+  const input = dialog.querySelector("textarea");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(input, value);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+}
+
+test("record approval and rejection use custom dialogs with reasons and explicit confirmation", async () => {
+  const originalPrompt = window.prompt, originalConfirm = window.confirm;
+  window.prompt = window.confirm = () => { assert.fail("Native dialogs must not be used"); };
+  try {
+    for (const ocular of [false, true]) for (const action of ["Approve", "Reject"]) {
+      const h = await mount({ reviewable: true });
+      try {
+        await click(button(h.container.querySelector('[aria-label="Record sections"]'), ocular ? "Ocular Visit Records" : "Reschedule Requests"));
+        await click(button(row(h.container, ocular ? "MV-VISIT" : "MV-WALKIN"), action));
+        const dialog = document.querySelector('[role="dialog"]'); assert.ok(dialog);
+        assert.match(dialog.textContent, new RegExp(`${action} ${ocular ? "ocular visit" : "reschedule request"}`));
+        assert.match(dialog.textContent, ocular ? /09:00/ : /Additional charge/);
+        const confirm = button(dialog, action === "Approve" ? "Confirm approval" : "Confirm rejection");
+        if (ocular || action === "Reject") {
+          assert.equal(confirm.disabled, true);
+          await typeReason(dialog, "   "); assert.equal(confirm.disabled, true);
+          if (ocular) { await typeReason(dialog, "abcd"); assert.equal(confirm.disabled, true); }
+          await typeReason(dialog, "  Schedule reviewed with guest.  ");
+        } else assert.equal(dialog.querySelector("textarea"), null);
+        assert.equal(h.requests.length, 0);
+        await click(confirm);
+        assert.equal(document.querySelector('[role="dialog"]'), null);
+        assert.deepEqual(h.requests, [{ url: `/api/admin/${ocular ? "ocular-visits" : "reschedule-requests"}/${action.toLowerCase()}`, method: "POST",
+          body: ocular ? { visitId: "visit", reviewReason: "Schedule reviewed with guest." }
+            : { rescheduleId: "reschedule", ...(action === "Reject" ? { rejectionReason: "Schedule reviewed with guest." } : {}) } }]);
+        assert.match(h.container.textContent, /Review saved/);
+      } finally { await h.close(); }
+    }
+  } finally { window.prompt = originalPrompt; window.confirm = originalConfirm; }
+});
+
+test("review dialogs cancel without saving and retain reasons on failure; pending saves block duplicate submissions and dismissal", async () => {
+  const h = await mount({ reviewable: true }); let release;
+  try {
+    await click(button(h.container.querySelector('[aria-label="Record sections"]'), "Ocular Visit Records"));
+    const open = () => click(button(row(h.container, "MV-VISIT"), "Reject"));
+    await open(); await typeReason(document.querySelector('[role="dialog"]'), "Old reason");
+    await click(button(document.querySelector('[role="dialog"]'), "Cancel"));
+    assert.equal(document.querySelector('[role="dialog"]'), null); assert.equal(h.requests.length, 0);
+    await open();
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.equal(dialog.querySelector("textarea").value, "");
+    await typeReason(dialog, "Schedule is unavailable.");
+    h.state.reviewError = true;
+    await click(button(dialog, "Confirm rejection"));
+    assert.match(dialog.querySelector('[role="alert"]').textContent, /Review could not be saved/);
+    assert.equal(dialog.querySelector("textarea").value, "Schedule is unavailable.");
+    h.state.reviewError = false;
+    h.state.deferReview = finish => new Promise(resolve => { release = () => resolve(finish()); });
+    await click(button(dialog, "Confirm rejection"));
+    assert.equal(button(dialog, "Saving...").disabled, true);
+    assert.equal(dialog.querySelector("fieldset").disabled, true);
+    await act(async () => {
+      dialog.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+      document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    assert.equal(h.requests.length, 2); assert.equal(document.querySelector('[role="dialog"]'), dialog);
+    await act(async () => release()); assert.equal(document.querySelector('[role="dialog"]'), null);
   } finally { await h.close(); }
 });

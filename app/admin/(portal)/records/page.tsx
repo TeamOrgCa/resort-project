@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTabs from "@/components/admin/AdminTabs";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
@@ -37,6 +37,7 @@ const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (
 
 type Guest = { id: string; first_name: string; last_name: string };
 type WalkInGuest = Omit<Guest, "id"> & { walk_in_guest_id: string };
+type RecordReview = { action: "Approve" | "Reject"; row: AdminTableRow; isOcular: boolean };
 
 export default function AdminRecordsPage() {
   const [activeTab, setActiveTab] = useModuleTab<(typeof tabs)[number]>("Reservation Records", {
@@ -53,6 +54,10 @@ export default function AdminRecordsPage() {
   const [canApproveReschedules, setCanApproveReschedules] = useState(false);
   const [canApproveOcular, setCanApproveOcular] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState<AdminTableRow | null>(null);
+  const [selectedReview, setSelectedReview] = useState<RecordReview | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const submittingReview = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -110,13 +115,22 @@ export default function AdminRecordsPage() {
     return () => { mounted = false; };
   }, [refreshKey]);
 
-  const review = async (action: "Approve" | "Reject", row: AdminTableRow) => {
-    const isOcular = activeTab === "Ocular Visit Records";
-    const rejectionReason = isOcular || action === "Reject" ? window.prompt(isOcular ? `Reason for ${action === "Approve" ? "approving" : "rejecting"} this ocular visit (5-2000 characters):` : "Reason for rejecting this reschedule request:")?.trim() : null;
-    if (isOcular && (!rejectionReason || rejectionReason.length < 5 || rejectionReason.length > 2000)) return;
-    if (action === "Reject" && !rejectionReason) return;
-    if (action === "Approve" && !window.confirm(`Approve ${isOcular ? "ocular visit" : "reschedule request"} ${row.reference}?${isOcular ? "" : ` Additional charge: ${row.additionalCharge}.`}`)) return;
+  const openReview = (action: "Approve" | "Reject", row: AdminTableRow) => {
+    setSelectedReview({ action, row, isOcular: activeTab === "Ocular Visit Records" });
+    setReviewReason("");
+    setReviewError(null);
+  };
+  const closeReview = () => { if (!submittingReview.current) setSelectedReview(null); };
+  const needsReason = selectedReview?.isOcular || selectedReview?.action === "Reject";
+  const validReason = !needsReason || (reviewReason.trim().length >= (selectedReview?.isOcular ? 5 : 1) && reviewReason.trim().length <= 2000);
+
+  const review = async () => {
+    if (!selectedReview || submittingReview.current || !validReason) return;
+    const { action, row, isOcular } = selectedReview;
+    const rejectionReason = needsReason ? reviewReason.trim() : null;
+    submittingReview.current = true;
     setBusyId(row.id);
+    setReviewError(null);
     setError(null);
     setMessage(null);
     try {
@@ -127,10 +141,12 @@ export default function AdminRecordsPage() {
       const result = await response.json() as { success?: boolean; message?: string };
       if (!response.ok || !result.success) throw new Error(result.message ?? "Unable to review request.");
       setMessage(result.message ?? "Review saved.");
+      setSelectedReview(null);
       setRefreshKey((current) => current + 1);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to review request.");
+      setReviewError(cause instanceof Error ? cause.message : "Unable to review request.");
     } finally {
+      submittingReview.current = false;
       setBusyId(null);
     }
   };
@@ -153,10 +169,35 @@ export default function AdminRecordsPage() {
           defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule Requests" ? "requestedAt" : "scheduledDate", direction: "desc" }}
           filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
           rowActions={activeTab === "Reservation Records" ? ["View"] : activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" && canApproveOcular ? ["Approve", "Reject"] : []}
-          onRowAction={(action, row) => { if (action === "View") setSelectedReservation(row); else void review(action as "Approve" | "Reject", row); }}
+          onRowAction={(action, row) => { if (action === "View") setSelectedReservation(row); else openReview(action as "Approve" | "Reject", row); }}
           isRowActionDisabled={(action, row) => action === "View" ? false : Boolean(busyId) || row.status !== "Pending"}
         />
       </section>
+      {selectedReview && <RecordDialog variant="admin" title={`${selectedReview.action} ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}`} reference={selectedReview.row.reference} busy={Boolean(busyId)} onClose={closeReview}>
+        <form className="space-y-5" onSubmit={event => { event.preventDefault(); void review(); }}>
+          <dl className="grid gap-3 rounded-xl border border-neutral/10 bg-base p-4 text-sm sm:grid-cols-2">
+            {[
+              ["Guest", selectedReview.row.guest],
+              ...(selectedReview.isOcular
+                ? [["Scheduled date", selectedReview.row.scheduledDate], ["Time", selectedReview.row.timeSlot]]
+                : [["Original schedule", selectedReview.row.oldDates], ["Requested schedule", selectedReview.row.newDates], ["Additional charge", selectedReview.row.additionalCharge]]),
+            ].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="mt-1 font-medium text-neutral">{value}</dd></div>)}
+          </dl>
+          <p className="text-sm text-neutral/75">{selectedReview.action === "Approve"
+            ? `Confirm approval of this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}.`
+            : `Confirm rejection of this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}. The reason will be shared with the guest.`}</p>
+          {needsReason && <label className="block text-sm font-medium text-neutral">
+            {selectedReview.isOcular ? "Review reason" : "Rejection reason"} <span className="text-red-700">(required)</span>
+            <textarea name="reviewReason" required minLength={selectedReview.isOcular ? 5 : 1} maxLength={2000} rows={4} value={reviewReason} onChange={event => setReviewReason(event.target.value)} aria-describedby="record-review-reason-help" className="admin-field mt-2 w-full" placeholder={`Explain why this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"} should be ${selectedReview.action === "Approve" ? "approved" : "rejected"}.`} />
+            <span id="record-review-reason-help" className="mt-1 block text-xs font-normal text-neutral/60">{selectedReview.isOcular ? "Enter 5 to 2,000 characters. " : "Enter up to 2,000 characters. "}This reason will be shared with the guest.</span>
+          </label>}
+          {reviewError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{reviewError}</p>}
+          <div className="flex flex-wrap justify-end gap-3">
+            <button type="button" onClick={closeReview} disabled={Boolean(busyId)} className="admin-button-secondary">Cancel</button>
+            <button type="submit" disabled={Boolean(busyId) || !validReason} className={selectedReview.action === "Approve" ? "admin-button-primary" : "admin-button-secondary border-red-200 text-red-700 hover:bg-red-50"}>{busyId ? "Saving..." : selectedReview.action === "Approve" ? "Confirm approval" : "Confirm rejection"}</button>
+          </div>
+        </form>
+      </RecordDialog>}
       {selectedReservation && <RecordDialog variant="admin" title="Reservation record" reference={selectedReservation.reference} busy={false} onClose={() => setSelectedReservation(null)}>
         <ReservationRecordDetails key={selectedReservation.id} reservationId={selectedReservation.id} />
       </RecordDialog>}
