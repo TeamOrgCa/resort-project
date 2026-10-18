@@ -6,6 +6,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DEACTIVATED_GUEST_MESSAGE } from "@/lib/auth/guest-access";
 import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
+import PasswordInput from "@/components/ui/PasswordInput";
 
 function LoginContent() {
   const router = useRouter();
@@ -100,8 +101,7 @@ function LoginContent() {
               <label htmlFor="password" className="block text-sm font-medium text-neutral mb-2">
                 Password
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

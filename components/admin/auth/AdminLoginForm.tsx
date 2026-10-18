@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
+import PasswordInput from "@/components/ui/PasswordInput";
 
 interface LoginApiResponse {
   success: boolean;
@@ -87,9 +88,8 @@ export default function AdminLoginForm() {
         <label htmlFor="admin-password" className="mb-2 block text-sm font-medium text-neutral">
           Password
         </label>
-        <input
+        <PasswordInput
           id="admin-password"
-          type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
