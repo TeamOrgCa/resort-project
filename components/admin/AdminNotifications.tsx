@@ -2,7 +2,7 @@
 
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
@@ -66,7 +66,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
     const nextOpen = !isOpen;
     setIsOpen(nextOpen);
 
-    if (nextOpen && userId) {
+    if (nextOpen && userId && !notificationCenter) {
       await fetchNotifications(userId);
     }
   };
@@ -95,12 +95,19 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
     const { error } = await supabase
       .from("notifications")
       .update({ is_read: true })
+      .eq("recipient_role", role)
+      .eq("recipient_id", userId)
       .in("notification_id", unreadIds);
 
     if (!error) {
       setNotifications((prev) => prev.map((item) => ({ ...item, is_read: true })));
     }
   };
+
+  const readOpenedNotifications = useEffectEvent(() => { void markAllNotificationsRead(); });
+  useEffect(() => {
+    if (isOpen && !notificationsLoading) readOpenedNotifications();
+  }, [isOpen, notificationsLoading]);
 
   if (!userId) {
     return null;

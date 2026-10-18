@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import type { User } from "@supabase/supabase-js";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
 
@@ -140,7 +140,7 @@ export default function UserMenu() {
     }
     setIsOpen(nextOpen);
 
-    if (nextOpen && user) {
+    if (nextOpen && user && !notificationCenter) {
       await fetchNotifications(user);
     }
   };
@@ -214,6 +214,11 @@ export default function UserMenu() {
     } catch { setNotificationError("Could not mark notifications as read. Please try again."); }
     finally { setMarkingRead(false); }
   };
+
+  const readOpenedNotifications = useEffectEvent(() => { void markAllNotificationsRead(); });
+  useEffect(() => {
+    if (isOpen && !notificationsLoading) readOpenedNotifications();
+  }, [isOpen, notificationsLoading]);
 
   if (!user) {
     return (

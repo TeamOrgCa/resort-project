@@ -98,8 +98,8 @@ export default function NotificationCenter({ children }: { children: ReactNode }
   }, [supabase, key, revision]);
 
   const dismiss = (ids: string[]) => {
-    const next = [...new Set([...dismissedIds, ...ids])].slice(-200);
-    setDismissed(current => ({ ...current, [key]: next }));
+    const next = [...new Set([...dismissedInSession(key), ...dismissedIds, ...ids])].slice(-200);
+    setDismissed(current => ({ ...current, [key]: [...new Set([...(current[key] ?? []), ...next])].slice(-200) }));
     try { sessionStorage.setItem(storageKey(key), JSON.stringify(next)); } catch { /* Dismiss still works when browser storage is unavailable. */ }
   };
   const setPopupsEnabled = async (enabled: boolean) => {
