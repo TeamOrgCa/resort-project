@@ -54,6 +54,22 @@ test("OCR reads the Android layout with a full recipient phone and a spaced refe
   assert.equal(result.amount, 200); assert.equal(result.reference, "0046080000001"); assert.ok(result.paidAt);
 });
 
+test("Android JPEG reads a thin success check and tightly packed masked recipient digits", async () => {
+  const receipt = await androidSendMoneyReceiptImage({ amount: "100.00", phone: "+63 9•••••5095", date: "Oct 23, 2026 1:06 PM" });
+  const jpeg = await sharp(receipt).resize({ width: 904 }).jpeg({ quality: 85 }).toBuffer();
+  const assessment = loadTsModule("lib/booking/gcash-receipt.ts");
+  const { inspectPaymentProof } = loadTsModule("lib/server/gcash-ocr.ts", {
+    "@/lib/booking/gcash-receipt": { ...assessment, assessGcashText: (text, input) => assessment.assessGcashText(text, { ...input, now: Date.parse("2026-10-23T06:00:00Z") }) },
+  });
+  const storage = { storage: { from: () => ({ download: async () => ({ data: new Blob([jpeg], { type: "image/jpeg" }), error: null }) }) } };
+  const input = { userId: "guest", proofPath: "guest/android-receipt.jpg", methodName: "GCash", methodType: "ewallet", amount: 100, minimumAmount: 100, reference: "0046080000001", recipientNumber: "09171235095" };
+  const result = await inspectPaymentProof(storage, input);
+  assert.equal(result.status, "consistent", result.notes);
+  assert.equal(result.amount, 100); assert.equal(result.reference, "0046080000001"); assert.equal(result.paidAt, "2026-10-23T05:06:00.000Z");
+  const wrongRecipient = await inspectPaymentProof(storage, { ...input, recipientNumber: "09171235094" });
+  assert.equal(wrongRecipient.status, "unreadable"); assert.match(wrongRecipient.notes, /recipient could not be matched/);
+});
+
 test("Android JPEG ignores simulated low-confidence carbon OCR and retries uncertain reference digits", async () => {
   const now = new Date();
   const date = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(now);

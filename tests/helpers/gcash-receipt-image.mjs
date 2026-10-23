@@ -29,7 +29,7 @@ export async function androidSendMoneyReceiptImage({ date, amount = "200.00", ph
     <rect x="34" y="113" width="652" height="1310" rx="28" fill="white"/>
     <path d="M 34 652 H 686 V 1423 H 34 Z" fill="#f4f8ff"/>
     <circle cx="360" cy="109" r="42" fill="#0856b5" stroke="white" stroke-width="5"/>
-    <path d="M 348 110 L 359 120 L 376 100" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 343 110 L 354 121 L 378 99" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
     <g font-family="Arial" fill="#143450">
       <text x="188" y="248" font-size="39">A••B C•••••D E.</text>
       <rect x="217" y="281" width="306" height="58" rx="29" fill="#edf2fa"/>
