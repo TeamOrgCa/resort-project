@@ -111,7 +111,8 @@ export async function hasGcashSuccessCheck(bytes: Buffer): Promise<boolean> {
   const width = info.width, height = info.height;
   const white = (x: number, y: number) => {
     const i = (y * width + x) * info.channels;
-    return data[i] >= 225 && data[i + 1] >= 225 && data[i + 2] >= 225;
+    // Thin Android checkmarks pick up blue at their antialiased/JPEG edges.
+    return data[i] >= 210 && data[i + 1] >= 210 && data[i + 2] >= 210;
   };
   const blue = (x: number, y: number) => {
     if (x < 0 || x >= width || y < 0 || y >= info.height) return false;
@@ -129,7 +130,8 @@ export async function hasGcashSuccessCheck(bytes: Buffer): Promise<boolean> {
       const point = stack.pop()!;
       const px = point % width, py = Math.floor(point / width);
       pixels.push(point); x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
-      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      // Diagonal stroke pixels must remain connected after header reduction.
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
         const nx = px + dx, ny = py + dy, next = ny * width + nx;
         if (nx < 0 || nx >= width || ny < 0 || ny >= height || seen[next] || !white(nx, ny)) continue;
         seen[next] = 1; stack.push(next);
@@ -142,7 +144,8 @@ export async function hasGcashSuccessCheck(bytes: Buffer): Promise<boolean> {
       const region = pixels.filter(point => (point % width - x0) / w >= low && (point % width - x0) / w < high);
       return region.length ? region.reduce((sum, point) => sum + Math.floor(point / width), 0) / region.length : NaN;
     };
-    const left = mean(0, .2), bend = mean(.35, .55), right = mean(.8, 1);
+    // The short left stroke puts Android's bend closer to the left edge.
+    const left = mean(0, .2), bend = Math.max(mean(.2, .4), mean(.3, .5), mean(.4, .6)), right = mean(.8, 1);
     if (!(bend > left + h * .12 && bend > right + h * .3 && left > right + h * .12)) continue;
     const padding = Math.max(2, Math.floor(w * .1));
     if ([ [x0 - padding, y0 - padding], [x1 + padding, y0 - padding], [x0 - padding, y1 + padding], [x1 + padding, y1 + padding] ].every(([px, py]) => blue(px, py))) return true;

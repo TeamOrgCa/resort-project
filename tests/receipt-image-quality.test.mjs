@@ -93,6 +93,27 @@ test("graphic success requires an asymmetric white check; a ring, cross or V is 
   for (const format of ["jpeg", "webp"]) assert.equal(await hasGcashSuccessCheck(await sharp(image).toFormat(format).toBuffer()), true, format);
 });
 
+test("thin Android checks survive diagonal antialiasing, resizing and JPEG compression", async () => {
+  const markers = {
+    check: 'M435 129 L446 140 L470 118',
+    cross: 'M435 118 L470 140 M435 140 L470 118',
+    v: 'M435 118 L452 140 L470 118',
+    none: '',
+  };
+  for (const [marker, path] of Object.entries(markers)) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="904" height="2048">
+      <rect width="904" height="2048" fill="#1000ff"/>
+      <rect x="40" y="132" width="824" height="1540" rx="30" fill="white"/>
+      <circle cx="452" cy="129" r="49" fill="#0058e5" stroke="white" stroke-width="6"/>
+      <path d="${path}" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+    for (const width of [720, 904, 1440]) {
+      const image = await sharp(Buffer.from(svg)).resize({ width }).jpeg({ quality: 85 }).toBuffer();
+      assert.equal(await hasGcashSuccessCheck(image), marker === "check", `${marker} at ${width}px`);
+    }
+  }
+});
+
 test("unclear or tiny numeric fields and missing OCR geometry are rejected", () => {
   for (const result of [page({ confidence: 50 }), page({ numberConfidence: 60 }), page({ height: 8 }), page({ numbers: false }), { confidence: 95, blocks: null }]) {
     assert.equal(inspectReceiptReadability(result).accepted, false);
