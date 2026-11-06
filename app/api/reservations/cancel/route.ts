@@ -24,7 +24,10 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   if (!uuidPattern.test(body?.reservationId ?? "") || typeof body?.quote !== "string" || !/^[a-f0-9]{32}$/.test(body.quote))
     return NextResponse.json({ message: "Review the cancellation amount before confirming." }, { status: 400 });
-  const reason = "Guest requested cancellation";
+  if (typeof body.cancellationReason !== "string" || body.cancellationReason.trim().length < 5 || body.cancellationReason.length > 2000) {
+    return NextResponse.json({ message: "Enter a cancellation reason between 5 and 2,000 characters." }, { status: 400 });
+  }
+  const reason = body.cancellationReason.trim();
   const { data: owned, error: ownershipError } = await client.from("reservations").select("guest_id").eq("reservation_id", body.reservationId).eq("guest_id", user.id).maybeSingle();
   if (ownershipError) return NextResponse.json({ message: "Unable to verify the reservation owner. Please retry." }, { status: 503 });
   if (!owned || owned.guest_id !== user.id) return NextResponse.json({ message: "You can only cancel your own reservation." }, { status: 403 });

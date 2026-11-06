@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { apiPermission, getDefaultRouteForRole, hasPermission, routePermission } from '@/lib/auth/role-access'
+import { apiPermission, getDefaultRouteForRole, hasPermission, isAdminReadOnlyRequest, routePermission } from '@/lib/auth/role-access'
 import { STAFF_SESSION_COOKIE, type StaffRole } from '@/lib/auth/staff-auth'
 import { getAuthSessionId } from '@/lib/auth/auth-session'
 import { DEACTIVATED_GUEST_MESSAGE } from '@/lib/auth/guest-access'
@@ -155,6 +155,9 @@ export async function updateSession(request: NextRequest) {
         ? { data: null, error: null }
         : await supabase.from('role_permissions').select('permissions').eq('role', staffUser.role).maybeSingle()
       const granted = permissionError || !Array.isArray(permissionRow?.permissions) ? [] : permissionRow.permissions as string[]
+      if (isAdminApi && isAdminReadOnlyRequest(staffUser.role, path, request.method)) {
+        return NextResponse.json({ message: 'Administrators have view-only access outside Users, Configuration and Business Catalog.' }, { status: 403 })
+      }
       if (apiRequiredPermission && !hasPermission(staffUser.role, granted, apiRequiredPermission)) {
         return NextResponse.json({ message: 'Forbidden.' }, { status: 403 })
       }

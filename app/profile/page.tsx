@@ -8,6 +8,8 @@ import Footer from "@/components/Footer";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 import { sanitizePersonName } from "@/lib/validation/name";
 import { validateGuestProfile } from "@/lib/auth/guest-profile";
+import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
+import { parsePhilippineAddress } from "@/lib/address/philippine-address";
 
 export default function Profile() {
   const router = useRouter();
@@ -24,8 +26,8 @@ export default function Profile() {
     middleName: "",
     email: "",
     phoneNumber: "",
-    address: "",
   });
+  const [address, setAddress] = useState(() => parsePhilippineAddress(""));
 
   useEffect(() => {
     const getProfile = async () => {
@@ -49,8 +51,8 @@ export default function Profile() {
           middleName: data.middle_name || '',
           email: data.email || '',
           phoneNumber: data.phone_number || '',
-          address: data.address || '',
         });
+        setAddress(parsePhilippineAddress(data.address || ""));
       }
 
       setLoading(false);
@@ -63,20 +65,22 @@ export default function Profile() {
     const { name, value } = e.target;
     setFormData({
       ...formData,
-      [name]: ["firstName", "lastName", "middleName"].includes(name) ? sanitizePersonName(value) : value,
+      [name]: ["firstName", "lastName", "middleName"].includes(name) ? sanitizePersonName(value).slice(0, 75) : value,
     });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validation = validateGuestProfile(formData);
+    if (saving) return;
+    const profileData = { ...formData, addressDetails: address };
+    const validation = validateGuestProfile(profileData);
     if (!validation.value) { setError(validation.error); setSuccess(false); return; }
     setSaving(true);
     setError("");
     setSuccess(false);
 
     try {
-      const response = await fetch("/api/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
+      const response = await fetch("/api/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...profileData, address: validation.value.address }) });
       const result = await response.json() as { success?: boolean; message?: string };
       if (!response.ok || !result.success) { setError(result.message ?? "Unable to update your profile."); return; }
       setSuccess(true);
@@ -140,6 +144,7 @@ export default function Profile() {
                       type="text"
                       id="firstName"
                       name="firstName"
+                      maxLength={75}
                       value={formData.firstName}
                       onChange={handleChange}
                       required
@@ -155,6 +160,7 @@ export default function Profile() {
                       type="text"
                       id="lastName"
                       name="lastName"
+                      maxLength={75}
                       value={formData.lastName}
                       onChange={handleChange}
                       required
@@ -170,6 +176,7 @@ export default function Profile() {
                       type="text"
                       id="middleName"
                       name="middleName"
+                      maxLength={75}
                       value={formData.middleName}
                       onChange={handleChange}
                       className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
@@ -190,6 +197,7 @@ export default function Profile() {
                       type="email"
                       id="email"
                       name="email"
+                      maxLength={254}
                       value={formData.email}
                       disabled
                       className="w-full px-4 py-3 border border-neutral/20 rounded-lg bg-neutral/5 cursor-not-allowed"
@@ -205,20 +213,7 @@ export default function Profile() {
                       onChange={phoneNumber => setFormData(current => ({ ...current, phoneNumber }))} />
                   </div>
 
-                  <div>
-                    <label htmlFor="address" className="block text-sm font-medium text-neutral mb-2">
-                      Address *
-                    </label>
-                    <textarea
-                      id="address"
-                      name="address"
-                      value={formData.address}
-                      onChange={handleChange}
-                      required
-                      rows={3}
-                      className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                    />
-                  </div>
+                  <PhilippineAddressFields value={address} onChange={setAddress} />
                 </div>
               </div>
 

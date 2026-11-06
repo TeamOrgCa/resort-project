@@ -17,9 +17,9 @@ test("the permission matrix saves Manager and Cashier changes using one save act
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   try {
     await act(async () => root.render(createElement(Component)));
-    assert.equal(container.querySelectorAll("button").length, 1);
+    assert.equal([...container.querySelectorAll("button")].filter(button => button.textContent === "Save permissions").length, 1);
     for (const role of ["Manager", "Cashier"]) await act(async () => [...container.querySelectorAll("input")].find(input => input.getAttribute("aria-label").startsWith(role) && !input.disabled && !input.checked).click());
-    await act(async () => container.querySelector("button").click());
+    await act(async () => [...container.querySelectorAll("button")].find(button => button.textContent === "Save permissions").click());
     assert.equal(writes.length, 1); assert.equal(writes[0].roles.length, 2);
     assert.ok(writes[0].roles.every(role => role.permissions.length === 2));
     assert.match(container.querySelector('[role="status"]').textContent, /permissions saved/);

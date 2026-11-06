@@ -21,9 +21,9 @@ type ReviewItem = {
 
 export default function Reviews() {
   const [showForm, setShowForm] = useState(false);
-  const [checkingStay, setCheckingStay] = useState(false);
+  const [checkingEligibility, setCheckingEligibility] = useState(false);
   const [eligibilityMessage, setEligibilityMessage] = useState<string | null>(null);
-  const [completedStays, setCompletedStays] = useState<{ reservation_id: string; reference_number: string; end_datetime: string }[]>([]);
+  const [guestReservations, setGuestReservations] = useState<{ reservation_id: string; reference_number: string; end_datetime: string }[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,15 +172,15 @@ export default function Reviews() {
   };
 
   async function openReviewForm() {
-    if (checkingStay) return;
-    setCheckingStay(true); setEligibilityMessage(null);
+    if (checkingEligibility) return;
+    setCheckingEligibility(true); setEligibilityMessage(null);
     try {
       const response = await fetch("/api/reviews/eligibility", { cache: "no-store" });
       const data = await response.json();
-      if (!response.ok || !data.eligible) { setEligibilityMessage(data.message ?? "Complete a resort stay before submitting a review."); return; }
-      setCompletedStays(data.reservations ?? []); setShowForm(true);
-    } catch { setEligibilityMessage("Unable to check your completed stays. Please try again."); }
-    finally { setCheckingStay(false); }
+      if (!response.ok || !data.eligible) { setEligibilityMessage(data.message ?? "Sign in with an active guest account to submit a review."); return; }
+      setGuestReservations(data.reservations ?? []); setShowForm(true);
+    } catch { setEligibilityMessage("Unable to check review access. Please try again."); }
+    finally { setCheckingEligibility(false); }
   }
 
   const StarRating = ({ value, onChange, readonly = false }: { value: number; onChange?: (rating: number) => void; readonly?: boolean }) => {
@@ -303,10 +303,10 @@ export default function Reviews() {
             {!showForm && (
               <button
                 onClick={() => void openReviewForm()}
-                disabled={checkingStay}
+                disabled={checkingEligibility}
                 className="bg-primary text-base px-6 py-3 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105"
               >
-                {checkingStay ? "Checking completed stays..." : "Write a Review"}
+                {checkingEligibility ? "Checking review access..." : "Write a Review"}
               </button>
             )}
           </div>
@@ -448,14 +448,14 @@ export default function Reviews() {
                     </div>}
                   </div>
 
-                  {/* Optional completed stay link */}
+                  {/* Optional reservation link */}
                   <div>
-                    <label htmlFor="review-completed-stay" className="block text-sm font-medium text-neutral/70 mb-2">Completed stay (optional)</label>
-                    <select id="review-completed-stay"
+                    <label htmlFor="review-reservation" className="block text-sm font-medium text-neutral/70 mb-2">Reservation (optional)</label>
+                    <select id="review-reservation"
                       value={formData.reservationId}
                       onChange={(e) => setFormData({ ...formData, reservationId: e.target.value })}
                       className="w-full px-4 py-3 rounded-lg border border-neutral/20 bg-white text-black focus:border-primary focus:outline-none"
-                    ><option value="">General feedback about my completed stay</option>{completedStays.map(stay => <option key={stay.reservation_id} value={stay.reservation_id}>{stay.reference_number} — {new Date(stay.end_datetime).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</option>)}</select>
+                    ><option value="">General feedback (no reservation linked)</option>{guestReservations.map(stay => <option key={stay.reservation_id} value={stay.reservation_id}>{stay.reference_number} — {new Date(stay.end_datetime).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</option>)}</select>
                   </div>
 
                   {/* Would Recommend */}

@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/server/fetch-all-pages";
 import { NextResponse } from "next/server";
 
 import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
@@ -60,18 +61,9 @@ export async function GET() {
       );
     }
 
-    const { data, error } = await adminSupabase
-      .from("staff_users")
-      .select(
-        "id, full_name, email, role, is_active, active_session_id, last_login_at, last_logout_at, created_at, updated_at"
-      )
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ success: false, message: "Failed to load staff users." }, { status: 500 });
-    }
-
-    const rows = (data as StaffUserRecord[] | null) ?? [];
+    const rows = await fetchAllPages<StaffUserRecord>((from, to) => adminSupabase.from("staff_users")
+      .select("id, full_name, email, role, is_active, active_session_id, last_login_at, last_logout_at, created_at, updated_at")
+      .order("created_at", { ascending: false }).order("id").range(from, to));
 
     const response: StaffListResponse = {
       success: true,

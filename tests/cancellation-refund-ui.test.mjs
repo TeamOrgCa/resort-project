@@ -20,14 +20,19 @@ test("guest cancellation shows calculated deduction, requires acknowledgement, s
     calls.push({url,options});return options?.method==="POST"?(fail?Response.json({message:"Bill changed"},{status:409}):Response.json({...preview,success:true})):Response.json({preview});});
   try{
     assert.match(h.c.textContent,/Retained deposit/);assert.match(h.c.textContent,/2,400/);assert.equal(button(h.c,"Confirm cancellation").disabled,true);
-    await click(h.c.querySelector('input[type="checkbox"]'));await click(button(h.c,"Confirm cancellation"));assert.match(h.c.textContent,/Bill changed/);
+    await click(h.c.querySelector('input[type="checkbox"]'));
+    assert.equal(button(h.c,"Confirm cancellation").disabled,true);
+    await value(h.c.querySelector('[name="cancellationReason"]'),"    "); assert.equal(button(h.c,"Confirm cancellation").disabled,true);
+    await value(h.c.querySelector('[name="cancellationReason"]'),"  Family plans changed  ");
+    await click(button(h.c,"Confirm cancellation"));assert.match(h.c.textContent,/Bill changed/);
     assert.equal(button(h.c,"Confirm cancellation").disabled,true);fail=false;
     await click(button(h.c,"Reload preview"));await click(h.c.querySelector('input[type="checkbox"]'));await click(button(h.c,"Confirm cancellation"));
     assert.equal(completed.refundableAmount,2400);assert.equal(JSON.parse(calls.find(r=>r.options?.method==="POST").options.body).quote,preview.quote);
+    assert.equal(JSON.parse(calls.find(r=>r.options?.method==="POST").options.body).cancellationReason,"Family plans changed");
   }finally{await h.close();}
 });
 test("resort cancellation requires admin selection, a documented reason and a fresh confirmation",async()=>{
-  let posted=null;const h=await mount("components/CancellationDialog.tsx",{reservationId:"reservation",staff:true,isAdmin:true,onClose:()=>{},onCancelled:()=>{}},async(url,options)=>{
+  let posted=null;const h=await mount("components/CancellationDialog.tsx",{reservationId:"reservation",staff:true,canCancelForResort:true,onClose:()=>{},onCancelled:()=>{}},async(url,options)=>{
     if(options?.method==="POST"){posted=JSON.parse(options.body);return Response.json({success:true});}
     const resort=url.includes("initiator=resort");return Response.json({preview:{...preview,initiator:resort?"resort":"guest",deduction:resort?0:600,refundableAmount:resort?3000:2400}});});
   try{await value(h.c.querySelector("select"),"resort");assert.match(h.c.textContent,/3,000/);await click(h.c.querySelector('input[type="checkbox"]'));
@@ -47,6 +52,7 @@ test("guest cancellation explains unpaid/deposit-only outcomes and blocks reques
       assert.equal(button(h.c, "Confirm cancellation").disabled, true);
       if (allowed) {
         assert.match(h.c.textContent, /No Refund: no request will be generated/);
+        await value(h.c.querySelector('[name="cancellationReason"]'), "Family plans changed");
         await click(h.c.querySelector('[type="checkbox"]')); assert.equal(button(h.c, "Confirm cancellation").disabled, false);
       } else { assert.match(h.c.querySelector('[role="alert"]').textContent, /Contact the resort|pending payment/); assert.equal(h.c.querySelector('[type="checkbox"]'), null); }
       assert.equal(posts, 0);
@@ -62,10 +68,11 @@ test("cancellation keeps focus in its dialog and prevents duplicate submissions 
   });
   try {
     assert.equal(document.body.style.overflow, "hidden"); assert.equal(document.activeElement, h.c.querySelector('[role="dialog"]'));
+    await value(h.c.querySelector('[name="cancellationReason"]'), "Family plans changed");
     await click(h.c.querySelector('[type="checkbox"]'));
     const submit = button(h.c, "Confirm cancellation"); submit.focus();
     await act(async () => submit.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
-    assert.equal(document.activeElement, h.c.querySelector('[type="checkbox"]'));
+    assert.equal(document.activeElement, h.c.querySelector('[name="cancellationReason"]'));
     await act(async () => { submit.click(); submit.click(); }); assert.equal(posts, 1);
     assert.equal(h.c.querySelector('[role="dialog"]').getAttribute("aria-busy"), "true");
     await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
@@ -84,20 +91,35 @@ test("cashier refund screen exposes verified records and review but no administr
   finally{await h.close();}
 });
 
-test("administrators see self-verification controls while other staff cannot verify their own payout",async()=>{
-  for(const admin of [true,false]){
-    let submitted=null;
-    const h=await mount("components/admin/transactions/RefundRequestsPanel.tsx",{},async(url,options)=>{
-      if(options?.method==="POST"){submitted=options.body;return Response.json({success:true,message:"Verified transfer",emailSent:true});}
-      return Response.json({refunds:[{refund_id:"refund",reservation_id:"reservation",amount:2400,status:"payout_submitted",payout_submitted_by:"actor",request_kind:"cancellation",workflow_version:2,requested_at:"2026-10-14T01:00:00Z",policy_snapshot:"Retain 20%"}],permissions:{canReview:true,canApprove:admin,canPay:true,canVerify:true,canVerifyOwnPayout:admin,staffId:"actor"}});
-    });
-    try{
-      await click(button(h.c,"View / process"));
-      if(admin){
-        assert.match(h.c.textContent,/As the administrator/);assert.equal(button(h.c,"Verify transfer and complete refund").disabled,true);
-        await value(h.c.querySelector("textarea"),"Checked provider reference and recipient");await click(h.c.querySelector('input[type="checkbox"]'));await click(button(h.c,"Verify transfer and complete refund"));
-        assert.equal(submitted.get("action"),"refunded");assert.equal(submitted.get("verified"),"true");
-      }else{assert.match(h.c.textContent,/You cannot verify your own payout/);assert.equal(button(h.c,"Verify transfer and complete refund"),undefined);}
-    }finally{await h.close();}
-  }
+test("view-only administrators can inspect refund records without processing controls", async () => {
+  const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async () => Response.json({
+    refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "reviewed", request_kind: "cancellation", workflow_version: 2, requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],
+    permissions: { canReview: false, canApprove: false, canPay: false, canVerify: false, canVerifyOwnPayout: false, staffId: "admin" },
+  }));
+  try {
+    await click(button(h.c, "View"));
+    assert.match(h.c.textContent, /2,400/);
+    assert.equal(h.c.querySelector('[role="dialog"]').querySelector("textarea,input,select"), null);
+    for (const action of ["Approve refund", "Reject with reason", "Submit payment review", "Verify transfer and complete refund"]) assert.equal(button(h.c, action), undefined);
+  } finally { await h.close(); }
+});
+
+test("authorized managers can approve reviewed refunds while payout verification requires another staff member", async () => {
+  let submitted;
+  const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async (_url, options) => {
+    if (options?.method === "POST") { submitted = options.body; return Response.json({ success: true, message: "Manager approved", emailSent: true }); }
+    return Response.json({ refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "reviewed", request_kind: "cancellation", workflow_version: 2, requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],
+      permissions: { canReview: true, canApprove: true, canPay: true, canVerify: true, canVerifyOwnPayout: false, staffId: "manager" } });
+  });
+  try { await click(button(h.c, "View / process")); await click(button(h.c, "Approve refund")); assert.equal(submitted.get("action"), "approved"); }
+  finally { await h.close(); }
+});
+
+ test("a payout submitter cannot verify their own transfer", async () => {
+  const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async () => Response.json({
+    refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "payout_submitted", payout_submitted_by: "manager", request_kind: "cancellation", workflow_version: 2, requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],
+    permissions: { canReview: true, canApprove: true, canPay: true, canVerify: true, canVerifyOwnPayout: false, staffId: "manager" },
+  }));
+  try { await click(button(h.c, "View / process")); assert.match(h.c.textContent, /You cannot verify your own payout/); assert.equal(button(h.c, "Verify transfer and complete refund"), undefined); }
+  finally { await h.close(); }
 });

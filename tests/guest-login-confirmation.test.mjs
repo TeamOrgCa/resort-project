@@ -22,7 +22,7 @@ function harness({ code = "email_not_confirmed", locked = false, verified = fals
       attempts.push(payload); return { data: null, error: null };
     },
     from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: deviceId, is_active: active }, error: null }) }) }),
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: deviceId, is_active: active, first_name: "Maria" }, error: null }) }) }),
       update: (record) => { updates.push(record); const query = { eq: () => query, select: () => query, maybeSingle: async () => ({ data: deactivateDuringLogin ? null : { id: deviceId }, error: null }) }; return query; },
     }),
   };
@@ -64,7 +64,9 @@ test("existing login lockout takes priority over the confirmation prompt", async
 });
 test("confirmed guests continue through the existing login session flow", async () => {
   const h = harness({ verified: true }); const response = await h.request();
-  assert.equal(response.status, 200); assert.equal((await response.json()).success, true);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.success, true); assert.equal(body.firstName, "Maria");
   assert.equal(h.updates.length, 1); assert.equal(h.signOuts[0].scope, "others");
   assert.equal(h.attempts[0].p_result, "success");
 });

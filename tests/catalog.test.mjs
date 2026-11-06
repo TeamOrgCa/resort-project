@@ -117,6 +117,23 @@ test("all catalog actions require admin access", async () => {
   assert.equal(database.writes.length, 0);
 });
 
+test("ocular slots accept the 8 AM and 5 PM boundaries and reject times outside them on create and edit", async () => {
+  const { request, database } = harness();
+  for (const [start_time, end_time] of [["07:59", "09:00"], ["16:00", "17:01"], ["08:00", "17:00:01"], ["17:00", "18:00"], ["23:00", "01:00"]]) {
+    const response = await request("POST", { resource: "ocular_time_slots", record: { start_time, end_time, max_capacity: 1 } });
+    assert.equal(response.status, 400); assert.match((await response.json()).message, /8:00 AM to 5:00 PM/);
+  }
+  assert.equal(database.writes.length, 0);
+  const response = await request("POST", { resource: "ocular_time_slots", record: { start_time: "08:00", end_time: "17:00", max_capacity: 1 } });
+  assert.equal(response.status, 201); const { record } = await response.json();
+  const edited = await request("PATCH", { resource: "ocular_time_slots", id: record.slot_id, record: { end_time: "17:00:01" } });
+  assert.equal(edited.status, 400); assert.equal(database.tables.ocular_time_slots[0].end_time, "17:00:00");
+  for (const times of [{ start_time: "08:00", end_time: "08:00" }, { start_time: "10:00", end_time: "09:00" }]) {
+    const invalid = await request("POST", { resource: "ocular_time_slots", record: { ...times, max_capacity: 1 } });
+    assert.equal(invalid.status, 400); assert.match((await invalid.json()).message, /later than start/);
+  }
+});
+
 test("inactive parent references can be viewed and edited but cannot be newly selected or restored", async () => {
   const rows = seed(); rows.units[0].is_active = false; rows.units[0].archived_at = "2026-10-12T00:00:00Z";
   rows.unit_rates = [{ unit_rate_id: uuid(3), ...samples.unit_rates, is_active: false }];

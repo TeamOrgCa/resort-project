@@ -59,6 +59,17 @@ test("masked recipient dots preserve every visible digit and need the complete p
   for (const phone of ["+63 9** *** 5094", "+63 8** *** 5095", "+63 9* *** 5095", "+63 *** *** ****"]) assert.notEqual(assessGcashText(sendMoney.replace("+63 9** *** 5095", phone), sendMoneyExpected).status, "consistent");
 });
 
+test("iPhone masking accepts four clear suffix digits with a fully masked national prefix", () => {
+  for (const phone of ["+63 ••• ••• 5095", "+63 *** *** 5095", "+63 9•• ••• 5095"]) {
+    const text = sendMoney.replace("+63 9** *** 5095", phone);
+    assert.equal(assessGcashText(text, sendMoneyExpected).status, "consistent");
+    assert.notEqual(assessGcashText(text, { ...sendMoneyExpected, recipientNumber: "09171235094" }).status, "consistent");
+  }
+  for (const phone of ["5095", "+63 *** *** *095", "+63 *** *** 5094", "+63 ** *** 5095", "+63 8** *** 5095"]) {
+    assert.notEqual(assessGcashText(sendMoney.replace("+63 9** *** 5095", phone), sendMoneyExpected).status, "consistent", phone);
+  }
+});
+
 test("Android-style full recipient and spaced reference preserve leading zeroes and every account digit", () => {
   const text = `A••B C•••••D E.\n+63 917 123 5095\nSent via GCash\nAmount 200.00\nTotal Amount Sent ₱200.00\nRef No. 0046 080 000001 Oct 13, 2026 5:53 PM`;
   const input = { ...sendMoneyExpected, amount: 200, minimumAmount: 100, reference: "0046 080 000001" };
@@ -129,7 +140,12 @@ function paymentHarness({ authenticated = true, owner = guestId, method = "GCash
     } };
   const route = loadTsModule("app/api/reservations/payment/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
-    "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => ({ insert: row => { inserted.push(row); return { select: () => ({ single: async () => ({ data: insertError ? null : { payment_id: "new", status: "pending", ocr_status: row.ocr_status }, error: insertError }) }) }; } }) }) },
+    "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, { p_payment: row }) => {
+      assert.equal(name, "submit_consistent_gcash_payment"); inserted.push(row);
+      return { data: insertError ? null : { payment_id: "new", status: "verified", ocr_status: row.ocr_status, auto_approved: true,
+        paid_amount: paid + row.amount, remaining_balance: Math.max(total - paid - row.amount, 0), overpaid_amount: Math.max(paid + row.amount - total, 0), reservation_status: "confirmed" }, error: insertError };
+    } }) },
+    "@/lib/server/ocr-payment-emails": { sendOcrPaymentEmails: async () => {} },
     "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return proofMissing ? null : { status: ocrStatus, notes: "Receipt checked", amount: input.amount, reference: input.reference, paidAt: "2026-10-13T01:15:00.000Z" }; } },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { payment: [] } },
   });
@@ -143,6 +159,8 @@ test("payment API saves actual OCR amount and canonical reference for larger dow
   assert.match(h.inserted[0].ocr_checked_at, /T\d{2}:\d{2}:\d{2}\.\d{3}\+08:00$/);
   assert.equal(h.inserted[0].receipt_paid_at, "2026-10-13T01:15:00.000Z");
   assert.equal(h.inserted[0].status, "pending");
+  assert.equal(body.payment.status, "verified"); assert.equal(body.payment.autoApproved, true);
+  assert.equal(body.reservation.paidAmount, 1500); assert.equal(body.reservation.remainingBalance, 3500);
 });
 
 test("payment API rejects alphanumeric references before reading a receipt or saving a payment", async () => {

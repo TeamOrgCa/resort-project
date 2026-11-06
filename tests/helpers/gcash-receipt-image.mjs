@@ -1,7 +1,7 @@
 import sharp from "sharp";
 
 // A synthetic Send Money layout: masked recipient, graphic success, two-column footer.
-export async function sendMoneyReceiptImage({ marker = "check", phone = "+63 9** *** 5095", date = "Oct 13, 2026 6:22 PM", reference = "6046080000001" } = {}) {
+export async function sendMoneyReceiptImage({ marker = "check", phone = "+63 9** *** 5095", date = "Oct 13, 2026 6:22 PM", reference = "6046080000001", amount = "100.00", carbon = false } = {}) {
   const symbol = marker === "check" ? '<path d="M 398 94 L 411 106 L 433 84" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>'
     : marker === "cross" ? '<path d="M 401 84 L 431 108 M 401 108 L 431 84" stroke="white" stroke-width="5"/>'
     : marker === "v" ? '<path d="M 398 84 L 416 108 L 434 84" stroke="white" fill="none" stroke-width="5"/>' : "";
@@ -14,9 +14,10 @@ export async function sendMoneyReceiptImage({ marker = "check", phone = "+63 9**
       <text x="280" y="279" font-size="33">${phone}</text>
       <text x="316" y="350" font-size="27" fill="#777777">Sent via GCash</text>
       <path d="M 80 426 H 748 M 80 572 H 748" stroke="#999999"/>
-      <text x="80" y="510" font-size="32">Amount</text><text x="653" y="510" font-size="30">100.00</text>
-      <text x="80" y="665" font-size="32">Total Amount Sent</text><text x="560" y="675" font-size="48">PHP100.00</text>
+      <text x="80" y="510" font-size="32">Amount</text><text x="653" y="510" font-size="30">${amount}</text>
+      <text x="80" y="665" font-size="32">Total Amount Sent</text><text x="560" y="675" font-size="48">PHP${amount}</text>
       <text x="80" y="784" font-size="24">Ref No. ${reference}</text><text x="520" y="791" font-size="23">${date}</text>
+      ${carbon ? '<rect x="80" y="917" width="668" height="184" rx="10" fill="#9ae6c8"/><text x="176" y="976" font-size="29" fill="#126946">279g (gCO2e)</text><text x="108" y="1033" font-size="24" fill="#126946">By going digital, you reduce your carbon footprint.</text>' : ''}
     </g>
   </svg>`;
   return sharp(Buffer.from(svg)).png().toBuffer();

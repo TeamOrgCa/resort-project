@@ -40,6 +40,10 @@ export function validateCatalogRecord(resource: CatalogResource, input: unknown,
     }
     if (field.kind === "time" && !/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(text)) throw new CatalogValidationError(`Enter a valid ${field.label.toLowerCase()}.`);
     result[field.key] = field.kind === "time" && text.length === 5 ? `${text}:00` : text;
+    if (field.kind === "time" && ((field.minTime && String(result[field.key]) < `${field.minTime}:00`) ||
+        (field.maxTime && String(result[field.key]) > `${field.maxTime}:00`))) {
+      throw new CatalogValidationError("Ocular time slots must be within 8:00 AM to 5:00 PM (Philippine time).");
+    }
   }
 
   if (result.effective_to && String(result.effective_to) < String(result.effective_from)) throw new CatalogValidationError("End date must be on or after the start date.");

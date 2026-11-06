@@ -12,6 +12,8 @@ interface ReschedulePayload {
   reservationId: string;
   newStartDatetime: string;
   newEndDatetime: string;
+  expectedAdditional?: number;
+  rescheduleReason: string;
 }
 
 interface ReservationRow {
@@ -55,11 +57,15 @@ const parsePayload = (value: unknown): ReschedulePayload | null => {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return null;
   }
+  if (payload.expectedAdditional !== undefined && (typeof payload.expectedAdditional !== "number"
+    || !Number.isFinite(payload.expectedAdditional) || payload.expectedAdditional < 0)) return null;
 
   return {
     reservationId: payload.reservationId.trim(),
     newStartDatetime: payload.newStartDatetime,
     newEndDatetime: payload.newEndDatetime,
+    expectedAdditional: payload.expectedAdditional,
+    rescheduleReason: typeof payload.rescheduleReason === "string" ? payload.rescheduleReason.trim() : "",
   };
 };
 
@@ -76,6 +82,9 @@ export async function POST(request: Request) {
         { success: false, message: "Invalid reschedule payload." },
         { status: 400 }
       );
+    }
+    if (payload.rescheduleReason.length < 5 || typeof body.rescheduleReason !== "string" || body.rescheduleReason.length > 2000) {
+      return NextResponse.json({ success: false, message: "Enter a reschedule reason between 5 and 2,000 characters." }, { status: 400 });
     }
 
     const newStart = new Date(payload.newStartDatetime);
@@ -225,6 +234,9 @@ export async function POST(request: Request) {
       adultCount: reservation.adult_count,
       childCount: reservation.child_count,
     });
+    if (payload.expectedAdditional !== undefined && Math.abs(payload.expectedAdditional - charges.totalAdditional) > 0.001) {
+      return NextResponse.json({ success: false, message: "Reschedule charges changed. Review the updated fee before saving." }, { status: 409 });
+    }
 
     const { conflict, error: overlapError } = await checkReservationOverlap(
       payload.newStartDatetime,
@@ -245,106 +257,42 @@ export async function POST(request: Request) {
       );
     }
 
-    /* -----------------------------
-       INSERT RESCHEDULE REQUEST
-    ------------------------------*/
-    const { data: insertedRequest, error: insertError } = await adminSupabase
-      .from("reservation_reschedules")
-      .insert({
-        reservation_id: reservation.reservation_id,
-        requested_by: user.id,
-
-        old_start: reservation.start_datetime,
-        old_end: reservation.end_datetime,
-
-        new_start: payload.newStartDatetime,
-        new_end: payload.newEndDatetime,
-
-        reschedule_fee: charges.noticeFee,
-        rate_adjustment: charges.rateAdjustment,
-
-        status: "pending",
-      })
-      .select("reschedule_id")
-      .single<{ reschedule_id: string }>();
-
-    if (insertError) {
-      if (insertError.code === "22023" && /Rescheduling requires .* days notice/i.test(insertError.message)) {
-        return NextResponse.json({ success: false, message: "Guest reschedule requests are not yet configured. Ask the administrator to apply docs/guest-reschedule-requests-migration.sql, then retry." }, { status: 503 });
-      }
-      const status = ["40001", "23P01", "23505"].includes(insertError.code) ? 409 : insertError.code === "42501" ? 403 : insertError.code === "22023" ? 400 : 500;
-      return NextResponse.json(
-        {
-          success: false,
-          message: status === 500 ? "Failed to create reschedule request. Please retry." : insertError.message,
-        },
-        { status }
-      );
+    const { data: result, error: saveError } = await adminSupabase.rpc("reschedule_guest_reservation", {
+      p_reservation: reservation.reservation_id,
+      p_guest: user.id,
+      p_expected: {
+        startDatetime: reservation.start_datetime, endDatetime: reservation.end_datetime,
+        adultCount: reservation.adult_count, childCount: reservation.child_count,
+        bookingMode: reservation.booking_mode, packageRateVersion: reservation.package_rate_version,
+      },
+      p_new_start: payload.newStartDatetime,
+      p_new_end: payload.newEndDatetime,
+      p_notice_fee: charges.noticeFee,
+      p_rate_adjustment: charges.rateAdjustment,
+      p_reason: payload.rescheduleReason,
+    });
+    if (saveError) {
+      const missing = ["PGRST202", "42883"].includes(saveError.code);
+      const status = missing ? 503 : ["40001", "23P01", "23505", "40P01"].includes(saveError.code) ? 409
+        : saveError.code === "42501" ? 403 : saveError.code === "22023" ? 400 : 500;
+      return NextResponse.json({ success: false, message: missing
+        ? "Automatic rescheduling needs docs/guest-auto-reschedule-migration.sql. Contact the resort administrator."
+        : status === 500 ? "Unable to reschedule this reservation. Please retry." : saveError.message }, { status });
     }
-
-    /* -----------------------------
-       UPDATE RESERVATION STATUS
-    ------------------------------*/
-    const { data: updatedReservation, error: updateError } = await adminSupabase
-      .from("reservations")
-      .update({ status: "reschedule_requested" })
-      .eq("reservation_id", reservation.reservation_id)
-      .eq("status", "confirmed")
-      .eq("start_datetime", reservation.start_datetime)
-      .eq("end_datetime", reservation.end_datetime)
-      .select("reservation_id")
-      .maybeSingle();
-
-    if (updateError || !updatedReservation) {
-      if (insertedRequest) {
-        await adminSupabase
-          .from("reservation_reschedules")
-          .delete()
-          .eq("reschedule_id", insertedRequest.reschedule_id)
-          .eq("status", "pending");
-      }
-
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "This reservation changed while you were requesting a new date. Refresh Manage Booking before trying again.",
-        },
-        { status: 409 }
-      );
-    }
+    if (!result) return NextResponse.json({ success: false, message: "Unable to confirm the saved reschedule." }, { status: 500 });
 
     try {
       const { error: notificationError } = await createNotifications({
-        actorId: user.id,
-        guestId: reservation.guest_id,
+        actorId: user.id, guestId: reservation.guest_id,
         staffRoles: NOTIFICATION_AUDIENCES.reservation,
-        title: "Reschedule requested",
-        message: `Reschedule request submitted for reservation ${reservation.reference_number}.`,
-        entityType: "reservation_reschedule",
-        entityId: reservation.reservation_id,
-        guestActionUrl: "/manage",
-        staffActionUrl: "/admin/reservations",
+        title: "Reservation rescheduled",
+        message: `Reservation ${reservation.reference_number} was automatically rescheduled. Additional charge: PHP ${Number(result.totalAdditional).toFixed(2)}. Remaining balance: PHP ${Number(result.remainingBalance).toFixed(2)}.`,
+        entityType: "reservation_reschedule", entityId: reservation.reservation_id,
+        guestActionUrl: "/manage", staffActionUrl: "/admin/reservations",
       });
-
       if (notificationError) console.warn("Failed to create reschedule notifications:", notificationError);
-    } catch (notificationError) { console.warn("Reschedule request saved but notification failed:", notificationError); }
-
-    /* -----------------------------
-       SUCCESS RESPONSE
-    ------------------------------*/
-    return NextResponse.json(
-      {
-        success: true,
-        reservationId: reservation.reservation_id,
-        status: "reschedule_requested",
-        rescheduleFee: charges.noticeFee,
-        rateAdjustment: charges.rateAdjustment,
-        totalAdditional: charges.totalAdditional,
-        message: "Reschedule request submitted successfully.",
-      },
-      { status: 201 }
-    );
+    } catch (notificationError) { console.warn("Reschedule saved but notification failed:", notificationError); }
+    return NextResponse.json({ success: true, ...result, message: "Reservation rescheduled and automatically approved. The additional charge has been added to your bill." });
   } catch (error) {
     if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     return NextResponse.json(

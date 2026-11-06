@@ -31,6 +31,36 @@ test("OCR handles Send Money graphic success, masked recipient and two-column re
   }
 });
 
+test("iPhone privacy dots are reread before readability checks, including an 11-peso receipt", async () => {
+  const { createWorker, PSM } = await import("tesseract.js");
+  const bytes = await sendMoneyReceiptImage({ phone: "+63 9•• ••• 5095", amount: "11.00", date: "Nov 7, 2026 7:15 AM", reference: "6046975434935", carbon: true });
+  const assessment = loadTsModule("lib/booking/gcash-receipt.ts");
+  let retried = false;
+  const { inspectPaymentProof } = loadTsModule("lib/server/gcash-ocr.ts", {
+    "@/lib/booking/gcash-receipt": { ...assessment, assessGcashText: (text, input) => assessment.assessGcashText(text, { ...input, now: Date.parse("2026-11-07T00:00:00Z") }) },
+    "tesseract.js": { PSM, createWorker: async (...args) => {
+      const worker = await createWorker(...args), recognize = worker.recognize.bind(worker);
+      worker.recognize = async (...inputs) => {
+        const result = await recognize(...inputs);
+        if (Buffer.from(inputs[0]).equals(bytes)) {
+          for (const block of result.data.blocks ?? []) for (const paragraph of block.paragraphs) for (const line of paragraph.lines) {
+            if (/^\+?63/.test(line.text.trim())) for (const word of line.words) if (/\d/.test(word.text)) word.confidence = 45;
+          }
+        } else retried = true;
+        return result;
+      };
+      return worker;
+    } },
+  });
+  const storage = { storage: { from: () => ({ download: async () => ({ data: new Blob([bytes], { type: "image/png" }), error: null }) }) } };
+  const input = { userId: "guest", proofPath: "guest/iphone.png", methodName: "GCash", methodType: "ewallet", amount: 11, minimumAmount: 2.2, reference: "6046975434935", recipientNumber: "09171235095" };
+  const result = await inspectPaymentProof(storage, input);
+  assert.equal(result.status, "consistent", result.notes); assert.equal(retried, true);
+  assert.equal(result.amount, 11); assert.equal(result.reference, "6046975434935"); assert.equal(result.paidAt, "2026-11-06T23:15:00.000Z");
+  const wrong = await inspectPaymentProof(storage, { ...input, recipientNumber: "09171235094" });
+  assert.notEqual(wrong.status, "consistent"); assert.match(wrong.notes, /recipient could not be matched/);
+});
+
 test("the masked-phone OCR retry cannot replace a wrong visible recipient suffix", async () => {
   const now = new Date();
   const date = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(now);

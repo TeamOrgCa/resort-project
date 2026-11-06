@@ -4,6 +4,7 @@ import type { ViewDetailsState } from "./types";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useSiteContent, contentText } from "@/components/content/SiteContent";
+import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
 
 interface KeyValueDetailsModalProps {
   details: ViewDetailsState;
@@ -11,13 +12,14 @@ interface KeyValueDetailsModalProps {
 }
 
 export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetailsModalProps) {
+  const readOnly = useAdminReadOnly();
   const content = useSiteContent();
   const isReceipt = details.kind === "receipt";
   useEffect(() => {
-    if (!isReceipt || !details.printOnOpen) return;
+    if (readOnly || !isReceipt || !details.printOnOpen) return;
     const timer = window.setTimeout(() => window.print(), 150);
     return () => window.clearTimeout(timer);
-  }, [details, isReceipt]);
+  }, [details, isReceipt, readOnly]);
 
   const modal = (
     <div id={isReceipt ? "billing-receipt-print" : undefined} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true" aria-label={details.title}>
@@ -33,7 +35,7 @@ export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetai
             <p className="receipt-screen-only mt-1 text-sm text-neutral/70">Detailed record view for this billing entry.</p>
           </div>
           <div className="receipt-screen-only flex flex-wrap gap-2">
-            {isReceipt && <button type="button" onClick={() => window.print()} className="admin-button-primary">Print receipt</button>}
+            {isReceipt && !readOnly && <button type="button" onClick={() => window.print()} className="admin-button-primary">Print receipt</button>}
             <button
               type="button"
               onClick={onClose}

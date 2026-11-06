@@ -22,6 +22,8 @@ import RescheduleCalendar from "@/components/manage/RescheduleCalendar";
 import { moveReservationToDate } from "@/lib/booking/reservation-edit";
 import { useGuestRescheduleAvailability } from "@/lib/booking/use-guest-reschedule-availability";
 import { reschedulePolicy, RESCHEDULE_POLICY_TEXT, RESCHEDULE_FEE_TEXT } from "@/lib/booking/reschedule-charge-policy";
+import { calculateRescheduleCharges } from "@/lib/booking/reschedule-charges";
+import { parsePackageRates, type PackageRates } from "@/lib/booking/package-rates";
 
 type ManageTab = "bookings" | "ocular" | "refunds";
 type RecordMode = "view" | "edit" | "reschedule" | null;
@@ -51,6 +53,7 @@ interface BookingRecord {
 
 interface RescheduleFormState {
   checkIn: string;
+  reason: string;
 }
 
 interface EditableReservationService {
@@ -245,11 +248,15 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [isSavingServices, setIsSavingServices] = useState(false);
   const [rescheduleFormError, setRescheduleFormError] = useState<string | null>(null);
   const [rescheduleMessage, setRescheduleMessage] = useState<string | null>(null);
+  const [rescheduleRates, setRescheduleRates] = useState<{ reservationId: string; rates: PackageRates } | null>(null);
+  const [reschedulePricingError, setReschedulePricingError] = useState<string | null>(null);
+  const [reschedulePricingAttempt, setReschedulePricingAttempt] = useState(0);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
   const rescheduleSubmitting = useRef(false);
   const [rescheduleCalendarMonth, setRescheduleCalendarMonth] = useState("");
   const [rescheduleForm, setRescheduleForm] = useState<RescheduleFormState>({
     checkIn: "",
+    reason: "",
   });
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [selectedOcularId, setSelectedOcularId] = useState<string | null>(null);
@@ -264,6 +271,30 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const selectedRescheduleIssue = selectedBooking && rescheduleForm.checkIn ? rescheduleAvailability.dateIssue(rescheduleForm.checkIn) : null;
   const requestedSchedule = selectedBooking && rescheduleForm.checkIn && !selectedRescheduleIssue
     ? moveReservationToDate({ start_datetime: selectedBooking.startDatetime, end_datetime: selectedBooking.endDatetime }, rescheduleForm.checkIn) : null;
+  const rescheduleQuote = requestedSchedule && selectedBooking?.bookingMode && rescheduleRates?.reservationId === selectedBooking.id
+    ? calculateRescheduleCharges({ originalStart: selectedBooking.startDatetime, originalEnd: selectedBooking.endDatetime,
+      newStart: requestedSchedule.startDatetime, newEnd: requestedSchedule.endDatetime, bookingMode: selectedBooking.bookingMode,
+      adultCount: selectedBooking.adultCount, childCount: selectedBooking.childCount, rates: rescheduleRates.rates, now }) : null;
+  useEffect(() => {
+    if (recordMode !== "reschedule" || !selectedBookingId || !canRequestReschedule) return;
+    let active = true;
+    const controller = new AbortController();
+    async function loadRates() {
+      setRescheduleRates(null);
+      setReschedulePricingError(null);
+      try {
+        const response = await fetch(`/api/reservations/edit?reservationId=${encodeURIComponent(selectedBookingId!)}`, { cache: "no-store", signal: controller.signal });
+        const result = await response.json() as { packageRates?: unknown; message?: string };
+        const rates = parsePackageRates(result.packageRates);
+        if (!response.ok || !rates) throw new Error(result.message || "Unable to load the booked prices. Please retry.");
+        if (active) setRescheduleRates({ reservationId: selectedBookingId!, rates });
+      } catch (error) {
+        if (active) setReschedulePricingError(error instanceof Error ? error.message : "Unable to load the booked prices.");
+      }
+    }
+    void loadRates();
+    return () => { active = false; controller.abort(); };
+  }, [recordMode, selectedBookingId, canRequestReschedule, reschedulePricingAttempt]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000);
     return () => window.clearInterval(timer);
@@ -410,6 +441,11 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     }
     const issue = rescheduleAvailability.dateIssue(rescheduleForm.checkIn);
     if (issue) { setRescheduleFormError(issue); return; }
+    if (!rescheduleQuote) { setRescheduleFormError(reschedulePricingError || "Wait for the reschedule charge preview before saving."); return; }
+    if (rescheduleForm.reason.trim().length < 5 || rescheduleForm.reason.length > 2000) {
+      setRescheduleFormError("Enter a reschedule reason between 5 and 2,000 characters.");
+      return;
+    }
     const moved = moveReservationToDate({ start_datetime: selectedBooking.startDatetime, end_datetime: selectedBooking.endDatetime }, rescheduleForm.checkIn);
 
     setRescheduleFormError(null);
@@ -426,14 +462,17 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           reservationId: selectedBooking.id,
           newStartDatetime: moved.startDatetime,
           newEndDatetime: moved.endDatetime,
+          expectedAdditional: rescheduleQuote.totalAdditional,
+          rescheduleReason: rescheduleForm.reason.trim(),
         }),
       });
 
-      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; rescheduleFee?: number; rateAdjustment?: number; totalAdditional?: number } | null;
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; rescheduleFee?: number; rateAdjustment?: number; totalAdditional?: number;
+        startDatetime?: string; endDatetime?: string; totalAmount?: number; paidAmount?: number; remainingBalance?: number } | null;
 
       if (!response.ok || !result?.success) {
-        setRescheduleFormError(result?.message ?? "Failed to submit reschedule request.");
-        if (response.status === 409) rescheduleAvailability.refresh();
+        setRescheduleFormError(result?.message ?? "Failed to reschedule this booking.");
+        if (response.status === 409) { rescheduleAvailability.refresh(); setNow(Date.now()); setReschedulePricingAttempt(value => value + 1); }
         return;
       }
 
@@ -443,7 +482,14 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           booking.id === selectedBooking.id
             ? {
                 ...booking,
-                status: "Reschedule Requested",
+                status: "Confirmed",
+                startDatetime: result.startDatetime ?? moved.startDatetime,
+                endDatetime: result.endDatetime ?? moved.endDatetime,
+                checkIn: manilaDateKey(result.startDatetime ?? moved.startDatetime),
+                checkOut: manilaDateKey(result.endDatetime ?? moved.endDatetime),
+                totalAmount: Number(result.totalAmount ?? booking.totalAmount + Number(result.totalAdditional ?? 0)),
+                paidAmount: Number(result.paidAmount ?? booking.paidAmount),
+                remainingBalance: Number(result.remainingBalance ?? Math.max(booking.totalAmount + Number(result.totalAdditional ?? 0) - booking.paidAmount, 0)),
               }
             : booking
         )
@@ -451,9 +497,9 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
       setRecordMode("view");
       setRescheduleFormError(null);
-      setRescheduleMessage(`Request sent for review. If approved, the additional charge will be ${formatCurrency(Number(result.totalAdditional ?? 0))} (${formatCurrency(Number(result.rescheduleFee ?? 0))} notice fee + ${formatCurrency(Number(result.rateAdjustment ?? 0))} higher date rate).`);
+      setRescheduleMessage(`Reschedule automatically approved. Your schedule is updated and ${formatCurrency(Number(result.totalAdditional ?? 0))} has been added to your bill (${formatCurrency(Number(result.rescheduleFee ?? 0))} notice fee + ${formatCurrency(Number(result.rateAdjustment ?? 0))} higher date rate).`);
     } catch {
-      setRescheduleFormError("Failed to submit reschedule request.");
+      setRescheduleFormError("Failed to reschedule this booking.");
     } finally {
       rescheduleSubmitting.current = false;
       setIsSubmittingReschedule(false);
@@ -688,7 +734,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     setSelectedBookingId(record.id); setSelectedOcularId(null); setRecordMode(mode);
     setServiceEditMessage(null); setRescheduleFormError(null); setRescheduleMessage(null);
     if (mode === "reschedule") {
-      setRescheduleForm({ checkIn: "" });
+      setRescheduleForm({ checkIn: "", reason: "" });
       const minimum = getMinRescheduleDate(record);
       setRescheduleCalendarMonth((manilaDateKey(record.startDatetime) < minimum ? minimum : manilaDateKey(record.startDatetime)).slice(0, 7));
     }
@@ -778,7 +824,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     <RecordActionsMenu reference={record.reference} actions={[
                       { label: "View", icon: "view", explanation: "Details, payment and refund updates", onSelect: () => openBookingRecord(record, "view") },
                       { label: "Edit booking", icon: "edit", disabled: closed || reviewing, explanation: closed ? "This reservation is closed" : reviewing ? "Available after payment review" : "Update guest counts, services and billing", onSelect: () => openBookingRecord(record, "edit") },
-                      { label: "Reschedule", icon: "calendar", disabled: Boolean(record.checkedInAt) || record.status.toLowerCase() !== "confirmed", explanation: record.checkedInAt ? "Rescheduling is locked after check-in" : record.status.toLowerCase() === "confirmed" ? "Request a new date for staff approval" : "Available for confirmed reservations", onSelect: () => openBookingRecord(record, "reschedule") },
+                      { label: "Reschedule", icon: "calendar", disabled: Boolean(record.checkedInAt) || record.status.toLowerCase() !== "confirmed", explanation: record.checkedInAt ? "Rescheduling is locked after check-in" : record.status.toLowerCase() === "confirmed" ? "Choose an available date for automatic approval" : "Available for confirmed reservations", onSelect: () => openBookingRecord(record, "reschedule") },
                       { label: "Pay balance", icon: "wallet", disabled: closed || reviewing || record.remainingBalance <= 0, explanation: closed ? "This reservation is closed" : reviewing ? "Your payment is being reviewed" : record.remainingBalance <= 0 ? "No outstanding balance" : "Continue to GCash payment", onSelect: () => openPaymentPortal(record) },
                       { label: "Cancel reservation", icon: "cancel", danger: true, disabled: closed || Boolean(record.checkedInAt), explanation: record.checkedInAt ? "Cancellation is locked after check-in" : closed ? "This reservation is closed" : "Review the refund calculation first", onSelect: () => { setCancelError(null); setPendingCancellation({ id: record.id, reference: record.reference, checkIn: record.checkIn }); } },
                     ]} />
@@ -888,7 +934,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               <div className="rounded-xl border border-neutral/10 bg-white p-3 text-sm text-neutral">
                 <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
                 <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(selectedReschedulePolicy?.noticeFee ?? 0)}.</p>
-                {canRequestReschedule && !selectedReschedulePolicy?.allowed && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">This request is within the usual {selectedReschedulePolicy?.minimumNoticeDays}-day notice period. You can submit it for staff approval. The applicable notice fee and any higher date rate will be added only if approved; your current schedule remains unchanged until then.</p>}
+                {canRequestReschedule && !selectedReschedulePolicy?.allowed && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">Short-notice rescheduling is automatically approved when the selected date is available. The applicable notice fee and any higher date rate are added immediately when you save.</p>}
               </div>
               {!canRequestReschedule && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
                 <p className="font-semibold">Rescheduling unavailable</p>
@@ -899,7 +945,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 disabled={!canRequestReschedule || isSubmittingReschedule}
                 disabledReason={selectedBooking.checkedInAt ? "Rescheduling is locked after check-in" : isSubmittingReschedule ? "Submitting your reschedule request" : "Only confirmed reservations can be rescheduled"}
                 value={rescheduleForm.checkIn}
-                onChange={date => { setRescheduleForm({ checkIn: date }); setRescheduleFormError(null); }}
+                onChange={date => { setRescheduleForm(current => ({ ...current, checkIn: date })); setRescheduleFormError(null); }}
                 minDate={minRescheduleDate}
                 originalDate={manilaDateKey(selectedBooking.startDatetime)}
                 onMonthChange={setRescheduleCalendarMonth}
@@ -912,14 +958,30 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               {rescheduleForm.checkIn && <p role="status" className="rounded-lg bg-white p-3 text-sm text-neutral">
                 {selectedRescheduleIssue ?? (requestedSchedule && `Requested schedule: ${formatDateTime(requestedSchedule.startDatetime)} to ${formatDateTime(requestedSchedule.endDatetime)}.`)}
               </p>}
-              <p className="text-xs text-neutral/60">An additional notice fee and any higher date rate are charged after approval.</p>
+              {reschedulePricingError && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-950">{reschedulePricingError} <button type="button" className="font-semibold underline" onClick={() => setReschedulePricingAttempt(value => value + 1)}>Retry charge preview</button></p>}
+              {rescheduleQuote ? <div className="rounded-xl border border-neutral/10 bg-white p-4 text-sm">
+                <p>Notice fee: {formatCurrency(rescheduleQuote.noticeFee)}</p>
+                <p>Higher date rate: {formatCurrency(rescheduleQuote.rateAdjustment)}</p>
+                <p className="mt-2 font-semibold">Additional charge: {formatCurrency(rescheduleQuote.totalAdditional)}</p>
+                <p className="mt-1">New total: {formatCurrency(selectedBooking.totalAmount + rescheduleQuote.totalAdditional)}. Remaining balance: {formatCurrency(Math.max(selectedBooking.totalAmount + rescheduleQuote.totalAdditional - selectedBooking.paidAmount, 0))}.</p>
+              </div> : canRequestReschedule && !reschedulePricingError && !rescheduleRates && <p role="status" className="text-sm text-neutral/60">Loading the booked prices...</p>}
+              <p className="text-xs text-neutral/60">Saving immediately updates your schedule and adds the displayed charge to your bill. Existing payments are preserved.</p>
+              <div>
+                <label htmlFor="reschedule-reason" className="block text-sm font-medium text-neutral">Reason for rescheduling *</label>
+                <textarea id="reschedule-reason" name="rescheduleReason" required minLength={5} maxLength={2000} rows={3}
+                  disabled={isSubmittingReschedule} value={rescheduleForm.reason}
+                  onChange={event => { setRescheduleForm(current => ({ ...current, reason: event.target.value })); setRescheduleFormError(null); }}
+                  aria-describedby="reschedule-reason-hint" placeholder="Tell us why you need to change your booking date."
+                  className="mt-2 w-full rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60" />
+                <p id="reschedule-reason-hint" className="mt-1 text-xs text-neutral/60">5–2,000 characters. Your reason is saved with the schedule change.</p>
+              </div>
               {rescheduleFormError && <p role="alert" className="rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">{rescheduleFormError}</p>}
               <button
                 type="submit"
-                disabled={isSubmittingReschedule || !canRequestReschedule || !rescheduleForm.checkIn || Boolean(selectedRescheduleIssue)}
+                disabled={isSubmittingReschedule || !canRequestReschedule || !rescheduleQuote || Boolean(selectedRescheduleIssue) || rescheduleForm.reason.trim().length < 5 || rescheduleForm.reason.length > 2000}
                 className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold sm:w-auto sm:rounded-full sm:px-6 text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSubmittingReschedule ? "Submitting Request..." : "Submit Reschedule Request"}
+                {isSubmittingReschedule ? "Rescheduling..." : "Confirm Reschedule"}
               </button>
             </form>
           )}
@@ -1002,7 +1064,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
       {pendingCancellation && <CancellationDialog reservationId={pendingCancellation.id} onClose={() => setPendingCancellation(null)}
         rescheduleBlockedReason={(() => { const booking = bookings.find(row => row.id === pendingCancellation.id); return booking?.checkedInAt ? "Rescheduling is locked after check-in." : !booking || booking.status.toLowerCase() !== "confirmed" ? "Only confirmed reservations can request a new date." : null; })()}
-        rescheduleNotice={(() => { const booking = bookings.find(row => row.id === pendingCancellation.id); return booking?.status.toLowerCase() === "confirmed" && !booking.checkedInAt && !reschedulePolicy(booking.startDatetime, now).allowed ? "You can request a new date even with short notice. Staff approval is required, and the applicable notice fee is charged only after approval." : null; })()}
+        rescheduleNotice={(() => { const booking = bookings.find(row => row.id === pendingCancellation.id); return booking?.status.toLowerCase() === "confirmed" && !booking.checkedInAt && !reschedulePolicy(booking.startDatetime, now).allowed ? "You can reschedule even with short notice. An available date is approved automatically, and the applicable fee is added when you save." : null; })()}
         onReschedule={() => { const booking = bookings.find(row => row.id === pendingCancellation.id); if (booking) { setPendingCancellation(null); openBookingRecord(booking, "reschedule"); } }} onCancelled={result => {
         bookingRevision.current++;
         const id = pendingCancellation.id;

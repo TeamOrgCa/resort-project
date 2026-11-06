@@ -6,6 +6,9 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminNotifications from "@/components/admin/AdminNotifications";
 import { SettingsProvider } from "@/components/settings/SettingsProvider";
 import type { StaffRole } from "@/lib/auth/staff-auth";
+import { usePathname } from "next/navigation";
+import { routePermission } from "@/lib/auth/role-access";
+import { AdminReadOnlyProvider } from "@/components/admin/AdminReadOnlyContext";
 
 interface AdminShellProps {
   children: ReactNode;
@@ -14,6 +17,8 @@ interface AdminShellProps {
 }
 
 export default function AdminShell({ children, role, permissions }: AdminShellProps) {
+  const pathname = usePathname();
+  const readOnly = role === "admin" && !["users", "configuration", "catalog"].includes(routePermission(pathname ?? "") ?? "");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -41,7 +46,7 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
   }, [isSidebarOpen]);
 
   return (
-    <SettingsProvider>
+    <AdminReadOnlyProvider value={readOnly}><SettingsProvider>
       <div className="admin-shell-grid admin-workspace">
         <aside className="admin-shell-sidebar hidden lg:block">
           <AdminSidebar role={role} permissions={permissions} />
@@ -62,7 +67,7 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-6 w-6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
               </button>
             </div>
-            <p className="ml-auto text-xs text-neutral/60" title="All admin dates and times use Asia/Manila (UTC+8)">Philippine time (UTC+8)</p>
+            <div className="ml-auto flex items-center gap-3">{readOnly && <span className="rounded-full bg-neutral/10 px-3 py-1 text-xs font-medium text-neutral">View only</span>}<p className="text-xs text-neutral/60" title="All admin dates and times use Asia/Manila (UTC+8)">Philippine time (UTC+8)</p></div>
             <div>
               <AdminNotifications role={role} />
             </div>
@@ -94,6 +99,6 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
           </div>
         ) : null}
       </div>
-    </SettingsProvider>
+    </SettingsProvider></AdminReadOnlyProvider>
   );
 }

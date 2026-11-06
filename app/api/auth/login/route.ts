@@ -9,7 +9,7 @@ export async function POST(request: Request) {
     const { admin, supabase, user, authSessionId, email, deviceId, finish } = access;
     if (!authSessionId) return finish(loginError("Unable to verify the login session.", 401));
 
-    const { data: guest, error } = await admin.from("guests").select("id, is_active").eq("id", user.id).maybeSingle();
+    const { data: guest, error } = await admin.from("guests").select("id, is_active, first_name").eq("id", user.id).maybeSingle();
     if (error || !guest) {
       await recordAttempt(admin, email, deviceId, "guest", "denied", user.id);
       await supabase.auth.signOut({ scope: "local" });
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     if (revokeError) throw revokeError;
 
     await recordAttempt(admin, email, deviceId, "guest", "success", user.id);
-    return finish(NextResponse.json({ success: true, message: "Signed in." }));
+    return finish(NextResponse.json({ success: true, message: "Signed in.", firstName: guest.first_name || email.split("@")[0] }));
   } catch {
     return loginError("Unable to process login request.", 500);
   }

@@ -15,7 +15,7 @@ const base = { guest_id: "guest", start_datetime: day + "T00:00:00+08:00", end_d
 const button = (c,label) => [...c.querySelectorAll("button")].find(el => (el.getAttribute("aria-label") ?? el.textContent.trim()) === label);
 const agenda = () => document.querySelector('[aria-label="Mobile calendar entries"]');
 const click = async el => { assert.ok(el); assert.equal(el.disabled,false); await act(async () => el.click()); };
-async function mount({ role = "admin", permissions = [], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false } = {}) {
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
     reservations: [{ ...base, reservation_id: id, reference_number: "MV-CONFIRMED", status: "confirmed" }, { ...base, reservation_id: "pending", reference_number: "MV-PENDING", status: "payment_submitted" }, { ...base, reservation_id: "cancelled", reference_number: "MV-CANCELLED", status: "cancelled" }],
@@ -85,6 +85,19 @@ test("calendar reads all workflow signals, distinguishes bookings and confirms a
     assert.match(agenda().textContent,/No entries match/);
   } finally { await h.close(); }
 });
+
+test("admins may inspect and filter the calendar but cannot perform operational actions even with forged grants", async () => {
+  const h = await mount({ role: "admin", initialAccess: { role: "admin", permissions: ["reservations", "create_reservation", "edit_reservation", "cancel_reservation", "payment_approval", "ocular_approval"] } });
+  try {
+    assert.equal(Boolean(button(h.c, "New reservation")), false);
+    assert.equal(Boolean(button(h.c, "Add maintenance block")), false);
+    await filter(h.c, "arrival");
+    assert.match(agenda().textContent, /MV-CONFIRMED/);
+    await click([...agenda().querySelectorAll("button")].find(b => b.textContent.includes("MV-CONFIRMED")));
+    for (const label of ["Record guest arrival", "Cancel reservation", "Approve payment", "Reject payment"]) assert.equal(Boolean(button(document.body, label)), false, label);
+    assert.equal(h.calls.length, 0);
+  } finally { await h.close(); }
+});
 test("recorded guest arrival needs acknowledgement, submits once, refreshes its flag and links to the review modules",async()=>{
   const h=await mount();
   try {
@@ -136,8 +149,8 @@ test("mobile Week, Month and Agenda controls navigate their own periods and desk
     await click(desktop.querySelector('[aria-label="View reservation details for '+day+'"]'));assert.match(document.querySelector('[role="dialog"]').textContent,/Reservation editor/);
   }finally{await h.close();}
 });
-test("server-verified admin access shows the maintenance action without another role lookup; saving refreshes its calendar entry",async()=>{
-  const h=await mount({initialAccess:{role:"admin",permissions:[]},failure:"staff_users"});
+test("server-verified manager access shows the maintenance action without another role lookup; saving refreshes its calendar entry",async()=>{
+  const h=await mount({initialAccess:{role:"staff",permissions:["reservations","edit_reservation"]},failure:"staff_users"});
   try {
     assert.equal(h.tables.includes("staff_users"),false);
     await click(button(h.c,"Add maintenance block"));
@@ -150,7 +163,7 @@ test("server-verified admin access shows the maintenance action without another 
   }finally{await h.close();}
 });
 test("maintenance conflicts remain visible in the modal and staff cannot see an admin-only action",async()=>{
-  const h=await mount({initialAccess:{role:"admin",permissions:[]},blockFailure:true});
+  const h=await mount({initialAccess:{role:"staff",permissions:["reservations","edit_reservation"]},blockFailure:true});
   try {
     await click(button(h.c,"Add maintenance block"));const dialog=document.querySelector('[role="dialog"]');const inputs=dialog.querySelectorAll("input");
     for (const [index,next] of ["Pool maintenance","Pool repairs",day,tomorrow].entries()) await input(inputs[index],next);

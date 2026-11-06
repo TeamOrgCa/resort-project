@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const { staff } = context;
   const params = new URL(request.url).searchParams, id = params.get("reservationId") ?? "", initiator = params.get("initiator") ?? "guest";
   if (!uuidPattern.test(id) || !["guest", "resort"].includes(initiator)) return NextResponse.json({ message: "Select a valid cancellation." }, { status: 400 });
-  if (initiator === "resort" && staff.staffUser.role !== "admin") return NextResponse.json({ message: "Only administrators can cancel for resort-attributable reasons." }, { status: 403 });
+  if (initiator === "resort" && staff.staffUser.role !== "staff") return NextResponse.json({ message: "Only authorized managers can cancel for resort-attributable reasons." }, { status: 403 });
   const { data, error } = await staff.supabase.rpc("get_cancellation_preview", { p_reservation: id, p_initiator: initiator });
   if (error) return NextResponse.json({ message: workflowErrorMessage(error) }, { status: workflowErrorStatus(error.code) });
   return NextResponse.json({ preview: data }, { headers: { "Cache-Control": "private, no-store" } });
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   if (!uuidPattern.test(body?.reservationId ?? "") || !["guest", "resort"].includes(body?.initiator) ||
     typeof body?.cancellationReason !== "string" || body.cancellationReason.trim().length < 5 || body.cancellationReason.length > 2000 ||
     typeof body?.quote !== "string" || !/^[a-f0-9]{32}$/.test(body.quote)) return NextResponse.json({ message: "Choose who initiated cancellation, enter a reason and review the refund preview." }, { status: 400 });
-  if (body.initiator === "resort" && staff.staffUser.role !== "admin") return NextResponse.json({ message: "Only administrators can cancel for resort-attributable reasons." }, { status: 403 });
+  if (body.initiator === "resort" && staff.staffUser.role !== "staff") return NextResponse.json({ message: "Only authorized managers can cancel for resort-attributable reasons." }, { status: 403 });
   const { data, error } = await staff.supabase.rpc("cancel_reservation_evaluated", { p_reservation: body.reservationId,
     p_reason: body.cancellationReason.trim(), p_initiator: body.initiator, p_expected_quote: body.quote });
   if (error) return NextResponse.json({ message: workflowErrorMessage(error) }, { status: workflowErrorStatus(error.code) });

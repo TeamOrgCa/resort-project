@@ -1,24 +1,21 @@
 # Staff role permissions
 
-Apply [role-permissions-migration.sql](role-permissions-migration.sql) in Supabase after the maintenance and refund migration and before deploying this change. It creates `public.role_permissions`, enables RLS, seeds the two configurable roles, and updates the refund RPC and proof policies. Existing `staff` accounts display as **Manager**; their stored role is unchanged.
+Existing `staff` accounts display as **Manager**; their stored role is unchanged.
 
-## Defaults
-
-| Role | Initial access |
+| Role | Access |
 | --- | --- |
-| Cashier | View transactions and approve or reject payments |
-| Manager (`staff`) | Reservations, including creation, cancellation and reschedule decisions; transaction work, including payment and refund decisions; records, reports, analytics and audit |
-| Admin | Full access, including staff users, role permissions, catalog and resort configuration |
+| Admin | Full Users, Configuration and Business Catalog access. All other modules are view-only, including search, filters, sorting, pagination, refresh and record details. Operational changes, printing, exports and starting feedback analysis are unavailable. |
+| Manager (`staff`) | Configurable operational permissions, including refund approval/rejection. Users, Configuration and Business Catalog remain admin-only. |
+| Cashier | Configurable operational permissions. Cannot approve/reject refunds, even if a refund approval grant is supplied. |
 
-An admin can change manager and cashier permissions in **User Management → Role Permission Matrix**. Save each role separately. Changes take effect on the next request. The admin role always has full access, and the user management, resort configuration and catalog permissions remain admin only. Empty permissions leave a role with no admin modules.
+Admins manage operational grants in **Users > Role Permission Matrix**. The admin role's fixed access cannot be expanded with action grants. Refund review, approval, payout and verification are separate permissions. Refund approval requires both the Manager role and **Approve or reject refunds**. A payout must be verified by another authorized staff member.
 
-The permission checks cover admin navigation, page requests and `/api/admin` requests. Action permissions are separate from page permissions: access to the transactions page alone does not permit payment approval, manual payment entry, refund review or refund payout. The role permission update endpoint accepts only known permission names and records an audit event. Unknown admin API endpoints are restricted to admins.
+Authorized managers with reservation-edit permission handle maintenance blocks. Authorized managers with reservation-cancellation permission may choose resort-attributable cancellation.
 
-## Deployment and verification
+## Deployment
 
-1. Apply `docs/role-permissions-migration.sql` to the target database.
-2. Deploy the app.
-3. Sign in as admin and review the Role Permission Matrix. Confirm that manager and cashier permissions reflect the defaults, then adjust and save as needed.
-4. Sign in as each role and verify the navigation and a denied action with a direct API request. A denied action should return HTTP 403.
+1. Apply the existing role-permissions, cancellation-refund-workflow, admin-refund-verification, maintenance-refunds and stay-completion migrations.
+2. Apply [admin-read-only-manager-refunds-migration.sql](admin-read-only-manager-refunds-migration.sql) before deploying the app. Existing manager grants are preserved; Transactions and refund approval are added. Existing requests and financial amounts are preserved.
+3. Deploy and verify each role. Denied operational API actions return HTTP 403.
 
-The existing Supabase table policies and RPC grants still determine whether direct database calls are allowed. Review those policies for tables used by staff pages if database level enforcement of these app permissions is required.
+The app enforces access in navigation, controls, API handlers and middleware. Database triggers reject admin writes to operational tables and payment/refund/review proof assets, including writes attempted by legacy security-definer RPCs with an admin identity. Users, catalog, configuration and their assets remain editable. System service-role jobs continue to work.

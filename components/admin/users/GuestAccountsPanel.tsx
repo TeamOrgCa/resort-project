@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import AdminActionsMenu from "@/components/admin/AdminActionsMenu";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import GuestReservationHistory from "@/components/admin/users/GuestReservationHistory";
 
@@ -83,10 +84,10 @@ export default function GuestAccountsPanel() {
           <p className="mt-1 break-all text-sm text-neutral/70">{guest.email}</p><p className="mt-1 text-xs text-neutral/60">{guest.phone_number}</p>
           <p className="mt-2 text-xs text-neutral/55">{guest.email_confirmed ? "Email confirmed" : "Email not confirmed"} &middot; Registered {new Date(guest.created_at).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium" })}</p>
         </div>
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-          <button type="button" onClick={() => setHistoryGuest(guest)} className="admin-button-secondary flex-1 sm:flex-none">View bookings</button>
-          <button type="button" onClick={() => { setSelected(guest); setReason(""); setSaveError(""); setMessage(""); }} className={`min-h-11 flex-1 rounded-xl border px-4 text-sm font-semibold sm:flex-none ${guest.is_active ? "border-red-200 text-red-700 hover:bg-red-50" : "border-emerald-200 text-emerald-800 hover:bg-emerald-50"}`}>{guest.is_active ? "Deactivate" : "Reactivate"}</button>
-        </div>
+        <AdminActionsMenu reference={guest.email} actions={[
+          { label: "View bookings", onSelect: () => setHistoryGuest(guest) },
+          { label: guest.is_active ? "Deactivate" : "Reactivate", onSelect: () => { setSelected(guest); setReason(""); setSaveError(""); setMessage(""); } },
+        ]} />
       </article>)}</div>}
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4 text-sm">
       <p className="text-neutral/60">{total} guest accounts &middot; Page {page + 1} of {Math.max(1, Math.ceil(total / 10))}</p>

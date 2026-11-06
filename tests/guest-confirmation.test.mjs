@@ -3,7 +3,7 @@ import test from "node:test";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 import { catalogDatabase, uuid } from "./helpers/catalog-database.mjs";
 
-const guest = { firstName: "Maria", lastName: "Cruz", middleName: "", email: "guest@example.com", phoneNumber: "09171234567", address: "Taytay, Rizal", password: "secret123", confirmPassword: "secret123" };
+const guest = { firstName: "Maria", lastName: "Cruz", middleName: "", email: "guest@example.com", phoneNumber: "09171234567", addressDetails: { streetAddress: "Block 2", city: "Taytay", province: "Rizal", zipCode: "1920" }, password: "secret123", confirmPassword: "secret123" };
 function harness({ existing = false, confirmed = false, staff = false, delivery = true, settings = { external: { email: true }, mailer_autoconfirm: false }, configured = true, missingProfile = false, duplicateCode = "email_exists", signupError = null, linkError = null } = {}) {
   const database = catalogDatabase({ guests: existing ? [{ id: uuid(1), email: guest.email, first_name: "Original" }] : [], staff_users: staff ? [{ id: uuid(1) }] : [] });
   const user = { id: uuid(1), email: guest.email, email_confirmed_at: confirmed ? "2026-01-01" : null };

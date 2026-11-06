@@ -6,7 +6,7 @@ export type CancellationPreview = {
   outcome: "pending_refund" | "no_refund"; rule: string; quote: string;
 };
 export const refundStatusLabels: Record<string, string> = {
-  pending: "Pending refund review", reviewed: "Awaiting administrator approval", approved: "Approved - awaiting transfer",
+  pending: "Pending refund review", reviewed: "Awaiting manager approval", approved: "Approved - awaiting transfer",
   payout_submitted: "Transfer submitted - awaiting verification", refunded: "Refunded", rejected: "Refund rejected",
 };
 export const cancellationMessage = (preview: CancellationPreview) => preview.refundableAmount > 0

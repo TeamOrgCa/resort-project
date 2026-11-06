@@ -30,7 +30,7 @@ test("live guest signup stays unconfirmed until its email token is verified", { 
   };
   try {
     const { POST } = loadTsModule("app/api/auth/register/route.ts", mocks);
-    const response = await POST(new Request("http://localhost:3000/api/auth/register", { method: "POST", body: JSON.stringify({ firstName: "Confirmation", lastName: "Test", middleName: "", email, password, confirmPassword: password, phoneNumber: "09171234567", address: "Integration test account" }) }));
+    const response = await POST(new Request("http://localhost:3000/api/auth/register", { method: "POST", body: JSON.stringify({ firstName: "Confirmation", lastName: "Test", middleName: "", email, password, confirmPassword: password, phoneNumber: "09171234567", addressDetails: { streetAddress: "Integration test account", city: "Taytay", province: "Rizal", zipCode: "1920" } }) }));
     assert.equal(response.status, 200);
     assert.equal((await response.json()).success, true);
     assert.ok(ownedUserId);

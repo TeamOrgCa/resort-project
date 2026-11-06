@@ -9,6 +9,7 @@ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.
 const {createRoot}=await import("react-dom/client");after(()=>dom.window.close());
 const button=(c,text)=>[...c.querySelectorAll("button")].find(el=>el.textContent.trim()===text);
 async function click(el){assert.ok(el);assert.equal(el.disabled,false);await act(async()=>el.click());}
+async function choose(container,label){await click(container.querySelector('button[aria-haspopup="menu"]'));await click(button(document.body,label));}
 async function value(el,next){const proto=el.tagName==="SELECT"?window.HTMLSelectElement.prototype:el.tagName==="TEXTAREA"?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;await act(async()=>{Object.getOwnPropertyDescriptor(proto,"value").set.call(el,next);el.dispatchEvent(new window.Event(el.tagName==="SELECT"?"change":"input",{bubbles:true}));});}
 async function mount(fetcher){
   const saved=globalThis.fetch;globalThis.fetch=fetcher;const container=document.createElement("div");document.body.append(container);const root=createRoot(container);
@@ -24,13 +25,13 @@ test("guest status changes require confirmation, show errors, audit the supplied
     return Response.json({success:true,rows:[{...guest,is_active:active}],total:1});
   });
   try{
-    await click(button(h.container,"Deactivate"));assert.equal(writes.length,0);assert.match(h.container.querySelector('[role="dialog"]').textContent,/reservations, payments and refunds remain recorded/);
+    await choose(h.container,"Deactivate");assert.equal(writes.length,0);assert.match(h.container.querySelector('[role="dialog"]').textContent,/reservations, payments and refunds remain recorded/);
     await click(button(h.container,"Cancel"));assert.equal(writes.length,0);
-    await click(button(h.container,"Deactivate"));await value(h.container.querySelector("textarea"),"Repeated misuse of booking access");await click(button(h.container,"Confirm deactivation"));
+    await choose(h.container,"Deactivate");await value(h.container.querySelector("textarea"),"Repeated misuse of booking access");await click(button(h.container,"Confirm deactivation"));
     assert.match(h.container.querySelector('[role="alert"]').textContent,/could not be saved/);assert.ok(h.container.querySelector('[role="dialog"]'));fail=false;
     await click(button(h.container,"Confirm deactivation"));assert.deepEqual(writes[1],{isActive:false,expectedActive:true,reason:"Repeated misuse of booking access"});
-    assert.equal(h.container.querySelector('[role="dialog"]'),null);assert.ok(button(h.container,"Reactivate"));assert.match(h.container.querySelector('[role="status"]').textContent,/deactivated/);
-    await click(button(h.container,"Reactivate"));await click(button(h.container,"Confirm reactivation"));assert.ok(button(h.container,"Deactivate"));assert.equal(writes[2].isActive,true);
+    assert.equal(h.container.querySelector('[role="dialog"]'),null);assert.ok(h.container.querySelector('button[aria-haspopup="menu"]'));assert.match(h.container.querySelector('[role="status"]').textContent,/deactivated/);
+    await choose(h.container,"Reactivate");await click(button(h.container,"Confirm reactivation"));assert.ok(h.container.querySelector('button[aria-haspopup="menu"]'));assert.equal(writes[2].isActive,true);
   }finally{await h.close();}
 });
 test("guest search filters as you type, debounces requests and resets pagination",async()=>{
@@ -66,7 +67,7 @@ test("an account status request stays in its dialog and cannot be submitted or d
     return Response.json({success:true,rows:[guest],total:1});
   });
   try{
-    await click(button(h.container,"Deactivate"));await click(button(h.container,"Confirm deactivation"));
+    await choose(h.container,"Deactivate");await click(button(h.container,"Confirm deactivation"));
     assert.equal(button(h.container,"Saving...").disabled,true);assert.equal(button(h.container,"Cancel").disabled,true);
     await act(async()=>document.dispatchEvent(new window.KeyboardEvent("keydown",{key:"Escape",bubbles:true})));
     assert.ok(h.container.querySelector('[role="dialog"]'));assert.ok(h.container.querySelector('[role="dialog"]').contains(document.activeElement));

@@ -103,7 +103,8 @@ function recipientMatches(lines: string[], name?: string | null, number?: string
   const phones = parts.flatMap((part) => [...part.matchAll(/(?:\+?63|0)\s*[\d*xX•●·∙⋅.…][\d*xX•●·∙⋅.…\s-]{7,24}/g)]
     .map((match) => match[0].replaceAll("…", "...").replace(/[\s+-]/g, "").replace(/^63/, "0")));
   if (phones.length && wantedNumber) {
-    return phones.some((phone) => phone.length === wantedNumber.length && phone.replace(/\D/g, "").length >= 6 && phone.split("").every((char, index) => /[*xX•●·∙⋅.]/.test(char) || char === wantedNumber[index]));
+    return phones.some((phone) => phone.length === wantedNumber.length && /\d{4}$/.test(phone)
+      && phone.split("").every((char, index) => /[*xX•●·∙⋅.]/.test(char) || char === wantedNumber[index]));
   }
   const wantedName = normalizedName(name ?? "");
   return wantedName.length >= 6 && parts.some((part) => normalizedName(part) === wantedName);

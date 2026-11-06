@@ -31,16 +31,17 @@ test("review rate-limit errors appear in a popup with the retry time and retain 
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; }
 });
 
-test("review form remains closed until completed-stay eligibility is confirmed", async () => {
+test("review form requires an active guest account and allows feedback without a reservation", async () => {
   const originalFetch = globalThis.fetch; let eligible = false;
-  globalThis.fetch = async url => String(url).includes("/eligibility") ? Response.json({ eligible, message: "Complete a stay before reviewing.", reservations: [{ reservation_id: "stay", reference_number: "MV-COMPLETED", end_datetime: "2026-10-17T06:00:00+08:00" }] }) : Response.json({ reviews: [] });
+  globalThis.fetch = async url => String(url).includes("/eligibility") ? Response.json({ eligible, message: "Sign in with an active guest account.", reservations: [] }) : Response.json({ reviews: [] });
   const Component = loadTsModule("app/reviews/page.tsx", { "@/components/Navigation": () => null, "@/components/Footer": () => null, "next/image": () => null, "next/link": ({ href, children }) => createElement("a", { href }, children) }).default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   try {
     await act(async () => root.render(createElement(Component)));
     await act(async () => button(container, "Write a Review").click());
-    assert.equal(container.querySelector("form"), null); assert.match(container.querySelector('[role="alert"]').textContent, /Complete a stay/);
+    assert.equal(container.querySelector("form"), null); assert.match(container.querySelector('[role="alert"]').textContent, /active guest account/);
     eligible = true; await act(async () => button(container, "Write a Review").click());
-    assert.ok(container.querySelector("form")); assert.match(container.querySelector("#review-completed-stay").textContent, /MV-COMPLETED/);
+    assert.ok(container.querySelector("form")); assert.match(container.querySelector("#review-reservation").textContent, /General feedback/);
+    assert.equal(container.querySelector("#review-reservation").value, "");
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; }
 });

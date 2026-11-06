@@ -123,6 +123,33 @@ test("transaction links open payment/refund tabs and pending payments outside th
   } finally { await h.close(); }
 });
 
+test("transaction, invoice and receipt pagination reaches older records beyond API response limits", async () => {
+  const rows = Array.from({ length: 1003 }, (_, i) => i);
+  const db = dashboardDatabase({
+    staff_users: [{ id: "staff", role: "admin" }],
+    transactions: rows.map(i => ({ transaction_id: `t-${i}`, reservation_id: `r-${i}`, total_amount: 100, paid_amount: 100, balance: 0, status: "paid", updated_at: "2026-01-01T00:00:00Z" })),
+    reservations: rows.map(i => ({ reservation_id: `r-${i}`, reference_number: `MV-${i}`, status: "confirmed" })),
+    invoices: rows.map(i => ({ invoice_id: `i-${i}`, reservation_id: `r-${i}`, total_amount: 100, created_at: "2026-01-01T00:00:00Z" })),
+    payments: rows.map(i => ({ payment_id: `p-${i}`, reservation_id: `r-${i}`, reference_number: `PAY-${i}`, status: "verified", amount: 100, payment_type: "full", ocr_status: "consistent", proof_path: "proof.png" })),
+    receipts: rows.map(i => ({ receipt_id: `receipt-${i}`, payment_id: `p-${i}`, receipt_number: `RCPT-${i}`, issued_at: "2026-01-01T00:00:00Z", is_active: true })),
+  });
+  const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } } });
+  try {
+    for (const tab of ["Transaction Ledger", "Generated Invoices", "Issued Receipts"]) {
+      if (tab !== "Transaction Ledger") await click(button(h.container, tab));
+      assert.equal(h.container.querySelectorAll("tbody tr").length, 25);
+      await click(button(h.container, "Last")); assert.match(h.container.textContent, /Page 41 of 41/);
+      assert.equal(h.container.querySelectorAll("tbody tr").length, 3);
+    }
+    assert.ok(db.calls.some(call => call.table === "transactions" && call.from === 1000));
+    assert.ok(db.calls.some(call => call.table === "receipts" && call.from === 1000));
+    assert.ok(db.calls.filter(call => call.table === "invoices").every(call => call.batches.every(batch => batch.length <= 200)));
+    await value(h.container.querySelector('input[placeholder="Search records..."]'), "RCPT-1002");
+    assert.equal(h.container.querySelectorAll("tbody tr").length, 1); assert.match(h.container.querySelector("tbody").textContent, /RCPT-1002/);
+    assert.match(h.container.textContent, /Page 1 of 1/);
+  } finally { await h.close(); }
+});
+
 test("record links select the intended tab and older pending requests are not lost after 300 records", async () => {
   const db = dashboardDatabase({ reservation_reschedules: Array.from({ length: 1001 }, (_, i) => ({ reschedule_id: `req-${i}`, reservation_id: "r1", requested_by: "g1", old_start: "2026-10-13T00:00:00Z", old_end: "2026-10-13T08:00:00Z", new_start: "2026-10-14T00:00:00Z", new_end: "2026-10-14T08:00:00Z", status: i === 0 ? "pending" : "approved", created_at: `2026-${i === 0 ? "01" : "10"}-01T00:00:00Z` })),
     reservations: [{ reservation_id: "r1", reference_number: "MV-REQUEST", guest_id: "g1", start_datetime: "2026-10-13T00:00:00Z", end_datetime: "2026-10-13T08:00:00Z", adult_count: 10, status: "confirmed" }], guests: [{ id: "g1", first_name: "Test", last_name: "Guest" }], staff_users: [{ id: "staff", role: "admin" }], ocular_visits: [{ visit_id: "v1", reference_number: "MV-VISIT", guest_id: "g1", scheduled_date: "2026-10-13", status: "pending", created_at: "2026-10-13T00:00:00Z" }] });

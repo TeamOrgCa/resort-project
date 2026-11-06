@@ -16,6 +16,8 @@ import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { DOWN_PAYMENT_PERCENT } from "@/lib/booking/payment-policy";
 import { isValidName, sanitizeName } from "@/lib/helper/validation";
 import { isValidGuestCounts, MAX_GUESTS, MAX_EXTRA_GUESTS } from "@/lib/booking/guest-count";
+import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
+import { parsePhilippineAddress, validatePhilippineAddress } from "@/lib/address/philippine-address";
 
 interface UnitOption {
   id: string;
@@ -62,12 +64,12 @@ function BookingFormContent() {
     lastName: bookingDraft.lastName || "",
     email: bookingDraft.email || "",
     phone: bookingDraft.phone || "",
-    address: bookingDraft.address || "",
     adultCount: bookingDraft.adultCount || 1,
     childCount: bookingDraft.childCount || 0,
     roomType: bookingDraft.unitId || "",
     specialRequests: bookingDraft.specialRequests || "",
   });
+  const [address, setAddress] = useState(() => parsePhilippineAddress(bookingDraft.address || ""));
 
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>(bookingDraft.services.map((service) => service.id));
   const [units, setUnits] = useState<UnitOption[]>([]);
@@ -137,8 +139,9 @@ function BookingFormContent() {
         lastName: prev.lastName || guestProfile?.last_name || authUser?.user_metadata?.last_name || "",
         email: prev.email || authUser?.email || "",
         phone: prev.phone || guestProfile?.phone_number || authUser?.user_metadata?.phone_number || "",
-        address: prev.address || guestProfile?.address || authUser?.user_metadata?.address || "",
       }));
+      setAddress(prev => Object.values(prev).some(Boolean)
+        ? prev : parsePhilippineAddress(guestProfile?.address || authUser?.user_metadata?.address || ""));
       setCatalogLoading(false);
 
       // If there is a previously saved reservation in the draft, clear the reservation
@@ -245,6 +248,11 @@ function BookingFormContent() {
       setFormError(PH_MOBILE_ERROR);
       return;
     }
+    const addressValidation = validatePhilippineAddress(address);
+    if (addressValidation.value === undefined) {
+      setFormError(addressValidation.error);
+      return;
+    }
 
     setBookingDraft({
       checkIn: manilaDateKey(effectiveStartDate),
@@ -257,7 +265,7 @@ function BookingFormContent() {
       lastName: formData.lastName,
       email: formData.email,
       phone,
-      address: formData.address,
+      address: addressValidation.value,
       adultCount: formData.adultCount,
       childCount: formData.childCount,
       unitId: selectedRoom.id,
@@ -359,14 +367,7 @@ function BookingFormContent() {
                         onChange={phone => { setFormData(current => ({ ...current, phone })); setFormError(null); }} />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Address</label>
-                      <input
-                        type="text"
-                        name="address"
-                        value={formData.address}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                      />
+                      <PhilippineAddressFields value={address} onChange={next => { setAddress(next); setFormError(null); }} />
                     </div>
                   </div>
                 </div>

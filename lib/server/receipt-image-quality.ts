@@ -83,12 +83,26 @@ export function gcashNumericLines(page: ReceiptPage) {
 }
 
 export function inspectReceiptReadability(page: ReceiptPage, options: { gcash?: boolean; nativeScale?: number } = {}): ImageQuality {
-  if (!Number.isFinite(page.confidence) || page.confidence < 75) return reject("The receipt text is not clear enough to read reliably.");
+  const unreadable = (detail: string): ImageQuality => ({ accepted: false, reason: `${detail} OCR could not verify these details confidently; this does not necessarily mean the screenshot is blurred. Keep these fields fully visible in the original GCash screenshot.` });
+  if (!Number.isFinite(page.confidence) || page.confidence < 75) return unreadable("OCR could not reliably read the receipt text.");
   const lines = (page.blocks ?? []).flatMap((block) => block.paragraphs.flatMap((paragraph) => paragraph.lines));
-  const numericWords = (options.gcash ? gcashNumericLines(page) : lines).flatMap((line) => line.words).filter((word) => /\d/.test(word.text));
+  const numericLines = options.gcash ? gcashNumericLines(page) : lines;
+  const numericWords = numericLines.flatMap((line) => line.words).filter((word) => /\d/.test(word.text));
   const scale = options.nativeScale ?? 1;
-  if (!Number.isFinite(scale) || scale < 1 || !numericWords.length || numericWords.some((word) => !Number.isFinite(word.confidence) || word.confidence < 80 || (word.bbox.y1 - word.bbox.y0) / scale < 12)) {
-    return reject("The receipt numbers are blurred, too small or unclear.");
+  if (!Number.isFinite(scale) || scale < 1 || !numericWords.length) return unreadable("OCR could not reliably read the receipt numbers.");
+  const failed = (word: (typeof numericWords)[number]) => /\d/.test(word.text) && (!Number.isFinite(word.confidence) || word.confidence < 80 || (word.bbox.y1 - word.bbox.y0) / scale < 12);
+  if (numericWords.some(failed)) {
+    const fields = new Set<string>();
+    for (const line of numericLines.filter(line => line.words.some(failed))) {
+      const text = (line.text ?? line.words.map(word => word.text).join(" ")).trim();
+      let named = false;
+      if (/\b(?:ref(?:erence)?\.?\s*(?:no\.?|number)?|transaction)\b/i.test(text)) { fields.add("reference number"); named = true; }
+      if (/\b(?:date|time|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}/i.test(text)) { fields.add("date/time"); named = true; }
+      if (/^(?:amount|payment amount|you sent)\b/i.test(text)) { fields.add("amount"); named = true; }
+      if (/^\s*(?:\+?63|0)[\d\s*xX•●·∙⋅.…-]{7,}/.test(text)) { fields.add("recipient number"); named = true; }
+      if (!named) fields.add("numeric details");
+    }
+    return unreadable(`OCR could not reliably read: ${[...fields].join(", ")}.`);
   }
   const tilted = lines.filter((line) => {
     const width = line.baseline.x1 - line.baseline.x0;

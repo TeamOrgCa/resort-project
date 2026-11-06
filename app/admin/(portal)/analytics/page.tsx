@@ -14,6 +14,8 @@ import type { ReportDateRange, ReportPeriod, ReportRow } from "@/lib/reports/typ
 import type { AdminTableColumn, AdminTableSort } from "@/components/admin/types";
 import GuestFeedbackPanel from "@/components/admin/GuestFeedbackPanel";
 
+import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
+
 type Tab = "Bookings" | "Collection forecast" | "Operations" | "Guest feedback";
 const tabs: { title: Tab; description: string }[] = [
   { title: "Bookings", description: "See how many reservations were created and where those bookings came from." },
@@ -29,6 +31,7 @@ const tableConfigs: Record<Tab, { columns: AdminTableColumn[]; sort: AdminTableS
 };
 const money = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" });
 export default function AdminAnalyticsPage() {
+  const readOnly = useAdminReadOnly();
   const [activeTab, setActiveTab] = useState<Tab>("Bookings");
   const [period, setPeriod] = useState<ReportPeriod>("Daily");
   const [customRange, setCustomRange] = useState<ReportDateRange>(defaultReportDateRange);
@@ -69,7 +72,7 @@ export default function AdminAnalyticsPage() {
   const stopPrinting = useCallback(() => setPrintSnapshot(null), []);
   const refresh = () => setGeneration(value => value + 1);
   const analyzeFeedback = async () => {
-    if (!reports || analyzing) return;
+    if (readOnly || !reports || analyzing) return;
     const controller = new AbortController(); feedbackController.current = controller;
     setRunning({ key, controller }); setActionFailure(null);
     try {
@@ -91,7 +94,7 @@ export default function AdminAnalyticsPage() {
   const config = tableConfigs[activeTab];
   const format: "money" | "count" | "percent" = activeTab === "Collection forecast" ? "money" : activeTab === "Guest feedback" ? "percent" : "count";
   const handleAction = (action: string, rows: ReportRow[]) => {
-    if (!report || !rows.length || printSnapshot) return;
+    if (readOnly || !report || !rows.length || printSnapshot) return;
     setActionFailure(null);
     try {
       if (action === "Export CSV") downloadReportCsv(config.columns, rows, `analytics-${activeTab.toLowerCase().replaceAll(" ", "-")}-${report.startDate}-to-${report.endDate}.csv`);
@@ -116,7 +119,7 @@ export default function AdminAnalyticsPage() {
       {loading && <p role="status" className="py-12 text-center text-sm text-neutral/65">Loading analytics...</p>}
       {reports && <p className="mt-5 text-sm text-neutral/70">{reports.booking.startDate} through {reports.booking.endDate} | Updated {new Date(reports.booking.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</p>}
       {activeTab === "Guest feedback" && <GuestFeedbackPanel key={query} query={query} revision={generation} onChanged={refresh} />}
-      {activeTab === "Guest feedback" && reports && <article className="mt-4 rounded-xl bg-base p-4">
+      {activeTab === "Guest feedback" && reports && !readOnly && <article className="mt-4 rounded-xl bg-base p-4">
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">{sentiment?.overallSentiment ?? "Feedback has not been analyzed"}</h2><button type="button" disabled={analyzing} onClick={() => void analyzeFeedback()} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{analyzing ? "Analyzing..." : sentiment ? "Analyze again" : "Analyze feedback"}</button></div>
         {!sentiment && <p className="mt-3 text-sm text-neutral/70">Select dates, then analyze feedback to see review sentiment and common themes.</p>}
       </article>}

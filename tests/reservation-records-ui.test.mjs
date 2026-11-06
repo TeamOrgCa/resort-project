@@ -22,7 +22,7 @@ async function mount({ failProfiles = false, detailFails = false, reviewable = f
     reservations: [r, { ...r, reservation_id: "33333333-3333-4333-8333-333333333333", reference_number: "MV-ONLINE", guest_id: walkId, walk_in_guest_id: null, status: "confirmed" },
       { ...r, reservation_id: "44444444-4444-4444-8444-444444444444", reference_number: "MV-MISSING", walk_in_guest_id: "missing", status: "cancelled" }],
     guests: [{ id: walkId, first_name: "Juan", last_name: "Online" }], walk_in_guests: [{ walk_in_guest_id: walkId, ...guest }],
-    reservation_reschedules: [{ reschedule_id: "reschedule", reservation_id: id, requested_by: null, old_start: r.start_datetime, old_end: r.end_datetime, new_start: r.start_datetime, new_end: r.end_datetime, reschedule_fee: 50, rate_adjustment: 0, status: "approved", created_at: r.created_at }],
+    reservation_reschedules: [{ reschedule_id: "reschedule", reservation_id: id, requested_by: null, old_start: r.start_datetime, old_end: r.end_datetime, new_start: r.start_datetime, new_end: r.end_datetime, reschedule_fee: 50, rate_adjustment: 0, reason: "Family schedule changed", status: "approved", created_at: r.created_at }],
     ocular_visits: [], ocular_time_slots: [], staff_users: [{ id: "staff", role: "staff" }], role_permissions: [{ role: "staff", permissions: ["records"] }],
   };
   if (reviewable) {
@@ -86,6 +86,7 @@ test("records resolves separate walk-in and account names, including the walk-in
     for (const ref of ["MV-WALKIN", "MV-ONLINE", "MV-MISSING"]) assert.equal(row(h.container, ref).querySelector("button").disabled, false);
     await click([...h.container.querySelectorAll('[aria-label="Record sections"] button')].find(tab => tab.textContent === "Reschedule Requests"));
     assert.match(h.container.textContent, /Maria Walkin/);
+    assert.match(h.container.textContent, /Family schedule changed/);
   } finally { await h.close(); }
 });
 

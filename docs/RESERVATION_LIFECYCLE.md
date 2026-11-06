@@ -13,7 +13,7 @@ The existing `pending` database value represents **PENDING_PAYMENT**. This retai
 | `pending` | `payment_submitted`, `expired`, `cancelled`, `confirmed` (staff manual payment) | Awaiting proof for 30 minutes. |
 | `payment_submitted` | `confirmed`, `rejected`, `cancelled` | Proof is awaiting admin/cashier review. |
 | `confirmed` | `completed`, `cancelled`, `reschedule_requested` | A payment has been verified. A rejected balance payment leaves this state unchanged. |
-| `reschedule_requested` | `confirmed`, `cancelled` (legacy unpaid requests may return to `pending` or `payment_submitted`) | Original date remains occupied during staff review. |
+| `reschedule_requested` | `confirmed`, `cancelled` (legacy unpaid requests may return to `pending` or `payment_submitted`) | Legacy requests only: original date remains occupied during staff review. New guest reschedules stay confirmed and apply immediately. |
 | `expired`, `rejected`, `cancelled`, `completed` | None | No further payment approval or new booking state transition. |
 
 The SQL state guard is the final authority. `expired`, `rejected`, and `cancelled` do not count as active. The customer reschedule route now requires a confirmed reservation.
@@ -27,7 +27,7 @@ Guest stay bookings must start at least 30 minutes after the current time. The b
 
 Apply [reschedule-approval-charges-migration.sql](reschedule-approval-charges-migration.sql) before deploying the approval API. It adds `rate_adjustment` to reschedule requests and an atomic approval function. The transaction total trigger retains previously approved charges when services or booking details change. The approval function changes the reservation date, adds the current charge, updates the invoice, and marks the request approved in one database transaction. A conflicting date or failed update rolls back all changes.
 
-Guests may request an earlier or later available Manila date while keeping the original package start time and duration. The requested start must remain at least 30 minutes away, including at staff approval. The added charge is the notice fee in `RESORT_CONTEXT.md` (based on time left before the original start) plus any increase in the package price for the chosen date. A lower date rate does not create an automatic refund. Staff see the charge on the Records page before approval. Approval adds it to the outstanding transaction balance and notifies the guest to pay from Manage Booking. Ocular approval uses the current slot ID, verifies the slot has not started, then sends its existing guest email and notification. These actions require their respective staff permissions.
+Guests with confirmed reservations can choose an earlier or later available Manila date before check-in, keeping the original package, start time and duration. The new start must be at least 30 minutes away. Valid guest changes are automatically approved, including short-notice changes and changes after the original date. The notice fee in `RESORT_CONTEXT.md` plus any positive historical package-rate difference is shown before saving. The schedule, approved history, transaction, current invoice and audit update in one database transaction; verified payments and receipts are preserved. A lower date rate does not automatically reduce billing. Apply `docs/guest-auto-reschedule-migration.sql`. Existing pending requests retain their legacy staff review path. Ocular approvals continue to require the ocular-approval staff permission.
 
 ## Database and concurrency
 
