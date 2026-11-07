@@ -196,6 +196,24 @@ function makeAnalytics() {
     performance: { ...base, trendTitle: "Logged activity over time", splitTitle: "Status of payments submitted in this period", tableTitle: "Tasks to check", metrics: [{ label: "Payments awaiting review", value: 1, format: "count", help: "Submitted within these dates" }], rows: [{ id: "pending", signal: "Review pending payments", value: "1", meaning: "Open Transactions" }] },
   };
 }
+
+test("administrators can export and print Reports and Analytics while operational actions stay restricted", async () => {
+  for (const analytics of [false, true]) {
+    const h = await mount({
+      filename: analytics ? "app/admin/(portal)/analytics/page.tsx" : "components/admin/ReportPanel.tsx",
+      extraMocks: { "@/components/admin/AdminReadOnlyContext": { useAdminReadOnly: () => true } },
+      fetcher: () => Response.json(analytics ? { success: true, reports: makeAnalytics() } : { success: true, report: makeReport("Guest Report") }),
+    });
+    try {
+      await click(button(h.container, "Export CSV"));
+      assert.equal(h.downloads.length, 1);
+      await click(button(h.container, "Print report"));
+      await act(async () => new Promise(resolve => setTimeout(resolve, 180)));
+      assert.ok(h.printed());
+      assert.equal(h.requests.some(request => request.options?.method === "POST"), false);
+    } finally { await h.close(); }
+  }
+});
 const feedbackFixture = { sampleSize: 10, startDate: "2026-10-01", endDate: "2026-10-03", generatedAt: "2026-10-03T01:00:00Z", overallSentiment: "Positive", positivePercent: 80, neutralPercent: 15, negativePercent: 5, themes: ["Friendly staff"], summary: "Mostly positive." };
 
 test("analytics chart units, all tabs, filtered exports, print, refresh and feedback analysis work", async () => {

@@ -152,6 +152,7 @@ export default function AdminAuditPage() {
         pageSize={25}
         showResetFilters
         actions={["Refresh log", "Export Log"]}
+        allowReadOnlyExport
         isActionDisabled={(action, filteredRows) => isLoading || (action === "Export Log" && (!filteredRows.length || Boolean(fetchError)))}
         onAction={(action, filteredRows) => { if (action === "Refresh log") setRevision(value => value + 1); else downloadReportCsv(auditColumns, filteredRows, "audit-log.csv"); }}
         rowActions={["View Details"]}

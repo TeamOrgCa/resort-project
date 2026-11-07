@@ -53,7 +53,7 @@ On mobile, use the **hamburger icon** in the sticky top bar to open navigation. 
 
 | Role | Access |
 | --- | --- |
-| Admin | Full Users, Configuration and Business Catalog access; view-only access to other modules, including search and filters |
+| Admin | Full Users, Configuration and Business Catalog access; view and filter other modules; export/print Reports and Analytics; export Audit CSV |
 | Manager | Operational modules and actions granted in the Role Permission Matrix |
 | Cashier | Transaction modules and actions granted in the Role Permission Matrix |
 
@@ -574,7 +574,7 @@ Only an administrator can change guest access. Deactivation blocks website sign-
 
 **Expected result:** You can review recorded guest, staff and system actions, including relevant reservation changes and access attempts. Audit records document actions; they are not payment receipts.
 
-The visible **Export Log** control currently has no connected download action. Do not rely on it for an export; see the limitations below.
+Use **Export Log** to download the matching audit records as CSV. Administrators may export audit records; search and date filters apply to the download.
 
 ## 22. Troubleshooting and current screen limitations
 

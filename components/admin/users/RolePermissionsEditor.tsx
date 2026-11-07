@@ -40,7 +40,7 @@ export default function RolePermissionsEditor() {
   };
   if (loading) return <p>Loading permissions...</p>;
   return <div className="space-y-5">
-    <p className="text-sm leading-relaxed text-neutral/65">Choose which modules and actions each role can access, then save your changes. Administrators have full access to Users, Configuration and Business Catalog, and view-only access to other modules. Refund approval is manager-only.</p>
+    <p className="text-sm leading-relaxed text-neutral/65">Choose which modules and actions each role can access, then save your changes. Administrators have full access to Users, Configuration and Business Catalog. They can view other modules, export and print Reports and Analytics, and export Audit logs. Refund approval is manager-only.</p>
     {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
     {message && <p role="status" className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{message}</p>}
     <div className="overflow-x-auto rounded-xl border border-neutral/10"><table className="w-full min-w-0 text-left text-xs sm:min-w-[550px] sm:text-sm"><thead className="border-b border-neutral/10 bg-base/60 text-neutral/60"><tr><th className="px-2 py-3 sm:px-4">Permission</th><th className="px-1 py-3 sm:px-4">Manager</th><th className="px-1 py-3 sm:px-4">Cashier</th><th className="px-1 py-3 sm:px-4">Admin</th></tr></thead><tbody>

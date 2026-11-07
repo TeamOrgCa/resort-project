@@ -230,3 +230,5 @@ OCR TESTING APPROVAL: New GCash payment submissions whose server OCR result is c
 GCash iPhone masked recipients: accept a complete phone pattern with four clear trailing digits and require every visible digit to match the configured receiving account. Read visible prefix/suffix pixels separately from privacy dots before the readability gate; retain native digit size and OCR confidence checks. Account/form values are never supplied to OCR.
 
 GCash footer OCR: split geometrically separated reference/date columns before retrying uncertain digits. Retain confidence and native-size requirements. Readability errors identify the uncertain fields instead of declaring that a screenshot is blurred.
+
+ADMIN EXPORT PERMISSIONS (supersedes the earlier export restriction): Admin may export CSV and print/save PDF in Reports and Analytics, and export CSV in Audit. Other operational modules remain view-only with search/filter/refresh; creating or changing operational records and starting feedback analysis remain restricted. No database migration is required for these client-side exports.
