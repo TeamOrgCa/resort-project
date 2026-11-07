@@ -7,7 +7,7 @@ export type CancellationPreview = {
 };
 export const refundStatusLabels: Record<string, string> = {
   pending: "Pending refund review", reviewed: "Awaiting manager approval", approved: "Approved - awaiting transfer",
-  payout_submitted: "Transfer submitted - awaiting verification", refunded: "Refunded", rejected: "Refund rejected",
+  payout_submitted: "Transfer submitted - awaiting verification", refunded: "Refund completed", rejected: "Refund rejected",
 };
 export const cancellationMessage = (preview: CancellationPreview) => preview.refundableAmount > 0
   ? `Reservation cancelled. Your PHP ${Number(preview.refundableAmount).toFixed(2)} refund request was created automatically and is pending review. No money has been released.`
