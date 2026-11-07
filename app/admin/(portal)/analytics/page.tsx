@@ -94,7 +94,7 @@ export default function AdminAnalyticsPage() {
   const config = tableConfigs[activeTab];
   const format: "money" | "count" | "percent" = activeTab === "Collection forecast" ? "money" : activeTab === "Guest feedback" ? "percent" : "count";
   const handleAction = (action: string, rows: ReportRow[]) => {
-    if (readOnly || !report || !rows.length || printSnapshot) return;
+    if (!report || !rows.length || printSnapshot) return;
     setActionFailure(null);
     try {
       if (action === "Export CSV") downloadReportCsv(config.columns, rows, `analytics-${activeTab.toLowerCase().replaceAll(" ", "-")}-${report.startDate}-to-${report.endDate}.csv`);
@@ -131,7 +131,7 @@ export default function AdminAnalyticsPage() {
           <ReportChart title={report.splitTitle} points={report.split} format={format} chartType={splitType} onTypeChange={setSplitType} />
         </div>
         <p className="mb-3 mt-6 text-xs text-neutral/65">The summary covers the full period. Search affects table rows, CSV and printing; exports include every matching page. Use Print report to print or save a PDF.</p>
-        <AdminTablePreview key={activeTab} title={report.tableTitle} columns={config.columns} rows={report.rows} defaultSort={config.sort} pageSize={25} showResetFilters actions={["Export CSV", "Print report"]} onAction={handleAction} isActionDisabled={(_action, rows) => !rows.length || Boolean(printSnapshot) || analyzing} />
+        <AdminTablePreview key={activeTab} title={report.tableTitle} columns={config.columns} rows={report.rows} defaultSort={config.sort} pageSize={25} showResetFilters allowReadOnlyExport actions={["Export CSV", "Print report"]} onAction={handleAction} isActionDisabled={(_action, rows) => !rows.length || Boolean(printSnapshot) || analyzing} />
       </>}
       {printSnapshot && <ReportPrintDocument snapshot={printSnapshot} onDone={stopPrinting} />}
     </section>

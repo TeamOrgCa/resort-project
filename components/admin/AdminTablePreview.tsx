@@ -22,6 +22,7 @@ interface AdminTablePreviewProps {
   defaultSort?: AdminTableSort;
   sortable?: boolean;
   actions?: string[];
+  allowReadOnlyExport?: boolean;
   onAction?: (action: string, rows: AdminTableRow[]) => void | Promise<void>;
   isActionDisabled?: (action: string, rows: AdminTableRow[]) => boolean;
   pageSize?: number;
@@ -64,6 +65,7 @@ export default function AdminTablePreview({
   defaultSort,
   sortable = true,
   actions: providedActions = [],
+  allowReadOnlyExport = false,
   onAction,
   isActionDisabled,
   pageSize = 25,
@@ -78,7 +80,8 @@ export default function AdminTablePreview({
   onSelectedRowIdsChange,
 }: AdminTablePreviewProps) {
   const readOnly = useAdminReadOnly();
-  const actions = readOnly ? providedActions.filter(action => action.startsWith("Refresh")) : providedActions;
+  const actions = readOnly ? providedActions.filter(action => action.startsWith("Refresh")
+    || (allowReadOnlyExport && ["Export CSV", "Print report", "Export Log"].includes(action))) : providedActions;
   const rowActions = readOnly ? providedRowActions.filter(action => /^(View|Review)\b/.test(action)) : providedRowActions;
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});

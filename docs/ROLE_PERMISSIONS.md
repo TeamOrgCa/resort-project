@@ -4,7 +4,7 @@ Existing `staff` accounts display as **Manager**; their stored role is unchanged
 
 | Role | Access |
 | --- | --- |
-| Admin | Full Users, Configuration and Business Catalog access. All other modules are view-only, including search, filters, sorting, pagination, refresh and record details. Operational changes, printing, exports and starting feedback analysis are unavailable. |
+| Admin | Full Users, Configuration and Business Catalog access. Other modules allow viewing, search, filters, sorting, pagination, refresh and record details. Reports and Analytics allow CSV export and printing/PDF; Audit allows CSV export. Operational changes and starting feedback analysis remain unavailable. |
 | Manager (`staff`) | Configurable operational permissions, including refund approval/rejection. Users, Configuration and Business Catalog remain admin-only. |
 | Cashier | Configurable operational permissions. Cannot approve/reject refunds, even if a refund approval grant is supplied. |
 

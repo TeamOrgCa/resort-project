@@ -51,6 +51,7 @@ test("audit exports the current filters, opens details in the shared dialog and 
     ] });
   };
   const Page = loadTsModule("app/admin/(portal)/audit/page.tsx", {
+    "@/components/admin/AdminReadOnlyContext": { useAdminReadOnly: () => true },
     "@/lib/reports/export": { downloadReportCsv: (columns, rows, filename) => downloads.push({ columns, rows, filename }) },
   }).default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
