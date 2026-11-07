@@ -1,12 +1,17 @@
 import sharp from "sharp";
-import type { Page } from "tesseract.js";
+import type { Page, Line, Worker } from "tesseract.js";
+import { inspectReceiptReadability } from "@/lib/server/receipt-image-quality";
+
+type ReceiptPage = Pick<Page, "text" | "confidence" | "blocks">;
+type MaskedPhoneCrop = { prefix: Buffer; suffix: Buffer; maskCount: number; originalLine: string; line: Line;
+  prefixOrigin: { x: number; y: number }; suffixOrigin: { x: number; y: number } };
 
 /** Read visible phone digits separately from circular privacy masks, without guessing digits. */
-export async function maskedGcashPhoneCrop(bytes: Buffer, page: Pick<Page, "text" | "blocks">): Promise<{ prefix: Buffer; suffix: Buffer; maskCount: number; originalLine: string } | null> {
+export async function maskedGcashPhoneCrop(bytes: Buffer, page: Pick<Page, "text" | "blocks">): Promise<MaskedPhoneCrop | null> {
   if (!/^sent\s+via\s+g\s*cash\s*$/im.test(page.text)) return null;
   const lines = (page.blocks ?? []).flatMap(block => block.paragraphs.flatMap(paragraph => paragraph.lines));
   const amountY = Math.min(...lines.filter(line => /^amount\b/i.test(line.text.trim())).map(line => line.bbox.y0));
-  const candidates = lines.filter(line => /^\s*\+?63\s/.test(line.text) && line.bbox.y1 < amountY);
+  const candidates = lines.filter(line => /^\s*\+?63(?=\s|9|[*xX•●·∙⋅.])/.test(line.text) && line.bbox.y1 < amountY);
   if (candidates.length !== 1) return null;
   const line = candidates[0];
   const decoder = sharp(bytes, { limitInputPixels: 20_000_000 });
@@ -47,5 +52,28 @@ export async function maskedGcashPhoneCrop(bytes: Buffer, page: Pick<Page, "text
   if (firstMask < 10 || info.width - lastMask < 10) return null;
   const segment = (x: number, w: number) => sharp(bytes).extract({ left: left + x, top, width: w, height })
     .resize({ width: Math.min(w * 3, 1800) }).png().toBuffer();
-  return { originalLine: line.text.trim(), prefix: await segment(0, firstMask), suffix: await segment(lastMask + 1, info.width - lastMask - 1), maskCount: circles.length };
+  return { originalLine: line.text.trim(), line, prefix: await segment(0, firstMask), suffix: await segment(lastMask + 1, info.width - lastMask - 1), maskCount: circles.length,
+    prefixOrigin: { x: left, y: top }, suffixOrigin: { x: left + lastMask + 1, y: top } };
+}
+
+/** Privacy dots are not blurry digits. Reread only the visible pixels before
+ * transaction readability is assessed; account/form values never enter OCR. */
+export async function retryMaskedGcashPhone(bytes: Buffer, page: ReceiptPage, worker: Pick<Worker, "recognize">): Promise<ReceiptPage> {
+  const crop = await maskedGcashPhoneCrop(bytes, page);
+  if (!crop) return page;
+  const prefix = (await worker.recognize(crop.prefix, {}, { text: true, blocks: true })).data;
+  const suffix = (await worker.recognize(crop.suffix, {}, { text: true, blocks: true })).data;
+  const start = prefix.text.trim(), end = suffix.text.trim();
+  if (!inspectReceiptReadability(prefix, { nativeScale: 3 }).accepted || !inspectReceiptReadability(suffix, { nativeScale: 3 }).accepted
+    || !/^\+?63\s*(?:9[\d\s]*)?$/.test(start) || !/^\d(?:[\d\s]*\d)?$/.test(end) || end.replace(/\s/g, "").length < 4) return page;
+  const phone = `${start}${"*".repeat(crop.maskCount)}${end}`;
+  const words = [prefix, suffix].flatMap((part, index) => (part.blocks ?? []).flatMap(block => block.paragraphs.flatMap(paragraph => paragraph.lines.flatMap(line => line.words)))
+    .map(word => ({ ...word, bbox: {
+      x0: (index ? crop.suffixOrigin.x : crop.prefixOrigin.x) + word.bbox.x0 / 3,
+      x1: (index ? crop.suffixOrigin.x : crop.prefixOrigin.x) + word.bbox.x1 / 3,
+      y0: crop.prefixOrigin.y + word.bbox.y0 / 3, y1: crop.prefixOrigin.y + word.bbox.y1 / 3,
+    } })));
+  return { ...page, text: page.text.replace(crop.originalLine, phone), blocks: page.blocks?.map(block => ({ ...block,
+    paragraphs: block.paragraphs.map(paragraph => ({ ...paragraph, lines: paragraph.lines.map(line => line === crop.line ? { ...line, text: phone, words } : line) })),
+  })) ?? null };
 }

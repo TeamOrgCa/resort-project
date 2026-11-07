@@ -62,6 +62,23 @@ test("readable horizontal receipt text and digits pass OCR quality checks", () =
   assert.deepEqual(inspectReceiptReadability(page()), { accepted: true });
 });
 
+test("uncertain OCR names the affected fields without exposing receipt values or claiming a photo", () => {
+  for (const [text, field] of [
+    ["Amount 11.00", "amount"],
+    ["Ref No. 6046975434935", "reference number"],
+    ["Nov 7, 2026 7:15 AM", "date/time"],
+    ["+63 9*****5095", "recipient number"],
+  ]) {
+    const receipt = page({ numberConfidence: 50 });
+    receipt.blocks[0].paragraphs[0].lines = [{ ...receipt.blocks[0].paragraphs[0].lines[0], text }];
+    const result = inspectReceiptReadability(receipt, { gcash: true });
+    assert.equal(result.accepted, false);
+    assert.ok(result.reason.includes(`read: ${field}.`), result.reason);
+    assert.match(result.reason, /does not necessarily mean the screenshot is blurred/);
+    assert.doesNotMatch(result.reason, /6046975434935|5095|Photos of another phone/);
+  }
+});
+
 test("GCash readability ignores decorative carbon numbers but still checks transaction digits", () => {
   const receipt = page();
   receipt.blocks[0].paragraphs[0].lines[0].text = "Amount 1,500.00";

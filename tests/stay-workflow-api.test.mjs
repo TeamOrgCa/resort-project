@@ -73,7 +73,7 @@ test("one permission save validates both roles before a single atomic upsert", a
   assert.equal((await PUT(request({ roles }))).status, 200); assert.equal(writes.length, 1); assert.equal(writes[0].length, 2); assert.equal(audits.length, 1);
 });
 
-test("review eligibility exposes only an active guest's own completed stays", async () => {
+test("review eligibility allows active guests and lists only their own reservations of any status", async () => {
   for (const ownCompleted of [false, true]) {
     const db = dashboardDatabase({ guests: [{ id, is_active: true }], reservations: [
       { reservation_id: "pending", guest_id: id, status: "confirmed" },
@@ -83,14 +83,24 @@ test("review eligibility exposes only an active guest's own completed stays", as
     db.client.auth.getUser = async () => ({ data: { user: { id } } });
     const { GET } = loadTsModule("app/api/reviews/eligibility/route.ts", { "@/lib/supabase/server": { createClient: async () => db.client } });
     const response = await GET(), data = await response.json();
-    assert.equal(data.eligible, ownCompleted); assert.equal(data.reservations.length, ownCompleted ? 1 : 0);
+    assert.equal(data.eligible, true); assert.equal(data.reservations.length, ownCompleted ? 2 : 1);
     assert.equal(JSON.stringify(data).includes("PRIVATE"), false); assert.match(response.headers.get("cache-control"), /no-store/);
   }
 });
 
-test("review eligibility fails closed when completed-stay records cannot be read", async () => {
+test("review eligibility reports reservation lookup failures", async () => {
   const db = dashboardDatabase({ guests: [{ id, is_active: true }] }, { reservations: "Read failed" });
   db.client.auth.getUser = async () => ({ data: { user: { id } } });
   const { GET } = loadTsModule("app/api/reviews/eligibility/route.ts", { "@/lib/supabase/server": { createClient: async () => db.client } });
   assert.equal((await GET()).status, 503);
+});
+
+test("review eligibility allows an active guest with no bookings while excluding inactive and non-guest accounts", async () => {
+  for (const account of [{ id, is_active: true }, { id, is_active: false }, null]) {
+    const db = dashboardDatabase({ guests: account ? [account] : [], reservations: [] });
+    db.client.auth.getUser = async () => ({ data: { user: { id } } });
+    const { GET } = loadTsModule("app/api/reviews/eligibility/route.ts", { "@/lib/supabase/server": { createClient: async () => db.client } });
+    const response = await GET(), result = await response.json();
+    assert.equal(result.eligible, account?.is_active === true); assert.deepEqual(result.reservations, []);
+  }
 });

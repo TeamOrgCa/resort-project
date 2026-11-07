@@ -9,9 +9,10 @@ import { parseReportPeriod, reportWindow } from "@/lib/reports/periods";
 import { InvalidDateRangeError } from "@/lib/server/custom-date-range";
 
 const json = (data: unknown, status = 200) => NextResponse.json(data, { status, headers: { "Cache-Control": "no-store" } });
-async function access() {
+async function access(readOnly = true) {
   const staff = await requireActiveStaff();
   if (!staff) return json({ success: false, message: "Unauthorized." }, 401);
+  if (!readOnly && staff.staffUser.role === "admin") return json({ success: false, message: "Administrators have view-only access to analytics." }, 403);
   if (!(await staffHasPermission(staff.supabase, staff.staffUser.role, "analytics"))) return json({ success: false, message: "Forbidden." }, 403);
   return null;
 }
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const denied = await access(); if (denied) return denied;
+    const denied = await access(false); if (denied) return denied;
     const body = await request.json().catch(() => null) as { action?: string; period?: string; startDate?: string; endDate?: string } | null;
     if (!body || (body.action !== "forecast" && body.action !== "sentiment")) return json({ success: false, message: "Unsupported analytics action." }, 400);
     const period = parseReportPeriod(body.period ?? null);

@@ -6,6 +6,7 @@ import { SiteContentProvider } from "@/components/content/SiteContent";
 import TextInputGuard from "@/components/TextInputGuard";
 import InputErrorFeedback from "@/components/InputErrorFeedback";
 import NotificationCenter from "@/components/notifications/NotificationCenter";
+import LoginSuccessToast from "@/components/ui/LoginSuccessToast";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -38,6 +39,7 @@ export default function RootLayout({
         <SessionWatcher />
         <TextInputGuard />
         <InputErrorFeedback />
+        <LoginSuccessToast />
       </body>
     </html>
   );

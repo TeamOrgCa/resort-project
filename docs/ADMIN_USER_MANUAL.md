@@ -38,20 +38,22 @@ This guide explains daily booking, billing and management tasks. Use the resort 
 2. Enter your **Staff Email** and password.
 3. Select **Sign In to Staff Portal**.
 4. If prompted, open your staff email, enter the **Verification Code** and select **Verify Code**.
-5. If prompted to change a temporary password, enter and confirm a personal password and submit. The staff password form requires at least eight characters.
+5. After successful authentication, a green **Welcome, staff name!** toast appears at the top and the portal opens automatically. The toast dismisses after five seconds, or use its close button. If prompted to change a temporary password, enter and confirm a personal password and submit. The staff password form requires at least eight characters.
 6. Open the required module from the sidebar.
 
 **Expected result:** You enter the portal with the modules allowed for your role. Use **Forgot your password?** for email recovery, or ask an administrator to reset your password if you cannot recover access.
 
 One session is active per account. Signing in on another device ends the previous session. Use individual staff accounts so actions are attributed to the correct person, and sign out at the end of your shift.
 
+Record tables use page controls with a visible record count. Search and filter changes return to the first page. Where a row offers multiple actions, select its three-dot **Options** button; single actions remain visible. The menu supports arrow keys and Escape. CSV exports include all matching rows across pages.
+
 ## 2. Understand roles and navigation
 
-On mobile, use the **hamburger icon** in the sticky top bar to open navigation. The top bar remains visible as you scroll. In the Reservations header, the calendar-plus, wrench and refresh icons mean **New reservation**, **Add maintenance block** (admin only) and **Refresh calendar**. Hover over an icon for its tooltip.
+On mobile, use the **hamburger icon** in the sticky top bar to open navigation. The top bar remains visible as you scroll. In the Reservations header, the calendar-plus, wrench and refresh icons mean **New reservation**, **Add maintenance block** (authorized managers) and **Refresh calendar**. Hover over an icon for its tooltip.
 
 | Role | Access |
 | --- | --- |
-| Admin | Full portal access, including Users, Configuration and Business Catalog |
+| Admin | Full Users, Configuration and Business Catalog access; view-only access to other modules, including search and filters |
 | Manager | Operational modules and actions granted in the Role Permission Matrix |
 | Cashier | Transaction modules and actions granted in the Role Permission Matrix |
 
@@ -121,7 +123,7 @@ After check-in, cancellation and rescheduling are locked for both guests and sta
 To check out, open the checked-in reservation, settle the full current bill and resolve pending payment reviews. Tick **I confirm the guest is checking out**, then select **Check out and complete stay**. The server recalculates the bill against actual verified payments less completed refunds, records the departure time and staff member, and marks the reservation **Completed**. An outstanding balance prevents checkout. The guest receives a completion notification and becomes eligible to review the resort. Check-in and checkout require Edit reservations permission.
 
 
-Administrators can select the **Add maintenance block** wrench icon in the Reservations header on either desktop or mobile. This opens a modal for the name, guest announcement and date range. Conflicting reservations are rejected with an error inside the modal. Successful blocks appear in the calendar and notify registered guests.
+Managers with reservation-edit permission can select the **Add maintenance block** wrench icon in the Reservations header on either desktop or mobile. This opens a modal for the name, guest announcement and date range. Conflicting reservations are rejected with an error inside the modal. Successful blocks appear in the calendar and notify registered guests.
 
 ## 5. Enter a phone, Messenger or walk-in reservation
 
@@ -179,6 +181,8 @@ Reservation editing does not automatically pay a refund or send a new billing em
 
 ## 7. Review a reschedule request
 
+New guest reschedules are automatically approved when the new date is available. Dates, fees, invoices and audit history update together; no staff action is needed. Apply `docs/guest-auto-reschedule-migration.sql` before deploying. The review steps below apply only to pending requests created before this change.
+
 **Required permissions:** Records access and reschedule approval.
 
 1. Open **Records → Reschedule Requests**.
@@ -191,7 +195,7 @@ Reservation editing does not automatically pay a refund or send a new billing em
 
 **Expected result:** Approval updates the schedule and adds the notice fee plus any higher-date-rate adjustment to billing. A rejection leaves the original reservation schedule in place. The original booking remains occupied while the request is pending.
 
-Guests may submit short-notice, same-day or past-date requests while their reservation is confirmed and they have not checked in. Review these in the same approval queue; staff approval records the exception and applies the quoted fee. Fees are based on the request's submission date in Philippine time, not the later approval date. The audit record includes the notice policy, original/requested dates, guest and approving staff member. Apply `docs/guest-reschedule-requests-migration.sql` after the reschedule-policy and stay-completion migrations to enable this workflow.
+Legacy requests retain their original quoted notice fee and staff approval workflow. New guest changes, including short-notice or past-original-date changes before check-in, apply immediately with the fee for the Philippine calendar day on which they are saved. Automatic approvals record the guest and an automatic-approval audit marker; they do not assign a staff approver.
 
 Approval can fail if another booking/maintenance block conflicts or the requested start is too near/past. A lower-date rate does not automatically create a refund. Explain any additional balance to the guest; they can pay through Manage Booking when eligible.
 
@@ -275,14 +279,14 @@ This is the staff cash workflow. Online guest payment submission remains GCash o
 
 The cash reference is generated automatically. If a save fails, retry in the same dialog with the same reference; a saved payment will not be recorded twice. If the balance changed, close the dialog, refresh the ledger and check the payment records before starting another entry. Pending payment/reschedule reviews and open refunds must be resolved first. Cancelled or completed reservations cannot receive new cash entries.
 
-Administrators have cash-entry access. Other staff need the **Record payments** permission and Transactions access. Keep **Cash** active under **Business Catalog > Payment methods**; cash does not need a payment account or QR code.
+Authorized operational staff need the **Record payments** permission and Transactions access. Admins have view-only access. Keep **Cash** active under **Business Catalog > Payment methods**; cash does not need a payment account or QR code.
 
 ## 13. Review and pay a refund
 
 ### Cancel a reservation and preview its refund
 
 1. In **Reservations**, select the reservation from the calendar and choose **Cancel reservation / review refund**.
-2. Choose **Guest request** when staff is acting on the guest's request. Only an administrator may select **Resort-attributable reason**.
+2. Choose **Guest request** when staff is acting on the guest's request. Only an authorized manager may select **Resort-attributable reason**.
 3. Enter a documented cancellation reason and inspect the verified payments, prior refunds, initial deposit basis, deduction and refundable amount.
 4. A guest cancellation retains the initial 20% deposit: no refund for deposit-only bookings, the remaining 80% for fully paid bookings, and the verified amount above the deposit for partial payments. A resort-attributable cancellation refunds all remaining verified payments.
 5. Acknowledge the preview and confirm. No verified payment or no eligible amount produces **Cancelled - No Refund**. Eligible amounts create **Pending refund review** automatically, without a guest request.
@@ -295,10 +299,10 @@ Pending payment proofs must be reviewed first. Staff handling a guest request ca
 1. Open **Transactions > Refund Requests** and select **View / process**.
 2. Check the verified payment records, references/proofs, previous refunds, policy snapshot and computed deduction. The amount is fixed; staff cannot type a replacement amount.
 3. The cashier enters review notes, checks the payment-record acknowledgement and selects **Submit payment review**.
-4. The request becomes **Awaiting administrator approval**. An active administrator selects **Approve refund**, or supplies a reason and selects **Reject with reason**.
-5. For an unprocessed legacy cancellation, an administrator first documents guest/resort responsibility and chooses **Recalculate legacy cancellation refund**. Any previous approval is reset for a fresh cashier review and recorded in the audit log. Completed refunds are preserved.
+4. The request becomes **Awaiting manager approval**. An authorized manager selects **Approve refund**, or supplies a reason and selects **Reject with reason**.
+5. For an unprocessed legacy cancellation, an authorized manager first documents guest/resort responsibility and chooses **Recalculate legacy cancellation refund**. Any previous approval is reset for a fresh cashier review and recorded in the audit log. Completed refunds are preserved.
 
-Review, payout and payout verification are separate configurable permissions. Approval/rejection is administrator-only. Module access alone grants no financial action rights.
+Review, payout and payout verification are separate configurable permissions. Approval/rejection requires the Manager role and the refund approval permission. Module access alone grants no financial action rights.
 
 ### Record and verify the payout
 
@@ -306,8 +310,8 @@ Review, payout and payout verification are separate configurable permissions. Ap
 2. Send the money manually through GCash or another active approved payment method in Business Catalog. The website does not release money.
 3. Select the payout method, enter the real transfer reference and upload image/PDF evidence up to 8 MB.
 4. Select **Submit transfer for verification**. The status becomes **Transfer submitted - awaiting verification**; uploading proof does not mark the refund completed or reduce net paid totals.
-5. An authorized verifier opens the proof, matches amount, recipient and reference against provider transaction records, adds notes and checks the verification acknowledgement. An active administrator can perform this step for their own payout; other staff need a different verifier.
-6. Select **Verify transfer and complete refund**. Only this step sets **Refunded** and deducts the payout from net paid billing. An active administrator may review, approve, submit and verify using their own account; proof, reference, notes and explicit verification remain mandatory.
+5. An authorized verifier opens the proof, matches amount, recipient and reference against provider transaction records, adds notes and checks the verification acknowledgement. The payout must be verified by another authorized staff member.
+6. Select **Verify transfer and complete refund**. Only this step sets **Refunded** and deducts the payout from net paid billing. Proof, reference, notes and explicit verification remain mandatory. Admins can view refund requests but cannot process them.
 
 Every stage creates guest/finance in-app alerts and audit entries. Guest email is attempted; an email failure does not undo a saved action. References cannot be reused, one open request allocates funds per reservation, and stale/changed funds stop processing. Cancellation converts an existing excess request and resets review. An existing transfer awaiting verification must be verified before cancellation.
 
@@ -342,6 +346,8 @@ Receipts are issued by payment workflows. Each payment can have its own receipt;
 | Sales Report | Reports | Gross verified collections and reservations created during the selected dates |
 | Staff Report | Reports | Logged actions and identified staff activity during the selected dates |
 | Guest Report | Reports → Guest Report | Reservations created, guest contacts, group sizes, sources and booking history |
+
+In **Staff Report**, use the **Staff member** dropdown to show one staff member. It includes all staff represented in the selected dates, across all table pages. Search and this filter work together; **Clear table filters** restores all staff. For roles permitted to export or print, the same selection applies to those rows. Summary cards and charts cover the full date range.
 
 There is no separate Financial Report tab in Reports. Guest reporting belongs to Reports and requires Reports permission.
 

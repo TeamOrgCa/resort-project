@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import TablePagination from "@/components/admin/TablePagination";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
 import { createClient } from "@/lib/supabase/client";
@@ -20,6 +21,7 @@ const button = "admin-button-secondary";
 
 export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => void }) {
   const [refunds, setRefunds] = useState<Refund[]>([]), [payments, setPayments] = useState<Payment[]>([]), [bills, setBills] = useState<Bill[]>([]);
+  const [page, setPage] = useState(0), [paymentPage, setPaymentPage] = useState(0);
   const [refs, setRefs] = useState<Record<string, string>>({});
   const [permissions, setPermissions] = useState<Permissions>({ canReview: false, canApprove: false, canPay: false, canVerify: false, canVerifyOwnPayout: false, staffId: "" });
   const [selectedId, setSelectedId] = useState<string | null>(null), [filter, setFilter] = useState("all");
@@ -62,24 +64,28 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
     setProofLink(data.signedUrl); window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
   const selectedPayments = payments.filter(p => p.reservation_id === selected?.reservation_id);
+  const matchingRefunds = refunds.filter(f => filter === "all" || f.status === filter);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(matchingRefunds.length / 25) - 1));
+  const currentPaymentPage = Math.min(paymentPage, Math.max(0, Math.ceil(selectedPayments.length / 10) - 1));
   const bill = bills.find(b => b.reservation_id === selected?.reservation_id);
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><p className="max-w-3xl text-sm text-neutral/70">Cancellation refunds are created automatically. Staff review verified payments, administrators approve or reject, then the manual transfer is documented and verified. Administrators can verify their own documented payout; other staff need a different authorized verifier. Uploading proof does not complete a refund.</p><button disabled={busy || loading} className={button} onClick={() => void refresh()}>Refresh</button></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><p className="max-w-3xl text-sm text-neutral/70">Cancellation refunds are created automatically. Staff review verified payments, managers approve or reject, then the manual transfer is documented and verified by a different authorized staff member. Uploading proof does not complete a refund.</p><button disabled={busy || loading} className={button} onClick={() => void refresh()}>Refresh</button></div>
     {message && <p role="status" className="rounded-xl bg-green-50 p-3 text-sm">{message}</p>}
     {error && !selected && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-    <label className="flex flex-wrap items-center gap-3 text-sm font-medium">Show requests<select value={filter} onChange={e => setFilter(e.target.value)} className="admin-field"><option value="all">All statuses</option>{Object.entries(refundStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    <label className="flex flex-wrap items-center gap-3 text-sm font-medium">Show requests<select value={filter} onChange={e => { setFilter(e.target.value); setPage(0); }} className="admin-field"><option value="all">All statuses</option>{Object.entries(refundStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
     {loading && <p role="status" className="text-sm">Loading refund records...</p>}
     <div className="admin-table-scroll overflow-x-auto rounded-xl border border-neutral/10"><table className="admin-responsive-table admin-table-static w-full min-w-[640px] text-left text-sm"><thead className="border-b border-neutral/10 bg-base/60 text-neutral/60"><tr>{["Reservation / type", "Refund amount", "Processing status", "Requested (PH)", "Action"].map(label => <th key={label} className="px-4 py-4">{label}</th>)}</tr></thead>
-      <tbody>{refunds.filter(f => filter === "all" || f.status === filter).map(f => <tr key={f.refund_id} className="border-t border-neutral/10 hover:bg-base/40"><td data-label="Reservation / type" className="px-4 py-4"><div>{refs[f.reservation_id] ?? f.reservation_id}<span className="block text-xs text-neutral/60">{f.request_kind === "overpayment" ? "Excess payment" : "Cancelled reservation"}</span></div></td>
+      <tbody>{matchingRefunds.slice(currentPage * 25, (currentPage + 1) * 25).map(f => <tr key={f.refund_id} className="border-t border-neutral/10 hover:bg-base/40"><td data-label="Reservation / type" className="px-4 py-4"><div>{refs[f.reservation_id] ?? f.reservation_id}<span className="block text-xs text-neutral/60">{f.request_kind === "overpayment" ? "Excess payment" : "Cancelled reservation"}</span></div></td>
         <td data-label="Refund amount" className="px-4 py-4 font-medium">{money(f.amount)}</td><td data-label="Processing status" className="px-4 py-4"><AdminStatusBadge status={refundStatusLabels[f.status] ?? f.status} /></td><td data-label="Requested (PH)" className="px-4 py-4">{at(f.requested_at)}</td>
-        <td data-label="Action" className="admin-table-actions px-4 py-4"><button className="admin-button-secondary" disabled={busy} onClick={() => { setSelectedId(f.refund_id); setReason(""); setReference(""); setProof(null); setVerified(false); setProofLink(null); setError(null); }}>View / process</button></td></tr>)}</tbody></table>
+        <td data-label="Action" className="admin-table-actions px-4 py-4"><button className="admin-button-secondary" disabled={busy} onClick={() => { setSelectedId(f.refund_id); setPaymentPage(0); setReason(""); setReference(""); setProof(null); setVerified(false); setProofLink(null); setError(null); }}>{permissions.canReview || permissions.canApprove || permissions.canPay || permissions.canVerify ? "View / process" : "View"}</button></td></tr>)}</tbody></table>
       {!loading && !refunds.some(f => filter === "all" || f.status === filter) && <p className="p-5 text-sm text-neutral/65">No requests match this status.</p>}</div>
+    <TablePagination total={matchingRefunds.length} page={currentPage} pageSize={25} onPageChange={setPage} disabled={loading || busy} label="Refund requests pagination" />
     {selected && <CatalogDialog title="Refund details" description={`Refund for ${refs[selected.reservation_id] ?? selected.reservation_id}`} busy={busy} onClose={() => { if (!busy) setSelectedId(null); }}><div className="space-y-4">
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
       <p className="text-sm">{refundStatusLabels[selected.status]} <strong className="ml-2">{money(selected.amount)}</strong></p>
       <p className="text-sm">{selected.policy_snapshot}</p>
       {selected.workflow_version === 1 && selected.request_kind === "cancellation" && !["refunded", "rejected"].includes(selected.status) && <div className="space-y-3 rounded-xl bg-amber-50 p-3 text-sm">
-        <p>This legacy request needs an administrator to document whether the guest or resort initiated cancellation and recalculate the refund before processing. Previous approvals will be reset and recorded in the audit log.</p>
+        <p>This legacy request needs an authorized manager to document whether the guest or resort initiated cancellation and recalculate the refund before processing. Previous approvals will be reset and recorded in the audit log.</p>
         {permissions.canApprove && <><select value={legacyInitiator} onChange={e => setLegacyInitiator(e.target.value)} className="rounded-xl border p-2"><option value="guest">Guest initiated</option><option value="resort">Resort attributable</option></select>
           <button disabled={busy || reason.trim().length < 5} className={button} onClick={() => void submit("recalculate")}>Recalculate legacy cancellation refund</button></>}
       </div>}
@@ -90,16 +96,17 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
         <dt>Refund calculated automatically</dt><dd className="text-right font-semibold">{money(selected.amount)}</dd></dl>}
       <p className="text-sm">Recorded bill: {money(bill?.total_amount ?? 0)}; net verified payments after completed refunds: {money(bill?.paid_amount ?? 0)}. A cancelled reservation has no active booking balance to collect.</p>
       <h4 className="font-medium">Payment records</h4>
-      <div className="admin-table-scroll overflow-x-auto rounded-xl border border-neutral/10"><table className="admin-responsive-table admin-table-static w-full min-w-[600px] text-left text-xs"><thead className="bg-base/60 text-neutral/60"><tr>{["Amount", "Status", "Type", "Reference", "Verified (PH)", "Proof"].map(t => <th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>{selectedPayments.map(p => <tr key={p.payment_id} className="border-t border-neutral/10 hover:bg-base/40">
+      <div className="admin-table-scroll overflow-x-auto rounded-xl border border-neutral/10"><table className="admin-responsive-table admin-table-static w-full min-w-[600px] text-left text-xs"><thead className="bg-base/60 text-neutral/60"><tr>{["Amount", "Status", "Type", "Reference", "Verified (PH)", "Proof"].map(t => <th key={t} className="p-2">{t}</th>)}</tr></thead><tbody>{selectedPayments.slice(currentPaymentPage * 10, (currentPaymentPage + 1) * 10).map(p => <tr key={p.payment_id} className="border-t border-neutral/10 hover:bg-base/40">
         <td data-label="Amount" className="p-2">{money(p.amount)}</td><td data-label="Status" className="p-2">{p.status}</td><td data-label="Type" className="p-2">{p.payment_type}</td><td data-label="Reference" className="p-2">{p.reference_number}</td><td data-label="Verified (PH)" className="p-2">{p.verified_at ? at(p.verified_at) : "-"}</td><td data-label="Proof" className="p-2">{p.proof_path && <button onClick={() => void openProof(p.proof_path!, "payment-proofs")} className="text-primary underline">View</button>}</td></tr>)}</tbody></table></div>
+      <TablePagination total={selectedPayments.length} page={currentPaymentPage} pageSize={10} onPageChange={setPaymentPage} disabled={busy} label="Refund payment records pagination" />
       {selected.payment_review_notes && <p className="text-sm">Cashier review: {selected.payment_review_notes}</p>}
-      {selected.review_reason && <p className="text-sm">Administrator decision: {selected.review_reason}</p>}
+      {selected.review_reason && <p className="text-sm">Manager decision: {selected.review_reason}</p>}
       {selected.payout_submitted_at && <p className="text-sm">Transfer submitted {at(selected.payout_submitted_at)}. Reference: {selected.gcash_reference}</p>}
       {selected.payout_verification_notes && <p className="text-sm">Verification: {selected.payout_verification_notes}</p>}
       {selected.refunded_at && <p className="text-sm">Refund completed {at(selected.refunded_at)}.</p>}
       {selected.proof_path && <button className="text-sm text-primary underline" onClick={() => void openProof(selected.proof_path!)}>View transfer proof</button>}
       {proofLink && <p className="text-sm"><a href={proofLink} target="_blank" rel="noopener noreferrer" className="text-primary underline">Open proof (if the browser blocked the new tab)</a></p>}
-      {!["rejected", "refunded"].includes(selected.status) && <label className="block text-sm font-medium">Review / decision / verification notes<textarea rows={2} maxLength={2000} value={reason} disabled={busy} onChange={e => setReason(e.target.value)} className="admin-field mt-1 w-full" /></label>}
+      {(permissions.canReview || permissions.canApprove || permissions.canPay || permissions.canVerify) && !["rejected", "refunded"].includes(selected.status) && <label className="block text-sm font-medium">Review / decision / verification notes<textarea rows={2} maxLength={2000} value={reason} disabled={busy} onChange={e => setReason(e.target.value)} className="admin-field mt-1 w-full" /></label>}
       {selected.status === "pending" && permissions.canReview && !legacy && <div className="space-y-3">
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={verified} onChange={e => setVerified(e.target.checked)} />I checked actual verified payments, previous refunds and the calculated deduction against the payment records.</label>
         <button className={button} disabled={busy || !verified || reason.trim().length < 5} onClick={() => void submit("reviewed")}>Submit payment review</button></div>}
@@ -115,7 +122,7 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
         <button className={button} disabled={busy || !method || reference.trim().length < 6 || !proof} onClick={() => void submit("payout_submitted")}>Submit transfer for verification</button></div>}
       {selected.status === "payout_submitted" && <div className="space-y-3 rounded-xl bg-amber-50 p-3">
         {selected.payout_submitted_by === permissions.staffId && !permissions.canVerifyOwnPayout ? <p className="text-sm">Another authorized staff member must verify your transfer. You cannot verify your own payout.</p> : permissions.canVerify ? <>
-          {selected.payout_submitted_by === permissions.staffId && permissions.canVerifyOwnPayout && <p className="text-sm">As the administrator, you can verify this transfer yourself after checking the provider transaction records.</p>}
+          {selected.payout_submitted_by === permissions.staffId && permissions.canVerifyOwnPayout && <p className="text-sm">Verify this transfer only after checking the provider transaction records.</p>}
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={verified} onChange={e => setVerified(e.target.checked)} />I checked the transfer amount, recipient, reference and proof against the payment-provider transaction records.</label>
           <button className={button} disabled={busy || !verified || reason.trim().length < 5} onClick={() => void submit("refunded")}>Verify transfer and complete refund</button>
         </> : <p className="text-sm">Awaiting verification by authorized staff.</p>}</div>}

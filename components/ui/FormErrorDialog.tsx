@@ -4,13 +4,14 @@ import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react"
 import { createPortal } from "react-dom";
 import { usePortalTarget } from "@/lib/use-portal-target";
 
-export default function FormErrorDialog({ title, message, actions, closeText = "Back to form", onClose, returnFocusRef }: {
+export default function FormErrorDialog({ title, message, actions, closeText = "Back to form", onClose, returnFocusRef, variant = "error" }: {
   title: string;
   message: string;
   actions?: ReactNode;
   closeText?: string;
   onClose: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  variant?: "error" | "success";
 }) {
   const dialog = useRef<HTMLDivElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -50,8 +51,8 @@ export default function FormErrorDialog({ title, message, actions, closeText = "
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-neutral/50 p-3 backdrop-blur-sm sm:p-5">
       <div ref={dialog} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}
         className="max-h-[90dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-neutral/10 bg-white p-5 text-neutral shadow-2xl sm:p-6">
-        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-700" aria-hidden="true">
-          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.3 3.9 2 18.2A1.2 1.2 0 0 0 3 20h18a1.2 1.2 0 0 0 1-1.8L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+        <div className={`mb-4 flex h-11 w-11 items-center justify-center rounded-full ${variant === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`} aria-hidden="true">
+          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={variant === "success" ? "m5 12 4 4L19 6" : "M12 9v4m0 4h.01M10.3 3.9 2 18.2A1.2 1.2 0 0 0 3 20h18a1.2 1.2 0 0 0 1-1.8L13.7 3.9a2 2 0 0 0-3.4 0Z"} /></svg>
         </div>
         <h2 id={titleId} className="text-xl font-semibold">{title}</h2>
         <p id={messageId} className="mt-2 break-words text-sm leading-relaxed text-neutral/80">{message}</p>

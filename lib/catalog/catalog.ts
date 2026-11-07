@@ -8,6 +8,8 @@ export interface CatalogField {
   kind: CatalogFieldKind;
   required?: boolean;
   min?: number;
+  minTime?: string;
+  maxTime?: string;
   defaultValue?: number;
   help?: string;
 }
@@ -93,11 +95,11 @@ export const catalogResources = {
     ],
   },
   ocular_time_slots: {
-    label: "Ocular slots", singular: "ocular slot", description: "Manage the times and capacities available for resort visits.",
+    label: "Ocular slots", singular: "ocular slot", description: "Manage resort visits between 8:00 AM and 5:00 PM (Philippine time).",
     id: "slot_id", select: "slot_id, start_time, end_time, max_capacity, is_active", order: "start_time",
     columns: ["start_time", "end_time", "max_capacity"], fields: [
-      { key: "start_time", label: "Start time", kind: "time", required: true },
-      { key: "end_time", label: "End time", kind: "time", required: true },
+      { key: "start_time", label: "Start time", kind: "time", required: true, minTime: "08:00", maxTime: "17:00", help: "Between 8:00 AM and 5:00 PM (Philippine time)." },
+      { key: "end_time", label: "End time", kind: "time", required: true, minTime: "08:00", maxTime: "17:00", help: "Later than the start time and no later than 5:00 PM." },
       { key: "max_capacity", label: "Visit capacity", kind: "integer", min: 1, defaultValue: 1 },
     ],
   },

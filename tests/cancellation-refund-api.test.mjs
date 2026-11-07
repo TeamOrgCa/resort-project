@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 const id="22222222-2222-4222-8222-222222222222", quote="a".repeat(32);
 const preview={reservationId:id,reference:"MV-TEST",initiator:"guest",verifiedPaid:3000,previousRefunds:0,netPaid:3000,deduction:600,refundableAmount:2400,quote,allowed:true,outcome:"pending_refund"};
-function cancellation({staff=false,role="admin",authorized=true,authenticated=true,rpcError=null,emailFails=false}={}) {
+function cancellation({staff=false,role="staff",authorized=true,authenticated=true,rpcError=null,emailFails=false}={}) {
   const calls=[];
   const client={auth:{getUser:async()=>({data:{user:authenticated?{id:"guest"}:null},error:null})},
     rpc:async(name,args)=>{calls.push({name,args});return {data:name==="get_cancellation_preview"?preview:{...preview,refundId:id},error:rpcError};},
@@ -19,16 +19,16 @@ function cancellation({staff=false,role="admin",authorized=true,authenticated=tr
 test("guest preview is private; cancellation requires a reviewed quote and ignores forged amounts/initiator",async()=>{
   const h=cancellation();const get=await h.get();assert.equal(get.status,200);assert.equal(get.headers.get("cache-control"),"private, no-store");
   assert.equal((await h.post({reservationId:id})).status,400);
-  const response=await h.post({reservationId:id,quote,initiator:"resort",refundableAmount:999999});assert.equal(response.status,200);
-  const call=h.calls.at(-1);assert.equal(call.args.p_initiator,"guest");assert.equal(call.args.p_expected_quote,quote);assert.equal(call.args.p_reason,"Guest requested cancellation");
+  const response=await h.post({reservationId:id,quote,cancellationReason:"  Family plans changed  ",initiator:"resort",refundableAmount:999999});assert.equal(response.status,200);
+  const call=h.calls.at(-1);assert.equal(call.args.p_initiator,"guest");assert.equal(call.args.p_expected_quote,quote);assert.equal(call.args.p_reason,"Family plans changed");
   assert.equal((await response.json()).refundableAmount,2400);
 });
 test("cancellation API handles ownership/conflict errors and SMTP failure without undoing committed success",async()=>{
   assert.equal((await cancellation({authenticated:false}).get()).status,401);
-  for(const [code,status] of [["42501",403],["40001",409],["PGRST202",503]])assert.equal((await cancellation({rpcError:{code,message:"Denied"}}).post({reservationId:id,quote})).status,status);
-  const result=await cancellation({emailFails:true}).post({reservationId:id,quote});assert.equal(result.status,200);assert.equal((await result.json()).emailSent,false);
+  for(const [code,status] of [["42501",403],["40001",409],["PGRST202",503]])assert.equal((await cancellation({rpcError:{code,message:"Denied"}}).post({reservationId:id,quote,cancellationReason:"Family plans changed"})).status,status);
+  const result=await cancellation({emailFails:true}).post({reservationId:id,quote,cancellationReason:"Family plans changed"});assert.equal(result.status,200);assert.equal((await result.json()).emailSent,false);
 });
-test("staff cancellation requires permission, documented reason and admin role for resort-attributable cancellation",async()=>{
+test("staff cancellation requires permission, documented reason and manager role for resort-attributable cancellation",async()=>{
   const body={reservationId:id,quote,initiator:"resort",cancellationReason:"Pool repair requires closure"};
   assert.equal((await cancellation({staff:true,authorized:false}).post(body)).status,403);
   assert.equal((await cancellation({staff:true,role:"cashier"}).post(body)).status,403);
@@ -54,6 +54,19 @@ test("cashier cannot approve/reject and verification needs explicit acknowledgem
   assert.equal((await h.post("refunded",{verified:"true",reason:"Matched GCash records"})).status,200);
   assert.equal(h.calls[0].args.p_verified,true);assert.equal(h.calls[0].args.p_action,"refunded");
 });
+
+test("refund approval moves to managers and administrators cannot process any refund action", async () => {
+  const manager = refund({ role: "staff" });
+  assert.equal((await manager.post("approved")).status, 200);
+  assert.equal(manager.calls[0].args.p_action, "approved");
+  assert.equal((await refund({ role: "staff", authorized: false }).post("approved")).status, 403);
+  const admin = refund({ role: "admin" });
+  for (const action of ["reviewed", "approved", "rejected", "payout_submitted", "refunded", "recalculate"]) {
+    assert.equal((await admin.post(action, { verified: "true", reason: "Reviewed records" })).status, 403);
+  }
+  assert.equal(admin.calls.length, 0);
+  assert.equal(admin.uploads.length, 0);
+});
 test("payout evidence is submitted separately from completion, invalid file signatures cannot be uploaded",async()=>{
   const proof=new File(["%PDF-1.7 fixture"],"proof.pdf",{type:"application/pdf"});
   const h=refund();const response=await h.post("payout_submitted",{reference:"1234567890123",proof,amount:"999999"});assert.equal(response.status,200);
@@ -64,4 +77,14 @@ test("payout evidence is submitted separately from completion, invalid file sign
 test("a rejected payout transition cleans only its new upload and does not alter the saved request",async()=>{
   const h=refund({rpcError:{code:"40001",message:"Changed state"}});const response=await h.post("payout_submitted",{reference:"1234567890123",proof:new File(["%PDF-1.7"],"proof.pdf",{type:"application/pdf"})});
   assert.equal(response.status,409);assert.deepEqual(h.removed,h.uploads);
+});
+
+
+test("guest cancellation rejects missing, blank, short and oversized reasons before cancelling", async () => {
+  for (const cancellationReason of [undefined, null, 123, "", "     ", "four", "A".repeat(2001)]) {
+    const h = cancellation();
+    const response = await h.post({ reservationId: id, quote, cancellationReason });
+    assert.equal(response.status, 400); assert.match((await response.json()).message, /cancellation reason/);
+    assert.equal(h.calls.length, 0);
+  }
 });

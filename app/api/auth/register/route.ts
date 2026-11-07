@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   }
 
   const validation = validateGuestRegistration(body);
-  if (!validation.value) return NextResponse.json({ message: validation.error }, { status: 400 });
+  if (!validation.value) return NextResponse.json({ message: validation.error, field: validation.field }, { status: 400 });
   const guest = validation.value;
 
   try {

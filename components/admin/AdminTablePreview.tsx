@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from "react";
 import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
+import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
+import AdminActionsMenu from "@/components/admin/AdminActionsMenu";
+import TablePagination from "@/components/admin/TablePagination";
 import type {
   AdminTableColumn,
   AdminTableFilter,
@@ -60,12 +63,12 @@ export default function AdminTablePreview({
   filters = [],
   defaultSort,
   sortable = true,
-  actions = [],
+  actions: providedActions = [],
   onAction,
   isActionDisabled,
-  pageSize,
+  pageSize = 25,
   showResetFilters = false,
-  rowActions = [],
+  rowActions: providedRowActions = [],
   getRowActionLabel,
   onRowAction,
   isRowActionDisabled,
@@ -74,6 +77,9 @@ export default function AdminTablePreview({
   selectedRowIds,
   onSelectedRowIdsChange,
 }: AdminTablePreviewProps) {
+  const readOnly = useAdminReadOnly();
+  const actions = readOnly ? providedActions.filter(action => action.startsWith("Refresh")) : providedActions;
+  const rowActions = readOnly ? providedRowActions.filter(action => /^(View|Review)\b/.test(action)) : providedRowActions;
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [sortState, setSortState] = useState<AdminTableSort | null>(defaultSort ?? null);
@@ -149,7 +155,7 @@ export default function AdminTablePreview({
     });
   }, [columns, filteredRows, sortState]);
 
-  const size = pageSize && pageSize > 0 ? pageSize : Math.max(sortedRows.length, 1);
+  const size = pageSize > 0 ? pageSize : 25;
   const pages = Math.max(1, Math.ceil(sortedRows.length / size));
   const currentPage = Math.min(page, pages - 1);
   const displayedRows = sortedRows.slice(currentPage * size, (currentPage + 1) * size);
@@ -288,7 +294,11 @@ export default function AdminTablePreview({
 
                 {rowActions.length > 0 && (
                   <td data-label="Actions" className="admin-table-actions px-4 py-4">
-                    <div className="flex flex-wrap gap-2">
+                    {rowActions.length > 1 ? <AdminActionsMenu reference={`${title} ${row.id}`} actions={rowActions.map(action => ({
+                      label: getRowActionLabel?.(action, row) ?? action,
+                      disabled: isRowActionDisabled?.(action, row),
+                      onSelect: () => onRowAction?.(action, row),
+                    }))} /> : <div className="flex flex-wrap gap-2">
                       {rowActions.map((action) => (
                         <button
                           key={`${row.id}-${action}`}
@@ -300,7 +310,7 @@ export default function AdminTablePreview({
                           {getRowActionLabel?.(action, row) ?? action}
                         </button>
                       ))}
-                    </div>
+                    </div>}
                   </td>
                 )}
               </tr>
@@ -319,16 +329,7 @@ export default function AdminTablePreview({
           </tbody>
         </table>
       </div>
-      {pageSize && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-4 text-sm text-neutral/60">
-        <p>{sortedRows.length ? `Showing ${currentPage * size + 1}–${Math.min((currentPage + 1) * size, sortedRows.length)} of ${sortedRows.length} matching records` : "0 matching records"}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" aria-label="First page" disabled={currentPage === 0} onClick={() => setPage(0)} className="admin-button-secondary px-3">First</button>
-          <button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)} className="admin-button-secondary px-3">Previous</button>
-          <span>Page {currentPage + 1} of {pages}</span>
-          <button type="button" disabled={currentPage >= pages - 1} onClick={() => setPage(currentPage + 1)} className="admin-button-secondary px-3">Next</button>
-          <button type="button" aria-label="Last page" disabled={currentPage >= pages - 1} onClick={() => setPage(pages - 1)} className="admin-button-secondary px-3">Last</button>
-        </div>
-      </div>}
+      <TablePagination total={sortedRows.length} page={currentPage} pageSize={size} onPageChange={setPage} label={`${title} pagination`} />
     </section>
   );
 }

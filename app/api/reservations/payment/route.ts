@@ -1,3 +1,4 @@
+import { sendOcrPaymentEmails } from "@/lib/server/ocr-payment-emails";
 import { manilaTimestamp } from "@/lib/booking/manila-date";
 ﻿import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -333,8 +334,7 @@ export async function POST(request: Request) {
     }
 
     const { data: payment, error: paymentError } = await createAdminClient()
-      .from("payments")
-      .insert({
+      .rpc("submit_consistent_gcash_payment", { p_payment: {
         reservation_id: reservation.reservation_id,
         amount: ocr.amount,
         payment_method_id: payload.payment.paymentMethodId,
@@ -348,11 +348,12 @@ export async function POST(request: Request) {
         ocr_status: ocr.status,
         ocr_notes: ocr.notes,
         ocr_checked_at: manilaTimestamp(),
-      })
-      .select("payment_id, status, ocr_status")
-      .single();
+      } });
 
     if (paymentError || !payment) {
+      if (paymentError?.code === "PGRST202" || paymentError?.code === "42883") {
+        return NextResponse.json({ success: false, code: "PAYMENT_SCHEMA_MIGRATION_REQUIRED", message: "Apply the OCR auto-approve payments migration before submitting payments." }, { status: 503 });
+      }
       if (paymentError?.code === "40001" || paymentError?.code === "22023") {
         return NextResponse.json({ success: false, message: paymentError.message }, { status: 409 });
       }
@@ -398,8 +399,8 @@ export async function POST(request: Request) {
         actorId: user.id,
         guestId: reservation.guest_id,
         staffRoles: NOTIFICATION_AUDIENCES.payment,
-        title: "Payment submitted",
-        message: `Payment for reservation ${reservation.reference_number} is pending review.`,
+        title: "Payment automatically approved",
+        message: `Payment for reservation ${reservation.reference_number} was automatically approved because its receipt passed OCR validation.`,
         entityType: "payment",
         entityId: payment.payment_id,
         guestActionUrl: "/manage",
@@ -409,6 +410,8 @@ export async function POST(request: Request) {
     } catch (notificationError) {
       console.warn("Failed to create payment notifications:", notificationError);
     }
+
+    await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
 
     return NextResponse.json(
       {
@@ -420,12 +423,15 @@ export async function POST(request: Request) {
           receiptPaidAt: ocr.paidAt,
           proofPath: payload.payment.proofPath,
           ocrStatus: payment.ocr_status,
+          autoApproved: payment.auto_approved,
         },
         reservation: {
           referenceNumber: reservation.reference_number,
           totalAmount: Number(transaction.total_amount ?? 0),
-          paidAmount: Number(transaction.paid_amount ?? 0),
-          remainingBalance,
+          paidAmount: Number(payment.paid_amount ?? 0),
+          remainingBalance: Number(payment.remaining_balance ?? 0),
+          overpaidAmount: Number(payment.overpaid_amount ?? 0),
+          status: payment.reservation_status,
         },
       },
       { status: 201 }

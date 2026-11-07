@@ -20,6 +20,7 @@ export async function PUT(request: Request) {
   if (!Array.isArray(updates) || !updates.length || updates.length > 2 || updates.some(item => !item || !["staff", "cashier"].includes(item.role) || !Array.isArray(item.permissions) ||
       item.permissions.some((value: unknown) => typeof value !== "string" || !PERMISSIONS.includes(value as typeof PERMISSIONS[number])) ||
       item.permissions.some((value: string) => ["users", "configuration", "catalog"].includes(value)) ||
+      (item.role === "cashier" && item.permissions.includes("refund_approval")) ||
       new Set(item.permissions).size !== item.permissions.length) || new Set(updates.map(item => item.role)).size !== updates.length) {
     return NextResponse.json({ message: "Invalid role permissions." }, { status: 400 });
   }

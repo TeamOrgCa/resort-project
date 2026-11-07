@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { DEACTIVATED_GUEST_MESSAGE } from "@/lib/auth/guest-access";
 import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
 import PasswordInput from "@/components/ui/PasswordInput";
+import { showLoginSuccessToast } from "@/components/ui/LoginSuccessToast";
 
 function LoginContent() {
   const router = useRouter();
@@ -20,9 +21,11 @@ function LoginContent() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [signedIn, setSignedIn] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || signedIn) return;
     setError("");
     if (!isValidLoginEmail(email)) { setError(EMAIL_INPUT_ERROR); return; }
     setLoading(true);
@@ -33,11 +36,14 @@ function LoginContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = (await response.json()) as { success: boolean; message: string };
+      const data = (await response.json()) as { success: boolean; message: string; firstName?: string };
       if (!response.ok || !data.success) {
         setError(data.message || "Unable to sign in.");
         return;
       }
+      setPassword("");
+      setSignedIn(true);
+      showLoginSuccessToast(`Welcome back, ${data.firstName?.trim() || email.split("@")[0]}!`);
       router.push(redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/");
       router.refresh();
     } catch {
@@ -119,7 +125,7 @@ function LoginContent() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || signedIn}
               className="w-full bg-primary text-base py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Signing in..." : "Sign In"}

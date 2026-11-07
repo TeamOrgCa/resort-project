@@ -62,6 +62,7 @@ function PaymentContent() {
   const selectedMethodRef = useRef("");
   useEffect(() => { selectedMethodRef.current = selectedPaymentMethodId; }, [selectedPaymentMethodId]);
   const [paymentComplete, setPaymentComplete] = useState(false);
+  const [paymentAutoApproved, setPaymentAutoApproved] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitErrorValue] = useState<string | null>(null);
   const [submitIssues, setSubmitIssues] = useState<string[]>([]);
@@ -505,6 +506,7 @@ function PaymentContent() {
         payOption: effectivePayOption,
       });
       setReservationReference(checkoutJson.reservation?.referenceNumber || reservationReferenceFromDraft || null);
+      setPaymentAutoApproved(checkoutJson.payment?.status === "verified");
       setPaymentComplete(true);
     } catch {
       setSubmitError("Unable to process payment right now. Please try again.");
@@ -522,8 +524,8 @@ function PaymentContent() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-4xl font-bold text-neutral mb-4">Payment Submitted!</h1>
-          <p className="text-xl text-neutral/70 mb-8">Your reservation is pending admin approval</p>
+          <h1 className="text-4xl font-bold text-neutral mb-4">{paymentAutoApproved ? "Payment Approved!" : "Payment Submitted!"}</h1>
+          <p className="text-xl text-neutral/70 mb-8">{paymentAutoApproved ? "Your receipt passed OCR validation and your reservation is confirmed." : "Your reservation is pending payment review"}</p>
           {successExcess > 0 && <p className="mb-6 rounded-lg bg-secondary/10 px-4 py-3 text-sm text-neutral">
             Excess payment: ₱{successExcess.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. After staff verifies this payment, request the excess refund in Manage Booking.
           </p>}
@@ -569,12 +571,12 @@ function PaymentContent() {
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">
-                  Submitted for review ({successPayOption === "full" ? "Full Payment" : "Down Payment"})
+                  {paymentAutoApproved ? "Approved payment" : "Submitted for review"} ({successPayOption === "full" ? "Full Payment" : "Down Payment"})
                 </span>
                 <span className="font-semibold text-secondary">₱{successPaidAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral/70">Expected balance after approval</span>
+                <span className="text-neutral/70">{paymentAutoApproved ? "Remaining balance" : "Expected balance after approval"}</span>
                 <span className="font-bold text-primary text-lg">₱{Math.max(successTotalAmount - (submittedSummary?.previousPaidAmount ?? 0) - successPaidAmount, 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               {uploadedProofPath && (
@@ -593,19 +595,19 @@ function PaymentContent() {
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Your proof of payment has been submitted for admin verification
+                {paymentAutoApproved ? "Your receipt passed OCR checks and was automatically approved" : "Your proof of payment has been submitted for staff verification"}
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Reservation status will remain pending until approved by staff
+                {paymentAutoApproved ? "Your reservation is confirmed" : "Reservation status will remain pending until approved by staff"}
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Check Manage Booking for the payment review result
+                Check Manage Booking for your payment records and receipt
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">

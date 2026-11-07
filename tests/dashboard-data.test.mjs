@@ -83,7 +83,7 @@ test("dashboard API requires an active staff session and dashboard permission be
   }
   const h = route(); const response = await h.GET();
   assert.equal(response.headers.get("cache-control"), "no-store"); assert.deepEqual((await response.json()).dashboard.permissions, ["dashboard", "reservations"]);
-  const admin = await (await route({ role: "admin", permissions: [] }).GET()).json(); assert.ok(admin.dashboard.permissions.includes("create_reservation"));
+  const admin = await (await route({ role: "admin", permissions: [] }).GET()).json(); assert.equal(admin.dashboard.permissions.includes("create_reservation"), false); assert.ok(admin.dashboard.permissions.includes("users"));
   assert.equal((await route({ fail: true }).GET()).status, 500);
   const { apiPermission } = loadTsModule("lib/auth/role-access.ts"); assert.equal(apiPermission("/api/admin/dashboard", "GET"), "dashboard");
 });

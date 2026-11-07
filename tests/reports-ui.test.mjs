@@ -253,7 +253,7 @@ test("analytics retries failures and aborts stale data and feedback after date c
 test("staff can settle a reservation balance in cash, acknowledge receipt and see the issued receipt",async()=>{
  let saved=false,fail=true;const posted=[];
  const client={auth:{getUser:async()=>({data:{user:{id:"admin"}}})},from:table=>{
-   const result=()=>({error:null,data:table==="staff_users"?{role:"admin",is_active:true}:table==="transactions"?[{transaction_id:"txn",reservation_id:"booking",total_amount:3000,paid_amount:saved?3000:600,balance:saved?0:2400,overpaid_amount:0,status:saved?"paid":"partial",updated_at:"2026-10-15T01:00:00Z"}]:table==="reservations"?[{reservation_id:"booking",reference_number:"MV-CASH",booking_type:"online",status:"confirmed"}]:table==="receipts"&&saved?[{receipt_id:"receipt",payment_id:"cash",receipt_number:"RCPT-CASH",issued_at:"2026-10-15T01:00:00Z",is_active:true}]:[]});
+   const result=()=>({error:null,data:table==="staff_users"?{role:"staff",is_active:true}:table==="role_permissions"?{permissions:["transactions","payment_entry"]}:table==="transactions"?[{transaction_id:"txn",reservation_id:"booking",total_amount:3000,paid_amount:saved?3000:600,balance:saved?0:2400,overpaid_amount:0,status:saved?"paid":"partial",updated_at:"2026-10-15T01:00:00Z"}]:table==="reservations"?[{reservation_id:"booking",reference_number:"MV-CASH",booking_type:"online",status:"confirmed"}]:table==="receipts"&&saved?[{receipt_id:"receipt",payment_id:"cash",receipt_number:"RCPT-CASH",issued_at:"2026-10-15T01:00:00Z",is_active:true}]:[]});
    const q={select:()=>q,eq:()=>q,in:()=>q,order:()=>q,limit:()=>q,range:async(from,to)=>{const response=result();return{...response,data:response.data.slice(from,to+1)};},maybeSingle:async()=>result(),then:(resolve,reject)=>Promise.resolve(result()).then(resolve,reject)};return q;
  }};
  const h=await mount({filename:"app/admin/(portal)/transactions/page.tsx",extraMocks:{"@/lib/supabase/client":{createClient:()=>client}},fetcher:(url,options)=>{
@@ -262,14 +262,16 @@ test("staff can settle a reservation balance in cash, acknowledge receipt and se
    return Response.json({success:true,message:"Cash payment recorded",receipt:{receipt_number:"RCPT-CASH"},remainingBalance:0});
  }});
  try{
-   await click(button(h.container,"Settle in cash"));const modal=h.container.querySelector('[role="dialog"]');
+   await click(h.container.querySelector('button[aria-haspopup="menu"]'));
+   await click(button(document.body,"Settle in cash"));const modal=h.container.querySelector('[role="dialog"]');
    assert.match(modal.textContent,/Cash \(staff only\)/);assert.equal(modal.querySelector('input[type="number"]').value,"2400.00");
    assert.equal(button(modal,"Record payment and issue receipt").disabled,true);
    await click(modal.querySelector('input[type="checkbox"]'));await click(button(modal,"Record payment and issue receipt"));assert.match(modal.textContent,/same cash reference/);
    fail=false;await click(button(modal,"Record payment and issue receipt"));assert.equal(posted[0].paymentReference,posted[1].paymentReference);
    assert.equal(posted[1].paymentMethod,"cash");assert.equal(posted[1].cashReceived,true);assert.equal(posted[1].expectedBalance,2400);
    assert.equal(h.container.querySelector('[role="dialog"]'),null);assert.match(h.container.querySelector('[role="status"]').textContent,/RCPT-CASH/);
-   assert.equal(button(h.container,"Settle in cash").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
+   await click(h.container.querySelector('button[aria-haspopup="menu"]'));
+   assert.equal(button(document.body,"Settle in cash").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
  }finally{await h.close();}
 });
 
@@ -277,6 +279,23 @@ test("all report types including Guest Report use the Reports endpoint",async()=
  const h=await mount({tabs:["Sales Report","Guest Report","Staff Report"]});
  try {await click(button(h.container,"Guest Report"));assert.match(h.requests.at(-1).url,/^\/api\/admin\/reports\?tab=Guest/);assert.match(h.container.textContent,/Guest reservations/);}
  finally{await h.close();}
+});
+
+test("Staff Report filters staff across all pages and applies the selection to CSV and printing", async () => {
+ const h = await mount({ tabs: ["Staff Report"] });
+ try {
+  const filter = [...h.container.querySelectorAll("label")].find(label => label.textContent.startsWith("Staff member"))?.querySelector("select");
+  assert.ok(filter); assert.equal(filter.options.length, 41);
+  await value(filter, "Staff 39");
+  assert.match(h.container.querySelector("tbody").textContent, /Staff 39/);
+  assert.doesNotMatch(h.container.querySelector("tbody").textContent, /Staff 38/);
+  await click(button(h.container, "Export CSV"));
+  const csv = await h.downloads[0].blob.text(); assert.match(csv, /Staff 39/); assert.doesNotMatch(csv, /Staff 38/);
+  await click(button(h.container, "Print report")); await act(async () => new Promise(resolve => setTimeout(resolve, 180)));
+  assert.match(h.printed(), /Staff 39/); assert.doesNotMatch(h.printed(), /Staff 38/);
+  await click(button(h.container, "Clear table filters")); assert.equal(filter.value, "all");
+  assert.equal(h.container.querySelectorAll("tbody tr").length, 25);
+ } finally { await h.close(); }
 });
 
 test("long printed charts are split into readable SVG sections instead of shrinking or printing text-only summaries",async()=>{

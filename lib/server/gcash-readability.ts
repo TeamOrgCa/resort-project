@@ -7,6 +7,24 @@ type ReceiptPage = Pick<Page, "text" | "confidence" | "blocks">;
 /** Retry uncertain transaction lines using only their original pixels. No form or
  * account values enter OCR, and enlarging cannot waive the native text-size check. */
 export async function retryGcashNumericLines(bytes: Buffer, page: ReceiptPage, worker: Pick<Worker, "recognize">): Promise<ReceiptPage> {
+  // GCash places the reference and timestamp in separate footer columns. A
+  // wide SINGLE_LINE crop can repeatedly misread the date beside the reference.
+  // Separate only a geometrically distinct, labelled reference/date pair.
+  page = { ...page, blocks: page.blocks?.map(block => ({ ...block, paragraphs: block.paragraphs.map(paragraph => ({ ...paragraph,
+    lines: paragraph.lines.flatMap(line => {
+      if (!/^ref(?:erence)?\b/i.test(line.text.trim())) return [line];
+      const words = line.words;
+      const split = words.findIndex((word, index) => index > 0
+        && word.bbox.x0 - words[index - 1].bbox.x1 > (line.bbox.y1 - line.bbox.y0) * 2
+        && /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(word.text));
+      if (split < 0) return [line];
+      return [words.slice(0, split), words.slice(split)].map(segment => ({ ...line,
+        text: segment.map(word => word.text).join(" "), words: segment,
+        bbox: { x0: Math.min(...segment.map(word => word.bbox.x0)), x1: Math.max(...segment.map(word => word.bbox.x1)),
+          y0: Math.min(...segment.map(word => word.bbox.y0)), y1: Math.max(...segment.map(word => word.bbox.y1)) },
+      }));
+    }),
+  })) })) ?? null };
   const candidates = gcashNumericLines(page).filter(line => line.words.some(word => /\d/.test(word.text) && (!Number.isFinite(word.confidence) || word.confidence < 80)));
   if (!candidates.length || candidates.length > 6 || !Number.isFinite(page.confidence) || page.confidence < 75) return page;
   const metadata = await sharp(bytes, { limitInputPixels: 20_000_000 }).metadata();

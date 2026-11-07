@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+import AdminActionsMenu from "@/components/admin/AdminActionsMenu";
 import AdminTabs from "@/components/admin/AdminTabs";
 import CatalogDialog from "./CatalogDialog";
 import CatalogEditorDialog from "./CatalogEditorDialog";
@@ -193,7 +194,10 @@ export default function CatalogClient() {
                     <div className="max-w-md"><p className={index === 0 ? "font-medium text-neutral" : key.includes("price") || key.includes("rate") ? "whitespace-nowrap font-medium tabular-nums" : key.startsWith("effective_") ? "whitespace-nowrap" : "line-clamp-2"}>{displayValue(key, record[key])}</p>{index === 0 && record.description ? <p className="mt-1 line-clamp-2 max-w-sm text-xs leading-relaxed text-neutral/50">{String(record.description)}</p> : null}{filters.resource === "payment_accounts" && index === 0 && <p className="mt-1 text-xs text-neutral/50">{record.qr_image ? "QR image attached" : "No QR image"}</p>}</div>
                   </div></td>)}
                   <td className="px-4 py-4 align-top"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${active ? "bg-green-50 text-green-700" : "bg-neutral/5 text-neutral/55"}`}><span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-green-500" : "bg-neutral/35"}`} />{active ? "Active" : "Archived"}</span></td>
-                  <td className="whitespace-nowrap px-4 py-4 text-right align-top"><button type="button" disabled={busy} onClick={() => openEditor(record)} aria-label={`Edit ${name}`} className="rounded-xl border border-neutral/15 px-3 py-1.5 text-xs font-medium text-neutral hover:border-primary/40 hover:bg-primary/5">Edit</button><button type="button" disabled={busy} onClick={() => { setAction({ kind: active ? "archive" : "restore", resource: filters.resource, record }); setActionError(null); }} aria-label={`${active ? "Archive" : "Restore"} ${name}`} className={`ml-2 rounded-xl px-3 py-1.5 text-xs font-medium ${active ? "text-neutral/55 hover:bg-red-50 hover:text-red-700" : "text-primary hover:bg-primary/5"}`}>{active ? "Archive" : "Restore"}</button></td>
+                  <td className="px-4 py-4 align-middle"><div className="flex justify-end"><AdminActionsMenu reference={name} actions={[
+                    { label: "Edit", disabled: busy, onSelect: () => openEditor(record) },
+                    { label: active ? "Archive" : "Restore", disabled: busy, onSelect: () => { setAction({ kind: active ? "archive" : "restore", resource: filters.resource, record }); setActionError(null); } },
+                  ]} /></div></td>
                 </tr>;
               })}
             </tbody>

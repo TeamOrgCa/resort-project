@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import ManageIcon, { type ManageIconName } from "./ManageIcon";
 export type RecordAction = { label: string; icon: ManageIconName; onSelect: () => void; disabled?: boolean; explanation?: string; danger?: boolean };
 
-export default function RecordActionsMenu({ reference, actions }: { reference: string; actions: RecordAction[] }) {
+export default function RecordActionsMenu({ reference, actions, heading = "Booking options" }: { reference: string; actions: RecordAction[]; heading?: string }) {
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -19,14 +19,19 @@ export default function RecordActionsMenu({ reference, actions }: { reference: s
   }
   useEffect(() => {
     if (!position) return;
-    menu.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
+    const first = menu.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
+    (first ?? menu.current)?.focus();
     const outside = (event: PointerEvent) => {
       if (event.target instanceof Node && !menu.current?.contains(event.target) && !trigger.current?.contains(event.target)) setPosition(null);
     };
     const dismiss = () => setPosition(null);
+    const dismissOnScroll = (event: Event) => {
+      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
+      setPosition(null);
+    };
     document.addEventListener("pointerdown", outside); window.addEventListener("resize", dismiss);
-    window.addEventListener("scroll", dismiss); // Window scrolling closes the floating menu; menu scrolling remains usable.
-    return () => { document.removeEventListener("pointerdown", outside); window.removeEventListener("resize", dismiss); window.removeEventListener("scroll", dismiss); };
+    window.addEventListener("scroll", dismissOnScroll, true);
+    return () => { document.removeEventListener("pointerdown", outside); window.removeEventListener("resize", dismiss); window.removeEventListener("scroll", dismissOnScroll, true); };
   }, [position]);
   return <>
     <button ref={trigger} type="button" aria-label={`Options for ${reference}`} aria-haspopup="menu" aria-expanded={Boolean(position)} aria-controls={position ? id : undefined}
@@ -34,7 +39,7 @@ export default function RecordActionsMenu({ reference, actions }: { reference: s
       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-neutral/10 bg-white text-neutral/70 transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
       <ManageIcon name="more" />
     </button>
-    {position && createPortal(<div ref={menu} id={id} role="menu" aria-label={`Actions for ${reference}`} style={{ ...position, maxHeight: Math.max(0, window.innerHeight - position.top - 8) }}
+    {position && createPortal(<div ref={menu} id={id} role="menu" tabIndex={-1} aria-label={`Actions for ${reference}`} style={{ ...position, maxHeight: Math.max(0, window.innerHeight - position.top - 8) }}
       className="fixed z-[80] max-h-[calc(100dvh-16px)] w-72 max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain rounded-2xl border border-neutral/10 bg-white p-2 shadow-2xl"
       onKeyDown={event => {
         if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); close(true); return; }
@@ -46,7 +51,7 @@ export default function RecordActionsMenu({ reference, actions }: { reference: s
           items[index]?.focus();
         }
       }}>
-      <p className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-neutral/45">Booking options</p>
+      <p className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-neutral/45">{heading}</p>
       {actions.map(action => <button key={action.label} type="button" role="menuitem" disabled={action.disabled} title={action.explanation}
         onClick={() => { close(true); action.onSelect(); }}
         className={`flex w-full items-start gap-3 rounded-xl p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-45 ${action.danger ? "text-red-700 hover:bg-red-50" : "text-neutral hover:bg-base"}`}>

@@ -6,6 +6,7 @@ import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
 const migration = readFileSync("docs/reschedule-policy-migration.sql", "utf8");
 const guestRequestsMigration = readFileSync("docs/guest-reschedule-requests-migration.sql", "utf8");
+const autoMigration = readFileSync("docs/guest-auto-reschedule-migration.sql", "utf8");
 const { reschedulePolicy } = loadTsModule("lib/booking/reschedule-charge-policy.ts");
 const admin = "11111111-1111-4111-8111-111111111111";
 const staff = "22222222-2222-4222-8222-222222222222";
@@ -22,9 +23,12 @@ before(async () => {
     create function auth.uid() returns uuid language sql as $$select nullif(current_setting('fixture.actor',true),'')::uuid$$;
     create table public.staff_users(id uuid primary key,role text,is_active boolean);
     create table public.role_permissions(role text primary key,permissions text[]);
+    create table public.guests(id uuid primary key,is_active boolean);
+    create table public.maintenance_blocks(status text,start_date date,end_date date);
+    create table public.receipts(reservation_id uuid,amount_paid numeric,transaction_total_at_time numeric);
     create table public.reservations(reservation_id uuid primary key,guest_id uuid,reference_number text,
       status text,booking_mode text,start_datetime timestamptz,end_datetime timestamptz,adult_count integer,
-      child_count integer,payment_deadline_at timestamptz,updated_at timestamptz default now(),special_requests text,checked_in_at timestamptz);
+      child_count integer,payment_deadline_at timestamptz,updated_at timestamptz default now(),special_requests text,checked_in_at timestamptz,package_rate_version bigint default 1);
     create table public.transactions(reservation_id uuid primary key,total_amount numeric,paid_amount numeric,status text);
     create table public.reservation_services(reservation_id uuid,service_id uuid,quantity integer,price_at_time numeric,unique(reservation_id,service_id));
     create table public.reservation_units(reservation_id uuid,unit_id uuid,quantity integer,price_per_night numeric);
@@ -39,15 +43,19 @@ before(async () => {
     create table public.audit_logs(user_id uuid,auth_user_id uuid,action text,entity_type text,entity_id uuid,details jsonb);
   `);
   await db.query("insert into public.staff_users values($1,'admin',true),($2,'staff',true)", [admin, staff]);
+  await db.query("insert into public.guests values($1,true)", [guest]);
   await db.exec("insert into public.role_permissions values('staff',array['edit_reservation','reschedule_approval'])");
   await db.exec(migration);
   await db.exec(guestRequestsMigration);
+  await db.exec(autoMigration);
+  await db.exec(autoMigration);
   await db.exec(guestRequestsMigration);
 });
 after(async () => { await db?.close(); });
 beforeEach(async () => {
   await db.exec(`reset role;select set_config('fixture.actor','',false);truncate public.reservation_reschedule_adjustments,public.reservations,public.transactions,public.invoices,
-    public.audit_logs,public.reservation_reschedules,public.reservation_services,public.reservation_units,public.payments,public.refund_requests;
+    public.audit_logs,public.reservation_reschedules,public.reservation_services,public.reservation_units,public.payments,public.refund_requests,public.maintenance_blocks,public.receipts;
+    update public.guests set is_active=true;
     update public.role_permissions set permissions=array['edit_reservation','reschedule_approval'];`);
   await db.query(`insert into public.reservations(reservation_id,guest_id,reference_number,status,booking_mode,start_datetime,end_datetime,adult_count,child_count)
     values($1,$2,'MV-TEST','confirmed','day',((now() at time zone 'Asia/Manila')::date+20+time '08:00') at time zone 'Asia/Manila',
@@ -234,4 +242,116 @@ test("approval rechecks permission, fixed times and open financial reviews", asy
   await db.exec("truncate public.refund_requests;update public.reservation_reschedules set new_end=new_end+interval '1 hour'");
   await assert.rejects(() => approve(admin), e => e.code === "22023");
   assert.equal((await one("select total_amount from public.transactions")).total_amount, "8600");
+});
+
+async function automaticMove({ actor = guest, days = 30, fee, rate = 500, reason = "  Family schedule changed  " } = {}) {
+  const r = await one("select * from public.reservations where reservation_id=$1", [reservation]);
+  const policy = (await one("select public.reschedule_policy_snapshot($1) p", [r.start_datetime])).p;
+  const args = [reservation, actor, { startDatetime: r.start_datetime, endDatetime: r.end_datetime,
+    adultCount: r.adult_count, childCount: r.child_count, bookingMode: r.booking_mode, packageRateVersion: Number(r.package_rate_version) },
+    plus(r.start_datetime, days), plus(r.end_datetime, days), fee ?? policy.noticeFee, rate, reason];
+  return { args, save: async () => (await one("select public.reschedule_guest_reservation($1,$2,$3,$4,$5,$6,$7,$8) result", args)).result };
+}
+
+test("automatic guest reschedules immediately confirm dates, charge once, update the current invoice and preserve payments and receipts", async () => {
+  await db.query("insert into public.receipts values($1,600,8600)", [reservation]);
+  await db.query("insert into public.invoices(reservation_id,total_amount,status,created_at) values($1,8000,'void',now()-interval '1 day')", [reservation]);
+  const move = await automaticMove();
+  const result = await move.save();
+  assert.equal(result.status, "confirmed"); assert.equal(result.totalAdditional, 550);
+  assert.equal(result.totalAmount, 9150); assert.equal(result.paidAmount, 600); assert.equal(result.remainingBalance, 8550);
+  const r = await one("select * from public.reservations");
+  assert.equal(r.status, "confirmed"); assert.equal(Date.parse(r.start_datetime), Date.parse(move.args[3]));
+  const history = await one("select * from public.reservation_reschedules");
+  assert.equal(history.reason, "Family schedule changed"); assert.equal(history.status, "approved"); assert.equal(history.approved_by, null); assert.ok(history.approved_at);
+  assert.equal(Number((await one("select total_amount from public.invoices where status<>'void'")).total_amount), 9150);
+  assert.equal((await one("select total_amount from public.invoices where status='void'")).total_amount, "8000");
+  assert.equal((await one("select transaction_total_at_time from public.receipts")).transaction_total_at_time, "8600");
+  assert.equal((await one("select details from public.audit_logs")).details.automatic_approval, true);
+  assert.equal((await one("select details from public.audit_logs")).details.reason, "Family schedule changed");
+  await assert.rejects(move.save, e => e.code === "40001");
+  assert.equal((await one("select count(*)::int n from public.reservation_reschedules")).n, 1);
+  assert.equal(Number((await one("select total_amount from public.transactions")).total_amount), 9150);
+});
+
+test("automatic changes allow every notice bracket, including the original day and past original dates, without staff approval", async () => {
+  for (const [days, fee] of [[20, 50], [6, 50], [5, 100], [3, 100], [2, 300], [1, 300], [0, 500], [-1, 500]]) {
+    await db.exec("truncate public.reservation_reschedules,public.audit_logs;update public.transactions set total_amount=8600");
+    await originalDays(days);
+    const result = await (await automaticMove()).save();
+    assert.equal(result.rescheduleFee, fee); assert.equal(result.totalAmount, 8600 + fee + 500);
+    assert.equal((await one("select status from public.reservations")).status, "confirmed");
+    assert.equal((await one("select status from public.reservation_reschedules")).status, "approved");
+  }
+});
+
+test("a fully paid guest still owes the notice fee on a same-price or cheaper date, with no automatic price reduction", async () => {
+  await db.exec("update public.transactions set paid_amount=8600,status='paid';update public.invoices set status='paid'");
+  const result = await (await automaticMove({ rate: 0 })).save();
+  assert.equal(result.totalAmount, 8650); assert.equal(result.paidAmount, 8600); assert.equal(result.remainingBalance, 50);
+  assert.equal((await one("select status from public.transactions")).status, "partial");
+  assert.equal((await one("select status from public.invoices")).status, "partially_paid");
+  await assert.rejects((await automaticMove({ rate: -500 })).save, e => e.code === "40001");
+});
+
+test("automatic changes enforce ownership, active accounts, check-in, financial reviews, valid times and server-only access", async () => {
+  await assert.rejects((await automaticMove({ actor: staff })).save, e => e.code === "42501");
+  await db.exec("update public.guests set is_active=false");
+  await assert.rejects((await automaticMove()).save, e => e.code === "42501");
+  await db.exec("update public.guests set is_active=true;update public.reservations set checked_in_at=now()");
+  await assert.rejects((await automaticMove()).save, e => e.code === "40001");
+  await db.exec("update public.reservations set checked_in_at=null");
+  for (const table of ["payments", "refund_requests"]) {
+    await db.query(`insert into public.${table}(reservation_id,status) values($1,'pending')`, [reservation]);
+    await assert.rejects((await automaticMove()).save, e => e.code === "40001");
+    await db.exec(`truncate public.${table}`);
+  }
+  await guestRequest(); await assert.rejects((await automaticMove()).save, e => e.code === "40001");
+  await db.exec("truncate public.reservation_reschedules");
+  await assert.rejects((await automaticMove({ fee: 0 })).save, e => e.code === "40001");
+  const wrongDuration = await automaticMove(); wrongDuration.args[4] = plus(wrongDuration.args[4], 1);
+  await assert.rejects(wrongDuration.save, e => e.code === "22023");
+  await assert.rejects((await automaticMove({ days: 0 })).save, e => e.code === "22023");
+  const changed = await automaticMove(); await db.exec("update public.reservations set adult_count=21");
+  await assert.rejects(changed.save, e => e.code === "40001");
+  const move = await automaticMove(); await db.exec("set role authenticated");
+  try { await assert.rejects(move.save, e => e.code === "42501"); } finally { await db.exec("reset role"); }
+  assert.equal((await one("select count(*)::int n from public.reservation_reschedules")).n, 0);
+});
+
+test("automatic changes reject dates occupied by another booking or closed for maintenance without charging", async () => {
+  const move = await automaticMove();
+  await db.query("insert into public.maintenance_blocks values('active',($1::timestamptz at time zone 'Asia/Manila')::date,($2::timestamptz at time zone 'Asia/Manila')::date)", [move.args[3], move.args[4]]);
+  await assert.rejects(move.save, e => e.code === "23P01");
+  await db.exec("truncate public.maintenance_blocks");
+  await db.query("insert into public.reservations(reservation_id,guest_id,status,start_datetime,end_datetime) values($1,$2,'confirmed',$3,$4)", [staff, guest, move.args[3], move.args[4]]);
+  await assert.rejects(move.save, e => e.code === "23P01");
+  assert.equal((await one("select count(*)::int n from public.reservation_reschedules")).n, 0);
+  assert.equal((await one("select total_amount from public.transactions")).total_amount, "8600");
+});
+
+test("automatic rescheduling restores the captured bill after legacy triggers and rolls everything back if auditing fails", async () => {
+  await db.exec("create or replace function public.legacy_recalculate() returns trigger language plpgsql as $$begin update public.transactions set total_amount=1;return new;end$$;create trigger legacy_recalculate after update on public.reservations for each row execute function public.legacy_recalculate()");
+  try {
+    const result = await (await automaticMove()).save(); assert.equal(result.totalAmount, 9150); assert.equal(result.paidAmount, 600);
+    const move = await automaticMove();
+    const before = await one("select start_datetime from public.reservations");
+    await db.exec("create or replace function public.fail_reschedule_audit() returns trigger language plpgsql as $$begin raise exception 'audit unavailable';end$$;create trigger fail_reschedule_audit before insert on public.audit_logs for each row execute function public.fail_reschedule_audit()");
+    try { await assert.rejects(move.save, /audit unavailable/); }
+    finally { await db.exec("drop trigger fail_reschedule_audit on public.audit_logs"); }
+    assert.deepEqual((await one("select start_datetime from public.reservations")).start_datetime, before.start_datetime);
+    assert.equal(Number((await one("select total_amount from public.transactions")).total_amount), 9150);
+    assert.equal((await one("select count(*)::int n from public.reservation_reschedules")).n, 1);
+    await db.exec(autoMigration);
+    assert.equal((await one("select count(*)::int n from public.reservation_reschedules")).n, 1);
+  } finally { await db.exec("drop trigger legacy_recalculate on public.reservations"); }
+});
+
+
+test("automatic reschedules reject missing, blank, short and oversized reasons without saving dates or charges", async () => {
+  for (const reason of [null, "", "     ", "four", "A".repeat(2001)]) {
+    await assert.rejects((await automaticMove({ reason })).save, e => e.code === "22023");
+  }
+  assert.equal((await one("select count(*)::int n from public.reservation_reschedules")).n, 0);
+  assert.equal(Number((await one("select total_amount from public.transactions")).total_amount), 8600);
 });

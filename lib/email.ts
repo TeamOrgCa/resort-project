@@ -440,7 +440,7 @@ export const sendReservationCancelledEmail = async ({
 export const sendRefundStatusEmail = async (payload: {
   guestEmail: string; guestName: string; reservationReference: string; amount: number; status: string; notes: string;
 }) => {
-  const labels: Record<string, string> = { reviewed: "Awaiting administrator approval", approved: "Approved - awaiting transfer", rejected: "Rejected",
+  const labels: Record<string, string> = { reviewed: "Awaiting manager approval", approved: "Approved - awaiting transfer", rejected: "Rejected",
     payout_submitted: "Transfer submitted - awaiting verification", refunded: "Completed" };
   const status = labels[payload.status] ?? payload.status;
   const text = `Hi ${payload.guestName},\nReservation ${payload.reservationReference}\nRefund: PHP ${Number(payload.amount).toFixed(2)}\nStatus: ${status}\n${payload.notes}\nView updates in Manage Booking. Money is transferred manually; only verified payouts are marked Refunded.`;

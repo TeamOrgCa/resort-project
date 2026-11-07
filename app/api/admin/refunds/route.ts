@@ -15,7 +15,7 @@ export async function GET() {
       .select("refund_id, reservation_id, guest_id, amount, request_kind, policy_snapshot, policy_version, calculation_snapshot, workflow_version, status, requested_at, reviewed_by, reviewed_at, review_reason, payment_reviewed_by, payment_reviewed_at, payment_review_notes, payout_submitted_by, payout_submitted_at, payout_method, payout_verification_notes, refunded_by, refunded_at, gcash_reference, proof_path")
       .order("requested_at", { ascending: false }).order("refund_id").range(from, to));
     const ids = [...new Set(refunds.map(row => row.reservation_id as string))];
-    const [reservations, bills, payments, paymentMethods, canReview, canPay, canVerify] = await Promise.all([
+    const [reservations, bills, payments, paymentMethods, canReview, canPay, canVerify, canApprove] = await Promise.all([
       fetchByIds<{ reservation_id: string; reference_number: string }>(ids, (batch, from, to) => staff.supabase.from("reservations")
         .select("reservation_id, reference_number, status, cancellation_initiator, cancellation_reason").in("reservation_id", batch).order("reservation_id").range(from, to)),
       fetchByIds(ids, (batch, from, to) => staff.supabase.from("transactions").select("reservation_id, total_amount, paid_amount, cancellation_deposit_base").in("reservation_id", batch).order("reservation_id").range(from, to)),
@@ -25,8 +25,9 @@ export async function GET() {
       staffHasPermission(staff.supabase, staff.staffUser.role, "refund_review"),
       staffHasPermission(staff.supabase, staff.staffUser.role, "refund_payout"),
       staffHasPermission(staff.supabase, staff.staffUser.role, "refund_verify"),
+      staffHasPermission(staff.supabase, staff.staffUser.role, "refund_approval"),
     ]);
-    return NextResponse.json({ refunds, reservations, bills, payments, paymentMethods, permissions: { canReview, canPay, canVerify, canApprove: staff.staffUser.role === "admin", canVerifyOwnPayout: staff.staffUser.role === "admin", staffId: staff.staffUser.id } },
+    return NextResponse.json({ refunds, reservations, bills, payments, paymentMethods, permissions: { canReview, canPay, canVerify, canApprove: staff.staffUser.role === "staff" && canApprove, canVerifyOwnPayout: false, staffId: staff.staffUser.id } },
       { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ message: "Unable to load refunds. Check the cancellation-refund-workflow migration, then retry." }, { status: 503 });
@@ -35,6 +36,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const staff = await requireActiveStaff();
   if (!staff) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
+  if (staff.staffUser.role === "admin") return NextResponse.json({ message: "Administrators have view-only access to refunds." }, { status: 403 });
   const form = await request.formData().catch(() => null);
   const id = form?.get("refundId"), action = String(form?.get("action") ?? "");
   const reason = typeof form?.get("reason") === "string" ? String(form?.get("reason")).trim() : "";
@@ -43,10 +45,10 @@ export async function POST(request: Request) {
   const method = typeof form?.get("method") === "string" ? String(form?.get("method")) : "GCash";
   if (typeof id !== "string" || !uuidPattern.test(id) || !["recalculate", "reviewed", "approved", "rejected", "payout_submitted", "refunded"].includes(action) || reason.length > 2000 || !method.trim() || method.length > 120)
     return NextResponse.json({ message: "Invalid refund action." }, { status: 400 });
-  const permission = action === "payout_submitted" ? "refund_payout" : action === "refunded" ? "refund_verify" : "refund_review";
+  const permission = ["recalculate", "approved", "rejected"].includes(action) ? "refund_approval" : action === "payout_submitted" ? "refund_payout" : action === "refunded" ? "refund_verify" : "refund_review";
   if (!await staffHasPermission(staff.supabase, staff.staffUser.role, permission) ||
-    (["recalculate", "approved", "rejected"].includes(action) && staff.staffUser.role !== "admin"))
-    return NextResponse.json({ message: "Permission required. Only administrators approve or reject refunds." }, { status: 403 });
+    (["recalculate", "approved", "rejected"].includes(action) && staff.staffUser.role !== "staff"))
+    return NextResponse.json({ message: "Permission required. Only authorized managers approve or reject refunds." }, { status: 403 });
   if ((["reviewed", "refunded"].includes(action) && (!verified || reason.length < 5)) || (action === "rejected" && reason.length < 5))
     return NextResponse.json({ message: "Enter notes and confirm verification. A rejection reason is required." }, { status: 400 });
   if (action === "recalculate") {
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
     if (!["guest", "resort"].includes(String(initiator)) || reason.length < 5) return NextResponse.json({ message: "Classify the legacy cancellation and document a reason." }, { status: 400 });
     const { error } = await staff.supabase.rpc("recalculate_legacy_cancellation_refund", { p_id: id, p_initiator: initiator, p_reason: reason });
     if (error) return NextResponse.json({ message: workflowErrorMessage(error) }, { status: workflowErrorStatus(error.code) });
-    return NextResponse.json({ success: true, message: "Legacy refund recalculated and guest notified in-app. A positive refund requires a fresh cashier review and administrator approval.", emailSent: false });
+    return NextResponse.json({ success: true, message: "Legacy refund recalculated and guest notified in-app. A positive refund requires a fresh payment review and manager approval.", emailSent: false });
   }
   let proofPath: string | null = null;
   if (action === "payout_submitted") {
@@ -91,8 +93,6 @@ export async function POST(request: Request) {
     if (refund) emailSent = await refundEmail(staff.supabase, refund.reservation_id, Number(refund.amount), action, reason);
   } catch { /* The action and in-app alerts already committed. */ }
   return NextResponse.json({ success: true, status: action, emailSent, message: action === "payout_submitted"
-    ? staff.staffUser.role === "admin"
-      ? "Transfer submitted. Check the provider transaction records, enter verification notes and confirm verification to complete the refund."
-      : "Transfer submitted. Another authorized staff member must verify it before the refund is completed."
+    ? "Transfer submitted. Another authorized staff member must verify it before the refund is completed."
     : action === "refunded" ? "Transfer verified. Refund completed and net payment records updated." : "Refund updated. Guest and finance staff were notified." });
 }

@@ -7,7 +7,7 @@
 
 This guide explains how to create an account, book a stay, submit payment, manage a booking, schedule a resort viewing and leave a review. Screen labels shown in **bold** match the current website. Use the website address provided by the resort; page paths below are added to that address.
 
-Input errors are highlighted and automatically scrolled into view, including inside booking dialogs. GCash receipt problems appear as separate bullet points. Emoji input is blocked in text fields.
+Input errors are highlighted and automatically scrolled into view, including inside booking dialogs. Registration errors appear in a toast at the top; the affected field is focused and scrolled into view so you can correct it immediately. GCash receipt problems appear as separate bullet points. Emoji input is blocked in text fields.
 
 ## Contents
 
@@ -213,16 +213,16 @@ If resort staff entered your booking through Messenger, a phone call or a walk-i
 
 Closed/expired reservations and bookings with pending payment, reschedule or refund reviews cannot be edited through this screen. After check-in, contact staff for count changes or service reductions. After full payment, existing services cannot be reduced by the guest, though additional services can still be added. If the bill changes before saving, reload and review it again.
 
-## 8. Request a different booking date
+## 8. Reschedule a booking automatically
 
 1. Find a **Confirmed** reservation in **Manage Booking**.
 2. Open the **three-dot options menu** and select **Reschedule**. Choose your date in the dialog.
 3. Use **Previous month** or **Next month** in the custom calendar, select a new check-in date (you can choose while availability loads; submission waits for the check), and review the retained package time/duration. Past/current dates, booked time slots, maintenance dates and dates too early for the original start time are disabled. Availability is checked again when you submit.
-4. Submit the request and read the notice showing the additional charge if approved.
-5. Wait for staff review and check the result in Manage Booking.
-6. If approved, check the new schedule and use **Pay Balance** for additional charges when required.
+4. Enter **Reason for rescheduling** (5-2,000 characters) and review the notice fee, any higher-date-rate adjustment, new total and remaining balance.
+5. Select **Confirm Reschedule**. An available date is approved automatically without staff review.
+6. Check the updated schedule and bill, then use **Pay Balance** for any outstanding charges.
 
-**Expected result:** A pending request does not immediately move the reservation. The original dates remain reserved while staff reviews it. Approval can add a notice fee and a higher-date-rate adjustment; moving to a cheaper date does not automatically refund the difference.
+**Expected result:** The reservation stays confirmed on the new date. The notice fee and any higher-date-rate adjustment are added immediately to the bill and current invoice. Existing payments and receipts are preserved; moving to a cheaper date does not automatically reduce the bill. Short-notice, same-day and past-original-date changes use the same automatic flow before check-in. Resolve open financial reviews and any legacy pending reschedule first.
 
 Rescheduling requires a confirmed payment, an eligible available date and the applicable booking rules. The new start must remain at least 30 minutes away. Contact staff if **Reschedule** is disabled or your requested change is outside the available options.
 
@@ -234,9 +234,9 @@ Notice fees are **PHP 50 for 6+ days**, **PHP 100 for 3-5 days**, **PHP 300 for 
 
 1. Open **Manage Booking** and open the reservation's **three-dot options menu** and select **Cancel reservation**.
 2. The dialog first offers **Reschedule instead**. Choose it to open the custom reschedule calendar, or select **Continue to cancellation** to review verified payments, previous refunds, initial deposit basis, retained deposit and refundable amount. Reschedule restrictions remain in force; the dialog explains when staff assistance is required.
-3. Check the acknowledgement and select **Confirm cancellation**. If the bill or payments changed, reload the preview and review it again.
+3. Enter **Reason for cancellation** (5-2,000 characters), check the acknowledgement and select **Confirm cancellation**. If the bill or payments changed, reload the preview and review it again.
 4. Read the success alert and updated booking status. Eligible cancellations create a refund request automatically; you do not submit another request.
-5. Open the **Refunds** tab for payment review, administrator approval, manual transfer and staff verification.
+5. Open the **Refunds** tab for payment review, manager approval, manual transfer and staff verification.
 
 Guest cancellation retains the initial 20% deposit. A downpayment-only booking has no refund; a fully paid booking receives the remaining 80%. Partial payments above the required deposit can be refunded after deducting that deposit and prior completed refunds. No payment means no request. A documented cancellation attributable to the resort refunds all remaining verified payments, including the deposit.
 
@@ -283,16 +283,18 @@ Visits are free and require approval. Slots starting in less than 30 minutes are
 
 ## 12. Write a review with a photo
 
-1. Sign in to your registered guest account and open **Reviews** after resort staff checks you out and marks your stay **Completed**. A booking or elapsed stay date alone does not qualify.
+1. Sign in to your active registered guest account and open **Reviews**. A booking or completed stay is not required.
 2. Select **Write a Review**.
 3. Choose your **Overall Rating**, and fill in any other rating categories you want to provide.
 4. Enter a **Review Title** and **Your Review**. Write at least 50 characters.
 5. Optionally select one photo under **Add a photo (optional)**. Use JPEG, PNG or WebP, up to 3 MB.
 6. Check the photo preview; replace it or use **Remove photo** if needed.
-7. Optionally choose one of your completed stays from the dropdown and select the recommendation checkbox.
+7. Optionally link one of your own reservations from the dropdown and select the recommendation checkbox.
 8. Submit and wait for the success message.
 
 **Expected result:** Your review is saved. The current system automatically publishes newly submitted reviews; public photos are shown for approved reviews. Use **View full photo** on a review to open its image.
+
+An active registered guest may write a review without a booking or completed stay. Linking one of your own reservations is optional.
 
 You may submit **multiple reviews per guest account**, with a **10-minute wait between submissions** and a **maximum of 3 reviews per rolling 24 hours**. Repeating the same review text within 24 hours is blocked, even if you change its title. Each linked reservation can still have only one review. If a limit is reached, a popup explains when to retry and keeps your text/photo selected. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.
 
@@ -320,7 +322,7 @@ A rejected later balance payment does not itself cancel an already confirmed res
 | Status | Meaning |
 | --- | --- |
 | Pending refund review | Cashier is checking verified payment records |
-| Awaiting administrator approval | Payment records reviewed; waiting for the administrator's decision |
+| Awaiting manager approval | Payment records reviewed; waiting for the manager's decision |
 | Approved - awaiting transfer | Accepted; staff must transfer the money manually |
 | Transfer submitted - awaiting verification | Payout evidence was uploaded; the refund is not yet completed |
 | Rejected | Not approved; read the review reason |
@@ -354,3 +356,5 @@ The chatbot can explain resort information and the general booking flow. A chat 
 ### After arrival
 
 Once staff records check-in, cancellation and rescheduling are no longer available in Manage Booking. Settle any remaining balance and additional charges before checkout. Staff completes the reservation when checkout is recorded; only then can you submit a review. The existing review cooldown, duplicate-content checks and daily limits still apply.
+
+New consistent GCash receipts are automatically approved after server OCR validation. The payment screen shows Payment Approved and the reservation is confirmed immediately. Existing pending payments retain their staff review workflow. A verified excess payment is tracked separately; use Request excess refund in Manage Booking to create its refund request. Refund requests are not created or paid automatically for overpayments.

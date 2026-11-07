@@ -235,39 +235,30 @@ export default function AdminTransactionsPage() {
           }
         }
 
-        const { data: transactionsData, error: transactionsError } = await supabase
-          .from("transactions")
+        const transactionList = await fetchAllPages<TransactionRow>((from, to) => supabase.from("transactions")
           .select("transaction_id, reservation_id, total_amount, paid_amount, balance, overpaid_amount, status, created_at, updated_at")
-          .order("updated_at", { ascending: false })
-          .limit(200);
-
-        if (transactionsError) {
-          throw transactionsError;
-        }
-
-        const transactionList = (transactionsData as TransactionRow[] | null) ?? [];
-        // The review queue must include older submissions outside the recent ledger.
+          .order("updated_at", { ascending: false }).order("transaction_id").range(from, to));
+        // Include pending payments even when no transaction has been generated yet.
         const pendingPayments = await fetchAllPages<PaymentSnapshotRow>((from, to) => supabase.from("payments")
           .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes")
           .eq("status", "pending").order("created_at").order("payment_id").range(from, to));
         const reservationIds = [...new Set([...transactionList.map(row => row.reservation_id), ...pendingPayments.map(row => row.reservation_id)])];
-        const recentReservationIds = [...new Set(transactionList.map(row => row.reservation_id))];
+        const ledgerReservationIds = [...new Set(transactionList.map(row => row.reservation_id))];
 
         const [{ data: reservationsData, error: reservationsError }, { data: invoicesData, error: invoicesError }, { data: paymentsData, error: paymentsError }, { data: receiptsData, error: receiptsError }] =
           await Promise.all([
             fetchByIds<ReservationRow>(reservationIds, (ids, from, to) => supabase.from("reservations")
               .select("reservation_id, reference_number, booking_type, status").in("reservation_id", ids)
               .order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
-            recentReservationIds.length
-              ? supabase.from("invoices").select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", recentReservationIds)
-              : Promise.resolve({ data: [], error: null }),
-            recentReservationIds.length
-              ? supabase
-                  .from("payments")
-                  .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes")
-                  .in("reservation_id", recentReservationIds)
-              : Promise.resolve({ data: [], error: null }),
-            supabase.from("receipts").select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name").order("issued_at", { ascending: false }).limit(200),
+            fetchByIds<InvoiceRow>(ledgerReservationIds, (ids, from, to) => supabase.from("invoices")
+              .select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", ids)
+              .order("invoice_id").range(from, to)).then(data => ({ data, error: null })),
+            fetchByIds<PaymentSnapshotRow>(ledgerReservationIds, (ids, from, to) => supabase.from("payments")
+              .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes")
+              .in("reservation_id", ids).order("payment_id").range(from, to)).then(data => ({ data, error: null })),
+            fetchAllPages<ReceiptRow>((from, to) => supabase.from("receipts")
+              .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name")
+              .order("issued_at", { ascending: false }).order("receipt_id").range(from, to)).then(data => ({ data, error: null })),
           ]);
 
         if (reservationsError) throw reservationsError;
@@ -872,7 +863,7 @@ export default function AdminTransactionsPage() {
       <section className="admin-panel mt-6">
         <AdminTabs tabs={transactionTabs} value={activeTab} onChange={setActiveTab} label="Transaction sections" />
 
-        {activeTab !== "Refund Requests" && <p className="mb-4 text-xs leading-relaxed text-neutral/65">Transaction summaries cover the latest 200 ledger records. Receipt lists show up to 200 recent receipts. CSV exports follow the table search and filters.</p>}
+        {activeTab !== "Refund Requests" && <p className="mb-4 text-xs leading-relaxed text-neutral/65">Transaction and receipt tables include all records with pagination. CSV exports include every row matching the table search and filters.</p>}
         {activeTab === "Generated Invoices" && <p className="mb-4 text-sm text-neutral/70">Invoices are generated automatically from reservation billing. Refresh to load the latest documents, or select View to inspect an invoice.</p>}
         {activeTab === "Issued Receipts" && <p className="mb-4 text-sm text-neutral/70">Receipts are issued automatically for verified payments. Select Print to print a receipt or save it as a PDF.</p>}
 

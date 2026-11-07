@@ -1,6 +1,7 @@
 "use client";
 
 import AdminTabs from "@/components/admin/AdminTabs";
+import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
 
 import { useCallback, useEffect, useState } from "react";
 import ReportChart, { type ChartType } from "@/components/admin/ReportChart";
@@ -16,6 +17,7 @@ export type { ReportTab } from "@/lib/reports/types";
 const money = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 });
 
 export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
+  const readOnly = useAdminReadOnly();
   const [activeTab, setActiveTab] = useState<ReportTab>(tabs[0]);
   const [generation, setGeneration] = useState(0);
   const [period, setPeriod] = useState<ReportPeriod>("Daily");
@@ -36,6 +38,9 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
   const fetchError = failure?.key === key ? failure.message : null;
   const isLoading = !report && !fetchError;
   const config = reportConfig[activeTab];
+  const filters = activeTab === "Staff Report"
+    ? [{ key: "staff", label: "Staff member", options: [...new Set((report?.rows ?? []).map(row => row.staff).filter(Boolean))].sort((left, right) => left.localeCompare(right)) }]
+    : config.filters;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -57,7 +62,7 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
   const stopPrinting = useCallback(() => setPrintSnapshot(null), []);
   const refresh = () => { setActionError(null); setGeneration(value => value + 1); };
   const handleAction = (action: string, rows: ReportRow[]) => {
-    if (!report || !rows.length || printSnapshot) return;
+    if (readOnly || !report || !rows.length || printSnapshot) return;
     setActionError(null);
     try {
       if (action === "Export CSV") downloadReportCsv(config.columns, rows, `${activeTab.toLowerCase().replaceAll(" ", "-")}-${report.startDate}-to-${report.endDate}.csv`);
@@ -100,7 +105,7 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
         <ReportChart title={config.splitTitle} points={report.split} format={activeTab === "Sales Report" ? "money" : "count"} chartType={splitType} onTypeChange={setSplitType} />
       </div>
       <p className="mb-3 mt-6 text-xs leading-relaxed text-neutral/65">The summary covers the full date range. Search and table filters apply to the table, CSV and printed report. Exports include every matching page.</p>
-      <AdminTablePreview key={activeTab} title={config.tableTitle} columns={config.columns} rows={report.rows} defaultSort={config.sort} filters={config.filters} searchPlaceholder={config.search} pageSize={25} showResetFilters actions={["Export CSV", "Print report"]} onAction={handleAction} isActionDisabled={(_action, rows) => !rows.length || Boolean(printSnapshot)} />
+      <AdminTablePreview key={activeTab} title={config.tableTitle} columns={config.columns} rows={report.rows} defaultSort={config.sort} filters={filters} searchPlaceholder={config.search} pageSize={25} showResetFilters actions={["Export CSV", "Print report"]} onAction={handleAction} isActionDisabled={(_action, rows) => !rows.length || Boolean(printSnapshot)} />
     </>}
     {printSnapshot && <ReportPrintDocument snapshot={printSnapshot} onDone={stopPrinting} />}
   </section>;

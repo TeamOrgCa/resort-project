@@ -10,7 +10,7 @@ function multipart(file = photo(), details = payload) {
   if (file) form.set("image", file);
   return new Request("http://localhost/api/reviews/create", { method: "POST", body: form });
 }
-function harness({ authenticated = true, guest = true, policy = { allowed: true }, policyError = null, insertError = null, uploadError = null, ownReservation = true, notificationFails = false } = {}) {
+function harness({ authenticated = true, guest = true, active = true, policy = { allowed: true }, policyError = null, insertError = null, uploadError = null, ownReservation = true, notificationFails = false } = {}) {
   const uploads = [], removals = [], inserts = [];
   let adminCalls = 0;
   const storage = {
@@ -27,7 +27,7 @@ function harness({ authenticated = true, guest = true, policy = { allowed: true 
         maybeSingle: () => query.single(),
         insert: row => { inserting = true; inserts.push(row); return query; },
         single: async () => {
-          if (table === "guests") return { data: guest ? { id: guestId, first_name: "Test", last_name: "Guest" } : null, error: null };
+          if (table === "guests") return { data: guest ? { id: guestId, first_name: "Test", last_name: "Guest", is_active: active } : null, error: null };
           if (table === "reservations") return { data: ownReservation ? { reservation_id: "reservation" } : null, error: null };
           assert.equal(table, "reviews");
           return { data: inserting ? insertError ? null : { review_id: "review", ...inserts.at(-1) } : null, error: inserting ? insertError : null };
@@ -56,11 +56,11 @@ test("guest photo uploads use generated owned paths, validated content and the r
   assert.equal(h.removals.length, 0);
 });
 
-test("a guest without a completed stay cannot submit any review or upload a photo", async () => {
+test("an active guest without any reservation can submit a general review with a photo", async () => {
   const h = harness({ ownReservation: false });
   const response = await h.post(multipart());
-  assert.equal(response.status, 403); assert.match((await response.json()).error, /completes your stay/);
-  assert.equal(h.uploads.length, 0); assert.equal(h.inserts.length, 0);
+  assert.equal(response.status, 201); assert.equal(h.uploads.length, 1); assert.equal(h.inserts.length, 1);
+  assert.equal(h.inserts[0].reservation_id, null);
 });
 
 test("text-only reviews remain supported and clients cannot attach a forged stored path", async () => {
@@ -74,7 +74,7 @@ test("text-only reviews remain supported and clients cannot attach a forged stor
 });
 
 test("authentication, guest membership and reservation ownership are checked before upload", async () => {
-  for (const [options, status] of [[{ authenticated: false }, 401], [{ guest: false }, 403], [{ ownReservation: false }, 400]]) {
+  for (const [options, status] of [[{ authenticated: false }, 401], [{ guest: false }, 403], [{ active: false }, 403], [{ ownReservation: false }, 400]]) {
     const h = harness(options);
     assert.equal((await h.post(multipart(photo(), { ...payload, reservation_id: guestId }))).status, status);
     assert.equal(h.adminCalls(), 0); assert.equal(h.inserts.length, 0);

@@ -2,13 +2,15 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { sanitizeName } from "@/lib/helper/validation";
-import { validateGuestRegistration } from "@/lib/auth/guest-registration";
-import FormErrorDialog from "@/components/ui/FormErrorDialog";
+import { validateGuestRegistration, type GuestRegistrationField } from "@/lib/auth/guest-registration";
+import FormErrorToast from "@/components/ui/FormErrorToast";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 import { sanitizeEmailInput } from "@/lib/validation/email";
+import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
+import type { PhilippineAddress } from "@/lib/address/philippine-address";
 
 export default function Register() {
   const router = useRouter();
@@ -19,22 +21,48 @@ export default function Register() {
     middleName: "",
     email: "",
     phoneNumber: "",
-    address: "",
     password: "",
     confirmPassword: "",
   });
+  const [address, setAddress] = useState<PhilippineAddress>({ streetAddress: "", province: "", city: "", zipCode: "" });
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [emailAlreadyRegistered, setEmailAlreadyRegistered] = useState(false);
-  const [errorOpen, setErrorOpen] = useState(false);
-  const emailInput = useRef<HTMLInputElement>(null);
-  const submitButton = useRef<HTMLButtonElement>(null);
+  const [errorField, setErrorField] = useState<GuestRegistrationField | null>(null);
+  const [errorAttempt, setErrorAttempt] = useState(0);
+  const [errorToast, setErrorToast] = useState<{ message: string } | null>(null);
+  const registrationForm = useRef<HTMLFormElement>(null);
+  const dismissErrorToast = useCallback(() => setErrorToast(null), []);
   const [success, setSuccess] = useState(false);
   const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
   const [resendMessage, setResendMessage] = useState("");
   const [isResending, setIsResending] = useState(false);
   const [deliveryError, setDeliveryError] = useState("");
+
+  useEffect(() => {
+    if (!errorField) return;
+    const field = registrationForm.current?.elements.namedItem(errorField);
+    if (!(field instanceof HTMLElement)) return;
+    const previousInvalid = field.getAttribute("aria-invalid");
+    const previousDescription = field.getAttribute("aria-describedby");
+    field.setAttribute("aria-invalid", "true");
+    field.setAttribute("aria-describedby", [previousDescription, "registration-error"].filter(Boolean).join(" "));
+    field.style.scrollMarginTop = "7rem";
+    field.focus({ preventScroll: true });
+    field.scrollIntoView?.({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+    return () => {
+      if (previousInvalid === null) field.removeAttribute("aria-invalid"); else field.setAttribute("aria-invalid", previousInvalid);
+      if (previousDescription === null) field.removeAttribute("aria-describedby"); else field.setAttribute("aria-describedby", previousDescription);
+    };
+  }, [errorField, errorAttempt]);
+
+  const showRegistrationError = (message: string, field?: GuestRegistrationField) => {
+    setError(message);
+    setErrorField(field ?? null);
+    setErrorAttempt(attempt => attempt + 1);
+    setErrorToast({ message });
+  };
 
   const resendConfirmation = async () => {
     if (isResending) return;
@@ -61,7 +89,7 @@ export default function Register() {
     let value = e.target.value;
 
     if (name === "firstName" || name === "lastName" || name === "middleName") {
-      value = sanitizeName(value);
+      value = sanitizeName(value).slice(0, 75);
     }
     if (name === "email") value = sanitizeEmailInput(value);
     setFormData((previous) => ({ ...previous, [name]: value }));
@@ -70,13 +98,15 @@ export default function Register() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loading || errorOpen) return;
+    if (loading) return;
     setError("");
+    setErrorField(null);
+    setErrorToast(null);
     setEmailAlreadyRegistered(false);
-    const validation = validateGuestRegistration(formData);
+    const registrationData = { ...formData, addressDetails: address };
+    const validation = validateGuestRegistration(registrationData);
     if (!validation.value) {
-      setError(validation.error);
-      setErrorOpen(true);
+      showRegistrationError(validation.error, validation.field);
       return;
     }
 
@@ -85,13 +115,12 @@ export default function Register() {
       const response = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, phoneNumber: validation.value.phoneNumber }),
+        body: JSON.stringify({ ...registrationData, address: validation.value.address, phoneNumber: validation.value.phoneNumber }),
       });
-      const result = (await response.json()) as { success?: boolean; message?: string; code?: string; needsEmailConfirmation?: boolean; confirmationEmailSent?: boolean };
+      const result = (await response.json()) as { success?: boolean; message?: string; code?: string; field?: GuestRegistrationField; needsEmailConfirmation?: boolean; confirmationEmailSent?: boolean };
       if (!response.ok || !result.success) {
-        setError(result.message || "Unable to create your account. Please try again.");
         setEmailAlreadyRegistered(result.code === "EMAIL_ALREADY_REGISTERED");
-        setErrorOpen(true);
+        showRegistrationError(result.message || "Unable to create your account. Please try again.", result.code === "EMAIL_ALREADY_REGISTERED" ? "email" : result.field);
         return;
       }
       setNeedsEmailConfirmation(Boolean(result.needsEmailConfirmation));
@@ -101,8 +130,7 @@ export default function Register() {
         setTimeout(() => router.push("/auth/login"), 2000);
       }
     } catch {
-      setError("Unable to connect to the server. Please try again.");
-      setErrorOpen(true);
+      showRegistrationError("Unable to connect to the server. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -155,7 +183,11 @@ export default function Register() {
 
         {/* Registration Form */}
         <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
-          <form onSubmit={handleRegister} className="space-y-6">
+          <form ref={registrationForm} noValidate onSubmit={handleRegister} className="space-y-6" onChangeCapture={event => {
+            if (event.target instanceof HTMLElement && event.target.getAttribute("name") === errorField) {
+              setError(""); setErrorField(null); setErrorToast(null); setEmailAlreadyRegistered(false);
+            }
+          }}>
             {/* Personal Information */}
             <div>
               <h3 className="text-lg font-semibold text-neutral mb-4">Personal Information</h3>
@@ -171,7 +203,7 @@ export default function Register() {
                     value={formData.firstName}
                     onChange={handleChange}
                     required
-                    maxLength={100}
+                    maxLength={75}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
@@ -187,7 +219,7 @@ export default function Register() {
                     value={formData.lastName}
                     onChange={handleChange}
                     required
-                    maxLength={100}
+                    maxLength={75}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
@@ -202,7 +234,7 @@ export default function Register() {
                     name="middleName"
                     value={formData.middleName}
                     onChange={handleChange}
-                    maxLength={100}
+                    maxLength={75}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
@@ -219,7 +251,6 @@ export default function Register() {
                   </label>
                   <input
                     type="email"
-                    ref={emailInput}
                     id="email"
                     name="email"
                     autoComplete="email"
@@ -229,8 +260,6 @@ export default function Register() {
                     onChange={handleChange}
                     required
                     maxLength={254}
-                    aria-invalid={emailAlreadyRegistered && Boolean(error)}
-                    aria-describedby={emailAlreadyRegistered && error ? "registration-error" : undefined}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                     placeholder="your@email.com"
                   />
@@ -244,22 +273,7 @@ export default function Register() {
                     onChange={phoneNumber => setFormData(current => ({ ...current, phoneNumber }))} />
                 </div>
 
-                <div>
-                  <label htmlFor="address" className="block text-sm font-medium text-neutral mb-2">
-                    Address *
-                  </label>
-                  <textarea
-                    id="address"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleChange}
-                    required
-                    rows={3}
-                    maxLength={500}
-                    className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                    placeholder="Street Address, City, Province, Postal Code"
-                  />
-                </div>
+                <PhilippineAddressFields value={address} onChange={setAddress} />
               </div>
             </div>
 
@@ -278,10 +292,10 @@ export default function Register() {
                     value={formData.password}
                     onChange={handleChange}
                     required
-                    minLength={6}
+                    minLength={8}
                     maxLength={128}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                    placeholder="Min. 6 characters"
+                    placeholder="8–128 characters"
                   />
                 </div>
 
@@ -296,15 +310,19 @@ export default function Register() {
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     required
+                    minLength={8}
+                    maxLength={128}
                     className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
               </div>
             </div>
 
-            {error && <p id="registration-error" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+            {error && <div id="registration-error" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <p>{error}</p>
+              {emailAlreadyRegistered && <p className="mt-2 flex flex-wrap gap-4"><Link href="/auth/login" className="font-semibold underline">Sign in</Link><Link href="/auth/forgot" className="font-semibold underline">Reset password</Link></p>}
+            </div>}
             <button
-              ref={submitButton}
               type="submit"
               disabled={loading}
               className="w-full bg-primary text-base py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -329,13 +347,7 @@ export default function Register() {
           </div>
         </div>
       </div>
-      {errorOpen && <FormErrorDialog title={emailAlreadyRegistered ? "Email already registered" : "Registration could not be completed"}
-        message={error} closeText={emailAlreadyRegistered ? "Use another email" : "Back to form"}
-        onClose={() => setErrorOpen(false)} returnFocusRef={emailAlreadyRegistered ? emailInput : submitButton}
-        actions={emailAlreadyRegistered ? <>
-          <Link href="/auth/login" className="flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90">Sign in</Link>
-          <Link href="/auth/forgot" className="flex min-h-11 items-center justify-center rounded-xl border border-primary/25 px-4 py-2 text-sm font-semibold text-primary hover:bg-base">Reset password</Link>
-        </> : undefined} />}
+      {errorToast && <FormErrorToast error={errorToast} onDismiss={dismissErrorToast} />}
     </div>
   );
 }

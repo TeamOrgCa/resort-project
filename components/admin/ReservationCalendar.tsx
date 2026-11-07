@@ -101,7 +101,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [ocularVisits, setOcularVisits] = useState<OcularVisit[]>([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState<MaintenanceBlock[]>([]);
-  const [isAdmin, setIsAdmin] = useState(initialAccess?.role === "admin");
+  const [isManager, setIsManager] = useState(initialAccess?.role === "staff");
+  const [canManageMaintenance, setCanManageMaintenance] = useState(initialAccess?.role === "staff" && initiallyAllowed("edit_reservation"));
   const [canCancel, setCanCancel] = useState(initiallyAllowed("cancel_reservation"));
   const [canCreate, setCanCreate] = useState(initiallyAllowed("create_reservation"));
   const [canCheckIn, setCanCheckIn] = useState(initiallyAllowed("edit_reservation"));
@@ -233,9 +234,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       const { data: { user } } = await client.auth.getUser();
       if (!user) return;
       const { data } = await client.from("staff_users").select("role, is_active").eq("id", user.id).maybeSingle();
-      setIsAdmin(data?.role === "admin" && data.is_active === true);
+      setIsManager(data?.role === "staff" && data.is_active === true);
       if (data?.role && data.is_active) {
         const { data: grants } = await client.from("role_permissions").select("permissions").eq("role", data.role).maybeSingle();
+        setCanManageMaintenance(data.role === "staff" && hasPermission(data.role, grants?.permissions ?? [], "edit_reservation"));
         setCanCancel(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "cancel_reservation"));
         setCanCreate(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "create_reservation"));
         setCanCheckIn(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "edit_reservation"));
@@ -248,7 +250,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   }, [initialAccess]);
 
   const saveBlock = async () => {
-    if (blockBusy) return;
+    if (blockBusy || !canManageMaintenance) return;
     setBlockBusy(true); setBlockMessage(null); setBlockError(null);
     try {
       const response = await fetch("/api/admin/maintenance-blocks", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -265,6 +267,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   };
 
   const releaseBlock = async (blockId: string) => {
+    if (blockBusy || !canManageMaintenance) return;
     setBlockBusy(true); setBlockMessage(null); setBlockError(null);
     try {
       const response = await fetch("/api/admin/maintenance-blocks", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blockId }) });
@@ -413,7 +416,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     setSelectedDay(dateKey(next));
     setMonth(manilaCalendarDate(`${dateKey(next).slice(0, 7)}-01`));
   };
-  const openMaintenance = () => { setBlockError(null); setShowBlockForm(true); };
+  const openMaintenance = () => { if (!canManageMaintenance) return; setBlockError(null); setShowBlockForm(true); };
   const renderEvent = (event: CalendarEvent) => {
     const style = eventStyles[event.kind], reservation = reservations.find(row => row.reservation_id === event.reservationId);
     return <button key={event.id} type="button" onClick={() => openEvent(event)} style={{ backgroundColor: "#f3f4f8" }} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${style.className}`}>
@@ -428,7 +431,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         {canCreate && <button type="button" onClick={() => setIsManualBookingOpen(true)} aria-label="New reservation" title="New reservation" className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-white shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true"><path d="M8 2v4m8-4v4M3 10h18M11 21H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5M18 14v8m-4-4h8" /></svg>
         </button>}
-        {isAdmin && <button type="button" onClick={openMaintenance} aria-label="Add maintenance block" title="Add maintenance block" className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-white text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+        {canManageMaintenance && <button type="button" onClick={openMaintenance} aria-label="Add maintenance block" title="Add maintenance block" className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-white text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94L14.7 6.3Z" /></svg>
         </button>}
         <button type="button" disabled={isLoading} onClick={() => setRefreshKey(key => key + 1)} aria-label="Refresh calendar" title="Refresh calendar" className="flex h-11 w-11 items-center justify-center rounded-xl border border-neutral/20 bg-white text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">
@@ -573,9 +576,9 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         {canReviewPayments && <ReservationPaymentReview key={selectedEvent.reservationId} reservationId={selectedEvent.reservationId} reference={selectedReservation?.reference_number ?? selectedEvent.reference ?? "Reservation"} onBusyChange={setPaymentBusy} onReviewed={() => { setPaymentRevision(value => value + 1); setRefreshKey(key => key + 1); }} />}
         <ReservationEditor key={`${selectedEvent.reservationId}:${paymentRevision}`} reservationId={selectedEvent.reservationId} onBusyChange={setEditorBusy} onSaved={() => setRefreshKey(key => key + 1)} />
         {canCancel && selectedReservation && !selectedReservation.checked_in_at && !["cancelled", "completed", "expired", "rejected"].includes(selectedReservation.status) && <button type="button" onClick={() => { setCancelId(selectedEvent.reservationId!); setSelectedEvent(null); }} className="mt-5 min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700">Cancel reservation / review refund</button>}
-      </> : <div className="space-y-3 text-sm"><p>{selectedEvent.label}</p><p>Date: {selectedEvent.date}</p><p>Status: {titleCase(selectedOcular?.status ?? selectedEvent.status ?? "scheduled")}</p><p>{selectedEvent.reference}</p>{blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{blockError}</p>}{selectedOcular && <OcularVisitReview key={selectedOcular.visit_id} visit={selectedOcular} canReview={canReviewOcular} onBusyChange={setOcularBusy} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularVisits(rows => rows.map(row => row.visit_id === visit.visit_id ? { ...row, ...visit } : row)); setRefreshKey(value => value + 1); }} />}{isAdmin && selectedEvent.kind === "maintenance" && <button type="button" disabled={blockBusy} onClick={() => void releaseBlock(selectedEvent.id.split(":")[0])} className="min-h-11 rounded-xl border px-3 py-2">Release block</button>}</div>}
+      </> : <div className="space-y-3 text-sm"><p>{selectedEvent.label}</p><p>Date: {selectedEvent.date}</p><p>Status: {titleCase(selectedOcular?.status ?? selectedEvent.status ?? "scheduled")}</p><p>{selectedEvent.reference}</p>{blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{blockError}</p>}{selectedOcular && <OcularVisitReview key={selectedOcular.visit_id} visit={selectedOcular} canReview={canReviewOcular} onBusyChange={setOcularBusy} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularVisits(rows => rows.map(row => row.visit_id === visit.visit_id ? { ...row, ...visit } : row)); setRefreshKey(value => value + 1); }} />}{canManageMaintenance && selectedEvent.kind === "maintenance" && <button type="button" disabled={blockBusy} onClick={() => void releaseBlock(selectedEvent.id.split(":")[0])} className="min-h-11 rounded-xl border px-3 py-2">Release block</button>}</div>}
     </RecordDialog>}
-    {cancelId && <CancellationDialog staff isAdmin={isAdmin} reservationId={cancelId} onClose={() => setCancelId(null)} onCancelled={result => {
+    {cancelId && <CancellationDialog staff canCancelForResort={isManager && canCancel} reservationId={cancelId} onClose={() => setCancelId(null)} onCancelled={result => {
       setCancellationMessage(result.message + (!result.emailSent ? " In-app alerts were recorded; email delivery could not be confirmed." : ""));
       setCancelId(null); setSelectedEvent(null); setRefreshKey(key => key + 1);
     }} />}

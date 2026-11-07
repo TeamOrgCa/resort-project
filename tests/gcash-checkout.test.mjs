@@ -27,7 +27,11 @@ function harness({ status = "consistent", method = "GCash", insertError = null, 
   };
   const { POST } = loadTsModule("app/api/reservations/checkout/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
-    "@/lib/supabase/admin": { createAdminClient: () => ({ from: table => ({ insert: payload => { writes.push({ table, operation: "insert", payload }); return { select: () => ({ single: async () => ({ error: insertError, data: insertError ? null : { payment_id: "payment", status: "pending", ocr_status: payload.ocr_status } }) }) }; } }) }) },
+    "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, { p_payment: payload }) => {
+      assert.equal(name, "submit_consistent_gcash_payment"); writes.push({ table: "payments", operation: "insert", payload });
+      return { error: insertError, data: insertError ? null : { payment_id: "payment", status: "verified", ocr_status: payload.ocr_status, auto_approved: true, reservation_status: "confirmed" } };
+    } }) },
+    "@/lib/server/ocr-payment-emails": { sendOcrPaymentEmails: async () => {} },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict: false, error: null }) },
     "@/lib/server/package-rates": { loadQuotedPackageRates: async () => ({ version: 1, rates: {} }), PackageRatesError: class extends Error {} },
     "@/lib/booking/pricing": { computeBookingPricing: () => ({ total: 5000 }) },

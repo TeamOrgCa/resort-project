@@ -51,6 +51,29 @@ test("a clear two-column footer gets a second scale when the first retry leaves 
   assert.equal(word.bbox.y1 - word.bbox.y0, 24, "3x coordinates must be scaled back to native pixels");
 });
 
+test("a separated reference/date footer retries only the uncertain date column", async () => {
+  const png = await androidSendMoneyReceiptImage();
+  const original = receiptPage("Ref No. 0046080000001 Nov 7, 2026 7:15 AM");
+  const line = original.blocks[0].paragraphs[0].lines[0];
+  line.words = [
+    { text: "Ref No. 0046080000001", confidence: 95, bbox: { x0: 72, x1: 330, y0: 692, y1: 716 } },
+    { text: "Nov", confidence: 95, bbox: { x0: 440, x1: 480, y0: 692, y1: 716 } },
+    { text: "7, 2026 7:15 AM", confidence: 28, bbox: { x0: 485, x1: 648, y0: 692, y1: 716 } },
+  ];
+  let calls = 0;
+  const result = await retryGcashNumericLines(png, original, { recognize: async bytes => {
+    calls++;
+    assert.equal((await sharp(bytes).metadata()).width, 448);
+    return retryResult({ replacement: "Nov 7, 2026 7:15 AM" });
+  } });
+  assert.equal(calls, 1);
+  assert.equal(inspectReceiptReadability(result, { gcash: true }).accepted, true);
+  assert.match(result.text, /0046080000001/);
+  const lines = result.blocks[0].paragraphs[0].lines;
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].words[0].confidence, 95);
+});
+
 test("the second scale cannot turn tiny native digits into readable transaction evidence", async () => {
   const png = await androidSendMoneyReceiptImage({ date: "Oct 13, 2026 7:14 PM" });
   let calls = 0;

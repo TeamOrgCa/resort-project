@@ -1,3 +1,4 @@
+import { sendOcrPaymentEmails } from "@/lib/server/ocr-payment-emails";
 import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { saveGuestBookingPhone, GuestBookingPhoneError } from "@/lib/server/guest-booking-phone";
 import { NextResponse } from "next/server";
@@ -594,8 +595,7 @@ export async function POST(request: Request) {
     }
 
     const { data: payment, error: paymentError } = await createAdminClient()
-      .from("payments")
-      .insert({
+      .rpc("submit_consistent_gcash_payment", { p_payment: {
         reservation_id: reservation.reservation_id,
         amount: ocr.amount,
         payment_method_id: payload.payment.paymentMethodId,
@@ -609,13 +609,12 @@ export async function POST(request: Request) {
         ocr_status: ocr.status,
         ocr_notes: ocr.notes,
         ocr_checked_at: manilaTimestamp(),
-      })
-      .select("payment_id, status, ocr_status")
-      .single();
+      } });
 
     if (paymentError || !payment) {
       await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
       reservationId = null;
+      if (paymentError?.code === "PGRST202" || paymentError?.code === "42883") return NextResponse.json({ success: false, code: "PAYMENT_SCHEMA_MIGRATION_REQUIRED", message: "Apply the OCR auto-approve payments migration before submitting payments." }, { status: 503 });
       if (paymentError?.code === "P0001" && /deadline|expired/i.test(paymentError.message)) {
         return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline passed during checkout. Please try a new reservation." }, { status: 410 });
       }
@@ -636,8 +635,8 @@ export async function POST(request: Request) {
         actorId: user.id,
         guestId: user.id,
         staffRoles: NOTIFICATION_AUDIENCES.checkout,
-        title: "Reservation checkout submitted",
-        message: `Reservation ${reservation.reference_number} and payment were submitted for review.`,
+        title: "Reservation confirmed",
+        message: `Reservation ${reservation.reference_number} was confirmed after automatic OCR payment approval.`,
         entityType: "payment",
         entityId: payment.payment_id,
         guestActionUrl: "/manage",
@@ -646,13 +645,15 @@ export async function POST(request: Request) {
       if (notificationError) console.warn("Failed to create checkout notifications:", notificationError);
     } catch (notificationError) { console.warn("Failed to create checkout notifications:", notificationError); }
 
+    await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
+
     return NextResponse.json(
       {
         success: true,
         reservation: {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
-          status: reservation.status,
+          status: payment.reservation_status,
           paymentDeadlineAt: reservation.payment_deadline_at,
           totalAmount,
         },
@@ -663,6 +664,7 @@ export async function POST(request: Request) {
           receiptPaidAt: ocr.paidAt,
           proofPath: payload.payment.proofPath,
           ocrStatus: payment.ocr_status,
+          autoApproved: payment.auto_approved,
         },
       },
       { status: 201 }

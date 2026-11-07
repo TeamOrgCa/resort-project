@@ -19,7 +19,7 @@ before(async () => {
     create table public.guests(id uuid primary key,is_active boolean default true);
     create table public.staff_users(id uuid primary key,role text,is_active boolean,active_session_id uuid);
     create table public.role_permissions(role text primary key,permissions text[]);
-    create table public.reservations(reservation_id uuid primary key,guest_id uuid);
+    create table public.reservations(reservation_id uuid primary key,guest_id uuid,status text);
     create table public.reviews(review_id uuid primary key default gen_random_uuid(),guest_id uuid not null references public.guests,
       reservation_id uuid,overall_rating integer default 5,title text,review_text text,public_display_name text default 'Guest',image_path text,
       is_approved boolean default true,created_at timestamptz default now(),updated_at timestamptz default now());
@@ -36,11 +36,36 @@ before(async () => {
   await db.query("insert into public.guests(id) values($1)", [guest]);
   await db.query("insert into public.staff_users values($1,'staff',true,$2)", [staff, session]);
   await db.exec(migration);
+  const stayMigration = readFileSync("docs/stay-completion-migration.sql", "utf8");
+  for (const name of ["guard_review_completed_stay", "review_submission_status"]) {
+    const start = stayMigration.indexOf(`create or replace function public.${name}(`);
+    const end = stayMigration.indexOf("end $$;", start) + "end $$;".length;
+    await db.exec(stayMigration.slice(start, end));
+  }
+  await db.exec("create trigger guard_review_completed_stay before insert or update of reservation_id,guest_id on public.reviews for each row execute function public.guard_review_completed_stay()");
+  for (let i = 0; i < 2; i++) await db.exec(readFileSync("docs/review-without-completed-stay-migration.sql", "utf8"));
 });
 after(async () => { await db?.close(); });
 beforeEach(async () => {
   await db.exec("reset role;truncate public.reviews,public.review_submission_log,public.audit_logs,public.reservations,storage.objects;update public.guests set is_active=true;update public.role_permissions set permissions=array['analytics'];update public.staff_users set is_active=true");
   await auth(guest);
+});
+
+test("active guests can review without a booking and optionally link their own reservation of any status", async () => {
+  const policy = await one("select public.review_submission_status($1,$2) result", ["General feedback", text]);
+  assert.equal(policy.result.allowed, true);
+  await insert();
+  await db.exec("truncate public.reviews,public.review_submission_log");
+  for (const status of ["pending", "confirmed", "cancelled", "completed"]) {
+    await db.query("insert into public.reservations values($1,$2,$3) on conflict(reservation_id) do update set status=excluded.status", [session, guest, status]);
+    assert.equal((await insert("Linked visit", text, session)).reservation_id, session);
+    await db.exec("truncate public.reviews,public.review_submission_log");
+  }
+  await db.query("update public.reservations set guest_id=$1", [staff]);
+  await assert.rejects(() => insert("Not mine", text, session), e => e.code === "42501");
+  await db.exec("update public.guests set is_active=false");
+  await assert.rejects(() => one("select public.review_submission_status($1,$2)", ["General", text]), e => e.code === "42501");
+  await assert.rejects(() => insert(), e => e.code === "42501");
 });
 
 test("multiple reviews are allowed with durable cooldowns, daily quotas and duplicate detection", async () => {
@@ -99,7 +124,7 @@ test("archived reviews and photos are hidden from public reads, and guests canno
 });
 
 test("audit failure rolls back archive and a reservation still accepts only its own single review", async () => {
-  await db.query("insert into public.reservations values($1,$2)", [session, guest]);
+  await db.query("insert into public.reservations(reservation_id,guest_id) values($1,$2)", [session, guest]);
   const review = await insert("Linked visit", text, session);
   await db.exec("update public.review_submission_log set created_at=clock_timestamp()-interval '20 minutes'");
   await assert.rejects(() => insert("Another linked review", text + " New experience", session), e => e.code === "23505");

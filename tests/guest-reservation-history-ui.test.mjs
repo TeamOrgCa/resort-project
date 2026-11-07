@@ -24,7 +24,7 @@ async function mount(fetchHistory) {
   const Component = loadTsModule("components/admin/users/GuestAccountsPanel.tsx").default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(createElement(Component)));
-  return { container, calls, open: email => click(button(container.querySelector(`[aria-label="Guest account ${email}"]`), "View bookings")),
+  return { container, calls, open: async email => { await click(container.querySelector(`[aria-label="Guest account ${email}"] button[aria-haspopup="menu"]`)); await click(button(document.body, "View bookings")); },
     close: async () => { await act(async () => root.unmount()); container.remove(); globalThis.fetch = original; } };
 }
 
@@ -43,7 +43,7 @@ test("View bookings opens the selected guest's complete history, pages it and op
     await click(button(dialog(), "Previous history page")); await click(button(dialog(), "Refresh history"));
     await click(dialog().querySelector('[aria-label="Close dialog"]'));
     assert.equal(dialog(), null); assert.match(h.container.textContent, /Page 2 of 3/);
-    assert.ok(button(h.container.querySelector(`[aria-label="Guest account ${guest.email}"]`), "Deactivate"));
+    assert.ok(h.container.querySelector(`[aria-label="Guest account ${guest.email}"] button[aria-haspopup="menu"]`));
     await h.open(other.email); assert.match(h.calls.at(-1).url, new RegExp(other.id)); assert.match(dialog().textContent, /Sam Guest/);
   } finally { await h.close(); }
 });

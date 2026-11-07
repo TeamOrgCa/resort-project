@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
 import PasswordInput from "@/components/ui/PasswordInput";
+import { showLoginSuccessToast } from "@/components/ui/LoginSuccessToast";
 
 interface LoginApiResponse {
   success: boolean;
   message: string;
   requiresOtp?: boolean;
-  staffUser?: { mustChangePassword?: boolean };
+  staffUser?: { fullName?: string; role?: string; mustChangePassword?: boolean };
 }
 
 export default function AdminLoginForm() {
@@ -22,9 +23,11 @@ export default function AdminLoginForm() {
   const [requiresOtp, setRequiresOtp] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [signedIn, setSignedIn] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSubmitting || signedIn) return;
     setError("");
     if (!isValidLoginEmail(email)) { setError(EMAIL_INPUT_ERROR); return; }
     setIsSubmitting(true);
@@ -51,7 +54,11 @@ export default function AdminLoginForm() {
         return;
       }
 
-      router.push(data.staffUser?.mustChangePassword ? "/staff/change-password" : "/admin");
+      setPassword("");
+      setOtp("");
+      setSignedIn(true);
+      showLoginSuccessToast(`Welcome, ${data.staffUser?.fullName?.trim() || email.split("@")[0]}!`);
+      router.push(data.staffUser?.mustChangePassword ? "/staff/change-password" : data.staffUser?.role === "admin" ? "/admin/users" : "/admin");
       router.refresh();
     } catch {
       setError("Unable to connect to the server. Please try again.");
@@ -116,7 +123,7 @@ export default function AdminLoginForm() {
 
       <button
         type="submit"
-        disabled={isSubmitting}
+        disabled={isSubmitting || signedIn}
         className="w-full rounded-xl bg-primary px-4 py-3 font-semibold text-base transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
       >
         {isSubmitting ? "Verifying..." : requiresOtp ? "Verify Code" : "Sign In to Staff Portal"}

@@ -31,3 +31,9 @@ test("QR selection is required for new or incomplete accounts and optional for r
   assert.match(render("payment_accounts", { account_id: uuid(3), is_active: true }), /id="catalog-qr"[^>]*required=""/);
   assert.doesNotMatch(render("payment_accounts", { account_id: uuid(3), qr_image: "old/qr.png", is_active: true }), /id="catalog-qr"[^>]*required=""/);
 });
+
+test("ocular slot fields limit both clocks to 8 AM through 5 PM", () => {
+  const markup = render("ocular_time_slots", null);
+  for (const field of ["start_time", "end_time"]) assert.match(markup, new RegExp(`id="catalog-${field}"[^>]*type="time"[^>]*min="08:00"[^>]*max="17:00"`));
+  assert.match(markup, /Philippine time/);
+});

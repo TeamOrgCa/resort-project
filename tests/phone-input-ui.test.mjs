@@ -22,6 +22,7 @@ test("shared phone control shows a fixed country code, accepts pasted formats an
     await act(async () => root.render(createElement(Form)));
     const field = container.querySelector("input");
     assert.equal(field.value, "9171234567"); assert.match(container.textContent, /\+63/); assert.equal(field.checkValidity(), true);
+    assert.equal(field.maxLength, 10);
     for (const input of ["0917 123 4567", "639171234567", "+63 917 123 4567"]) {
       await act(async () => {
         Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(field, input);
@@ -29,7 +30,14 @@ test("shared phone control shows a fixed country code, accepts pasted formats an
       });
       assert.equal(field.value, "9171234567"); assert.equal(field.checkValidity(), true);
     }
-    for (const input of ["12345", "+6309171234567", "+649171234567", "0917ABC4567"]) {
+    for (const input of ["91712345678", "+6391712345678", "+6309171234567", "+649171234567"]) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(field, input);
+        field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+      assert.equal(field.value, "9171234567", "overlong edits must leave the existing number intact");
+    }
+    for (const input of ["12345", "8917123456", "0917ABC4567"]) {
       await act(async () => {
         Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(field, input);
         field.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -40,5 +48,16 @@ test("shared phone control shows a fixed country code, accepts pasted formats an
       assert.match(container.querySelector('[role="alert"]').textContent, /Philippine mobile/);
     }
     assert.equal(values.includes("917ABC4567"), true, "letters are preserved for rejection");
+    for (const input of ["0918 765 4321", "639187654321", "+63 918 765 4321"]) {
+      await act(async () => {
+        field.setSelectionRange(0, field.value.length);
+        const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { getData: () => input } });
+        field.dispatchEvent(paste);
+        assert.equal(paste.defaultPrevented, true);
+      });
+      assert.equal(field.value, "9187654321");
+      assert.equal(field.checkValidity(), true);
+    }
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
