@@ -1,5 +1,7 @@
 "use client";
 
+import ManageIcon from "@/components/manage/ManageIcon";
+
 import { useEffect, useRef, useState } from "react";
 import { useReservationFormGuard } from "@/components/booking/use-reservation-form-guard";
 import type { CancellationPreview } from "@/lib/booking/cancellation";
@@ -64,7 +66,7 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
   }
   return <div ref={dialog} role="dialog" tabIndex={-1} aria-modal="true" aria-busy={busy} aria-label="Review cancellation and refund" className="fixed inset-0 z-[85] flex items-center justify-center bg-neutral/50 p-4 text-neutral">
     <div ref={formRoot} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} className="relative max-h-[90dvh] w-full max-w-xl overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl sm:p-6" onClick={e => e.stopPropagation()}>
-      <div className="mb-2 flex justify-end"><button type="button" disabled={busy} onClick={() => requestClose(onClose)} aria-label="Close cancellation dialog" className="flex h-11 w-11 items-center justify-center rounded-full bg-base text-2xl hover:bg-neutral/10 disabled:opacity-40">?</button></div>
+      <div className="mb-2 flex justify-end"><button type="button" disabled={busy} onClick={() => requestClose(onClose)} aria-label="Close cancellation dialog" className="flex h-11 w-11 items-center justify-center rounded-full bg-base text-2xl hover:bg-neutral/10 disabled:opacity-40"><ManageIcon name="close" /></button></div>
       {choosing ? <>
         <h3 className="text-lg font-semibold">Would you prefer to reschedule?</h3>
         <p className="mt-2 text-sm text-neutral/70">Keep your reservation and choose a different available swimming date instead of cancelling. Your package stays the same. Guest reschedules are approved automatically, and the applicable notice fee and any higher date rate are added when saved.</p>

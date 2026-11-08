@@ -1,5 +1,7 @@
 "use client";
 
+import ManageIcon from "@/components/manage/ManageIcon";
+
 import ServicePhoto from "./ServicePhoto";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -19,7 +21,7 @@ function PhotoPreview({ name, src, onClose }: { name: string; src: string | null
     <div>
       <div className="flex items-center justify-between gap-4 border-b border-neutral/10 px-5 py-3">
         <h2 id={titleId} className="min-w-0 break-words font-semibold">{name}</h2>
-        <button type="button" onClick={onClose} aria-label="Close photo preview" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl hover:bg-neutral/10 focus-visible:outline-2 focus-visible:outline-primary">×</button>
+        <button type="button" onClick={onClose} aria-label="Close photo preview" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl hover:bg-neutral/10 focus-visible:outline-2 focus-visible:outline-primary"><ManageIcon name="close" /></button>
       </div>
       <div className="h-[65dvh] max-h-[640px]" role="img" aria-label={`${name} photo`}><ServicePhoto src={src} enlarged /></div>
     </div>

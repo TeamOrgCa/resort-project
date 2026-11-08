@@ -1,5 +1,7 @@
 "use client";
 
+import ManageIcon from "@/components/manage/ManageIcon";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import ManualBookingDialog from "@/components/admin/ManualBookingDialog";
@@ -509,7 +511,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         </button>
       </div>} />
     {isLoading && <div className="mb-4"><LoadingState title="Loading reservation calendar..." description="Fetching bookings, maintenance dates and items needing attention." /></div>}
-    {creationToast && <div role="status" className="fixed left-1/2 top-5 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center gap-3 rounded-2xl border border-green-200 bg-white px-4 py-3 text-sm font-semibold text-green-900 shadow-lg">{creationToast}<button type="button" onClick={() => setCreationToast(null)} aria-label="Dismiss reservation success notification" className="ml-auto min-h-11 px-2 text-xl">?</button></div>}
+    {creationToast && <div role="status" className="fixed left-1/2 top-5 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center gap-3 rounded-2xl border border-green-200 bg-white px-4 py-3 text-sm font-semibold text-green-900 shadow-lg">{creationToast}<button type="button" onClick={() => setCreationToast(null)} aria-label="Dismiss reservation success notification" className="ml-auto min-h-11 px-2 text-xl"><ManageIcon name="close" /></button></div>}
     {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-900">{cancellationMessage}</p>}
     {blockError && <div role="alert" className="fixed left-1/2 top-5 z-[110] w-[min(90vw,32rem)] -translate-x-1/2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 shadow-xl">{blockError}<button type="button" aria-label="Dismiss maintenance error" onClick={() => setBlockError(null)} className="ml-3 underline">Dismiss</button></div>}
     {blockMessage && <p role="status" className="mb-4 rounded-xl bg-orange-50 p-4 text-sm">{blockMessage}</p>}
