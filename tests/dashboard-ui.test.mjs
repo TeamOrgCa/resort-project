@@ -142,6 +142,42 @@ test("transaction tables show and search registered and walk-in guest names acro
   } finally { await h.close(); }
 });
 
+test("printed receipts use guest names, payment purpose and method names while preserving historical amounts", async () => {
+  const originalPrint = window.print;
+  for (const walkIn of [false, true]) {
+    const timestamp = "2026-11-01T00:00:00Z", methodId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const profile = { first_name: "Ana", middle_name: "Reyes", last_name: "Santos" };
+    const db = dashboardDatabase({
+      staff_users: [{ id: "staff", role: "staff", is_active: true }], role_permissions: [{ role: "staff", permissions: ["transactions"] }],
+      reservations: [{ reservation_id: "r", reference_number: "MV-RECEIPT", guest_id: walkIn ? null : "g", walk_in_guest_id: walkIn ? "w" : null, booking_type: walkIn ? "walk_in" : "online", booking_mode: "day", status: "cancelled", start_datetime: timestamp, end_datetime: timestamp }],
+      guests: [{ id: "g", ...profile }], walk_in_guests: [{ walk_in_guest_id: "w", ...profile }],
+      transactions: [{ transaction_id: "t", reservation_id: "r", total_amount: 1000, paid_amount: 999, balance: 1, overpaid_amount: 0, status: "partial", updated_at: timestamp }],
+      payments: [{ payment_id: "p", reservation_id: "r", reference_number: "GCASH-REF", amount: 999, payment_method_id: methodId, payment_type: walkIn ? "additional" : "downpayment", status: "verified", ocr_status: "consistent", paid_at: timestamp, account_name: "Different sender", proof_path: "private/proof.png" }],
+      payment_methods: [{ payment_method_id: methodId, name: walkIn ? "Cash" : "GCash", is_active: false }],
+      receipts: [{ receipt_id: "c", payment_id: "p", receipt_number: "RCPT-TEST", issued_at: timestamp, billed_to_name: walkIn ? null : "Original Billed Guest", amount_paid: 50, transaction_total_at_time: 200, balance_after_payment: 150, is_active: false }],
+    });
+    let printed = "";
+    window.print = () => { printed = document.querySelector("#billing-receipt-print").textContent; };
+    const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } } });
+    try {
+      await click(button(h.container, "Issued Receipts"));
+      await click(h.container.querySelector('button[aria-haspopup="menu"]'));
+      await click(button(document.querySelector('[role="menu"]'), "View"));
+      const receipt = document.querySelector("#billing-receipt-print"); assert.ok(receipt);
+      assert.match(receipt.textContent, walkIn ? /Guest Name: Ana Reyes Santos/ : /Guest Name: Original Billed Guest/);
+      assert.match(receipt.textContent, walkIn ? /Payment Method: Cash/ : /Payment Method: GCash/);
+      assert.match(receipt.textContent, walkIn ? /Payment for: Additional reservation payment/ : /Payment for: Reservation down payment/);
+      assert.match(receipt.textContent, /Day swimming/);
+      assert.doesNotMatch(receipt.textContent, /Receipt Status|Reservation Status|Payment Status|Payment Amount|Booking Type|Account Number|Proof Path|Different sender|aaaaaaaa/);
+      assert.match(receipt.textContent, /Amount Paid: ₱50\.00/);
+      assert.match(receipt.textContent, /Booking Total at Payment: ₱200\.00/);
+      assert.match(receipt.textContent, /Balance After Payment: ₱150\.00/);
+      await click(button(receipt, "Print receipt")); assert.match(printed, /RCPT-TEST/);
+      assert.ok(db.calls.some(call => call.table === "payment_methods"));
+    } finally { await h.close(); window.print = originalPrint; }
+  }
+});
+
 test("transaction links open payment/refund tabs and pending payments outside the recent ledger remain visible", async () => {
   const db = dashboardDatabase({ staff_users: [{ id: "staff", role: "admin", is_active: true }],
     transactions: [{ transaction_id: "t1", reservation_id: "recent", total_amount: 1000, paid_amount: 1000, balance: 0, overpaid_amount: 0, status: "paid", updated_at: "2026-10-13T01:00:00Z" }],
@@ -191,5 +227,32 @@ test("record links select the intended tab and older pending requests are not lo
     assert.match(h.container.textContent, /MV-REQUEST/); assert.ok(db.calls.some(c => c.table === "reservation_reschedules" && c.from === 1000));
     const status = [...h.container.querySelectorAll("label")].find(l => l.textContent.startsWith("Status"))?.querySelector("select"); await value(status, "Pending"); assert.equal(h.container.querySelectorAll("tbody tr").length, 1);
     await h.navigate("?tab=ocular"); assert.match(h.container.querySelector("tbody").textContent, /MV-VISIT/);
+  } finally { await h.close(); }
+});
+
+test("managers can cancel a confirmed ocular visit from Records only after documenting why", async () => {
+  const tables = { staff_users: [{ id: "staff", role: "staff", is_active: true }], role_permissions: [{ role: "staff", permissions: ["records", "ocular_approval"] }],
+    ocular_visits: [{ visit_id: "visit", reference_number: "MV-VISIT", guest_id: "guest", scheduled_date: "2026-12-01", status: "confirmed", created_at: "2026-11-01" }], guests: [{ id: "guest", first_name: "Ana", last_name: "Santos" }] };
+  const db = dashboardDatabase(tables);
+  let submitted;
+  const h = await mount({ filename: "app/admin/(portal)/records/page.tsx", params: "?tab=ocular", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } }, fetcher: (_url, options) => {
+    submitted = JSON.parse(options.body); tables.ocular_visits[0].status = "cancelled"; tables.ocular_visits[0].cancellation_reason = submitted.cancellationReason;
+    return Response.json({ success: true, message: "Ocular visit cancelled." });
+  } });
+  try {
+    await click(h.container.querySelector('button[aria-haspopup="menu"]'));
+    const menu = document.querySelector('[role="menu"]');
+    assert.equal(button(menu, "Approve").disabled, true);
+    await click(button(menu, "Cancel visit"));
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.equal(button(dialog, "Confirm cancellation").disabled, true);
+    await act(async () => {
+      const reason = dialog.querySelector("textarea");
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(reason, "Maintenance requires closing the resort");
+      reason.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await click(button(dialog, "Confirm cancellation"));
+    assert.equal(submitted.cancellationReason, "Maintenance requires closing the resort");
+    assert.match(h.container.querySelector("tbody").textContent, /Cancelled.*Maintenance requires closing/);
   } finally { await h.close(); }
 });

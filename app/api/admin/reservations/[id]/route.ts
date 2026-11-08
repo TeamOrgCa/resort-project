@@ -58,7 +58,7 @@ export async function PATCH(request: Request, context: Context) {
     const oldUnit = detail.units.length === 1 && detail.units[0].quantity === 1 ? detail.units[0].unit_id : null;
     const unitChanged = edit.unitId !== oldUnit;
     const changed = detailsChanged(detail.reservation, edit);
-    if ((changed || unitChanged) && !detail.canChangeDetails && !lateAuthorized) return fail("The stay has started. You can add services and update notes.", 409);
+    if ((scheduleChanged || unitChanged) && !detail.canChangeDetails && !lateAuthorized) return fail("The stay has started. You can update guest counts, add services and update notes; the schedule and accommodation are locked.", 409);
     if (lateAuthorized && !detail.canChangeDetails && (unitChanged || edit.adultCount !== detail.reservation.adult_count || edit.childCount !== detail.reservation.child_count)) return fail("A late exception may move the booked schedule; existing accommodation and guest counts must be retained.", 400);
     if (changed) {
       if (scheduleChanged && !isBookingStartAllowed(edit.startDatetime, now)) return fail(BOOKING_LEAD_MESSAGE, 400);

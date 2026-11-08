@@ -72,7 +72,7 @@ test("cancellation keeps focus in its dialog and prevents duplicate submissions 
     await click(h.c.querySelector('[type="checkbox"]'));
     const submit = button(h.c, "Confirm cancellation"); submit.focus();
     await act(async () => submit.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
-    assert.equal(document.activeElement, h.c.querySelector('[name="cancellationReason"]'));
+    assert.ok(document.activeElement === h.c.querySelector('[aria-label="Close cancellation dialog"]'));
     await act(async () => { submit.click(); submit.click(); }); assert.equal(posts, 1);
     assert.equal(h.c.querySelector('[role="dialog"]').getAttribute("aria-busy"), "true");
     await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));

@@ -41,7 +41,7 @@ export default function BookingDateCalendar({ value, onChange, title = "Booking 
     setMonth(next); onMonthChange?.(next);
   };
 
-  return <section aria-labelledby={titleId} className="min-w-0 rounded-2xl border border-neutral/10 bg-white p-2 sm:p-5">
+  return <section data-reservation-date={value} aria-labelledby={titleId} className="min-w-0 rounded-2xl border border-neutral/10 bg-white p-2 sm:p-5">
     <div className="mb-4">
       <div><h3 id={titleId} className="text-base font-semibold text-neutral">{title}</h3>
         <p className="mt-1 text-xs text-neutral/60">{description}</p></div>

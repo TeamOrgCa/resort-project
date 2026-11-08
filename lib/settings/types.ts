@@ -6,7 +6,8 @@ export type SettingCategory =
   | "reservation"
   | "ocular"
   | "payments"
-  | "notifications";
+  | "notifications"
+  | "chatbot";
 
 export interface BusinessSetting {
   setting_key: string;

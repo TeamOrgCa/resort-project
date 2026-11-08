@@ -1,8 +1,11 @@
 import type { SettingDefinition } from "./types";
 import { contentDefinitions } from "./content-catalog";
+import { DEFAULT_CHATBOT_FAQS } from "@/lib/chatbot/config";
 
 export const settingDefinitions: SettingDefinition[] = [
   ...contentDefinitions,
+  { key: "chatbot.faqs", category: "chatbot", label: "Chatbot FAQs", description: "Approved questions and answers used by ChatBot Mars. Saved answers take priority over general guidance. Up to 40 questions, 200 characters per question and 2,000 per answer.", input: "json", defaultValue: DEFAULT_CHATBOT_FAQS },
+  { key: "chatbot.facebook_chat_url", category: "chatbot", label: "Facebook chat link", description: "Optional HTTPS Messenger link (for example https://m.me/marvilleresort). Leave blank to use the Facebook page under Resort information.", input: "text", defaultValue: "" },
   { key: "resort.name", category: "resort", label: "Resort name", description: "Public name shown across guest-facing pages.", input: "text", defaultValue: "MarVille Resort" },
   { key: "resort.contact_numbers", category: "resort", label: "Contact numbers", description: "Phone numbers for booking and inquiries.", input: "json", defaultValue: ["09172796592", "82360633"] },
   { key: "resort.email", category: "resort", label: "Email address", description: "Primary resort inbox.", input: "text", defaultValue: "emailmarvilleresort@gmail.com" },
@@ -22,6 +25,7 @@ export const settingDefinitions: SettingDefinition[] = [
 
 export const settingCategories = [
   { key: "resort", label: "Resort information" },
+  { key: "chatbot", label: "Chatbot" },
   { key: "content", label: "Website content" },
   { key: "reservation", label: "Reservation settings" },
   { key: "ocular", label: "Ocular visit settings" },

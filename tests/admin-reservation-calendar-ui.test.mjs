@@ -15,7 +15,7 @@ const base = { guest_id: "guest", start_datetime: day + "T00:00:00+08:00", end_d
 const button = (c,label) => [...c.querySelectorAll("button")].find(el => (el.getAttribute("aria-label") ?? el.textContent.trim()) === label);
 const agenda = () => document.querySelector('[aria-label="Mobile calendar entries"]');
 const click = async el => { assert.ok(el); assert.equal(el.disabled,false); await act(async () => el.click()); };
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
@@ -24,10 +24,11 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     transactions: [{ reservation_id: id, balance: 500 }, { reservation_id: "pending", balance: 1000 }, { reservation_id: "cancelled", balance: 3000 }],
     guests: [{ id: "guest", first_name: "Test", last_name: "Guest", email: "guest@example.com" }],
     staff_users: { role, is_active: true }, role_permissions: { permissions }, ocular_visits: [], walk_in_guests: [],
+    units: [{unit_id:"unit",name:"Resort",capacity:30}], services: [],
   };
   if (arrived) data.reservations[0].checked_in_at = new Date().toISOString();
   if (fullyPaid) { data.payments = []; data.reservation_reschedules = []; data.transactions[0].balance = 0; }
-  if (includeOcular) data.ocular_visits = [{ visit_id:"ocular",reference_number:"MV-OCULAR",guest_id:"guest",scheduled_date:day,status:"pending" }];
+  if (includeOcular) data.ocular_visits = [{ visit_id:"ocular",reference_number:"MV-OCULAR",guest_id:"guest",scheduled_date:day,status:ocularStatus }];
   const tables = [];
   const client = { storage:{from:()=>({createSignedUrl:async()=>({data:{signedUrl:"https://example.com/proof.png"},error:null})})}, auth: { getUser: async () => ({ data: { user: { id: userId } } }) }, from(table) {
     tables.push(table);
@@ -36,6 +37,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     const q = { select:()=>q,neq:()=>q,lt:()=>q,gt:()=>q,order:()=>q,limit:()=>q,gte:()=>q,in:()=>q,eq:(key,value)=>{filters.push(row=>row[key]===value);return q;},maybeSingle:async()=>{const r=result();return {...r,data:Array.isArray(r.data)?r.data[0]??null:r.data};},then:(yes,no)=>Promise.resolve(result()).then(yes,no) }; return q;
   } };
   globalThis.fetch = async (url, options) => {
+    if (url.startsWith("/api/booking/availability")) return Response.json({reservations:[],blockedDates:[]});
     if (url.startsWith("/api/admin/maintenance-blocks")) {
       if (options?.method === "POST") {
         const body=JSON.parse(options.body); calls.push({url,body});
@@ -52,7 +54,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     }
     if (url.includes("/ocular-visits/")) {
       const body = JSON.parse(options.body); calls.push({url,body});
-      data.ocular_visits[0] = {...data.ocular_visits[0],status:url.endsWith("approve")?"confirmed":"rejected",review_reason:body.reviewReason};
+      data.ocular_visits[0] = {...data.ocular_visits[0],status:url.endsWith("cancel")?"cancelled":url.endsWith("approve")?"confirmed":"rejected",review_reason:body.reviewReason,cancellation_reason:body.cancellationReason};
       return Response.json({success:true,message:"Ocular decision saved.",visit:data.ocular_visits[0]});
     }
     if (url.endsWith("/check-out")) {
@@ -62,13 +64,22 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     calls.push({ url, body: JSON.parse(options.body) }); data.reservations[0].checked_in_at = new Date().toISOString();
     return Response.json({ success: true });
   };
-  const Component = loadTsModule("components/admin/ReservationCalendar.tsx", {
+  const mocks = {
     "@/lib/supabase/client": { createClient:()=>client },
-    "@/components/admin/ManualBookingDialog": { __esModule: true, default:()=>null },
+    "@/components/admin/ManualBookingDialog": { __esModule: true, default:({isOpen,onCreated})=>manualCreation && isOpen ? createElement("button", {onClick:()=>{
+      data.reservations.push({...base,reservation_id:"created",reference_number:"MB-NEW",status:"pending",start_datetime:tomorrow+"T08:00:00+08:00",end_datetime:tomorrow+"T16:00:00+08:00"});
+      onCreated({id:"created",reference:"MB-NEW",date:tomorrow});
+    }}, "Create test booking") : null },
     "@/components/admin/ReservationEditor": { __esModule: true, default:()=>createElement("p",null,"Reservation editor") },
     "next/image":{__esModule:true,default:({src,alt,onLoad,onError})=>createElement("img",{src,alt,onLoad,onError})},
     "next/link": { __esModule: true, default: ({ children, ...props }) => createElement("a", props, children) },
-  }).default;
+  };
+  if(realManual) {
+    delete mocks["@/components/admin/ManualBookingDialog"];
+    const {legacyRates} = await import("./helpers/package-rates.mjs");
+    mocks["@/lib/booking/use-package-rates"] = {usePackageRates:()=>({schedule:{version:1,rates:legacyRates},error:null})};
+  }
+  const Component = loadTsModule("components/admin/ReservationCalendar.tsx", mocks).default;
   const c = document.createElement("div"); document.body.append(c); const root = createRoot(c);
   await act(async()=>root.render(createElement(Component, { initialAccess })));
   return { c, calls, tables, close:async()=>{ await act(async()=>root.unmount()); c.remove(); globalThis.fetch=saved; } };
@@ -200,7 +211,7 @@ async function filter(c,next) {
 }
 async function input(el,next) {
   assert.ok(el);
-  await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set.call(el,next);el.dispatchEvent(new window.Event("input",{bubbles:true}));el.dispatchEvent(new window.Event("change",{bubbles:true}));});
+  await act(async()=>{Object.getOwnPropertyDescriptor(el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,"value").set.call(el,next);el.dispatchEvent(new window.Event("input",{bubbles:true}));el.dispatchEvent(new window.Event("change",{bubbles:true}));});
 }
 test("mobile Week, Month and Agenda controls navigate their own periods and desktop retains the compact month grid",async()=>{
   const h=await mount();
@@ -312,4 +323,70 @@ test("authorized managers can approve or reject an ocular request in the calenda
       assert.equal(button(dialog, "Approve ocular visit"), undefined);
     } finally { await h.close(); }
   }
+});
+
+test("only managers can cancel a confirmed ocular visit and the cancellation reason is required and displayed", async () => {
+  for (const role of ["staff", "admin", "cashier"]) {
+    const h = await mount({ role, permissions: ["reservations", "ocular_approval"], includeOcular: true, ocularStatus: "confirmed" });
+    try {
+      await click([...agenda().querySelectorAll("button")].find(el => el.textContent.includes("MV-OCULAR")));
+      const dialog = document.querySelector('[role="dialog"]');
+      const cancel = button(dialog, "Cancel ocular visit");
+      if (role !== "staff") { assert.equal(cancel, undefined); continue; }
+      assert.equal(cancel.disabled, true);
+      await input(dialog.querySelector("textarea"), "The resort is closed for urgent repairs");
+      await click(cancel);
+      assert.equal(h.calls[0].url, "/api/admin/ocular-visits/cancel");
+      assert.equal(h.calls[0].body.cancellationReason, "The resort is closed for urgent repairs");
+      assert.match(dialog.textContent, /Cancellation reason: The resort is closed/);
+      assert.equal(button(dialog, "Cancel ocular visit"), undefined);
+    } finally { await h.close(); }
+  }
+});
+
+
+test("new reservation creation navigates and scrolls to the calendar, pulses only its rows and shows success", async () => {
+  const previous = window.HTMLElement.prototype.scrollIntoView, scrolled = [];
+  window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.getAttribute("aria-label")); };
+  const h = await mount({manualCreation:true});
+  try {
+    await click(button(h.c,"New reservation"));
+    await click(button(h.c,"Create test booking"));
+    await act(async () => new Promise(resolve => setTimeout(resolve, 160)));
+    assert.ok(scrolled.includes("Full reservation calendar"));
+    assert.ok(h.c.querySelector('[data-calendar-event^="created:"].calendar-match-pulse'));
+    assert.equal(h.c.querySelector('[data-calendar-event^="11111111"].calendar-match-pulse'),null);
+    assert.match(h.c.textContent,/Reservation MB-NEW created successfully/);
+    assert.match(agenda().textContent,/MB-NEW/);
+  } finally { await h.close(); window.HTMLElement.prototype.scrollIntoView = previous; }
+});
+
+
+test("manager can type continuously into the real manual reservation form without losing focus", async () => {
+  const h=await mount({realManual:true});
+  try {
+    await click(button(h.c,"New reservation"));
+    const modal=document.querySelector('[aria-labelledby="manual-booking-title"]');
+    assert.ok(modal);
+    assert.equal(modal.parentElement,document.body,"manual entry must escape the calendar stacking context");
+    assert.equal(h.c.contains(modal),false);
+    assert.ok(document.activeElement===modal.querySelector('input[type="text"]'),"typing must start in the guest name field");
+    for(const [label,text] of [["First name","Maria"],["Last name","Santos"],["Email (optional)","maria@example.com"],["Address","Taytay Rizal"]]) {
+      const input=[...modal.querySelectorAll("label")].find(el=>el.textContent===label)?.querySelector("input");
+      assert.ok(input,label); assert.equal(input.matches(":disabled"),false);
+      await act(async()=>input.focus());
+      let typed="";
+      for(const character of text) {
+        typed+=character;
+        await act(async()=>{
+          input.dispatchEvent(new window.KeyboardEvent("keydown",{key:character,bubbles:true,cancelable:true}));
+          Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set.call(input,typed);
+          input.dispatchEvent(new window.Event("input",{bubbles:true}));
+        });
+        assert.equal(input.value,typed);
+        assert.ok(document.activeElement===input,`Focus must stay in ${label}`);
+        assert.ok(input.isConnected);
+      }
+    }
+  } finally {await h.close();}
 });

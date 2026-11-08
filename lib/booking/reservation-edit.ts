@@ -87,7 +87,8 @@ export function reservationEditAccess(r: EditableReservation, pendingPayment: bo
   let lockedReason: string | null = null;
   if (!["pending", "confirmed"].includes(r.status)) lockedReason = "Only pending or confirmed reservations can be edited.";
   else if (r.status === "pending" && r.payment_deadline_at && Date.parse(r.payment_deadline_at) <= now) lockedReason = "This reservation's payment hold has expired.";
-  else if (Date.parse(r.end_datetime) <= now) lockedReason = "This stay has ended. Reservation details are read-only.";
+  else if (Date.parse(r.end_datetime) <= now && (!r.checked_in_at || r.checked_out_at)) lockedReason = "This stay has ended. Reservation details are read-only.";
+  else if (r.checked_out_at) lockedReason = "This stay has completed. Reservation details are read-only.";
   else if (pendingPayment) lockedReason = "Finish reviewing the pending payment before editing this reservation.";
   else if (pendingReschedule) lockedReason = "Resolve the pending reschedule request before editing this reservation.";
   return { lockedReason, canChangeDetails: !lockedReason && !r.checked_in_at && Date.parse(r.start_datetime) > now };

@@ -1,5 +1,6 @@
 import { contentDefinitions } from "./content-catalog";
 import type { SettingsMap } from "./types";
+import { chatbotSettingDefaults } from "@/lib/chatbot/config";
 
 export const publicResortDefaults = {
   "resort.name": "MarVille Resort",
@@ -10,6 +11,7 @@ export const publicResortDefaults = {
 };
 
 export const publicContentDefaults: SettingsMap = {
+  ...chatbotSettingDefaults,
   ...publicResortDefaults,
   ...Object.fromEntries(contentDefinitions.map((definition) => [definition.key, definition.defaultValue])),
 };

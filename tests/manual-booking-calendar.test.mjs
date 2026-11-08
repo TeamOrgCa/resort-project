@@ -21,7 +21,7 @@ async function select(container, label, next) {
   });
 }
 async function mount(fetcher = () => Response.json({ success: true, reservation: { referenceNumber: "MB-CALENDAR" } }), { availabilityFetcher = () => Response.json({ reservations: [], blockedDates: [] }), times } = {}) {
-  const originalFetch = globalThis.fetch, requests = []; let created = 0;
+  const originalFetch = globalThis.fetch, requests = []; let created = 0, closed = 0;
   globalThis.fetch = async (url, options) => {
     if (url.startsWith("/api/booking/availability")) return availabilityFetcher(url, options);
     requests.push({ url, body: JSON.parse(options.body) }); return fetcher();
@@ -40,8 +40,8 @@ async function mount(fetcher = () => Response.json({ success: true, reservation:
     "@/lib/booking/use-package-rates": { usePackageRates: () => ({ schedule: { version: 9, rates: legacyRates, times }, error: null }) },
   }).default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
-  await act(async () => root.render(createElement(Component, { isOpen: true, onClose: () => {}, onCreated: () => created++ })));
-  return { container, requests, created: () => created, async close() {
+  await act(async () => root.render(createElement(Component, { isOpen: true, onClose: () => closed++, onCreated: () => created++ })));
+  return { container: document.querySelector('[aria-labelledby="manual-booking-title"]'), requests, created: () => created, closed: () => closed, async close() {
     await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch;
   } };
 }
@@ -182,7 +182,7 @@ test("a stale availability response cannot overwrite a newer refresh",async()=>{
 });
 
 async function fillGuest(c) {
-  for (const [label,next] of Object.entries({ "First name":"Test", "Last name":"Guest", Email:"walkin@example.com", Phone:"09123456789", Address:"Manila" })) {
+  for (const [label,next] of Object.entries({ "First name":"Test", "Last name":"Guest", "Email (optional)":"walkin@example.com", Phone:"09123456789", Address:"Manila" })) {
     const fieldLabel=[...c.querySelectorAll("label")].find(item=>item.textContent===label);
     const element=fieldLabel?.control??fieldLabel?.querySelector("input");
     assert.ok(element,label);await input(element,next);
@@ -271,7 +271,7 @@ test("an independently edited whole-day slot remains selectable when day and nig
   } finally { await h.close(); }
 });
 
-test("staff can select and submit today's ongoing package without changing its scheduled start", async () => {
+test("staff cannot select an ongoing package and can still submit a future night package today", async () => {
   const originalNow = Date.now;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   Date.now = () => Date.parse(today + "T12:00:00+08:00");
@@ -281,13 +281,13 @@ test("staff can select and submit today's ongoing package without changing its s
     const c = h.container;
     await click(c.querySelector(`[data-date="${today}"]`));
     const dayOption = [...c.querySelectorAll("label")].find(label => label.textContent.startsWith("Booking package")).querySelector('option[value="day"]');
-    assert.equal(dayOption.disabled, false);
+    assert.equal(dayOption.disabled, true);
     assert.doesNotMatch(c.textContent, /Choose a start time at least 30 minutes/);
-    await select(c, "Booking package", "day"); await fillGuest(c);
+    await select(c, "Booking package", "night"); await fillGuest(c);
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
     assert.equal(h.requests.length, 1);
-    assert.equal(h.requests[0].body.startDatetime, today + "T00:00:00.000Z");
-    assert.equal(h.requests[0].body.endDatetime, today + "T08:00:00.000Z");
+    assert.equal(h.requests[0].body.startDatetime, today + "T10:00:00.000Z");
+    assert.equal(h.requests[0].body.endDatetime, new Date(Date.parse(today + "T22:00:00Z")).toISOString());
   } finally { if (h) await h.close(); Date.now = originalNow; }
 });
 
@@ -304,6 +304,26 @@ test("staff cannot select or submit today's fully ended package", async () => {
     await fillGuest(c);
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
     assert.equal(h.requests.length, 0);
-    assert.match(c.textContent, /has not ended/);
+    assert.match(c.textContent, /scheduled start time is still in the future/);
   } finally { if (h) await h.close(); Date.now = originalNow; }
+});
+
+
+test("manual reservations allow blank email and month navigation stays clean while choosing a date is guarded", async () => {
+  const h=await mount();
+  try {
+    const c=h.container, close=()=>c.querySelector('[aria-label="Close booking dialog"]');
+    await click(close()); assert.equal(h.closed(),1);
+    await click(c.querySelector('[aria-label="Next month"]'));
+    await click(close()); assert.equal(h.closed(),2,"browsing the calendar is not an unsaved change");
+    await click(c.querySelector('[data-date]'));
+    await click(close()); assert.equal(h.closed(),2);
+    assert.ok(document.querySelector('[role="alertdialog"]'));
+    await click([...document.querySelectorAll("button")].find(button=>button.textContent==="Continue Editing"));
+    await fillGuest(c);
+    await input(c.querySelector('input[type="email"]'),"");
+    await act(async()=>c.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+    assert.equal(h.requests.length,1); assert.equal(h.requests[0].body.walkInGuest.email,"");
+    assert.equal(h.created(),1);
+  } finally {await h.close();}
 });

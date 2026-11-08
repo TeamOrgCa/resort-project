@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { catalogResources, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource } from "@/lib/catalog/catalog";
 import CatalogDialog from "./CatalogDialog";
+import ContentImageEditor from "@/components/admin/ContentImageEditor";
+import ServicePhoto from "@/components/booking/ServicePhoto";
 
 interface Props {
   resource: CatalogResource;
@@ -20,21 +22,29 @@ const inputClass = "mt-1.5 w-full rounded-xl border border-neutral/20 bg-white p
 export default function CatalogEditorDialog({ resource, record, references, referencesError, busy, error, onClose, onSave }: Props) {
   const definition: CatalogDefinition = catalogResources[resource];
   const [draft, setDraft] = useState<CatalogRecord>(() => Object.fromEntries(definition.fields.map((field) => [field.key, record?.[field.key] ?? field.defaultValue ?? ""])));
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const blocked = busy || uploadingImage;
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const needsReferences = resource === "unit_rates" || resource === "payment_accounts";
   const setField = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
 
-  return <CatalogDialog title={`${record ? "Edit" : "Add"} ${definition.singular}`} description={record ? "Update this record, then save your changes." : "Fill in the details below. Fields marked * are required."} busy={busy} onClose={onClose}>
-    <form onSubmit={(event) => { event.preventDefault(); if (!busy && !fileError) void onSave(draft, qrFile); }}>
+  return <CatalogDialog title={`${record ? "Edit" : "Add"} ${definition.singular}`} description={record ? "Update this record, then save your changes." : "Fill in the details below. Fields marked * are required."} busy={blocked} onClose={onClose}>
+    <form onSubmit={(event) => { event.preventDefault(); if (!blocked && !fileError) void onSave(draft, qrFile); }}>
       {record && !isCatalogActive(record) && <p className="mb-5 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">This record is archived. Saving edits keeps it archived; use Restore to make it active again.</p>}
       {resource === "guest_rates" && <p className="mb-5 rounded-xl bg-base px-4 py-3 text-sm text-neutral/70">Only one guest rate can be active. Adding a rate makes it active and archives the previous rate.</p>}
       {needsReferences && referencesError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{referencesError} Close this dialog and refresh the catalog to try again.</p>}
-      <fieldset disabled={busy} className="grid gap-5 sm:grid-cols-2">
+      <fieldset disabled={blocked} className="grid gap-5 sm:grid-cols-2">
         {definition.fields.map((field, index) => {
           const value = String(draft[field.key] ?? "");
           let control;
-          if (field.kind === "unit" || field.kind === "payment_method") {
+          if (resource === "services" && field.kind === "image") {
+            control = <div className="mt-2 rounded-xl border border-neutral/15 bg-base/40 p-4">
+              {!value && <div className="h-24 w-24 overflow-hidden rounded-lg"><ServicePhoto src={null} /></div>}
+              <ContentImageEditor value={value} onChange={(url) => setField(field.key, url)} label="service photo" compact onUploadingChange={setUploadingImage} />
+              {value && <button type="button" disabled={blocked} onClick={() => setField(field.key, "")} className="mt-3 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50">Remove photo</button>}
+            </div>;
+          } else if (field.kind === "unit" || field.kind === "payment_method") {
             const options = field.kind === "unit" ? references.units.map((unit) => ({ id: unit.unit_id, name: unit.name, active: unit.is_active && !unit.archived_at })) : references.paymentMethods.map((method) => ({ id: method.payment_method_id, name: method.name, active: method.is_active }));
             const choices = options.filter((option) => option.active || option.id === record?.[field.key]);
             control = <select id={`catalog-${field.key}`} data-autofocus={index === 0 ? true : undefined} required={field.required} value={value} onChange={(event) => setField(field.key, event.target.value)} className={inputClass}>
@@ -49,7 +59,7 @@ export default function CatalogEditorDialog({ resource, record, references, refe
             control = <input id={`catalog-${field.key}`} data-autofocus={index === 0 ? true : undefined} type={type} required={field.required} min={field.kind === "time" ? field.minTime : field.kind === "date" && field.key === "effective_to" ? String(draft.effective_from ?? "") : field.min} max={field.kind === "time" ? field.maxTime : undefined} step={field.kind === "money" ? "0.01" : field.kind === "integer" ? "1" : undefined} maxLength={type === "text" ? field.kind === "image" ? 2048 : 200 : undefined} value={value} onChange={(event) => setField(field.key, event.target.value)} className={inputClass} />;
           }
           return <div key={field.key} className={field.kind === "textarea" || field.kind === "image" ? "sm:col-span-2" : ""}>
-            <label htmlFor={`catalog-${field.key}`} className="text-sm font-medium text-neutral">{field.label}{field.required && <span className="ml-1 text-primary" aria-label="required">*</span>}</label>
+            <label htmlFor={resource === "services" && field.kind === "image" ? undefined : `catalog-${field.key}`} className="text-sm font-medium text-neutral">{field.label}{field.required && <span className="ml-1 text-primary" aria-label="required">*</span>}</label>
             {control}
             {field.help && <p className="mt-1.5 text-xs leading-relaxed text-neutral/55">{field.help}</p>}
           </div>;
@@ -68,8 +78,8 @@ export default function CatalogEditorDialog({ resource, record, references, refe
       </fieldset>
       {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
       <div className="mt-6 flex justify-end gap-3 border-t border-neutral/10 pt-5">
-        <button type="button" onClick={onClose} disabled={busy} className="rounded-xl border border-neutral/20 px-5 py-2.5 text-sm font-medium hover:bg-base disabled:opacity-40">Cancel</button>
-        <button type="submit" disabled={busy || Boolean(fileError) || (needsReferences && Boolean(referencesError))} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">{busy ? "Saving..." : record ? "Save changes" : `Add ${definition.singular}`}</button>
+        <button type="button" onClick={onClose} disabled={blocked} className="rounded-xl border border-neutral/20 px-5 py-2.5 text-sm font-medium hover:bg-base disabled:opacity-40">Cancel</button>
+        <button type="submit" disabled={blocked || Boolean(fileError) || (needsReferences && Boolean(referencesError))} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">{uploadingImage ? "Uploading photo..." : busy ? "Saving..." : record ? "Save changes" : `Add ${definition.singular}`}</button>
       </div>
     </form>
   </CatalogDialog>;

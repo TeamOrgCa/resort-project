@@ -347,6 +347,7 @@ export async function POST(request: Request) {
       .single();
 
     if (reservationError || !reservation) {
+      if (reservationError?.code === "22023") return NextResponse.json({ success: false, message: "The selected package has already started. Choose a future start time (Philippine time)." }, { status: 400 });
       if (reservationError?.code === "23P01") {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
       }

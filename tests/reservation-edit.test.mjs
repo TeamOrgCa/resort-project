@@ -129,12 +129,12 @@ test("stale versions and changed catalog quotes require review before saving", a
   assert.equal((await h.patch({ ...edit, expectedTotal: 1 })).status, 409);
   assert.equal(h.calls.length, 0);
 });
-test("in-stay schedule changes and service reductions are blocked; additions are allowed", async () => {
+test("in-stay guest count changes and additions are allowed; service reductions remain blocked", async () => {
   const h = routeHarness({ loaded: { ...detail(), canChangeDetails: false } });
-  assert.equal((await h.patch({ ...edit, adultCount: 21 })).status, 409);
+  assert.equal((await h.patch({ ...edit, adultCount: 21, expectedTotal: 8725 })).status, 200);
   assert.equal((await h.patch({ ...edit, services: [], expectedTotal: 8500 })).status, 400);
   assert.equal((await h.patch({ ...edit, services: [{ serviceId, quantity: 2 }], expectedTotal: 8700 })).status, 200);
-  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls.length, 2);
 });
 test("saving uses one atomic RPC with server-derived prices and actor", async () => {
   const h = routeHarness();

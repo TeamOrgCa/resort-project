@@ -13,6 +13,7 @@ export interface UnitCatalogRecord {
 
 export interface ServiceCatalogRecord {
   service_id: string;
+  image_url: string | null;
   name: string;
   description: string | null;
   price: number;
@@ -55,7 +56,7 @@ export interface OcularSlotRecord {
 export async function getActiveCatalog(supabase: SupabaseClient) {
   const [units, services, paymentMethods, paymentAccounts, policies, ocularSlots] = await Promise.all([
     supabase.from("units").select("unit_id, unit_img, name, description, capacity, base_price, is_active, archived_at").eq("is_active", true).is("archived_at", null).order("name"),
-    supabase.from("services").select("service_id, name, description, price, is_active").eq("is_active", true).order("name"),
+    supabase.from("services").select("service_id, name, description, image_url, price, is_active").eq("is_active", true).order("name"),
     supabase.from("payment_methods").select("payment_method_id, name, type, is_active").eq("is_active", true).order("name"),
     supabase.from("payment_accounts").select("account_id, payment_method_id, account_name, account_number, qr_image, instructions, is_active").eq("is_active", true).order("account_name"),
     supabase.from("reservation_policies").select("policy_id, title, content, display_order, is_active").eq("is_active", true).order("display_order"),

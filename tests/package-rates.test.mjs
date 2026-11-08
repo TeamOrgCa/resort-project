@@ -243,13 +243,13 @@ test("manual booking rejects existing accounts including a registered email pass
   const denied=bookingHarness({manual:true,permitted:false});assert.equal((await denied.save()).status,403);assert.equal(denied.writes.length,0);
 });
 
-test("manual API accepts ongoing and imminent slots, keeps online lead time and rejects ended staff entries", async () => {
+test("manual API rejects ongoing slots, allows future imminent slots and keeps online lead time", async () => {
   const originalNow = Date.now;
   Date.now = () => Date.parse("2027-06-14T12:00:00+08:00");
   try {
     const ongoing = bookingHarness({ manual: true });
-    assert.equal((await ongoing.save()).status, 201);
-    assert.equal(ongoing.writes.find(write => write.table === "reservations").payload.start_datetime, "2027-06-14T08:00:00+08:00");
+    assert.equal((await ongoing.save()).status, 400);
+    assert.equal(ongoing.writes.length, 0);
     const online = bookingHarness();
     assert.equal((await online.save({ booking_type: "walk_in" })).status, 400);
     assert.equal(online.writes.length, 0);
@@ -265,6 +265,20 @@ test("manual API accepts ongoing and imminent slots, keeps online lead time and 
     assert.equal((await ended.save()).status, 400);
     assert.equal(ended.writes.length, 0);
   } finally { Date.now = originalNow; }
+});
+
+test("offline email is optional, empty values are saved as null, and supplied malformed emails are rejected", async () => {
+  const guest = { firstName: "Test", lastName: "Guest", phoneNumber: "09123456789", address: "Taytay" };
+  for (const email of [undefined, "", "   "]) {
+    const h = bookingHarness({ manual: true, registered: true });
+    assert.equal((await h.save({ walkInGuest: { ...guest, email } })).status, 201);
+    assert.equal(h.writes.find(row => row.table === "walk_in_guests").payload.email, null);
+  }
+  for (const email of ["invalid", "guest@", "x".repeat(255) + "@example.com"]) {
+    const h = bookingHarness({ manual: true });
+    assert.equal((await h.save({ walkInGuest: { ...guest, email } })).status, 400);
+    assert.equal(h.writes.length, 0);
+  }
 });
 
 test("guest booking and manual entry reject malformed contact numbers before creating any records", async () => {

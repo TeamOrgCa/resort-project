@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { useReservationFormGuard } from "@/components/booking/use-reservation-form-guard";
+import ServiceSelectionCard from "@/components/booking/ServiceSelectionCard";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
@@ -30,6 +32,8 @@ interface ServiceOption {
   id: string;
   name: string;
   price: number;
+  description: string;
+  imageUrl: string | null;
 }
 
 interface GuestProfile {
@@ -77,6 +81,7 @@ function BookingFormContent() {
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const { root: bookingFormRef, captureInitial, captureChange, captureClick, reset: resetForm, confirmation } = useReservationFormGuard(!catalogLoading);
 
   useEffect(() => {
     const loadCatalog = async () => {
@@ -94,7 +99,7 @@ function BookingFormContent() {
         message?: string;
         catalog?: {
           units: Array<{ unit_id: string; name: string; description: string | null; base_price: number }>;
-          services: Array<{ service_id: string; name: string; price: number }>;
+          services: Array<{ service_id: string; name: string; price: number; description?: string | null; image_url?: string | null }>;
         };
       };
 
@@ -115,6 +120,8 @@ function BookingFormContent() {
         id: service.service_id,
         name: service.name,
         price: Number(service.price),
+        description: service.description ?? "",
+        imageUrl: service.image_url ?? null,
       }));
 
       const authUser = authResult.data.user;
@@ -281,6 +288,7 @@ function BookingFormContent() {
       reservationId: "",
       reservationReference: "",
     });
+    resetForm();
     router.push("/booking/details");
   };
 
@@ -320,7 +328,7 @@ function BookingFormContent() {
         <div className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-3 gap-8">
             {/* Form */}
-            <div className="lg:col-span-2">
+            <div ref={bookingFormRef} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} className="lg:col-span-2">
               <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
                 <h2 className="text-3xl font-bold text-neutral mb-8">Reservation Details</h2>
 
@@ -445,31 +453,12 @@ function BookingFormContent() {
                   {catalogLoading && (
                     <p className="mb-4 text-sm text-neutral/70">Loading available units and services...</p>
                   )}
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     {services.map((amenity) => (
-                      <div
-                        key={amenity.id}
-                        onClick={() => toggleAmenity(amenity.id)}
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          selectedAmenities.includes(amenity.id)
-                            ? "border-primary bg-primary/5"
-                            : "border-neutral/20 hover:border-primary/50"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-semibold text-neutral">{amenity.name}</p>
-                            <p className="text-sm text-primary">₱{amenity.price.toLocaleString()}</p>
-                          </div>
-                          {selectedAmenities.includes(amenity.id) && (
-                            <svg className="w-6 h-6 text-primary" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                          )}
-                        </div>
-                      </div>
+                      <ServiceSelectionCard key={amenity.id} service={amenity} selected={selectedAmenities.includes(amenity.id)} onToggle={() => toggleAmenity(amenity.id)} />
                     ))}
                   </div>
+                  {!catalogLoading && !catalogError && services.length === 0 && <p className="text-sm text-neutral/60">No additional services are available right now.</p>}
                 </div>
 
                 {/* Special Requests */}
@@ -608,6 +597,7 @@ function BookingFormContent() {
       </section>
 
       <Footer />
+      {confirmation}
     </div>
   );
 }

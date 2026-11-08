@@ -19,6 +19,23 @@ const seed = () => ({
   payment_methods: [{ payment_method_id: uuid(2), name: "GCash", type: "ewallet", is_active: true }],
 });
 
+test("service photos persist through create, replacement, public catalog, and removal", async () => {
+  const { request, database, auth } = harness();
+  const create = await request("POST", { resource: "services", record: { ...samples.services, image_url: "https://images.example.com/first.jpg" } });
+  assert.equal(create.status, 201);
+  const id = (await create.json()).record.service_id;
+  const patch = image_url => request("PATCH", { resource: "services", id, record: { image_url } });
+  assert.equal((await patch("http://insecure.example.com/photo.jpg")).status, 400);
+  assert.equal((await patch("javascript:alert(1)")).status, 400);
+  assert.equal((await patch("https://images.example.com/next.jpg")).status, 200);
+  const { getActiveCatalog } = loadTsModule("repositories/catalogRepository.ts");
+  assert.equal((await getActiveCatalog(database)).services[0].image_url, "https://images.example.com/next.jpg");
+  assert.equal((await (await patch("")).json()).record.image_url, null);
+  assert.equal((await getActiveCatalog(database)).services[0].image_url, null);
+  auth.allowed = false;
+  assert.equal((await patch("https://images.example.com/forbidden.jpg")).status, 401);
+});
+
 function harness(database = catalogDatabase(seed())) {
   database.storage = { from: () => ({ upload: async () => ({ error: null }), remove: async () => ({ error: null }) }) };
   const audit = [];

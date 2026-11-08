@@ -10,11 +10,15 @@ interface KeyValueDetailsModalProps {
   details: ViewDetailsState;
   onClose: () => void;
 }
+const receiptFields = new Set(["Receipt No.", "Issued At", "Guest Name", "Billed To", "Reservation Ref", "Payment for", "Payment Method", "Payment Ref", "Paid At", "Amount Paid", "Booking Total at Payment", "Transaction Total at Time", "Balance After Payment"]);
 
 export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetailsModalProps) {
   const readOnly = useAdminReadOnly();
   const content = useSiteContent();
   const isReceipt = details.kind === "receipt";
+  const fields = isReceipt ? details.fields.filter(field => receiptFields.has(field.label)).map(field => ({ ...field,
+    label: field.label === "Billed To" ? "Guest Name" : field.label === "Transaction Total at Time" ? "Booking Total at Payment" : field.label,
+  })) : details.fields;
   useEffect(() => {
     if (readOnly || !isReceipt || !details.printOnOpen) return;
     const timer = window.setTimeout(() => window.print(), 150);
@@ -47,8 +51,8 @@ export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetai
         </div>
 
         <div className="mt-5 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
-          {details.fields.map((field) => (
-            <p key={field.label} className={isReceipt && ["Proof Path", "Account Name", "Account Number", "Guest Email"].includes(field.label) ? "receipt-screen-only" : "receipt-field"}>
+          {fields.map((field) => (
+            <p key={field.label} className="receipt-field">
               {field.label}: <span className="font-semibold text-neutral">{field.value || "-"}</span>
             </p>
           ))}

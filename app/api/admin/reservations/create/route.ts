@@ -16,7 +16,7 @@ interface WalkInGuestPayload {
   firstName: string;
   lastName: string;
   middleName?: string;
-  email: string;
+  email: string | null;
   phoneNumber: string;
   address: string;
 }
@@ -80,7 +80,9 @@ const parseWalkInGuest = (value: unknown): WalkInGuestPayload | null => {
   const phoneNumber = normalizePhilippineMobile(payload.phoneNumber);
   const address = typeof payload.address === "string" ? payload.address.trim() : "";
 
-  if (!firstName || !lastName || middleName === null || !email || !phoneNumber || !address) {
+  if ((payload.email != null && typeof payload.email !== "string") || (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))) return null;
+
+  if (!firstName || !lastName || middleName === null || !phoneNumber || !address) {
     return null;
   }
 
@@ -88,7 +90,7 @@ const parseWalkInGuest = (value: unknown): WalkInGuestPayload | null => {
     firstName,
     lastName,
     middleName: middleName || undefined,
-    email,
+    email: email || null,
     phoneNumber,
     address,
   };
@@ -213,10 +215,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: STAFF_BOOKING_WINDOW_MESSAGE }, { status: 400 });
     }
 
-    const { data: registeredGuest, error: guestLookupError } = await staffContext.supabase.from("guests")
-      .select("id").ilike("email", payload.walkInGuest!.email.replace(/[\\%_]/g, "\\$&")).limit(1);
-    if (guestLookupError) return NextResponse.json({ success: false, message: "Unable to check guest account. Please retry." }, { status: 500 });
-    if (registeredGuest?.length) return NextResponse.json({ success: false, message: "This email already has a guest account. Please ask the guest to book using their account." }, { status: 409 });
+    const email = payload.walkInGuest!.email;
+    if (email) {
+      const { data: registeredGuest, error: guestLookupError } = await staffContext.supabase.from("guests")
+        .select("id").ilike("email", email.replace(/[\\%_]/g, "\\$&")).limit(1);
+      if (guestLookupError) return NextResponse.json({ success: false, message: "Unable to check guest account. Please retry." }, { status: 500 });
+      if (registeredGuest?.length) return NextResponse.json({ success: false, message: "This email already has a guest account. Please ask the guest to book using their account." }, { status: 409 });
+    }
 
     const packageSchedule = await loadQuotedPackageRates(staffContext.supabase, payload.packageRateVersion);
     const bookingValidation = validateBookingWindow({
@@ -376,6 +381,7 @@ export async function POST(request: Request) {
         await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
       }
       if (reservationError?.code === "40001") return NextResponse.json({ success: false, message: "Package rates changed. Reload the booking prices before saving." }, { status: 409 });
+      if (reservationError?.code === "22023") return NextResponse.json({ success: false, message: "The selected package has already started. Choose a future start time (Philippine time)." }, { status: 400 });
       if (reservationError?.code === "23P01") {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved." }, { status: 409 });
       }

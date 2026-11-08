@@ -10,7 +10,7 @@ export const NOTIFICATION_AUDIENCES = {
 } as const satisfies Record<string, readonly NotificationStaffRole[]>;
 
 type NotificationOptions = {
-  actorId: string;
+  actorId: string | null;
   guestId?: string | null;
   staffRoles?: readonly NotificationStaffRole[];
   title: string;
@@ -24,7 +24,7 @@ type NotificationOptions = {
 type NotificationInsert = {
   recipient_role: "guest" | NotificationStaffRole;
   recipient_id: string;
-  actor_id: string;
+  actor_id: string | null;
   title: string;
   message: string | null;
   action_url: string | null;
