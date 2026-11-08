@@ -46,6 +46,32 @@ async function mount(fetcher) {
     close: async () => { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; } };
 }
 
+test("registration password icons independently reveal and hide values without submitting", async () => {
+  let requests = 0;
+  const h = await mount(async () => { requests++; return Response.json({ success: true }); });
+  try {
+    for (const name of ["password", "confirmPassword"]) {
+      const field = h.container.querySelector(`[name="${name}"]`);
+      const toggle = h.container.querySelector(`button[aria-controls="${name}"]`);
+      assert.ok(toggle.querySelector("svg"));
+      assert.equal(toggle.type, "button");
+      assert.equal(field.type, "password");
+      assert.equal(field.getAttribute("autocomplete"), "new-password");
+      await act(async () => toggle.click());
+      assert.equal(field.type, "text");
+      assert.equal(field.value, "secret123");
+      assert.equal(toggle.getAttribute("aria-label"), "Hide password");
+      assert.equal(toggle.getAttribute("aria-pressed"), "true");
+      const otherName = name === "password" ? "confirmPassword" : "password";
+      assert.equal(h.container.querySelector(`[name="${otherName}"]`).type, "password");
+      await act(async () => toggle.click());
+      assert.equal(field.type, "password");
+      assert.equal(toggle.getAttribute("aria-label"), "Show password");
+    }
+    assert.equal(requests, 0);
+  } finally { await h.close(); }
+});
+
 test("already registered email shows recovery links, keeps the form and allows retry with a different address", async () => {
   const requests = [];
   const h = await mount(async (url, options) => {

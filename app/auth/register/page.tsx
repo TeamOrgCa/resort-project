@@ -8,6 +8,7 @@ import { sanitizeName } from "@/lib/helper/validation";
 import { validateGuestRegistration, type GuestRegistrationField } from "@/lib/auth/guest-registration";
 import FormErrorToast from "@/components/ui/FormErrorToast";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
+import PasswordInput from "@/components/ui/PasswordInput";
 import { sanitizeEmailInput } from "@/lib/validation/email";
 import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
 import type { PhilippineAddress } from "@/lib/address/philippine-address";
@@ -285,8 +286,8 @@ export default function Register() {
                   <label htmlFor="password" className="block text-sm font-medium text-neutral mb-2">
                     Password *
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
+                    autoComplete="new-password"
                     id="password"
                     name="password"
                     value={formData.password}
@@ -303,8 +304,8 @@ export default function Register() {
                   <label htmlFor="confirmPassword" className="block text-sm font-medium text-neutral mb-2">
                     Confirm Password *
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
+                    autoComplete="new-password"
                     id="confirmPassword"
                     name="confirmPassword"
                     value={formData.confirmPassword}
