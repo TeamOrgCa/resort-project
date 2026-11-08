@@ -5,6 +5,7 @@ import { staffHasPermission } from "@/lib/server/role-permissions";
 import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
 import { refundEmail, workflowErrorMessage, workflowErrorStatus } from "@/lib/server/cancellation";
 import { uuidPattern } from "@/lib/booking/reservation-edit";
+import { loadReservationGuestNames, type ReservationGuestIdentity } from "@/lib/booking/reservation-guest-names";
 
 export async function GET() {
   const staff = await requireActiveStaff();
@@ -16,8 +17,8 @@ export async function GET() {
       .order("requested_at", { ascending: false }).order("refund_id").range(from, to));
     const ids = [...new Set(refunds.map(row => row.reservation_id as string))];
     const [reservations, bills, payments, paymentMethods, canReview, canPay, canVerify, canApprove] = await Promise.all([
-      fetchByIds<{ reservation_id: string; reference_number: string }>(ids, (batch, from, to) => staff.supabase.from("reservations")
-        .select("reservation_id, reference_number, status, cancellation_initiator, cancellation_reason").in("reservation_id", batch).order("reservation_id").range(from, to)),
+      fetchByIds<ReservationGuestIdentity & { reference_number: string }>(ids, (batch, from, to) => staff.supabase.from("reservations")
+        .select("reservation_id, guest_id, walk_in_guest_id, reference_number, status, cancellation_initiator, cancellation_reason").in("reservation_id", batch).order("reservation_id").range(from, to)),
       fetchByIds(ids, (batch, from, to) => staff.supabase.from("transactions").select("reservation_id, total_amount, paid_amount, cancellation_deposit_base").in("reservation_id", batch).order("reservation_id").range(from, to)),
       fetchByIds(ids, (batch, from, to) => staff.supabase.from("payments").select("payment_id, reservation_id, amount, status, payment_type, reference_number, verified_at, proof_path")
         .in("reservation_id", batch).order("payment_id").range(from, to)),
@@ -27,7 +28,8 @@ export async function GET() {
       staffHasPermission(staff.supabase, staff.staffUser.role, "refund_verify"),
       staffHasPermission(staff.supabase, staff.staffUser.role, "refund_approval"),
     ]);
-    return NextResponse.json({ refunds, reservations, bills, payments, paymentMethods, permissions: { canReview, canPay, canVerify, canApprove: staff.staffUser.role === "staff" && canApprove, canVerifyOwnPayout: false, staffId: staff.staffUser.id } },
+    const guestNames = await loadReservationGuestNames(staff.supabase, reservations);
+    return NextResponse.json({ refunds, reservations, guestNames, bills, payments, paymentMethods, permissions: { canReview, canPay, canVerify, canApprove: staff.staffUser.role === "staff" && canApprove, canVerifyOwnPayout: false, staffId: staff.staffUser.id } },
       { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ message: "Unable to load refunds. Check the cancellation-refund-workflow migration, then retry." }, { status: 503 });

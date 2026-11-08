@@ -2,7 +2,8 @@
 
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
 
-import { useCallback, useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import NotificationStatusFilters, { notificationMatchesFilter, notificationStatusClass, type NotificationFilter } from "@/components/notifications/NotificationStatusFilters";
 import { createClient } from "@/lib/supabase/client";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
@@ -17,11 +18,14 @@ type NotificationItem = {
 };
 
 export default function AdminNotifications({ role }: { role: StaffRole }) {
+  const popupHelpId = useId();
   const [isOpen, setIsOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<NotificationFilter>("All");
   const [localNotifications, setNotifications] = useState<NotificationItem[]>([]);
   const [localNotificationsLoading, setNotificationsLoading] = useState(false);
   const notificationCenter = useNotificationCenter();
   const notifications = notificationCenter?.notifications ?? localNotifications;
+  const visibleNotifications = notifications.filter(item => notificationMatchesFilter(item, statusFilter));
   const notificationsLoading = notificationCenter?.loading ?? localNotificationsLoading;
   const [userId, setUserId] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
@@ -85,11 +89,11 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
     }, "");
   };
 
-  const markAllNotificationsRead = async () => {
-    if (notificationCenter) { await notificationCenter.markAllRead(); return; }
+  const markAllNotificationsRead = async (id?: string) => {
+    if (notificationCenter) { await (id ? notificationCenter.markRead(id) : notificationCenter.markAllRead()); return; }
     if (!userId) return;
 
-    const unreadIds = notifications.filter((item) => !item.is_read).map((item) => item.notification_id);
+    const unreadIds = notifications.filter((item) => !item.is_read && (!id || item.notification_id === id)).map((item) => item.notification_id);
     if (!unreadIds.length) return;
 
     const { error } = await supabase
@@ -100,14 +104,10 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
       .in("notification_id", unreadIds);
 
     if (!error) {
-      setNotifications((prev) => prev.map((item) => ({ ...item, is_read: true })));
+      setNotifications((prev) => prev.map((item) => unreadIds.includes(item.notification_id) ? { ...item, is_read: true } : item));
     }
   };
 
-  const readOpenedNotifications = useEffectEvent(() => { void markAllNotificationsRead(); });
-  useEffect(() => {
-    if (isOpen && !notificationsLoading) readOpenedNotifications();
-  }, [isOpen, notificationsLoading]);
 
   if (!userId) {
     return null;
@@ -151,7 +151,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
               {unreadCount > 0 ? (
                 <button
                   type="button"
-                  onClick={markAllNotificationsRead}
+                  onClick={() => void markAllNotificationsRead()}
                   disabled={notificationCenter?.markingRead}
                   className="min-h-11 text-xs font-medium text-primary hover:text-primary/80 disabled:opacity-50"
                 >
@@ -160,23 +160,36 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
               ) : null}
             </div>
             {notificationCenter?.error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-800">{notificationCenter.error}<button type="button" onClick={notificationCenter.refresh} className="ml-2 min-h-11 font-semibold underline">Retry</button></p>}
-            <div className="mt-3 space-y-2">
+            <NotificationStatusFilters value={statusFilter} onChange={setStatusFilter} />
+            {notificationCenter && <div className="mt-3 flex items-center gap-3 rounded-xl border border-neutral/15 bg-slate-50 p-3">
+              <div className="min-w-0 flex-1"><p className="text-sm font-medium">Pop-up notifications</p>
+                <p id={popupHelpId} className="mt-1 text-xs leading-relaxed text-neutral/65">{notificationCenter.savingPreference ? "Saving preference..." : notificationCenter.popupsEnabled ? "On — show pop-up updates." : "Off — updates stay in this menu."} Saved with your account.</p>
+              </div>
+              <button type="button" role="switch" aria-label="Pop-up notifications" aria-checked={notificationCenter.popupsEnabled} aria-describedby={popupHelpId}
+                disabled={notificationCenter.savingPreference} onClick={() => void notificationCenter.setPopupsEnabled(!notificationCenter.popupsEnabled)}
+                className="flex min-h-11 min-w-14 shrink-0 items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50">
+                <span aria-hidden="true" className={`flex h-7 w-12 items-center rounded-full px-1 transition-colors ${notificationCenter.popupsEnabled ? "bg-primary" : "bg-neutral/30"}`}>
+                  <span className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${notificationCenter.popupsEnabled ? "translate-x-5" : "translate-x-0"}`} />
+                </span>
+              </button>
+            </div>}
+            {notificationCenter?.preferenceError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">{notificationCenter.preferenceError}</p>}
+            <div className="mt-3 max-h-[60dvh] space-y-2 overflow-y-auto" aria-label="Recent notifications">
               {notificationsLoading ? (
                 <p className="text-xs text-neutral/60">Loading notifications...</p>
-              ) : notifications.length === 0 ? (
-                <p className="text-xs text-neutral/60">No notifications yet.</p>
+              ) : visibleNotifications.length === 0 ? (
+                <p className="text-xs text-neutral/60">{statusFilter === "All" ? "No notifications yet." : `No ${statusFilter.toLowerCase()} notifications.`}</p>
               ) : (
-                notifications.map((item) => {
+                visibleNotifications.map((item) => {
                   const content = (
                     <div
                       key={item.notification_id}
                       className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
-                        item.is_read
-                          ? "border-neutral/10 bg-base"
-                          : "border-primary/20 bg-primary/5"
+                        notificationStatusClass(item.is_read)
                       }`}
                     >
                       <p className="font-semibold text-neutral">{item.title}</p>
+                      <span className="text-[10px] font-medium text-neutral/60">{item.is_read ? "Read" : "Unread"}</span>
                       {item.message ? (
                         <p className="mt-1 text-neutral/70">{item.message}</p>
                       ) : null}
@@ -192,7 +205,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
                         key={item.notification_id}
                         href={item.action_url}
                         className="block"
-                        onClick={() => setIsOpen(false)}
+                        onClick={() => { void markAllNotificationsRead(item.notification_id); setIsOpen(false); }}
                       >
                         {content}
                       </a>

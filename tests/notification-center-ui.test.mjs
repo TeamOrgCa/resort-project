@@ -14,7 +14,7 @@ const alerts = () => document.querySelector('[aria-label="New notifications"]');
 const button = (container, text) => [...container.querySelectorAll("button")].find(button => button.textContent.trim() === text);
 async function click(control) { assert.ok(control); assert.equal(control.disabled, false); await act(async () => control.click()); }
 
-async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true, preferences = {}, deferRead = null } = {}) {
+async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true, preferences = {}, deferRead = null, staffRole = "admin" } = {}) {
   if (clearStorage) sessionStorage.clear();
   const state = { rows, readError: false, writeError: false, defer: deferRead, preferenceError: false, deferPreference: null };
   const calls = { reads: [], writes: [], preferenceWrites: [], unsubscribed: 0, removed: [], intervals: [], cleared: [] };
@@ -64,7 +64,7 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
   }
   let menu;
   if (menus === "guest") { const Menu = loadTsModule("components/UserMenu.tsx", mocks, cache).default; menu = el("div", null, el(Menu), el(Menu)); }
-  if (menus === "admin") { const Menu = loadTsModule("components/admin/AdminNotifications.tsx", mocks, cache).default; menu = el(Menu, { role: "admin" }); }
+  if (menus === "admin") { const Menu = loadTsModule("components/admin/AdminNotifications.tsx", mocks, cache).default; menu = el(Menu, { role: staffRole }); }
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(el(Center, null, el(Probe), menu)));
   return { container, state, calls, channels,
@@ -174,7 +174,7 @@ test("read failures are retryable and an older fetch cannot undo successful mark
   } finally { await h.close(); }
 });
 
-test("opening guest and admin menus marks notifications read and clears every shared badge", async () => {
+test("opening trays preserves unread status until Mark all read is selected", async () => {
   for (const menus of ["guest", "admin"]) {
     const h = await mount({ menus });
     try {
@@ -184,6 +184,9 @@ test("opening guest and admin menus marks notifications read and clears every sh
       await click(trigger); assert.equal(alerts(), null);
       const panel = menus === "guest" ? document.querySelector('[aria-label="Your account and notifications"]') : h.container;
       if (menus === "guest") { assert.ok(panel.querySelector('a[href="/profile"]')); assert.ok(button(panel, "Sign Out")); }
+      assert.equal(h.container.querySelector("[data-feed]").textContent, "first:false");
+      assert.equal(h.calls.writes.length, 0);
+      await click(button(panel, "Mark all read"));
       assert.equal(h.container.querySelector("[data-feed]").textContent, "first:true");
       assert.equal(h.container.querySelector(".bg-accent"), null);
       assert.equal(button(panel, "Mark all read"), undefined);
@@ -194,7 +197,7 @@ test("opening guest and admin menus marks notifications read and clears every sh
   }
 });
 
-test("menus opened before the feed loads mark the loaded notifications read", async () => {
+test("menus opened before the feed loads preserve the loaded unread notifications", async () => {
   for (const menus of ["guest", "admin"]) {
     const releases = [];
     const h = await mount({ menus, deferRead: result => new Promise(resolve => releases.push(() => resolve(result))) });
@@ -203,20 +206,21 @@ test("menus opened before the feed loads mark the loaded notifications read", as
       assert.equal(h.calls.writes.length, 0);
       h.state.defer = null;
       await act(async () => releases.forEach(release => release()));
-      assert.equal(h.container.querySelector("[data-feed]").textContent, "first:true");
-      assert.equal(h.container.querySelector(".bg-accent"), null);
-      assert.equal(h.calls.writes.length, 1);
+      assert.equal(h.container.querySelector("[data-feed]").textContent, "first:false");
+      assert.ok(h.container.querySelector(".bg-accent"));
+      assert.equal(h.calls.writes.length, 0);
     } finally { await h.close(); }
   }
 });
 
-test("failed automatic read updates retain the badge and allow manual retry without repeated writes", async () => {
+test("failed explicit read updates retain the badge and allow manual retry", async () => {
   for (const menus of ["guest", "admin"]) {
     const h = await mount({ menus });
     try {
       h.state.writeError = true;
       await click(h.container.querySelector(`[aria-label="${menus === "guest" ? "Open user menu" : "Open admin notifications"}"]`));
       const panel = menus === "guest" ? document.querySelector('[aria-label="Your account and notifications"]') : h.container;
+      await click(button(panel, "Mark all read"));
       assert.ok(h.container.querySelector(".bg-accent"));
       assert.match(panel.querySelector('[role="alert"]').textContent, /Could not mark/);
       assert.equal(h.calls.writes.length, 1);
@@ -224,6 +228,63 @@ test("failed automatic read updates retain the badge and allow manual retry with
       await click(button(panel, "Mark all read"));
       assert.equal(h.container.querySelector(".bg-accent"), null);
       assert.equal(h.calls.writes.length, 2);
+    } finally { await h.close(); }
+  }
+});
+
+test("staff and guest trays filter All, Read and Unread with distinct status colors", async () => {
+  for (const menus of ["guest", "admin", "staff", "cashier"]) {
+    const h = await mount({ menus: menus === "guest" ? "guest" : "admin", staffRole: menus === "staff" || menus === "cashier" ? menus : "admin", rows: [row("new"), row("old", { is_read: true })] });
+    try {
+      await click(h.container.querySelector(`[aria-label="${menus === "guest" ? "Open user menu" : "Open admin notifications"}"]`));
+      const panel = menus === "guest" ? document.querySelector('[aria-label="Your account and notifications"]') : h.container;
+      const list = panel.querySelector('[aria-label="Recent notifications"]');
+      assert.match(list.textContent, /Booking update new/); assert.match(list.textContent, /Booking update old/);
+      assert.ok(list.querySelector('.bg-blue-50')); assert.ok(list.querySelector('.bg-slate-50'));
+      await click(button(panel, "Read")); assert.equal(button(panel, "Read").getAttribute("aria-pressed"), "true");
+      assert.doesNotMatch(list.textContent, /Booking update new/); assert.match(list.textContent, /Booking update old/);
+      await click(button(panel, "Unread")); assert.match(list.textContent, /Booking update new/); assert.doesNotMatch(list.textContent, /Booking update old/);
+      assert.equal(h.calls.writes.length, 0);
+      await click(button(panel, "Mark all read")); assert.match(list.textContent, /No unread notifications/);
+      await click(button(panel, "All")); assert.match(list.textContent, /Booking update old/); assert.match(list.textContent, /Booking update new/);
+    } finally { await h.close(); }
+  }
+});
+
+test("managers and cashiers can save the same popup preference as guests without marking notifications read", async () => {
+  for (const staffRole of ["staff", "cashier"]) {
+    const h = await mount({ menus: "admin", staffRole });
+    try {
+      await click(h.container.querySelector('[aria-label="Open admin notifications"]'));
+      const toggle = () => h.container.querySelector('[role="switch"][aria-label="Pop-up notifications"]');
+      assert.equal(toggle().getAttribute("aria-checked"), "true");
+      h.state.preferenceError = true;
+      await click(toggle());
+      assert.equal(toggle().getAttribute("aria-checked"), "true");
+      assert.match(h.container.querySelector('[role="alert"]').textContent, /Could not save/);
+      h.state.preferenceError = false;
+      await click(toggle());
+      assert.equal(toggle().getAttribute("aria-checked"), "false");
+      assert.equal(h.calls.preferenceWrites.at(-1).payload.data.notification_popups_enabled, false);
+      assert.equal(h.calls.writes.length, 0);
+      await click(h.container.querySelector('[aria-label="Open admin notifications"]'));
+      assert.equal(alerts(), null);
+    } finally { await h.close(); }
+  }
+});
+
+test("opening one notification marks only that item read", async () => {
+  for (const menus of ["guest", "admin"]) {
+    const h = await mount({ menus, rows: [row("opened"), row("waiting")] });
+    try {
+      await click(h.container.querySelector(`[aria-label="${menus === "guest" ? "Open user menu" : "Open admin notifications"}"]`));
+      const panel = menus === "guest" ? document.querySelector('[aria-label="Your account and notifications"]') : h.container;
+      const link = panel.querySelector('[aria-label="Recent notifications"] a');
+      link.addEventListener("click", event => event.preventDefault());
+      await act(async () => link.click());
+      assert.equal(h.container.querySelector("[data-feed]").textContent, "opened:true,waiting:false");
+      assert.equal(h.calls.writes.length, 1);
+      assert.deepEqual(h.calls.writes[0].filters, [["recipient_id", "guest"], ["notification_id", ["opened"]]]);
     } finally { await h.close(); }
   }
 });
@@ -264,15 +325,16 @@ test("the guest switch disables new popups while retaining notifications, then e
     assert.deepEqual(h.calls.preferenceWrites, [{ account: "guest", payload: { data: { notification_popups_enabled: false } } }]);
     await close(); assert.equal(alerts(), null);
     h.state.rows.unshift(row("new")); await h.emit(); assert.equal(alerts(), null);
-    assert.equal(h.container.querySelector("[data-feed]").textContent, "new:false,first:true");
+    assert.equal(h.container.querySelector("[data-feed]").textContent, "new:false,first:false");
     await open(); assert.match(panel().textContent, /Booking update new/);
+    await click(button(panel(), "Mark all read"));
     assert.equal(h.container.querySelector("[data-feed]").textContent, "new:true,first:true");
     await click(toggle()); assert.equal(toggle().getAttribute("aria-checked"), "true");
     await close(); assert.equal(alerts(), null);
     h.state.rows.unshift(row("enabled")); await h.emit();
     assert.equal(alerts().querySelectorAll("article").length, 1);
     assert.match(alerts().textContent, /Booking update enabled/);
-    assert.equal(h.calls.writes.length, 2);
+    assert.equal(h.calls.writes.length, 1);
   } finally { await h.close(); }
 });
 

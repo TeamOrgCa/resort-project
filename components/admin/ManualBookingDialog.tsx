@@ -19,7 +19,7 @@ import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/li
 type Unit = { unit_id: string; name: string; capacity: number };
 type Service = { service_id: string; name: string; description: string | null; price: number };
 type PackageMode = Exclude<BookingMode, "custom">;
-type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreated: () => void };
+type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreated: (booking: { date: string }) => void };
 type BookingForm = { bookingDate: string; bookingMode: PackageMode; wholeDayVariant: WholeDayVariant; adultCount: string; childCount: string; unitId: string; specialRequests: string };
 const money = (value: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value);
 const fieldClass = "admin-field mt-1 w-full";
@@ -134,7 +134,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
         throw new Error(result?.message ?? "Failed to create manual reservation.");
       }
       setSuccess(`Manual reservation ${result.reservation?.referenceNumber ?? "created"}.`);
-      onCreated();
+      onCreated({ date: form.bookingDate });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Failed to create manual reservation."); }
     finally { saving.current = false; setIsSaving(false); }
   };

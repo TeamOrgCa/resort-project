@@ -47,10 +47,10 @@ export default function AdminSidebar({ role, permissions, onNavigate }: AdminSid
                 href={item.href}
                 onClick={onNavigate}
                 aria-current={isActive ? "page" : undefined}
-                className={`block min-h-11 rounded-xl px-4 py-2.5 transition-colors duration-200 ${
+                className={`block min-h-11 rounded-xl border px-4 py-2.5 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${
                 isActive
-                  ? "bg-primary text-white shadow-sm"
-                  : "text-white/70 hover:bg-white/5 hover:text-white"
+                  ? "border-white/40 bg-primary text-white shadow-sm"
+                  : "border-white/20 text-white/80 hover:border-amber-300/70 hover:bg-amber-800/60 hover:text-white"
               }`}
               >
                 <p className="text-sm font-medium">{item.label}</p>

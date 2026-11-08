@@ -3,7 +3,8 @@
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import type { User } from "@supabase/supabase-js";
-import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import NotificationStatusFilters, { notificationMatchesFilter, notificationStatusClass, type NotificationFilter } from "@/components/notifications/NotificationStatusFilters";
 import { createPortal } from "react-dom";
 import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
 
@@ -24,6 +25,7 @@ type GuestProfile = {
 export default function UserMenu() {
   const [user, setUser] = useState<User | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<NotificationFilter>("All");
   const [profile, setProfile] = useState<GuestProfile | null>(null);
   const [localNotifications, setNotifications] = useState<NotificationItem[]>([]);
   const [localNotificationsLoading, setNotificationsLoading] = useState(false);
@@ -31,6 +33,7 @@ export default function UserMenu() {
   const [localMarkingRead, setMarkingRead] = useState(false);
   const notificationCenter = useNotificationCenter();
   const notifications = notificationCenter?.notifications ?? localNotifications;
+  const visibleNotifications = notifications.filter(item => notificationMatchesFilter(item, statusFilter));
   const notificationsLoading = notificationCenter?.loading ?? localNotificationsLoading;
   const notificationError = notificationCenter?.error ?? localNotificationError;
   const markingRead = notificationCenter?.markingRead ?? localMarkingRead;
@@ -193,11 +196,11 @@ export default function UserMenu() {
     });
   };
 
-  const markAllNotificationsRead = async () => {
-    if (notificationCenter) { await notificationCenter.markAllRead(); return; }
+  const markAllNotificationsRead = async (id?: string) => {
+    if (notificationCenter) { await (id ? notificationCenter.markRead(id) : notificationCenter.markAllRead()); return; }
     if (!user || markingRead) return;
 
-    const unreadIds = notifications.filter((item) => !item.is_read).map((item) => item.notification_id);
+    const unreadIds = notifications.filter((item) => !item.is_read && (!id || item.notification_id === id)).map((item) => item.notification_id);
     if (!unreadIds.length) return;
 
     setMarkingRead(true);
@@ -210,15 +213,11 @@ export default function UserMenu() {
       .eq("recipient_id", user.id)
       .in("notification_id", unreadIds);
       if (error) throw error;
-      setNotifications((prev) => prev.map((item) => ({ ...item, is_read: true })));
+      setNotifications((prev) => prev.map((item) => unreadIds.includes(item.notification_id) ? { ...item, is_read: true } : item));
     } catch { setNotificationError("Could not mark notifications as read. Please try again."); }
     finally { setMarkingRead(false); }
   };
 
-  const readOpenedNotifications = useEffectEvent(() => { void markAllNotificationsRead(); });
-  useEffect(() => {
-    if (isOpen && !notificationsLoading) readOpenedNotifications();
-  }, [isOpen, notificationsLoading]);
 
   if (!user) {
     return (
@@ -289,7 +288,7 @@ export default function UserMenu() {
                 {unreadCount > 0 ? (
                   <button
                     type="button"
-                    onClick={markAllNotificationsRead}
+                    onClick={() => void markAllNotificationsRead()}
                     disabled={markingRead || notificationsLoading}
                     className="min-h-11 text-xs font-medium text-primary hover:text-primary/80 disabled:opacity-50"
                   >
@@ -313,23 +312,23 @@ export default function UserMenu() {
               {notificationError && <div role="alert" className="mb-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">{notificationError}
                 <button type="button" disabled={notificationsLoading || markingRead} onClick={() => void fetchNotifications(user)} className="ml-2 min-h-11 font-semibold underline disabled:opacity-50">Retry</button>
               </div>}
+              <NotificationStatusFilters value={statusFilter} onChange={setStatusFilter} />
               <div className="mt-2 min-h-0 max-h-[35dvh] space-y-2 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]" tabIndex={0} aria-label="Recent notifications" aria-busy={notificationsLoading}>
                 {notificationsLoading ? (
                   <p className="text-xs text-neutral/60">Loading notifications...</p>
-                ) : notifications.length === 0 && !notificationError ? (
-                  <p className="text-xs text-neutral/60">No notifications yet.</p>
+                ) : visibleNotifications.length === 0 && !notificationError ? (
+                  <p className="text-xs text-neutral/60">{statusFilter === "All" ? "No notifications yet." : `No ${statusFilter.toLowerCase()} notifications.`}</p>
                 ) : (
-                  notifications.map((item) => {
+                  visibleNotifications.map((item) => {
                     const content = (
                       <div
                         key={item.notification_id}
                         className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
-                          item.is_read
-                            ? "border-neutral/10 bg-base"
-                            : "border-primary/20 bg-primary/5"
+                          notificationStatusClass(item.is_read)
                         }`}
                       >
                         <p className="font-semibold text-neutral">{item.title}</p>
+                        <span className="text-[10px] font-medium text-neutral/60">{item.is_read ? "Read" : "Unread"}</span>
                         {item.message ? (
                           <p className="mt-1 text-neutral/70">{item.message}</p>
                         ) : null}
@@ -344,7 +343,7 @@ export default function UserMenu() {
                         <a
                           key={item.notification_id}
                           href={item.action_url}
-                          onClick={() => setIsOpen(false)}
+                          onClick={() => { void markAllNotificationsRead(item.notification_id); setIsOpen(false); }}
                           className="block"
                         >
                           {content}

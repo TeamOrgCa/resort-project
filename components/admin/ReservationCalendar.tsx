@@ -8,6 +8,7 @@ import CancellationDialog from "@/components/CancellationDialog";
 import OcularVisitReview from "@/components/admin/OcularVisitReview";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import RecordDialog from "@/components/manage/RecordDialog";
+import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import LoadingState from "@/components/ui/LoadingState";
 import ReservationPaymentReview from "@/components/admin/transactions/ReservationPaymentReview";
 import { ATTENTION_LABELS, calendarBookingKind, reservationAttention, type AttentionFlag, type CalendarSignals } from "@/lib/booking/calendar-attention";
@@ -18,6 +19,8 @@ import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { buildBookingWindow } from "@/lib/booking/policy";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { createClient } from "@/lib/supabase/client";
+import { CALENDAR_COLORS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
+import { useCalendarAppearance } from "@/components/admin/use-calendar-appearance";
 
 type Reservation = {
   reservation_id: string;
@@ -136,11 +139,18 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [guests, setGuests] = useState<Record<string, Guest>>({});
   const [walkInGuests, setWalkInGuests] = useState<Record<string, WalkInGuest>>({});
   const [searchTerm, setSearchTerm] = useState("");
+  const appearance = useCalendarAppearance();
+  const calendarView = useRef<HTMLDivElement>(null);
+  const [highlightMatches, setHighlightMatches] = useState(false);
+  const [showColorSettings, setShowColorSettings] = useState(false);
   const [isManualBookingOpen, setIsManualBookingOpen] = useState(openNew);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(() => initialReservationId ? { id: initialReservationId, kind: "reservation", date: initialDate ?? "", label: "Reservation details", reservationId: initialReservationId } : null);
   const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (selectedEvent?.reservationId) appearance.markViewed(selectedEvent.reservationId);
+  }, [selectedEvent?.reservationId, appearance]);
 
   useEffect(() => {
     let mounted = true;
@@ -342,6 +352,20 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       return map;
     }, {});
   }, [eventsByDay, searchTerm, attentionFilter]);
+  const matchingDates = Object.keys(filteredEventsByDay).sort().join(",");
+  useEffect(() => {
+    if (isLoading || (!searchTerm.trim() && attentionFilter === "all")) return;
+    let finish: ReturnType<typeof setTimeout>;
+    const timer = window.setTimeout(() => {
+      const dates = matchingDates.split(",").filter(Boolean);
+      if (dates[0]) setSelectedDay(dates[0]);
+      setHighlightMatches(dates.length > 0);
+      const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      calendarView.current?.scrollIntoView?.({ behavior: reducedMotion ? "instant" : "smooth", block: "start" });
+      finish = setTimeout(() => setHighlightMatches(false), 2400);
+    }, 450);
+    return () => { window.clearTimeout(timer); clearTimeout(finish); };
+  }, [searchTerm, attentionFilter, matchingDates, isLoading]);
   const calendarDays = useMemo(() => {
     const start = startOfMonthGrid(month);
     return Array.from({ length: 42 }, (_, index) => addDays(start, index));
@@ -419,13 +443,21 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const openMaintenance = () => { if (!canManageMaintenance) return; setBlockError(null); setShowBlockForm(true); };
   const renderEvent = (event: CalendarEvent) => {
     const style = eventStyles[event.kind], reservation = reservations.find(row => row.reservation_id === event.reservationId);
-    return <button key={event.id} type="button" onClick={() => openEvent(event)} style={{ backgroundColor: "#f3f4f8" }} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${style.className}`}>
+    return <button key={event.id} type="button" onClick={() => openEvent(event)} style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${highlightMatches ? "calendar-match-pulse" : ""}`}>
       <span className="block text-[10px] font-medium opacity-75">{reservation ? `${formatTime(reservation.start_datetime)} - ${formatTime(reservation.end_datetime)}` : style.label} ? {titleCase(event.status ?? "scheduled")}</span>
-      <span className="mt-0.5 block break-words text-xs font-semibold">{event.label}</span>
+      <span className="mt-0.5 block break-words text-xs font-semibold">{event.label}{unviewedDot(event)}</span>
       <span className="mt-0.5 block break-all text-[10px] opacity-75">{style.label} | {event.reference}</span>
-      {!!event.flags?.length && <span className="mt-1 block text-[10px] font-medium text-red-800">! {event.flags.map(flag => ATTENTION_LABELS[flag]).join(" | ")}</span>}
+      {!!event.flags?.length && <span className="mt-1 block text-[10px] font-medium">Needs attention: {event.flags.map(flag => ATTENTION_LABELS[flag]).join(" | ")}</span>}
     </button>;
   };
+  const eventAppearance = (event: CalendarEvent) => {
+    const key = (event.kind === "ocular" || event.kind === "maintenance" ? event.kind
+      : event.status && event.status in CALENDAR_COLORS ? event.status : "closed") as CalendarColorKey;
+    const color = event.flags?.length ? URGENT_CALENDAR_COLOR : appearance.colors[key];
+    return { backgroundColor: color, borderColor: color, color: calendarTextColor(color) };
+  };
+  const unviewedDot = (event: CalendarEvent) => event.reservationId && appearance.isUnviewed(event.reservationId)
+    ? <span role="img" aria-label="New booking — not yet viewed" title="New booking — not yet viewed" className="calendar-new-dot ml-2 inline-block h-2 w-2 shrink-0 rounded-full bg-white align-middle ring-2 ring-current" /> : null;
   return <div className="min-w-0 text-neutral">
     <AdminSectionHeader title="Reservations" subtitle="Select a booking to update its details, services and bill." actions={<div className="flex flex-wrap items-center gap-2">
         {canCreate && <button type="button" onClick={() => setIsManualBookingOpen(true)} aria-label="New reservation" title="New reservation" className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-white shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
@@ -434,6 +466,9 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         {canManageMaintenance && <button type="button" onClick={openMaintenance} aria-label="Add maintenance block" title="Add maintenance block" className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/30 bg-white text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94L14.7 6.3Z" /></svg>
         </button>}
+        <button type="button" onClick={() => setShowColorSettings(true)} aria-label="Calendar color settings" title="Calendar color settings" aria-haspopup="dialog" className="flex h-11 w-11 items-center justify-center rounded-xl border border-neutral/20 bg-white text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 1.8-4.2 1.5 1.5 0 0 1 1.1-2.6H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3Z"/><circle cx="7.5" cy="10" r=".8"/><circle cx="10.5" cy="6.5" r=".8"/><circle cx="15" cy="7" r=".8"/><circle cx="17" cy="11" r=".8"/></svg>
+        </button>
         <button type="button" disabled={isLoading} onClick={() => setRefreshKey(key => key + 1)} aria-label="Refresh calendar" title="Refresh calendar" className="flex h-11 w-11 items-center justify-center rounded-xl border border-neutral/20 bg-white text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`h-5 w-5 ${isLoading ? "animate-spin motion-reduce:animate-none" : ""}`} aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 19.5 9M17.9 17.9A8 8 0 0 1 4.5 15" /></svg>
         </button>
@@ -460,13 +495,25 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         <option value="all">All entries</option><option value="attention">Needs attention ({attentionCount})</option>{(Object.keys(ATTENTION_LABELS) as AttentionFlag[]).map(flag => <option key={flag} value={flag}>{ATTENTION_LABELS[flag]} ({flagCount(flag)})</option>)}
       </select></label>
     </section>
+    {showColorSettings && <CatalogDialog title="Calendar colors" description="Choose your status colors. Items needing attention always use red. Your choices are saved automatically for your account in this browser." busy={false} onClose={() => setShowColorSettings(false)}>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{(Object.keys(CALENDAR_COLORS) as CalendarColorKey[]).map(key => <label key={key} className="flex items-center gap-2 text-xs">
+        <input type="color" aria-label={`${CALENDAR_COLORS[key].label} color`} disabled={!appearance.ready} value={appearance.colors[key]} onChange={event => appearance.setColor(key, event.target.value)} className="h-11 w-11 cursor-pointer rounded border" />{CALENDAR_COLORS[key].label}
+      </label>)}</div>
+      <button type="button" onClick={appearance.resetColors} disabled={!appearance.ready} className="mt-3 min-h-11 rounded-lg border px-3 text-xs font-semibold">Reset default colors</button>
+    </CatalogDialog>}
+    <div ref={calendarView} aria-label="Full reservation calendar" className="scroll-mt-24">
+      <div aria-label="Calendar legend" className="mb-3 flex flex-wrap gap-x-4 gap-y-2 rounded-xl border border-neutral/10 bg-white p-3 text-xs">
+        {(Object.keys(CALENDAR_COLORS) as CalendarColorKey[]).map(key => <span key={key} className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: appearance.colors[key] }} />{CALENDAR_COLORS[key].label}</span>)}
+        <span className="inline-flex items-center gap-2 font-semibold"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: URGENT_CALENDAR_COLOR }} />Needs attention</span>
+        <span className="inline-flex items-center gap-2"><span className="calendar-new-dot h-2 w-2 rounded-full bg-blue-600" />New / not viewed</span>
+      </div>
+      {(searchTerm.trim() || attentionFilter !== "all") && <p role="status" className="mb-3 text-sm text-neutral/70">{Object.keys(filteredEventsByDay).length ? `${new Set(Object.values(filteredEventsByDay).flat().map(event => event.reservationId ?? event.id)).size} matching entries highlighted` : "No entries match your search and filters in this calendar period."}</p>}
     <section aria-label="Desktop reservation calendar" aria-busy={isLoading} className="hidden overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm md:block">
       <div className="flex items-center justify-between gap-4 border-b border-neutral/10 p-4"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Month view calendar</p><h2 className="mt-1 text-xl font-semibold text-neutral">{monthLabel}</h2></div><div className="flex gap-2">
         <button type="button" onClick={() => changeMonth(-1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Previous month">&larr;</button>
         <button type="button" onClick={() => { setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-xs font-semibold hover:bg-base">Today</button>
         <button type="button" onClick={() => changeMonth(1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Next month">&rarr;</button>
       </div></div>
-      <div className="flex flex-wrap gap-x-5 gap-y-2 border-b border-neutral/10 px-4 py-3 text-xs text-neutral/70">{Object.entries(eventStyles).map(([kind, style]) => <span key={kind} className="inline-flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${style.dotClassName}`} />{style.label}</span>)}<span className="font-semibold text-red-700">! Needs attention</span></div>
         <div className="grid grid-cols-7 border-b border-neutral/10 bg-base text-[10px] font-semibold uppercase tracking-wide text-neutral/50">{weekDays.map((day) => <div key={day} className="border-r border-neutral/10 px-2 py-3 last:border-r-0">{day.slice(0, 3)}</div>)}</div>
         <div className="grid grid-cols-7">
           {calendarDays.map((day) => {
@@ -503,11 +550,13 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                       <button
                         type="button"
                         onClick={() => openEvent(event)}
-                        className={`block w-full truncate rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${style.className}`}
+                        style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)}
+                        className={`block w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${highlightMatches ? "calendar-match-pulse" : ""}`}
                         title={`${style.label}: ${event.label}${event.flags?.length ? `. Needs attention: ${event.flags.map(flag => ATTENTION_LABELS[flag]).join(", ")}` : ""}`}
                       >
                         <span className="block text-[9px] font-normal opacity-75">{style.label}</span>
-                        {event.label}{!!event.flags?.length && <span className="ml-1 font-bold text-red-700" aria-label={`${event.flags.length} attention flags`}>!</span>}
+                        {event.label}{unviewedDot(event)}
+                        {!!event.flags?.length && <span className="mt-1 block text-[9px] font-medium">Needs attention</span>}
                       </button>
                       <div className="invisible absolute left-0 top-full z-30 mt-1 w-64 rounded-xl border border-neutral/10 bg-white p-3 text-left opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral/50">{style.label}</p>
@@ -553,6 +602,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       </div>
       <p className="mt-3 text-[10px] text-neutral/50">Philippine time. Tap an entry to view details and actions.</p>
     </section>
+    </div>
     {selectedEvent && <RecordDialog variant="admin" title={`${eventStyles[selectedReservation ? calendarBookingKind(selectedReservation.status) : selectedEvent.kind].label} details`} reference={selectedEvent.reference ?? selectedEvent.label} busy={checkInBusy || editorBusy || blockBusy || paymentBusy || ocularBusy} onClose={() => { if (!checkInBusy && !editorBusy && !blockBusy && !paymentBusy && !ocularBusy) setSelectedEvent(null); }}>
       {selectedEvent.reservationId ? <>
         {!!selectedFlags.length && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><p className="font-semibold">Needs attention</p><ul className="mt-2 list-disc space-y-1 pl-5">{selectedFlags.map(flag => <li key={flag}>{ATTENTION_LABELS[flag]}{flag === "balance" ? `: ${new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(signals[selectedEvent.reservationId!]?.balance ?? 0)}` : ""}</li>)}</ul></div>}
@@ -582,6 +632,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       setCancellationMessage(result.message + (!result.emailSent ? " In-app alerts were recorded; email delivery could not be confirmed." : ""));
       setCancelId(null); setSelectedEvent(null); setRefreshKey(key => key + 1);
     }} />}
-    <ManualBookingDialog isOpen={isManualBookingOpen && canCreate} onClose={() => setIsManualBookingOpen(false)} onCreated={() => { setIsManualBookingOpen(false); setRefreshKey(key => key + 1); setCancellationMessage("Manual reservation created. The calendar is refreshing."); }} />
+    <ManualBookingDialog isOpen={isManualBookingOpen && canCreate} onClose={() => setIsManualBookingOpen(false)} onCreated={booking => {
+      setIsManualBookingOpen(false); setSearchTerm(""); setAttentionFilter("all");
+      setMonth(manilaCalendarDate(booking.date)); setSelectedDay(booking.date);
+      setRefreshKey(key => key + 1); setCancellationMessage("Manual reservation created. New bookings have a glowing dot until you view them.");
+    }} />
   </div>;
 }

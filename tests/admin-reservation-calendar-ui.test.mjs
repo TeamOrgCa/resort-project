@@ -15,7 +15,8 @@ const base = { guest_id: "guest", start_datetime: day + "T00:00:00+08:00", end_d
 const button = (c,label) => [...c.querySelectorAll("button")].find(el => (el.getAttribute("aria-label") ?? el.textContent.trim()) === label);
 const agenda = () => document.querySelector('[aria-label="Mobile calendar entries"]');
 const click = async el => { assert.ok(el); assert.equal(el.disabled,false); await act(async () => el.click()); };
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true } = {}) {
+  if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
     reservations: [{ ...base, reservation_id: id, reference_number: "MV-CONFIRMED", status: "confirmed" }, { ...base, reservation_id: "pending", reference_number: "MV-PENDING", status: "payment_submitted" }, { ...base, reservation_id: "cancelled", reference_number: "MV-CANCELLED", status: "cancelled" }],
@@ -28,7 +29,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
   if (fullyPaid) { data.payments = []; data.reservation_reschedules = []; data.transactions[0].balance = 0; }
   if (includeOcular) data.ocular_visits = [{ visit_id:"ocular",reference_number:"MV-OCULAR",guest_id:"guest",scheduled_date:day,status:"pending" }];
   const tables = [];
-  const client = { storage:{from:()=>({createSignedUrl:async()=>({data:{signedUrl:"https://example.com/proof.png"},error:null})})}, auth: { getUser: async () => ({ data: { user: { id: "staff" } } }) }, from(table) {
+  const client = { storage:{from:()=>({createSignedUrl:async()=>({data:{signedUrl:"https://example.com/proof.png"},error:null})})}, auth: { getUser: async () => ({ data: { user: { id: userId } } }) }, from(table) {
     tables.push(table);
     const filters=[];
     const result = () => ({ data: Array.isArray(data[table]) ? data[table].filter(row=>filters.every(fn=>fn(row))) : data[table] ?? [], error: table === failure ? { message: "Read failed" } : null });
@@ -84,6 +85,73 @@ test("calendar reads all workflow signals, distinguishes bookings and confirms a
     await click(button(h.c,"Next month") ?? h.c.querySelector('[aria-label="Next month"]'));
     assert.match(agenda().textContent,/No entries match/);
   } finally { await h.close(); }
+});
+
+test("calendar uses red attention backgrounds without exclamation badges and distinct default status colors", async () => {
+  const h = await mount();
+  try {
+    const events = h.c.querySelectorAll('[data-needs-attention="true"]');
+    assert.ok(events.length > 0);
+    for (const event of events) {
+      assert.equal(event.style.backgroundColor, "rgb(185, 28, 28)");
+      assert.doesNotMatch(event.textContent, /!/);
+    }
+    const legend = h.c.querySelector('[aria-label="Calendar legend"]');
+    const colors = [...legend.querySelectorAll('span[style]')].map(dot => dot.style.backgroundColor);
+    assert.equal(new Set(colors).size, colors.length);
+    assert.match(legend.textContent, /Confirmed.*Completed.*Cancelled/);
+  } finally { await h.close(); }
+});
+
+test("calendar colors and viewed dots persist per staff account and reset colors keeps bookings viewed", async () => {
+  let h = await mount({ fullyPaid: true, arrived: true });
+  const event = () => [...agenda().querySelectorAll('[data-calendar-event]')].find(el => el.textContent.includes("MV-CONFIRMED"));
+  try {
+    assert.ok(event().querySelector('[aria-label="New booking — not yet viewed"]'));
+    assert.equal(h.c.querySelector('[aria-label="Confirmed color"]'), null);
+    const settings = button(h.c, "Calendar color settings"); settings.focus();
+    await click(settings);
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Calendar colors/);
+    await input(document.querySelector('[aria-label="Confirmed color"]'), "#ffffff");
+    assert.equal(event().style.backgroundColor, "rgb(255, 255, 255)");
+    assert.equal(event().style.color, "rgb(17, 17, 17)");
+    await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, settings);
+    await click(event());
+    assert.equal(h.c.querySelector(`[data-calendar-event^="${id}"] [aria-label="New booking — not yet viewed"]`), null);
+    await h.close(); h = await mount({ fullyPaid: true, arrived: true, clearStorage: false });
+    assert.equal(event().style.backgroundColor, "rgb(255, 255, 255)");
+    assert.equal(event().querySelector('[aria-label="New booking — not yet viewed"]'), null);
+    await click(button(h.c, "Calendar color settings"));
+    await click(button(document.body, "Reset default colors"));
+    assert.equal(event().style.backgroundColor, "rgb(29, 78, 216)");
+    assert.equal(event().querySelector('[aria-label="New booking — not yet viewed"]'), null);
+    await h.close(); h = await mount({ userId: "other-staff", clearStorage: false });
+    assert.ok(event().querySelector('[aria-label="New booking — not yet viewed"]'));
+  } finally { await h.close(); }
+});
+
+test("search and filters scroll to the full calendar, briefly pulse matching events and explain empty results", async () => {
+  const original = window.HTMLElement.prototype.scrollIntoView;
+  const scrolls = [];
+  window.HTMLElement.prototype.scrollIntoView = function (options) { scrolls.push({ label: this.getAttribute("aria-label"), options }); };
+  const h = await mount();
+  try {
+    assert.equal(scrolls.length, 0);
+    await input(h.c.querySelector('input[type="search"]'), "MV-CONFIRMED");
+    await act(async () => new Promise(resolve => setTimeout(resolve, 500)));
+    assert.equal(scrolls.at(-1).label, "Full reservation calendar");
+    const matches = h.c.querySelectorAll(".calendar-match-pulse");
+    assert.ok(matches.length > 0);
+    for (const match of matches) assert.match(match.getAttribute("data-calendar-event"), new RegExp(id));
+    await act(async () => new Promise(resolve => setTimeout(resolve, 2450)));
+    assert.equal(h.c.querySelector(".calendar-match-pulse"), null);
+    await input(h.c.querySelector('input[type="search"]'), "no-such-booking");
+    await act(async () => new Promise(resolve => setTimeout(resolve, 500)));
+    assert.match(h.c.textContent, /No entries match your search and filters/);
+    assert.equal(h.c.querySelector(".calendar-match-pulse"), null);
+  } finally { await h.close(); window.HTMLElement.prototype.scrollIntoView = original; }
 });
 
 test("admins may inspect and filter the calendar but cannot perform operational actions even with forged grants", async () => {
@@ -143,8 +211,9 @@ test("mobile Week, Month and Agenda controls navigate their own periods and desk
     assert.equal(button(h.c,"Month").getAttribute("aria-pressed"),"true");
     assert.match(agenda().textContent,/MV-CONFIRMED/);
     await click(button(h.c,"Week"));assert.equal(button(h.c,"Week").getAttribute("aria-pressed"),"true");assert.match(agenda().textContent,/MV-CONFIRMED/);
-    await click(h.c.querySelector('[aria-label="Next calendar period"]'));assert.doesNotMatch(agenda().textContent,/MV-CONFIRMED/);
-    await click(h.c.querySelector('[aria-label="Previous calendar period"]'));assert.match(agenda().textContent,/MV-CONFIRMED/);
+    // Overnight stays can occupy both weeks when today is Sunday.
+    await click(h.c.querySelector('[aria-label="Next calendar period"]'));await click(h.c.querySelector('[aria-label="Next calendar period"]'));assert.doesNotMatch(agenda().textContent,/MV-CONFIRMED/);
+    await click(h.c.querySelector('[aria-label="Previous calendar period"]'));await click(h.c.querySelector('[aria-label="Previous calendar period"]'));assert.match(agenda().textContent,/MV-CONFIRMED/);
     await click(button(h.c,"Agenda"));assert.equal(button(h.c,"Agenda").getAttribute("aria-pressed"),"true");
     await click(desktop.querySelector('[aria-label="View reservation details for '+day+'"]'));assert.match(document.querySelector('[role="dialog"]').textContent,/Reservation editor/);
   }finally{await h.close();}

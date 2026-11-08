@@ -183,3 +183,18 @@ main, fieldset { min-width: 0; }
   #billing-receipt-print .receipt-field { break-inside: avoid; }
 }
 @page admin-report { size: A4 landscape; margin: 12mm; }
+
+@keyframes calendar-match-pulse {
+  0%, 100% { outline: 3px solid transparent; outline-offset: 2px; }
+  50% { outline: 3px solid #0f172a; outline-offset: 3px; }
+}
+.calendar-match-pulse { animation: calendar-match-pulse .8s ease-in-out 3; }
+@keyframes calendar-new-glow {
+  0%, 100% { box-shadow: 0 0 3px 1px #38bdf8; }
+  50% { box-shadow: 0 0 8px 3px #38bdf8; }
+}
+.calendar-new-dot { animation: calendar-new-glow 2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .calendar-match-pulse { animation: none; outline: 3px solid #0f172a; outline-offset: 2px; }
+  .calendar-new-dot { animation: none; box-shadow: 0 0 4px 2px #38bdf8; }
+}

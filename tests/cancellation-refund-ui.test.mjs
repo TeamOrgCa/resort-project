@@ -91,6 +91,28 @@ test("cashier refund screen exposes verified records and review but no administr
   finally{await h.close();}
 });
 
+test("refund requests show guest names and combine name searches with status filters", async () => {
+  const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async () => Response.json({
+    refunds: [
+      { refund_id: "one", reservation_id: "r1", amount: 100, status: "pending", requested_at: "2026-11-01T00:00:00Z" },
+      { refund_id: "two", reservation_id: "r2", amount: 200, status: "approved", requested_at: "2026-11-01T00:00:00Z" },
+    ],
+    reservations: [{ reservation_id: "r1", reference_number: "MV-ONE" }, { reservation_id: "r2", reference_number: "MV-TWO" }],
+    guestNames: { r1: "Ana Santos", r2: "Juan Cruz" },
+  }));
+  try {
+    assert.match(h.c.querySelector("thead").textContent, /Guest name/);
+    await value(h.c.querySelector('input[type="search"]'), "sAnToS");
+    assert.equal(h.c.querySelectorAll("tbody tr").length, 1);
+    assert.match(h.c.querySelector("tbody").textContent, /Ana Santos/);
+    await value(h.c.querySelector("select"), "approved");
+    assert.equal(h.c.querySelectorAll("tbody tr").length, 0);
+    await value(h.c.querySelector('input[type="search"]'), "MV-TWO");
+    assert.equal(h.c.querySelectorAll("tbody tr").length, 1);
+    assert.match(h.c.querySelector("tbody").textContent, /Juan Cruz/);
+  } finally { await h.close(); }
+});
+
 test("view-only administrators can inspect refund records without processing controls", async () => {
   const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async () => Response.json({
     refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "reviewed", request_kind: "cancellation", workflow_version: 2, requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],

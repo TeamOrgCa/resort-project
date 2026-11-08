@@ -23,6 +23,8 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
   const [refunds, setRefunds] = useState<Refund[]>([]), [payments, setPayments] = useState<Payment[]>([]), [bills, setBills] = useState<Bill[]>([]);
   const [page, setPage] = useState(0), [paymentPage, setPaymentPage] = useState(0);
   const [refs, setRefs] = useState<Record<string, string>>({});
+  const [guestNames, setGuestNames] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState("");
   const [permissions, setPermissions] = useState<Permissions>({ canReview: false, canApprove: false, canPay: false, canVerify: false, canVerifyOwnPayout: false, staffId: "" });
   const [selectedId, setSelectedId] = useState<string | null>(null), [filter, setFilter] = useState("all");
   const [reason, setReason] = useState(""), [reference, setReference] = useState(""), [proof, setProof] = useState<File | null>(null), [verified, setVerified] = useState(false);
@@ -37,6 +39,7 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
     const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "Unable to load refunds.");
     setRefunds(data.refunds ?? []); setPayments(data.payments ?? []); setBills(data.bills ?? []); setPermissions(data.permissions ?? { canReview: false, canApprove: false, canPay: false, canVerify: false, canVerifyOwnPayout: false, staffId: "" });
     setRefs(Object.fromEntries((data.reservations ?? []).map((r: { reservation_id: string; reference_number: string }) => [r.reservation_id, r.reference_number])));
+    setGuestNames(data.guestNames ?? {});
     setMethods(data.paymentMethods ?? []);
     setMethod(current => (data.paymentMethods ?? []).some((m: { name: string }) => m.name === current) ? current : data.paymentMethods?.[0]?.name ?? "");
   }, []);
@@ -64,7 +67,8 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
     setProofLink(data.signedUrl); window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
   const selectedPayments = payments.filter(p => p.reservation_id === selected?.reservation_id);
-  const matchingRefunds = refunds.filter(f => filter === "all" || f.status === filter);
+  const matchingRefunds = refunds.filter(f => (filter === "all" || f.status === filter)
+    && `${guestNames[f.reservation_id] ?? ""} ${refs[f.reservation_id] ?? f.reservation_id}`.toLowerCase().includes(search.trim().toLowerCase()));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(matchingRefunds.length / 25) - 1));
   const currentPaymentPage = Math.min(paymentPage, Math.max(0, Math.ceil(selectedPayments.length / 10) - 1));
   const bill = bills.find(b => b.reservation_id === selected?.reservation_id);
@@ -73,12 +77,14 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
     {message && <p role="status" className="rounded-xl bg-green-50 p-3 text-sm">{message}</p>}
     {error && !selected && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     <label className="flex flex-wrap items-center gap-3 text-sm font-medium">Show requests<select value={filter} onChange={e => { setFilter(e.target.value); setPage(0); }} className="admin-field"><option value="all">All statuses</option>{Object.entries(refundStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    <label className="block text-sm font-medium">Search refunds<input type="search" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} placeholder="Guest name or reservation reference" className="admin-field mt-1 w-full" /></label>
     {loading && <p role="status" className="text-sm">Loading refund records...</p>}
-    <div className="admin-table-scroll overflow-x-auto rounded-xl border border-neutral/10"><table className="admin-responsive-table admin-table-static w-full min-w-[640px] text-left text-sm"><thead className="border-b border-neutral/10 bg-base/60 text-neutral/60"><tr>{["Reservation / type", "Refund amount", "Processing status", "Requested (PH)", "Action"].map(label => <th key={label} className="px-4 py-4">{label}</th>)}</tr></thead>
+    <div className="admin-table-scroll overflow-x-auto rounded-xl border border-neutral/10"><table className="admin-responsive-table admin-table-static w-full min-w-[640px] text-left text-sm"><thead className="border-b border-neutral/10 bg-base/60 text-neutral/60"><tr>{["Reservation / type", "Guest name", "Refund amount", "Processing status", "Requested (PH)", "Action"].map(label => <th key={label} className="px-4 py-4">{label}</th>)}</tr></thead>
       <tbody>{matchingRefunds.slice(currentPage * 25, (currentPage + 1) * 25).map(f => <tr key={f.refund_id} className="border-t border-neutral/10 hover:bg-base/40"><td data-label="Reservation / type" className="px-4 py-4"><div>{refs[f.reservation_id] ?? f.reservation_id}<span className="block text-xs text-neutral/60">{f.request_kind === "overpayment" ? "Excess payment" : "Cancelled reservation"}</span></div></td>
+        <td data-label="Guest name" className="px-4 py-4">{guestNames[f.reservation_id] ?? "Guest unavailable"}</td>
         <td data-label="Refund amount" className="px-4 py-4 font-medium">{money(f.amount)}</td><td data-label="Processing status" className="px-4 py-4"><AdminStatusBadge status={refundStatusLabels[f.status] ?? f.status} /></td><td data-label="Requested (PH)" className="px-4 py-4">{at(f.requested_at)}</td>
         <td data-label="Action" className="admin-table-actions px-4 py-4"><button className="admin-button-secondary" disabled={busy} onClick={() => { setSelectedId(f.refund_id); setPaymentPage(0); setReason(""); setReference(""); setProof(null); setVerified(false); setProofLink(null); setError(null); }}>{permissions.canReview || permissions.canApprove || permissions.canPay || permissions.canVerify ? "View / process" : "View"}</button></td></tr>)}</tbody></table>
-      {!loading && !refunds.some(f => filter === "all" || f.status === filter) && <p className="p-5 text-sm text-neutral/65">No requests match this status.</p>}</div>
+      {!loading && matchingRefunds.length === 0 && <p className="p-5 text-sm text-neutral/65">{search.trim() ? "No requests match your search and status." : "No requests match this status."}</p>}</div>
     <TablePagination total={matchingRefunds.length} page={currentPage} pageSize={25} onPageChange={setPage} disabled={loading || busy} label="Refund requests pagination" />
     {selected && <CatalogDialog title="Refund details" description={`Refund for ${refs[selected.reservation_id] ?? selected.reservation_id}`} busy={busy} onClose={() => { if (!busy) setSelectedId(null); }}><div className="space-y-4">
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
