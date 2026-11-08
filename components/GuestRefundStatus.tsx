@@ -68,7 +68,7 @@ export default function GuestRefundStatus({ refreshKey = 0, reservationId, refer
     {visibleEligible.length > 0 && <div className="mb-5 space-y-3">
       <p className="text-sm text-neutral/70">You can request a refund for verified payments above your reservation bill. Staff will review the request and send approved refunds manually through GCash or another approved method.</p>
       {visibleEligible.map((item) => <div key={item.reservation_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-secondary/30 bg-secondary/5 p-4">
-        <div className="min-w-0"><p className="break-all font-semibold">{item.reference_number}</p><p className="text-sm">Excess payment: {currency(item.amount)}</p></div>
+        <div className="min-w-0"><p className="ui-reference font-semibold">{item.reference_number}</p><p className="text-sm">Excess payment: {currency(item.amount)}</p></div>
         <button type="button" disabled={busy !== null} onClick={() => void requestRefund(item.reservation_id)} className="min-h-11 w-full rounded-lg bg-primary px-4 py-2 sm:w-auto text-sm font-semibold text-white disabled:opacity-50">{busy === item.reservation_id ? "Requesting…" : "Request excess refund"}</button>
       </div>)}
     </div>}

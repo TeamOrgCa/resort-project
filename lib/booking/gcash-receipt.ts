@@ -1,5 +1,5 @@
 export type OcrStatus = "not_applicable" | "consistent" | "mismatch" | "unreadable";
-export type OcrAssessment = { status: OcrStatus; notes: string; amount?: number; reference?: string; paidAt?: string };
+export type OcrAssessment = { status: OcrStatus; notes: string; amount?: number; reference?: string; paidAt?: string; betaTest?: boolean };
 
 export function isGcashMethod(method: { name: string; type: string }): boolean {
   if (method.type.trim().toLowerCase() === "cash") return false;
@@ -114,6 +114,7 @@ export function assessGcashText(text: string, expected: {
   amount: number; minimumAmount?: number; reference: string; recipientName?: string | null;
   recipientNumber?: string | null; now?: number;
   successCheckSeen?: boolean;
+  skipReferenceAndDateChecks?: boolean;
 }): OcrAssessment {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const findings: string[] = [];
@@ -149,7 +150,7 @@ export function assessGcashText(text: string, expected: {
   const uniqueReferences = [...new Set(references)];
   const reference = uniqueReferences.length === 1 ? uniqueReferences[0] : undefined;
   if (!reference) findings.push("GCash reference number is missing or ambiguous");
-  else if (reference !== normalizeGcashReference(expected.reference)) {
+  else if (!expected.skipReferenceAndDateChecks && reference !== normalizeGcashReference(expected.reference)) {
     mismatch = true; findings.push("GCash reference number differs from the number entered");
   }
   if (!recipientMatches(lines, expected.recipientName, expected.recipientNumber)) findings.push("resort recipient could not be matched");
@@ -159,11 +160,13 @@ export function assessGcashText(text: string, expected: {
   const now = expected.now ?? Date.now();
   const phDay = (millis: number) => new Date(millis + 8 * 3600000).toISOString().slice(0, 10);
   if (!paidAt) findings.push("receipt date and time are missing or ambiguous");
-  else if (phDay(Date.parse(paidAt)) !== phDay(now) || Date.parse(paidAt) > now + 60000) {
+  else if (!expected.skipReferenceAndDateChecks && (phDay(Date.parse(paidAt)) !== phDay(now) || Date.parse(paidAt) > now + 60000)) {
     mismatch = true; findings.push("receipt must be dated today in Philippine time and cannot show a future payment");
   }
   return { status: mismatch ? "mismatch" : findings.length ? "unreadable" : "consistent", amount, reference, paidAt,
-    notes: findings.length ? findings.join("; ") : "GCash status, amount, reference, recipient, and today's Philippine date match. Staff must confirm funds in the receiving account." };
+    notes: findings.length ? findings.join("; ") : expected.skipReferenceAndDateChecks
+      ? "GCash status, amount and recipient match. Receipt reference and date were extracted; comparison and freshness checks were skipped for beta testing."
+      : "GCash status, amount, reference, recipient, and today's Philippine date match. Staff must confirm funds in the receiving account." };
 }
 
 /** Fail closed even if an OCR worker returns an incomplete consistent result. */

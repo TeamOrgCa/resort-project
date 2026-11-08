@@ -1,5 +1,6 @@
 "use client";
 
+import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "./availability";
 import { manilaDateKey } from "./manila-date";
 import { moveReservationToDate } from "./reservation-edit";
@@ -41,8 +42,7 @@ export function useGuestRescheduleAvailability(start: string, end: string, month
     if (!isBookingStartAllowed(moved.startDatetime, availability.now)) return BOOKING_LEAD_MESSAGE;
     if (!availability.ready) return availability.error ?? (requireReady ? "Loading available dates..." : null);
     if (!isWindowAvailable(moved.startDatetime, moved.endDatetime, reservations)) return "Already reserved for your package or time slot.";
-    const lastDay = manilaDateKey(new Date(Date.parse(moved.endDatetime) - 1));
-    if (availability.blockedDates.some(block => block.start_date <= lastDay && block.end_date >= date)) return "Closed for maintenance.";
+    if (availability.blockedDates.some(block => maintenanceOverlaps(moved.startDatetime, moved.endDatetime, block))) return "Closed for maintenance.";
     return null;
   }
 

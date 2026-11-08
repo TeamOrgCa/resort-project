@@ -6,8 +6,23 @@ import { hasGcashSuccessCheck, inspectReceiptImage, inspectReceiptReadability } 
 import { retryMaskedGcashPhone } from "@/lib/server/gcash-phone-ocr";
 import { retryGcashNumericLines } from "@/lib/server/gcash-readability";
 
-export type ProofInspection = OcrAssessment | { status: "rejected" | "screening_unavailable"; notes: string };
+// OCR TOGGLE: true = scan receipts and auto-approve consistent results.
+// false = skip OCR and submit receipts for staff review (never auto-approve).
+// Restart/redeploy after changing this value. Applies to checkout and later payments.
+export const ENABLE_RECEIPT_OCR = true;
 
+// BETA TEST ONLY: true allows an old receipt to be reused (ignores entered-reference
+// comparison, duplicate receipt references and today's-date checks). OCR stays on;
+// amount, recipient, successful status and readability must still pass.
+// Requires ENABLE_RECEIPT_OCR=true; ignored when OCR is disabled.
+// Creates marked beta payment records; restore false for normal payments.
+// Apply docs/ocr-beta-receipt-reuse-migration.sql before enabling; restart/redeploy.
+export const ENABLE_BETA_RECEIPT_REUSE = true;
+
+export type ProofInspection = OcrAssessment | { status: "rejected" | "screening_unavailable"; notes: string }
+  | { status: "skipped"; notes: string; amount: number; reference: string; paidAt?: never };
+
+// Both payment routes handle "skipped" separately from verified OCR results.
 export async function inspectPaymentProof(
   supabase: SupabaseClient,
   input: {
@@ -34,6 +49,15 @@ export async function inspectPaymentProof(
   const isGcash = isGcashMethod({ name: input.methodName, type: input.methodType });
   try {
     const bytes = Buffer.from(await image.arrayBuffer());
+    if (!ENABLE_RECEIPT_OCR) {
+      // Keep real-image validation even when text recognition is turned off.
+      const sharp = (await import("sharp")).default;
+      const metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata().catch(() => null);
+      if (!metadata) return null;
+      if (!["jpeg", "png", "webp"].includes(metadata.format ?? "") || !metadata.width || !metadata.height) return null;
+      return { status: "skipped", amount: input.amount, reference: input.reference,
+        notes: "OCR is disabled. Staff must verify the receipt and funds in the receiving account." };
+    }
     if (isGcash) {
       const quality = await inspectReceiptImage(bytes);
       if (!quality.accepted) return { status: "rejected", notes: quality.reason };
@@ -62,8 +86,11 @@ export async function inspectPaymentProof(
       const screen = screenReceiptText(page.text, isGcash);
       if (!screen.plausible) return { status: "rejected", notes: screen.reason ?? "The uploaded image is not a payment receipt." };
       if (!isGcash) return { status: "not_applicable", notes: "The image has payment details. Cashier must reconcile the transaction in the receiving account." };
-      const expected = { ...input, successCheckSeen: await hasGcashSuccessCheck(bytes) };
-      return assessGcashText(page.text, expected);
+      const expected = { ...input, successCheckSeen: await hasGcashSuccessCheck(bytes),
+        skipReferenceAndDateChecks: ENABLE_BETA_RECEIPT_REUSE };
+      const assessment = assessGcashText(page.text, expected);
+      return ENABLE_BETA_RECEIPT_REUSE ? { ...assessment, betaTest: true,
+        notes: `BETA TEST: receipt reuse enabled; reference comparison and current-date checks skipped. ${assessment.notes}` } : assessment;
     } finally { await worker.terminate(); }
   } catch (error) {
     console.error("[payment proof] OCR screening failed", error);

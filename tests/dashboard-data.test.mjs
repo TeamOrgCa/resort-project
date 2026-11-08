@@ -52,7 +52,7 @@ test("booking charts include all recorded statuses, accurate sources, and real w
 test("every dashboard source is complete beyond PostgREST limits and profile IDs are chunked", async () => {
   const h = data({ reservations: Array.from({ length: 1001 }, (_, i) => reservation(String(i), { guest_id: `g${i}` })),
     guests: Array.from({ length: 1001 }, (_, i) => ({ id: `g${i}`, first_name: `Guest ${i}`, last_name: "Test" })),
-    payments: Array.from({ length: 1001 }, (_, i) => payment(1, { payment_id: `p${i}` })), reservation_reschedules: [{ status: "pending" }, { status: "approved" }], ocular_visits: [{ status: "pending" }], refund_requests: [{ status: "pending" }, { status: "approved" }, { status: "refunded" }] });
+    payments: Array.from({ length: 1001 }, (_, i) => payment(1, { payment_id: `p${i}` })), reservation_reschedules: [{ status: "pending" }, { status: "approved" }], ocular_visits: [{ status: "confirmed" }], refund_requests: [{ status: "pending" }, { status: "approved" }, { status: "refunded" }] });
   const snapshot = await h.generateDashboard(now);
   assert.equal(snapshot.arrivalsToday, 1001); assert.equal(snapshot.bookingsCreated, 1001); assert.equal(snapshot.collectionsToday, 1001);
   assert.equal(snapshot.reservations.length, 1001); assert.ok(snapshot.reservations.every(r => r.guest !== "Guest name unavailable"));

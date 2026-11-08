@@ -98,7 +98,7 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
       </div>
       {loading && <p role="status" className="mt-4 text-sm">Calculating from verified payment records...</p>}
       {preview && <div className="mt-4 rounded-xl border border-neutral/15 bg-base p-4 text-sm">
-        <p className="break-all font-semibold">{preview.reference}</p><p className="mt-2">{preview.rule}</p>
+        <p className="ui-reference font-semibold">{preview.reference}</p><p className="mt-2">{preview.rule}</p>
         <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3"><dt>Verified payments</dt><dd className="text-right">{money(preview.verifiedPaid)}</dd>
           <dt>Previous completed refunds</dt><dd className="text-right">{money(preview.previousRefunds)}</dd>
           <dt>Remaining verified payments</dt><dd className="text-right">{money(preview.netPaid)}</dd>

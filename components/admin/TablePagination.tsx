@@ -10,7 +10,7 @@ export default function TablePagination({ total, page, pageSize, onPageChange, d
     <div className="flex flex-wrap items-center gap-2">
       <button type="button" aria-label="First page" disabled={disabled || current === 0} onClick={() => onPageChange(0)} className="admin-button-secondary px-3">First</button>
       <button type="button" disabled={disabled || current === 0} onClick={() => onPageChange(current - 1)} className="admin-button-secondary px-3">Previous</button>
-      <span>Page {current + 1} of {pages}</span>
+      <span className="shrink-0 whitespace-nowrap tabular-nums">Page {current + 1} of {pages}</span>
       <button type="button" disabled={disabled || current >= pages - 1} onClick={() => onPageChange(current + 1)} className="admin-button-secondary px-3">Next</button>
       <button type="button" aria-label="Last page" disabled={disabled || current >= pages - 1} onClick={() => onPageChange(pages - 1)} className="admin-button-secondary px-3">Last</button>
     </div>

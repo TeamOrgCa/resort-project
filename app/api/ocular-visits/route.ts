@@ -1,3 +1,4 @@
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
@@ -100,62 +101,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: conflictingOcularVisit, error: ocularConflictError } = await supabase
-      .from("ocular_visits")
-      .select("visit_id")
-      .eq("scheduled_date", body.scheduledDate)
-      .eq("time_slot_id", slot.slot_id)
-      .in("status", ["pending", "confirmed"]);
-
-    if (ocularConflictError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unable to validate existing ocular visits.",
-        },
-        { status: 500 }
-      );
-    }
-
-    if ((conflictingOcularVisit ?? []).length >= slot.max_capacity) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Selected time slot already has a confirmed ocular visit.",
-        },
-        { status: 409 }
-      );
-    }
-
-    const { data: duplicateGuestVisit, error: duplicateGuestVisitError } = await supabase
-      .from("ocular_visits")
-      .select("visit_id")
-      .eq("guest_id", user.id)
-      .eq("scheduled_date", body.scheduledDate)
-      .in("status", ["pending", "confirmed"])
-      .limit(1)
-      .maybeSingle();
-
-    if (duplicateGuestVisitError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unable to validate duplicate ocular visit dates.",
-        },
-        { status: 500 }
-      );
-    }
-
-    if (duplicateGuestVisit) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "You already have an ocular visit scheduled for this date.",
-        },
-        { status: 409 }
-      );
-    }
-
     const referenceNumber = await generateOcularReferenceNumber(supabase);
 
     if (!referenceNumber) {
@@ -168,34 +113,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: ocularVisit, error: insertError } = await supabase
-      .from("ocular_visits")
-      .insert({
-        guest_id: user.id,
-        reference_number: referenceNumber,
-        scheduled_date: body.scheduledDate,
-        time_slot_id: slot.slot_id,
-        status: "pending",
-      })
-      .select("visit_id, reference_number, scheduled_date, time_slot_id, status, created_at")
-      .single<OcularVisitInsertRow>();
-
-    if (insertError || !ocularVisit) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to schedule ocular visit.",
-        },
-        { status: 500 }
-      );
-    }
+    const { data, error: insertError } = await createAdminClient().rpc("save_confirmed_ocular_visit", {
+      p_guest: user.id, p_date: body.scheduledDate, p_slot: slot.slot_id, p_reference: referenceNumber,
+    });
+    const ocularVisit = data as OcularVisitInsertRow | null;
+    if (insertError || !ocularVisit) return NextResponse.json({ success: false,
+      message: insertError?.message ?? "Failed to schedule ocular visit." },
+      { status: ["23P01", "23505", "40001"].includes(insertError?.code ?? "") ? 409 : 400 });
 
     const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: user.id,
       staffRoles: NOTIFICATION_AUDIENCES.reservation,
       title: "Ocular visit scheduled",
-      message: `Ocular visit ${ocularVisit.reference_number} is pending confirmation.`,
+      message: `Ocular visit ${ocularVisit.reference_number} is confirmed.`,
       entityType: "ocular_visit",
       entityId: ocularVisit.visit_id,
       guestActionUrl: "/ocular",

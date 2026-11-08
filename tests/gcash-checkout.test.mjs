@@ -6,7 +6,7 @@ const guest = "11111111-1111-4111-8111-111111111111";
 const account = "22222222-2222-4222-8222-222222222222";
 const body = { bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
   payment: { paymentMethodId: "gcash", receivingAccountId: account, type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guest}/proof.png` } };
-function harness({ status = "consistent", method = "GCash", insertError = null, notificationFails = false } = {}) {
+function harness({ beta = false, status = "consistent", method = "GCash", insertError = null, notificationFails = false } = {}) {
   const writes = [], inspected = [], accountFilters = [];
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: guest } }, error: null }) },
@@ -28,14 +28,14 @@ function harness({ status = "consistent", method = "GCash", insertError = null, 
   const { POST } = loadTsModule("app/api/reservations/checkout/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, { p_payment: payload }) => {
-      assert.equal(name, "submit_consistent_gcash_payment"); writes.push({ table: "payments", operation: "insert", payload });
-      return { error: insertError, data: insertError ? null : { payment_id: "payment", status: "verified", ocr_status: payload.ocr_status, auto_approved: true, reservation_status: "confirmed" } };
+      assert.equal(name, status === "skipped" ? "submit_unscreened_gcash_payment" : beta ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment"); writes.push({ table: "payments", operation: "insert", payload });
+      return { error: insertError, data: insertError ? null : { payment_id: "payment", is_beta_test: beta, status: status === "skipped" ? "pending" : "verified", ocr_status: status === "skipped" ? "not_applicable" : payload.ocr_status, auto_approved: status !== "skipped", reservation_status: status === "skipped" ? "payment_submitted" : "confirmed" } };
     } }) },
     "@/lib/server/ocr-payment-emails": { sendOcrPaymentEmails: async () => {} },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict: false, error: null }) },
     "@/lib/server/package-rates": { loadQuotedPackageRates: async () => ({ version: 1, rates: {} }), PackageRatesError: class extends Error {} },
     "@/lib/booking/pricing": { computeBookingPricing: () => ({ total: 5000 }) },
-    "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return { status, notes: "Checked", amount: input.amount, reference: input.reference, paidAt: "2026-10-13T01:00:00Z" }; } },
+    "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return { status, betaTest: beta, notes: "Checked", amount: input.amount, reference: input.reference, paidAt: status === "skipped" ? undefined : "2026-10-13T01:00:00Z" }; } },
     "@/lib/notifications": { createNotifications: async () => { if (notificationFails) throw new Error("Unavailable"); return { error: null }; }, NOTIFICATION_AUDIENCES: { checkout: [] } },
   });
   return { writes, inspected, accountFilters, post: data => POST(new Request("http://localhost", { method: "POST", body: JSON.stringify(data) })) };
@@ -81,4 +81,22 @@ test("reference reuse cleans up only the newly created reservation and returns c
 test("notification failure cannot roll back a saved checkout payment", async () => {
   const h = harness({ notificationFails: true }); assert.equal((await h.post(body)).status, 201);
   assert.equal(h.writes.filter(w => w.operation === "delete").length, 0);
+});
+
+test("checkout routes disabled OCR to pending manual review without inventing receipt evidence", async () => {
+  const h = harness({ status: "skipped" });
+  const response = await h.post(body); assert.equal(response.status, 201);
+  const json = await response.json(); assert.equal(json.payment.autoApproved, false);
+  assert.equal(json.payment.status, "pending"); assert.equal(json.reservation.status, "payment_submitted");
+  const payment = h.writes.find(write => write.table === "payments").payload;
+  assert.equal(payment.ocr_status, "skipped"); assert.equal(payment.ocr_checked_at, null); assert.equal(payment.receipt_paid_at, null);
+});
+
+test("checkout chooses the beta RPC for server-marked receipt reuse",async()=>{
+ const h=harness({beta:true});const response=await h.post(body);assert.equal(response.status,201);assert.equal((await response.json()).payment.betaTest,true);
+});
+
+test("a client beta flag cannot select the beta workflow",async()=>{
+ const h=harness();const response=await h.post({...body,betaTest:true,payment:{...body.payment,betaTest:true}});
+ assert.equal(response.status,201);assert.equal((await response.json()).payment.betaTest,false);
 });

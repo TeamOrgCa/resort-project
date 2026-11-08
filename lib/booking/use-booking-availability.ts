@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReservedWindow } from "./availability";
 
-export type BlockedDateRange = { start_date: string; end_date: string };
+export type BlockedDateRange = import("./maintenance").MaintenanceWindow;
 type Availability = { key: string; reservations: ReservedWindow[]; blockedDates: BlockedDateRange[]; error: string | null };
 
 export function useBookingAvailability(months: string[], enabled: boolean, excludeReservationId?: string) {

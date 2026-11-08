@@ -469,7 +469,7 @@ function PaymentContent() {
         message?: string;
         issues?: string[];
         errorCode?: string | null;
-        payment?: { id?: string; status?: string; ocrStatus?: string; amount?: number };
+        payment?: { id?: string; status?: string; ocrStatus?: string; amount?: number; betaTest?: boolean };
         reservation?: { referenceNumber?: string };
       } | null = null;
 
@@ -479,7 +479,7 @@ function PaymentContent() {
           message?: string;
           issues?: string[];
           errorCode?: string | null;
-          payment?: { id?: string; status?: string; ocrStatus?: string; amount?: number };
+          payment?: { id?: string; status?: string; ocrStatus?: string; amount?: number; betaTest?: boolean };
           reservation?: { referenceNumber?: string };
         };
       } catch {

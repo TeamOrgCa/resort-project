@@ -13,8 +13,8 @@ export default function OcularVisitReview({ visit, canReview, canCancel = false,
   const [reason, setReason] = useState(""), [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null), [message, setMessage] = useState<string | null>(null);
   const submitting = useRef(false);
-  async function review(action: "approve" | "reject" | "cancel") {
-    if (submitting.current || reason.trim().length < 5 || reason.trim().length > 2000) return;
+  async function review(action: "complete" | "cancel") {
+    if (submitting.current || (action === "cancel" && (reason.trim().length < 5 || reason.trim().length > 2000))) return;
     submitting.current = true; setBusy(true); onBusyChange(true); setError(null); setMessage(null);
     try {
       const response = await fetch(`/api/admin/ocular-visits/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitId: visit.visit_id, ...(action === "cancel" ? { cancellationReason: reason.trim() } : { reviewReason: reason.trim() }) }) });
@@ -26,16 +26,16 @@ export default function OcularVisitReview({ visit, canReview, canCancel = false,
     finally { submitting.current = false; setBusy(false); onBusyChange(false); }
   }
   return <section aria-label="Ocular visit review" className="space-y-3 rounded-xl border border-neutral/10 p-4">
-    <h3 className="font-semibold">Staff review</h3>
+    <h3 className="font-semibold">Visit management</h3>
     {visit.review_reason && <p className="text-sm text-neutral/75">Review reason: {visit.review_reason}</p>}
     {visit.cancellation_reason && <p className="text-sm text-neutral/75">Cancellation reason: {visit.cancellation_reason}</p>}
     {message && <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-900">{message}</p>}
     {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error} <button type="button" onClick={onRefresh} className="min-h-11 underline">Refresh visit</button></p>}
-    {(canReview && visit.status === "pending") || (canCancel && ["pending", "confirmed"].includes(visit.status)) ? <>
-      <label className="block text-sm font-medium">{visit.status === "confirmed" ? "Cancellation reason" : "Review / cancellation reason"} (required)<textarea aria-label="Ocular review reason" rows={3} minLength={5} maxLength={2000} disabled={busy} value={reason} onChange={event => setReason(event.target.value)} className="admin-field mt-2 w-full" placeholder="Explain your decision. This reason will be shared with the guest." /></label>
-      <div className="flex flex-wrap gap-2">{canReview && visit.status === "pending" && <><button type="button" disabled={busy || reason.trim().length < 5} onClick={() => void review("approve")} className="admin-button-primary">{busy ? "Saving..." : "Approve ocular visit"}</button><button type="button" disabled={busy || reason.trim().length < 5} onClick={() => void review("reject")} className="admin-button-secondary border-red-200 text-red-700">Reject ocular visit</button></>}
-        {canCancel && <button type="button" disabled={busy || reason.trim().length < 5} onClick={() => void review("cancel")} className="admin-button-secondary border-red-200 text-red-700">Cancel ocular visit</button>}
-      </div>
-    </> : visit.status === "pending" ? <p className="text-sm text-neutral/65">Ocular approval permission is required to approve or reject this request.</p> : <p className="text-sm text-neutral/65">This visit has already been reviewed or closed.</p>}
+    {canReview && visit.status === "confirmed" && <button type="button" disabled={busy} onClick={() => void review("complete")} className="admin-button-primary">{busy ? "Saving..." : "Mark as visited"}</button>}
+    {canCancel && ["pending", "confirmed"].includes(visit.status) && <>
+      <label className="block text-sm font-medium">Cancellation reason (required)<textarea aria-label="Ocular cancellation reason" rows={3} minLength={5} maxLength={2000} disabled={busy} value={reason} onChange={event => setReason(event.target.value)} className="admin-field mt-2 w-full" placeholder="Explain why this visit is being cancelled. This reason will be shared with the guest." /></label>
+      <button type="button" disabled={busy || reason.trim().length < 5} onClick={() => void review("cancel")} className="admin-button-secondary border-red-200 text-red-700">Cancel ocular visit</button>
+    </>}
+    <p className="text-sm text-neutral/65">{visit.status === "completed" ? "This guest has visited the resort." : "Available ocular visits are automatically confirmed; no approval is required."}</p>
   </section>;
 }

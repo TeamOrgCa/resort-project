@@ -11,6 +11,7 @@ import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
+import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { isStaffBookingWindowAllowed, STAFF_BOOKING_WINDOW_MESSAGE } from "@/lib/booking/start-time";
 import { manilaDateKey } from "@/lib/booking/manila-date";
@@ -103,9 +104,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
     if ("error" in window || !window.startDatetime || !window.endDatetime) return "Invalid booking schedule.";
     if (!isStaffBookingWindowAllowed(window.startDatetime, window.endDatetime, availability.now)) return STAFF_BOOKING_WINDOW_MESSAGE;
     if (!isWindowAvailable(window.startDatetime, window.endDatetime, availability.reservations)) return "Already reserved for this package.";
-    const start = manilaDateKey(window.startDatetime);
-    const end = manilaDateKey(new Date(Date.parse(window.endDatetime) - 1));
-    if (availability.blockedDates.some(block => block.start_date <= end && block.end_date >= start)) return "Closed for maintenance.";
+    if (availability.blockedDates.some(block => maintenanceOverlaps(window.startDatetime!, window.endDatetime!, block))) return "Closed for maintenance.";
     return null;
   };
   const dateIssue = (date: string) => {

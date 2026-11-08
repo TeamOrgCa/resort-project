@@ -10,7 +10,7 @@ const {createRoot}=await import("react-dom/client");after(()=>dom.window.close()
 test("customer calendar distinguishes maintenance closures from fully booked dates and preserves partial overnight availability",async()=>{
  const saved=globalThis.fetch;const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Manila",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
  const [y,m]=today.split("-").map(Number);const month=new Date(Date.UTC(y,m,1)).toISOString().slice(0,7);
- globalThis.fetch=async url=>url.startsWith("/api/ocular-time-slots")?Response.json({slots:[]}):Response.json({reservations:[{start_datetime:month+"-06T08:00:00+08:00",end_datetime:month+"-07T06:00:00+08:00"}],blockedDates:[{start_date:month+"-05",end_date:month+"-05"}]});
+ globalThis.fetch=async url=>url.startsWith("/api/ocular-time-slots")?Response.json({slots:[]}):Response.json({reservations:[{start_datetime:month+"-06T08:00:00+08:00",end_datetime:month+"-07T06:00:00+08:00"}],blockedDates:[{start_date:month+"-05",end_date:month+"-05"},{start_date:month+"-08",end_date:month+"-08",start_datetime:month+"-08T13:00:00+08:00",end_datetime:month+"-08T14:00:00+08:00"}]});
  const q={select:()=>q,in:()=>q,then:(yes,no)=>Promise.resolve({data:[],error:null}).then(yes,no)};
  const Component=loadTsModule("app/booking/page.tsx",{
   "next/link":({children,href})=>createElement("a",{href},children),"next/image":({src,alt})=>createElement("img",{src,alt}),
@@ -26,6 +26,7 @@ test("customer calendar distinguishes maintenance closures from fully booked dat
   const maintenance=c.querySelector('[aria-label="'+month+'-05: Closed for maintenance"]');assert.ok(maintenance);assert.equal(maintenance.disabled,true);assert.ok(maintenance.style.backgroundColor);assert.equal(maintenance.textContent.trim(),"5");assert.equal(maintenance.title,"Closed for maintenance");
   const booked=c.querySelector('[aria-label="'+month+'-06: Fully booked"]');assert.ok(booked);assert.equal(booked.disabled,true);assert.notEqual(booked.style.backgroundColor,maintenance.style.backgroundColor);
   const legend=[...c.querySelectorAll("span")].find(span=>span.textContent==="Closed for maintenance");assert.equal(legend.previousElementSibling.style.backgroundColor,maintenance.style.backgroundColor);
+  const timed=c.querySelector('[aria-label^="'+month+'-08:"]');assert.equal(timed.disabled,false);assert.match(timed.textContent,/Night only/);
   const partial=c.querySelector('[aria-label^="'+month+'-04:"]');assert.equal(partial.disabled,false);assert.match(partial.textContent,/Day only/);
   assert.match(c.textContent,/Closed for maintenance/);
  }finally{await act(async()=>root.unmount());c.remove();globalThis.fetch=saved;}

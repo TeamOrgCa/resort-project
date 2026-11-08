@@ -54,7 +54,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     }
     if (url.includes("/ocular-visits/")) {
       const body = JSON.parse(options.body); calls.push({url,body});
-      data.ocular_visits[0] = {...data.ocular_visits[0],status:url.endsWith("cancel")?"cancelled":url.endsWith("approve")?"confirmed":"rejected",review_reason:body.reviewReason,cancellation_reason:body.cancellationReason};
+      data.ocular_visits[0] = {...data.ocular_visits[0],status:url.endsWith("cancel")?"cancelled":url.endsWith("complete")?"completed":"confirmed",review_reason:body.reviewReason,cancellation_reason:body.cancellationReason};
       return Response.json({success:true,message:"Ocular decision saved.",visit:data.ocular_visits[0]});
     }
     if (url.endsWith("/check-out")) {
@@ -165,11 +165,11 @@ test("search and filters scroll to the full calendar, briefly pulse matching eve
   } finally { await h.close(); window.HTMLElement.prototype.scrollIntoView = original; }
 });
 
-test("admins may inspect and filter the calendar but cannot perform operational actions even with forged grants", async () => {
+test("admins can manage maintenance while other operational actions stay unavailable", async () => {
   const h = await mount({ role: "admin", initialAccess: { role: "admin", permissions: ["reservations", "create_reservation", "edit_reservation", "cancel_reservation", "payment_approval", "ocular_approval"] } });
   try {
     assert.equal(Boolean(button(h.c, "New reservation")), false);
-    assert.equal(Boolean(button(h.c, "Add maintenance block")), false);
+    assert.equal(Boolean(button(h.c, "Add maintenance block")), true);
     await filter(h.c, "arrival");
     assert.match(agenda().textContent, /MV-CONFIRMED/);
     await click([...agenda().querySelectorAll("button")].find(b => b.textContent.includes("MV-CONFIRMED")));
@@ -238,8 +238,10 @@ test("server-verified manager access shows the maintenance action without anothe
     const inputs=dialog.querySelectorAll("input");await input(inputs[0],"Pool maintenance");await input(inputs[1],"Pool repairs");await input(inputs[2],day);await input(inputs[3],tomorrow);
     await act(async()=>dialog.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
     assert.equal(document.querySelector('[role="dialog"]'),null);
-    assert.deepEqual(h.calls,[{url:"/api/admin/maintenance-blocks",body:{name:"Pool maintenance",reason:"Pool repairs",startDate:day,endDate:tomorrow}}]);
-    assert.match(agenda().textContent,/Pool maintenance/);assert.match(h.c.textContent,/Dates blocked and guest alerts created/);
+    assert.deepEqual(h.calls,[{url:"/api/admin/maintenance-blocks",body:{name:"Pool maintenance",reason:"Pool repairs",startDate:day,endDate:tomorrow,startTime:"08:00",endTime:"17:00",allDay:false}}]);
+    assert.match(agenda().textContent,/Pool maintenance/);assert.match(h.c.textContent,/Maintenance period blocked successfully/);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 160)); });
+    assert.ok(agenda().querySelector('[data-calendar-event^="block:"].calendar-match-pulse'));
   }finally{await h.close();}
 });
 test("maintenance conflicts remain visible in the modal and staff cannot see an admin-only action",async()=>{
@@ -248,7 +250,7 @@ test("maintenance conflicts remain visible in the modal and staff cannot see an 
     await click(button(h.c,"Add maintenance block"));const dialog=document.querySelector('[role="dialog"]');const inputs=dialog.querySelectorAll("input");
     for (const [index,next] of ["Pool maintenance","Pool repairs",day,tomorrow].entries()) await input(inputs[index],next);
     await act(async()=>dialog.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
-    assert.match(dialog.querySelector('[role="alert"]').textContent,/active reservation/);assert.ok(button(dialog,"Block dates and alert guests"));
+    assert.match(dialog.querySelector('[role="alert"]').textContent,/active reservation/);assert.ok(button(dialog,"Create maintenance block"));assert.equal(inputs[0].value,"Pool maintenance");assert.equal(inputs[1].value,"Pool repairs");
   }finally{await h.close();}
   const staff=await mount({initialAccess:{role:"staff",permissions:["reservations"]}});
   try{assert.equal(button(staff.c,"Add maintenance block"),undefined);assert.equal(button(staff.c,"New reservation"),undefined);}
@@ -310,19 +312,17 @@ test("checked-in reservations expose checkout only after full settlement and com
   }
 });
 
-test("authorized managers can approve or reject an ocular request in the calendar only with a documented reason", async () => {
-  for (const action of ["Approve", "Reject"]) {
-    const h = await mount({ role:"staff", permissions:["reservations", "ocular_approval"], includeOcular:true });
-    try {
-      await click([...agenda().querySelectorAll("button")].find(el => el.textContent.includes("MV-OCULAR")));
-      const dialog = document.querySelector('[role="dialog"]'); const control = button(dialog, `${action} ocular visit`);
-      assert.ok(control); assert.equal(control.disabled, true);
-      await act(async () => { const text = dialog.querySelector("textarea"); Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value").set.call(text,"Requested date was reviewed"); text.dispatchEvent(new window.Event("input",{bubbles:true})); });
-      await click(control); assert.equal(h.calls[0].url, `/api/admin/ocular-visits/${action.toLowerCase()}`);
-      assert.equal(h.calls[0].body.reviewReason, "Requested date was reviewed"); assert.match(dialog.textContent, /Review reason: Requested date was reviewed/);
-      assert.equal(button(dialog, "Approve ocular visit"), undefined);
-    } finally { await h.close(); }
-  }
+test("ocular visits have no approval controls and authorized staff can record attendance", async () => {
+  const h = await mount({ role:"staff", permissions:["reservations", "ocular_approval"], includeOcular:true, ocularStatus:"confirmed" });
+  try {
+    await click([...agenda().querySelectorAll("button")].find(el => el.textContent.includes("MV-OCULAR")));
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.equal(button(dialog, "Approve ocular visit"), undefined);
+    assert.equal(button(dialog, "Reject ocular visit"), undefined);
+    await click(button(dialog, "Mark as visited"));
+    assert.equal(h.calls[0].url, "/api/admin/ocular-visits/complete");
+    assert.match(dialog.textContent, /guest has visited/);
+  } finally { await h.close(); }
 });
 
 test("only managers can cancel a confirmed ocular visit and the cancellation reason is required and displayed", async () => {

@@ -2,7 +2,7 @@ import type { SettingsMap } from "@/lib/settings/types";
 
 export const DEFAULT_CHATBOT_FAQS: Record<string, string> = {
   "What is included in a private pool booking?": "A private pool booking includes a cottage, two air-conditioned rooms with private toilets, videoke, a griller, free parking and consumable food. Additional rooms and services may have separate charges.",
-  "Is an ocular visit free?": "Yes, ocular visits are free. Open /booking, choose Ocular Visit and select an available date and time. The resort will review your request.",
+  "Is an ocular visit free?": "Yes, ocular visits are free. Open /booking, choose Ocular Visit and select an available date and time. Available ocular visits are confirmed automatically.",
   "Can we bring food and drinks?": "You may bring food and drinks. The listed corkage fee is PHP 200. Contact resort staff to confirm arrangements for your visit.",
 };
 export const chatbotSettingDefaults = { "chatbot.faqs": DEFAULT_CHATBOT_FAQS, "chatbot.facebook_chat_url": "" };

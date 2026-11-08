@@ -67,6 +67,12 @@ before(async()=>{db=new PGlite();await db.exec(`
  await db.exec(schema.slice(start,end));
  await db.exec("create trigger trigger_create_receipt after update of status on payments for each row execute function public.create_receipt_on_payment()");
  await db.exec(migration);await db.exec(migration);
+ await db.exec("create schema storage;create table storage.objects(bucket_id text,name text)");
+ await db.query("insert into storage.objects values('payment-proofs',$1)",[guest+'/proof.png']);
+ const manualMigration=readFileSync("docs/ocr-toggle-manual-review-migration.sql","utf8");
+ await db.exec(manualMigration);await db.exec(manualMigration);
+ const betaMigration=readFileSync("docs/ocr-beta-receipt-reuse-migration.sql","utf8");
+ await db.exec(betaMigration);await db.exec(betaMigration);
 });
 after(async()=>db?.close());
 beforeEach(async()=>{
@@ -129,4 +135,48 @@ test("manual staff approval still works for historical receipts without an autom
  await actor(cashier,'authenticated');await db.exec("update payments set status='verified'");
  const payment=await one("select * from payments");assert.equal(payment.verified_by,cashier);assert.equal(payment.auto_approved,false);
  assert.equal((await one("select details from audit_logs")).details.approval_source,'staff');
+});
+
+const submitManual=(overrides={})=>one("select public.submit_unscreened_gcash_payment($1::jsonb) result",[JSON.stringify(payload({guest_id:guest,ocr_status:'skipped',receipt_paid_at:null,ocr_checked_at:null,...overrides}))]).then(row=>row.result);
+test("disabled OCR submits pending evidence without confirmation, credit or a receipt",async()=>{
+ const result=await submitManual();assert.equal(result.status,'pending');assert.equal(result.auto_approved,false);assert.equal(result.reservation_status,'payment_submitted');
+ assert.equal(Number(result.paid_amount),0);assert.equal(Number(result.remaining_balance),3000);
+ const payment=await one("select * from payments");assert.equal(payment.ocr_status,'not_applicable');assert.equal(payment.ocr_checked_at,null);assert.equal(payment.receipt_paid_at,null);
+ assert.equal((await one("select count(*)::int n from receipts")).n,0);
+ assert.equal((await one("select details from audit_logs")).details.ocr_skipped,true);
+ await assert.rejects(submitManual({reference_number:'9999999999999'}),code('40001'));
+});
+test("manual submission preserves ownership, deadline, amount and RPC access checks",async()=>{
+ await actor(guest,'authenticated');await assert.rejects(submitManual(),code('42501'));await actor();
+ await assert.rejects(submitManual({guest_id:other}),code('42501'));
+ await assert.rejects(submitManual({proof_path:other+'/proof.png'}),code('42501'));
+ await assert.rejects(submitManual({amount:599}),code('40001'));
+ await assert.rejects(submitManual({ocr_status:'consistent'}),code('22023'));
+ await db.exec("update reservations set payment_deadline_at=now()-interval '1 minute'");await assert.rejects(submitManual(),code('P0001'));
+ assert.equal((await one("select count(*)::int n from payments")).n,0);
+ assert.equal((await one("select has_function_privilege('authenticated','public.submit_unscreened_gcash_payment(jsonb)','execute') allowed")).allowed,false);
+});
+
+const submitBeta=(overrides={})=>one("select public.submit_beta_gcash_payment($1::jsonb) result",[JSON.stringify(payload({guest_id:guest,receipt_paid_at:'2020-01-01T09:00:00+08:00',...overrides}))]).then(row=>row.result);
+test("beta workflow reuses an old receipt across reservations without weakening normal unique references",async()=>{
+ const first=await submitBeta();assert.equal(first.is_beta_test,true);assert.equal(first.status,'verified');
+ const secondReservation='88888888-8888-4888-8888-888888888888';
+ await db.query("insert into reservations(reservation_id,guest_id,reference_number,status,payment_deadline_at) values($1,$2,'MV-BETA-2','pending',now()+interval '30 minutes')",[secondReservation,guest]);
+ await db.query("insert into transactions(reservation_id,total_amount) values($1,3000)",[secondReservation]);
+ await submitBeta({reservation_id:secondReservation});
+ const rows=(await db.query("select reference_number,beta_receipt_reference,is_beta_test,receipt_paid_at from payments")).rows;
+ assert.equal(rows.length,2);assert.notEqual(rows[0].reference_number,rows[1].reference_number);
+ for(const row of rows){assert.equal(row.beta_receipt_reference,'1234567890123');assert.equal(row.is_beta_test,true);assert.equal(row.receipt_paid_at.toISOString(),'2020-01-01T01:00:00.000Z');}
+ assert.equal((await one("select count(*)::int n from audit_logs where action='Approved beta test payment'")).n,2);
+ await assert.rejects(submit({payment_type:'full',amount:2400,receipt_paid_at:'2020-01-01T09:00:00+08:00'}),code('22023'));
+});
+test("beta workflow cannot be selected by guests, forge markers, ignore amounts, or leak its date bypass",async()=>{
+ await actor(guest,'authenticated');await assert.rejects(submitBeta(),code('42501'));await actor();
+ await assert.rejects(submitBeta({guest_id:other}),code('22023'));
+ await assert.rejects(submitBeta({amount:599}),code('40001'));
+ await assert.rejects(submitBeta({ocr_status:'mismatch'}),code('22023'));
+ await assert.rejects(submit({receipt_paid_at:'2020-01-01T09:00:00+08:00'}),code('22023'));
+ assert.equal((await one("select count(*)::int n from payments")).n,0);
+ await assert.rejects(db.query("insert into payments(reservation_id,amount,status,payment_type,payment_method_id,reference_number,ocr_status,is_beta_test) values($1,600,'pending','downpayment',$2,'1234567890123','consistent',true)",[reservation,method]),code('42501'));
+ assert.equal((await one("select has_function_privilege('authenticated','public.submit_beta_gcash_payment(jsonb)','execute') allowed")).allowed,false);
 });

@@ -237,22 +237,16 @@ test("managers can cancel a confirmed ocular visit from Records only after docum
   let submitted;
   const h = await mount({ filename: "app/admin/(portal)/records/page.tsx", params: "?tab=ocular", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } }, fetcher: (_url, options) => {
     submitted = JSON.parse(options.body); tables.ocular_visits[0].status = "cancelled"; tables.ocular_visits[0].cancellation_reason = submitted.cancellationReason;
-    return Response.json({ success: true, message: "Ocular visit cancelled." });
+    return Response.json({ success: true, message: "Ocular visit cancelled.", visit: tables.ocular_visits[0] });
   } });
   try {
-    await click(h.container.querySelector('button[aria-haspopup="menu"]'));
-    const menu = document.querySelector('[role="menu"]');
-    assert.equal(button(menu, "Approve").disabled, true);
-    await click(button(menu, "Cancel visit"));
+    await act(async () => h.container.querySelector("tbody tr td").click());
     const dialog = document.querySelector('[role="dialog"]');
-    assert.equal(button(dialog, "Confirm cancellation").disabled, true);
-    await act(async () => {
-      const reason = dialog.querySelector("textarea");
-      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(reason, "Maintenance requires closing the resort");
-      reason.dispatchEvent(new window.Event("input", { bubbles: true }));
-    });
-    await click(button(dialog, "Confirm cancellation"));
-    assert.equal(submitted.cancellationReason, "Maintenance requires closing the resort");
-    assert.match(h.container.querySelector("tbody").textContent, /Cancelled.*Maintenance requires closing/);
+    assert.ok(dialog); assert.match(dialog.textContent, /Ana Santos/);
+    const cancel = button(dialog, "Cancel ocular visit"); assert.ok(cancel); assert.equal(cancel.disabled, true);
+    await act(async () => { const input = dialog.querySelector("textarea"); Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(input, "Maintenance requires closing the resort"); input.dispatchEvent(new window.Event("input", { bubbles: true })); });
+    await click(cancel);
+    assert.equal(submitted.visitId, "visit"); assert.match(submitted.cancellationReason, /Maintenance/);
+    assert.match(dialog.textContent, /Ocular visit cancelled/);
   } finally { await h.close(); }
 });

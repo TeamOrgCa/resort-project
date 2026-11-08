@@ -125,7 +125,7 @@ test("a consistent status alone cannot bypass required extracted fields", () => 
 const guestId = "11111111-1111-4111-8111-111111111111";
 const reservationId = "22222222-2222-4222-8222-222222222222";
 const paymentBody = { reservationId, payment: { paymentMethodId: "gcash", type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guestId}/proof.png` } };
-function paymentHarness({ authenticated = true, owner = guestId, method = "GCash", paid = 0, total = 5000, pending = false, ocrStatus = "consistent", proofMissing = false, accountMissing = false, insertError = null } = {}) {
+function paymentHarness({ beta = false, authenticated = true, owner = guestId, method = "GCash", paid = 0, total = 5000, pending = false, ocrStatus = "consistent", proofMissing = false, accountMissing = false, insertError = null } = {}) {
   const inserted = [], inspected = [];
   const client = { auth: { getUser: async () => ({ data: { user: authenticated ? { id: guestId } : null }, error: null }) },
     from: table => {
@@ -141,12 +141,12 @@ function paymentHarness({ authenticated = true, owner = guestId, method = "GCash
   const route = loadTsModule("app/api/reservations/payment/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, { p_payment: row }) => {
-      assert.equal(name, "submit_consistent_gcash_payment"); inserted.push(row);
-      return { data: insertError ? null : { payment_id: "new", status: "verified", ocr_status: row.ocr_status, auto_approved: true,
-        paid_amount: paid + row.amount, remaining_balance: Math.max(total - paid - row.amount, 0), overpaid_amount: Math.max(paid + row.amount - total, 0), reservation_status: "confirmed" }, error: insertError };
+      assert.equal(name, ocrStatus === "skipped" ? "submit_unscreened_gcash_payment" : beta ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment"); inserted.push(row);
+      return { data: insertError ? null : { payment_id: "new", is_beta_test: beta, status: ocrStatus === "skipped" ? "pending" : "verified", ocr_status: ocrStatus === "skipped" ? "not_applicable" : row.ocr_status, auto_approved: ocrStatus !== "skipped",
+        paid_amount: paid + (ocrStatus === "skipped" ? 0 : row.amount), remaining_balance: Math.max(total - paid - (ocrStatus === "skipped" ? 0 : row.amount), 0), overpaid_amount: Math.max(paid + (ocrStatus === "skipped" ? 0 : row.amount) - total, 0), reservation_status: ocrStatus === "skipped" && !paid ? "payment_submitted" : "confirmed" }, error: insertError };
     } }) },
     "@/lib/server/ocr-payment-emails": { sendOcrPaymentEmails: async () => {} },
-    "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return proofMissing ? null : { status: ocrStatus, notes: "Receipt checked", amount: input.amount, reference: input.reference, paidAt: "2026-10-13T01:15:00.000Z" }; } },
+    "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return proofMissing ? null : { status: ocrStatus, betaTest: beta, notes: "Receipt checked", amount: input.amount, reference: input.reference, paidAt: ocrStatus === "skipped" ? undefined : "2026-10-13T01:15:00.000Z" }; } },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { payment: [] } },
   });
   return { post: body => route.POST(new Request("http://localhost/api/reservations/payment", { method: "POST", body: JSON.stringify(body) })), inserted, inspected };
@@ -210,4 +210,28 @@ test("reference reuse and a concurrently changed bill return a conflict", async 
   for (const code of ["23505", "40001"]) {
     const h = paymentHarness({ insertError: { code, message: "Conflict" } }); assert.equal((await h.post(paymentBody)).status, 409);
   }
+});
+
+test("later payments use manual review when OCR is disabled and preserve the current verified balance", async () => {
+  const h = paymentHarness({ ocrStatus: "skipped" }); const response = await h.post(paymentBody);
+  assert.equal(response.status, 201); const result = await response.json();
+  assert.equal(result.payment.status, "pending"); assert.equal(result.payment.autoApproved, false);
+  assert.equal(result.reservation.paidAmount, 0); assert.equal(result.reservation.remainingBalance, 5000);
+  assert.equal(h.inserted[0].ocr_checked_at, null); assert.equal(h.inserted[0].receipt_paid_at, null);
+});
+
+test("beta comparison toggle accepts an extracted old receipt but still enforces amount, recipient, status and readable fields", () => {
+ const old=receipt.replace('Oct 13, 2026','Oct 13, 2020');
+ const beta={...expected,reference:'9999999999999',skipReferenceAndDateChecks:true};
+ const result=assessGcashText(old,beta);assert.equal(result.status,'consistent');assert.equal(result.reference,'1234567890123');assert.equal(result.paidAt,'2020-10-13T01:15:00.000Z');
+ assert.equal(assessGcashText(old,{...beta,skipReferenceAndDateChecks:false}).status,'mismatch');
+ assert.equal(assessGcashText(old,{...beta,amount:1501}).status,'mismatch');
+ assert.notEqual(assessGcashText(old,{...beta,recipientNumber:'09999999999'}).status,'consistent');
+ assert.equal(assessGcashText(old.replace('Payment sent successfully','Payment failed'),beta).status,'mismatch');
+ assert.equal(assessGcashText(old.replace('Reference Number: 1234567890123',''),beta).status,'unreadable');
+ assert.equal(assessGcashText(old.replace('Oct 13, 2020 09:15 AM',''),beta).status,'unreadable');
+});
+
+test("later payments choose the beta RPC only for a server-marked OCR result",async()=>{
+ const h=paymentHarness({beta:true});const response=await h.post(paymentBody);assert.equal(response.status,201);assert.equal((await response.json()).payment.betaTest,true);
 });

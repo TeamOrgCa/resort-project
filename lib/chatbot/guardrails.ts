@@ -193,7 +193,7 @@ export function getBookingGuidance(message: string, rates: PackageRates | null =
   }
 
   if (/\b(ocular|tour|visit the resort|view the resort)\b/.test(lower)) {
-    return "Ocular visits are free. Open /booking, choose Ocular Visit, then select a date and an available visit time. The resort will review your request; you can also call 09172796592 or 82360633 for help.";
+    return "Ocular visits are free. Open /booking, choose Ocular Visit, then select a date and an available visit time. Available ocular visits are confirmed automatically; you can also call 09172796592 or 82360633 for help.";
   }
 
   return null;

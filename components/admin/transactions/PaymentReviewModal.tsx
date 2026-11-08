@@ -103,7 +103,7 @@ export default function PaymentReviewModal({
                 ["Status", titleCase(payment.status)],
                 ["OCR screen", titleCase(payment.ocr_status)],
                 ["OCR notes", payment.ocr_notes || "None"],
-              ].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="font-medium text-neutral">{value}</dd></div>)}
+              ].map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-neutral/60">{label}</dt><dd className={`mt-1 font-medium text-neutral ${["Amount", "Status", "OCR screen", "Payment type"].includes(label) ? "ui-nowrap max-w-full overflow-x-auto" : "break-words"}`}>{value}</dd></div>)}
             </dl>
 
             {actionError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}

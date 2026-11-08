@@ -86,7 +86,7 @@ export default function ReservationPaymentReview({ reservationId, reference, onR
     {loadError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{loadError}<button type="button" onClick={refresh} className="ml-2 min-h-11 underline">Retry payments</button></p>}
     {!loading && !loadError && !payments.length && <p className="text-sm text-neutral/60">No payments awaiting review for this reservation.</p>}
     {!loading && !loadError && !selected && payments.map(payment => <div key={payment.payment_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-3 text-sm">
-      <div className="min-w-0"><p className="break-all font-medium text-neutral">{payment.reference_number}</p><p className="mt-1 text-neutral/65">{money(Number(payment.amount))} - {payment.payment_type.replaceAll("_", " ")}</p></div>
+      <div className="min-w-0"><p className="ui-reference font-medium text-neutral">{payment.reference_number}</p><p className="mt-1 text-neutral/65">{money(Number(payment.amount))} - {payment.payment_type.replaceAll("_", " ")}</p></div>
       <button type="button" onClick={() => { setSelected(payment); setProof(null); setDecision(null); setReviewed(false); setError(null); setMessage(null); }} className="min-h-11 rounded-xl border border-primary/30 px-4 py-2 font-semibold text-primary">Review payment</button>
     </div>)}
     {selected && <PaymentReviewModal key={selected.payment_id} embedded payment={selected} reservationReference={reference}

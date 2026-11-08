@@ -12,5 +12,5 @@ export default function AdminStatusBadge({ status }: { status: string }) {
     : /^(pending|partial|partially paid|unpaid|payment submitted|pending refund|reviewed|awaiting.*)$/.test(normalized) ? "pending"
     : /^(rejected|failed|error|cancelled|canceled)$/.test(normalized) ? "negative"
     : /^(refunded|payout submitted|rescheduled)$/.test(normalized) ? "information" : "neutral";
-  return <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${tones[tone]}`}><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />{status}</span>;
+  return <span className={`status-badge inline-flex w-fit shrink-0 items-center justify-center whitespace-nowrap gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${tones[tone]}`}><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />{status}</span>;
 }
