@@ -207,3 +207,45 @@ main, fieldset { min-width: 0; }
   .calendar-match-pulse { animation: none; outline: 3px solid #0f172a; outline-offset: 2px; }
   .calendar-new-dot { animation: none; box-shadow: 0 0 4px 2px #38bdf8; }
 }
+/* Keep booking fields, receipt uploads and summaries inside narrow screens. */
+.booking-flow :is(.grid, .grid > *, fieldset, form) {
+  min-width: 0;
+}
+
+.booking-flow :is(input, select, textarea) {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.booking-flow input[type="file"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.booking-flow .booking-summary .flex.justify-between {
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+
+.booking-flow .booking-summary .flex.justify-between > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.booking-flow .booking-summary .flex.justify-between > :last-child {
+  margin-left: auto;
+  max-width: 100%;
+  text-align: right;
+}
+
+.booking-flow :is(p, label) {
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 639px) {
+  .booking-flow label:has(input[type="checkbox"]) {
+    min-height: 44px;
+    padding-block: 0.5rem;
+  }
+}
