@@ -466,14 +466,14 @@ export const sendOcularVisitScheduledEmail = async ({
   const text = [
     `Hi ${guestName || "Guest"},`,
     "",
-    "Your ocular visit request has been successfully submitted.",
+    "Your ocular visit has been confirmed.",
     "",
     `Reference Number: ${referenceNumber}`,
     `Visit Date: ${formattedDate}`,
     `Time Slot: ${formattedTimeSlot}`,
     "",
-    "Your request is currently pending confirmation.",
-    "We will notify you once it has been reviewed.",
+    "Your selected date and time slot are reserved.",
+    "No staff approval is required.",
     "",
     `Thank you for choosing ${appName}.`,
   ].join("\n");
@@ -489,7 +489,7 @@ export const sendOcularVisitScheduledEmail = async ({
       </p>
 
       <p style="margin: 0 0 16px;">
-        Your ocular visit request has been successfully submitted and is currently pending confirmation.
+        Your ocular visit is confirmed. We look forward to welcoming you.
       </p>
 
       <table style="border-collapse: collapse; width: 100%; max-width: 420px;">
@@ -510,12 +510,12 @@ export const sendOcularVisitScheduledEmail = async ({
 
         <tr>
           <td style="padding: 8px 0; font-weight: 600;">Status</td>
-          <td style="padding: 8px 0;">Pending Confirmation</td>
+          <td style="padding: 8px 0;">Confirmed</td>
         </tr>
       </table>
 
       <p style="margin: 16px 0 0;">
-        We will notify you once your ocular visit has been reviewed and confirmed.
+        Please arrive at your scheduled time.
       </p>
 
       <p style="margin: 16px 0 0;">

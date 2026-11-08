@@ -45,6 +45,25 @@ test("record tables paginate by default, preserve all matching export rows, and 
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
 
+test("row clicks and keyboard open details while large checkbox labels and portaled menus remain independent", async () => {
+  const Table = loadTsModule("components/admin/AdminTablePreview.tsx").default;
+  const c = document.createElement("div"); document.body.append(c); const root = createRoot(c);
+  const opened = [], selected = [];
+  try {
+    await act(async () => root.render(createElement(Table, { title: "Records", columns: [{ key: "name", label: "Name" }],
+      rows: [{ id: "1", name: "Maria" }], selectableRows: true, rowActions: ["View", "Edit"],
+      onRowAction: (action, row) => opened.push([action, row.id]), onSelectedRowIdsChange: ids => selected.push(ids) })));
+    const row = c.querySelector("tbody tr");
+    await act(async () => row.querySelector('[data-label="Name"]').click()); assert.deepEqual(opened, [["View", "1"]]);
+    await act(async () => row.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    assert.equal(opened.length, 2);
+    await act(async () => row.querySelector("label").click()); assert.deepEqual(selected, [["1"]]); assert.equal(opened.length, 2);
+    await click(row.querySelector('[aria-haspopup="menu"]')); assert.equal(opened.length, 2);
+    await click(button(document.querySelector('[role="menu"]'), "Edit"));
+    assert.deepEqual(opened, [["View", "1"], ["View", "1"], ["Edit", "1"]]);
+  } finally { await act(async () => root.unmount()); c.remove(); }
+});
+
 test("staff accounts load beyond PostgREST's first page so pagination and search include older users", async () => {
   const { client, calls } = dashboardDatabase({ staff_users: Array.from({ length: 1003 }, (_, i) => ({ id: `staff-${i}`, full_name: `Staff ${i}`, created_at: "2026-01-01" })) });
   const { GET } = loadTsModule("app/api/admin/users/route.ts", {

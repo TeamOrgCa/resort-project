@@ -40,7 +40,7 @@ export default function GuestReservationHistory({ guestId, name, email, onClose 
             <p className="text-sm font-medium">{result.total} {result.total === 1 ? "reservation" : "reservations"}</p>
             {!result.rows.length && <p className="rounded-xl bg-base p-5 text-sm text-neutral/65">{page === 0 ? "This guest has no booking or reservation records yet." : "There are no reservations on this page. Go back to the previous page or refresh the history."}</p>}
             {result.rows.map(row => <article key={row.id} aria-label={`Reservation ${row.reference}`} className="min-w-0 rounded-xl border border-neutral/15 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="break-all text-sm font-semibold text-primary">{row.reference}</h3><AdminStatusBadge status={title(row.status)} /></div>
+              <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="ui-reference text-sm font-semibold text-primary">{row.reference}</h3><AdminStatusBadge status={title(row.status)} /></div>
               <dl className="mt-4 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
                 <div><dt className="text-xs text-neutral/60">Scheduled check-in</dt><dd className="mt-1">{dateTime(row.startDatetime)}</dd></div>
                 <div><dt className="text-xs text-neutral/60">Scheduled check-out</dt><dd className="mt-1">{dateTime(row.endDatetime)}</dd></div>

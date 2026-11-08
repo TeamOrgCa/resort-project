@@ -1,3 +1,4 @@
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOcularSlots } from "@/repositories/catalogRepository";
@@ -36,24 +37,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: BOOKING_LEAD_MESSAGE }, { status: 400 });
     }
 
-    const { data: conflicts, error: conflictError } = await supabase.from("ocular_visits")
-      .select("visit_id, guest_id")
-      .eq("scheduled_date", scheduledDate).eq("time_slot_id", timeSlotId)
-      .in("status", ["pending", "confirmed"]).neq("visit_id", visitId);
-    if (conflictError) return NextResponse.json({ success: false, message: "Could not check availability." }, { status: 500 });
-    if ((conflicts ?? []).length >= slot.max_capacity) {
-      return NextResponse.json({ success: false, message: "This time slot is full." }, { status: 409 });
-    }
-    const { data: sameDay, error: sameDayError } = await supabase.from("ocular_visits")
-      .select("visit_id").eq("guest_id", user.id).eq("scheduled_date", scheduledDate)
-      .in("status", ["pending", "confirmed"]).neq("visit_id", visitId).limit(1);
-    if (sameDayError) return NextResponse.json({ success: false, message: "Could not check your visits." }, { status: 500 });
-    if (sameDay?.length) return NextResponse.json({ success: false, message: "You already have a visit on this date." }, { status: 409 });
-
-    const { error: updateError } = await supabase.from("ocular_visits")
-      .update({ scheduled_date: scheduledDate, time_slot_id: timeSlotId })
-      .eq("visit_id", visitId).eq("guest_id", user.id).in("status", ["pending", "confirmed"]);
-    if (updateError) return NextResponse.json({ success: false, message: "Could not update this ocular visit." }, { status: 500 });
+    const { error: updateError } = await createAdminClient().rpc("save_confirmed_ocular_visit", {
+      p_guest: user.id, p_date: scheduledDate, p_slot: timeSlotId, p_reference: null, p_visit: visitId,
+    });
+    if (updateError) return NextResponse.json({ success: false, message: updateError.message }, { status: ["23P01", "23505", "40001"].includes(updateError.code) ? 409 : 400 });
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ success: false, message: "Could not update this ocular visit." }, { status: 500 });

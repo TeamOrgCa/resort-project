@@ -68,13 +68,13 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
                   Invoice ID: <span className="font-semibold text-neutral">{invoiceDetails.invoice.invoice_id}</span>
                 </p>
                 <p>
-                  Created At: <span className="font-semibold text-neutral">{formatDateTime(invoiceDetails.invoice.created_at)}</span>
+                  Created At: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatDateTime(invoiceDetails.invoice.created_at)}</span>
                 </p>
                 <p>
                   Reservation Ref: <span className="font-semibold text-neutral">{invoiceDetails.reservation?.reference_number ?? "-"}</span>
                 </p>
                 <p>
-                  Invoice Amount: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.invoice.total_amount ?? 0))}</span>
+                  Invoice Amount: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.invoice.total_amount ?? 0))}</span>
                 </p>
               </div>
             </section>
@@ -83,10 +83,10 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
               <h4 className="text-sm font-semibold text-neutral">Reservation Context</h4>
               <div className="mt-3 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
                 <p>
-                  Booking Type: <span className="font-semibold text-neutral">{toTitleCase(invoiceDetails.reservation?.booking_type ?? "online")}</span>
+                  Booking Type: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{toTitleCase(invoiceDetails.reservation?.booking_type ?? "online")}</span>
                 </p>
                 <p>
-                  Reservation Status: <span className="font-semibold text-neutral">{toTitleCase(invoiceDetails.reservation?.status ?? "pending")}</span>
+                  Reservation Status: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{toTitleCase(invoiceDetails.reservation?.status ?? "pending")}</span>
                 </p>
                 <p>
                   Check-in: <span className="font-semibold text-neutral">{invoiceDetails.reservation ? formatDate(invoiceDetails.reservation.start_datetime) : "-"}</span>
@@ -101,16 +101,16 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
               <h4 className="text-sm font-semibold text-neutral">Transaction Summary</h4>
               <div className="mt-3 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
                 <p>
-                  Total: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.total_amount ?? 0))}</span>
+                  Total: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.total_amount ?? 0))}</span>
                 </p>
                 <p>
-                  Paid: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.paid_amount ?? 0))}</span>
+                  Paid: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.paid_amount ?? 0))}</span>
                 </p>
                 <p>
-                  Balance: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.balance ?? 0))}</span>
+                  Balance: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.balance ?? 0))}</span>
                 </p>
                 <p>
-                  Status: <span className="font-semibold text-neutral">{toTitleCase(invoiceDetails.transaction?.status ?? "unpaid")}</span>
+                  Status: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{toTitleCase(invoiceDetails.transaction?.status ?? "unpaid")}</span>
                 </p>
               </div>
             </section>
@@ -136,7 +136,7 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
                     </div>
                   )}
                   <p className="mt-2 text-sm text-neutral/80">
-                    Units Subtotal: <span className="font-semibold text-neutral">{formatCurrency(invoiceDetails.unitsSubtotal)}</span>
+                    Units Subtotal: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(invoiceDetails.unitsSubtotal)}</span>
                   </p>
                 </div>
 
@@ -154,14 +154,14 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
                     </div>
                   )}
                   <p className="mt-2 text-sm text-neutral/80">
-                    Services Subtotal: <span className="font-semibold text-neutral">{formatCurrency(invoiceDetails.servicesSubtotal)}</span>
+                    Services Subtotal: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(invoiceDetails.servicesSubtotal)}</span>
                   </p>
                 </div>
 
                 <div className="rounded-xl bg-base px-3 py-2 text-sm text-neutral/80">
-                  Computed Total: <span className="font-semibold text-neutral">{formatCurrency(invoiceDetails.computedTotal)}</span>
+                  Computed Total: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(invoiceDetails.computedTotal)}</span>
                   <span className="mx-2">•</span>
-                  Transaction Total: <span className="font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.total_amount ?? 0))}</span>
+                  Transaction Total: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.total_amount ?? 0))}</span>
                 </div>
               </div>
             </section>

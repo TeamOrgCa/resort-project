@@ -19,6 +19,25 @@ async function mount(Component, props) {
   return { container, root, close: async () => { await act(async () => root.unmount()); container.remove(); } };
 }
 
+test("real service images retain an explicit display area without generated sizing utilities", async () => {
+  const Card = loadTsModule("components/booking/ServiceSelectionCard.tsx").default;
+  const ui = await mount(Card, { service: { id: "1", name: "Mattress", description: "Fresh linen", price: 500, imageUrl: "https://images.example.com/mattress.jpg" }, selected: false, onToggle: () => {} });
+  try {
+    const preview = ui.container.querySelector('[aria-label="View Mattress photo"]');
+    const image = preview.querySelector("img");
+    assert.match(preview.style.height, /clamp\(/);
+    assert.equal(preview.style.width, "100%");
+    assert.equal(image.getAttribute("src"), "https://images.example.com/mattress.jpg");
+    assert.notEqual(image.style.position, "absolute", "the photo must contribute to normal image layout");
+    assert.equal(image.style.display, "block");
+    assert.equal(image.style.width, "100%");
+    assert.equal(image.style.height, "100%");
+    assert.equal(image.style.objectFit, "cover");
+    assert.equal(image.getAttribute("width"), "960");
+    assert.equal(image.getAttribute("height"), "640");
+  } finally { await ui.close(); }
+});
+
 test("service cards show descriptions and prices, support checkbox selection, and fall back when a photo fails", async () => {
   const Card = loadTsModule("components/booking/ServiceSelectionCard.tsx", mocks).default;
   const service = { id: "1", name: "Extra mattress", description: "Fresh bedding included", price: 500, imageUrl: "https://images.example.com/mattress.jpg" };

@@ -6,6 +6,7 @@ import { MAX_GUESTS } from "@/lib/booking/guest-count";
 import { moveReservationToDate, previewReservationEdit, validateEditWindow, type EditDetail, type ReservationEdit } from "@/lib/booking/reservation-edit";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
 import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
+import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { manilaDateKey, manilaDateTimeLocal } from "@/lib/booking/manila-date";
 import { reschedulePolicy, RESCHEDULE_POLICY_TEXT, RESCHEDULE_FEE_TEXT } from "@/lib/booking/reschedule-charge-policy";
@@ -95,8 +96,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
         if (!validation.valid) return validation.message ?? "Choose a valid schedule.";
       }
       if (!isWindowAvailable(start, end, availability.reservations)) return "Already reserved for this package or time slot.";
-      const startDay = manilaDateKey(start), endDay = manilaDateKey(new Date(Date.parse(end) - 1));
-      if (availability.blockedDates.some(block => block.start_date <= endDay && block.end_date >= startDay)) return "Closed for maintenance.";
+      if (availability.blockedDates.some(block => maintenanceOverlaps(start, end, block))) return "Closed for maintenance.";
       return null;
     } catch { return "Complete the arrival and departure times."; }
   }

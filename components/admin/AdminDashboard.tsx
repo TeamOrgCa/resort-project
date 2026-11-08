@@ -78,7 +78,7 @@ export default function AdminDashboard() {
   const queueItems = dashboard ? [
     { title: "Payment proofs", count: dashboard.queues.payments, help: "Awaiting verification", href: "/admin/transactions?tab=payments", permission: "transactions" as const },
     { title: "Reschedule requests", count: dashboard.queues.reschedules, help: "Awaiting a decision", href: "/admin/records?tab=reschedules", permission: "records" as const },
-    { title: "Ocular visit requests", count: dashboard.queues.ocular, help: "Awaiting confirmation", href: "/admin/records?tab=ocular", permission: "records" as const },
+    { title: "Scheduled ocular visits", count: dashboard.queues.ocular, help: "Confirmed visitors", href: "/admin/records?tab=ocular", permission: "records" as const },
     { title: "Refund reviews", count: dashboard.queues.refundReview, help: "Awaiting a decision", href: "/admin/transactions?tab=refunds", permission: "transactions" as const },
     { title: "Refund payouts", count: dashboard.queues.refundPayout, help: "Awaiting transfer or verification", href: "/admin/transactions?tab=refunds", permission: "transactions" as const },
   ].filter(item => can(item.permission)) : [];
@@ -106,7 +106,7 @@ export default function AdminDashboard() {
             { label: "Scheduled now", value: dashboard.scheduledNow.toLocaleString("en-PH"), help: "Confirmed bookings within their stay times; not a check-in attendance count." },
             { label: "Collections today", value: money(dashboard.collectionsToday), help: `${dashboard.verifiedToday} verified payments. Money received before refunds.` },
             { label: "Bookings created", value: dashboard.bookingsCreated.toLocaleString("en-PH"), help: "Last 7 days, including today. All reservation statuses." },
-          ].map(item => <article key={item.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-sm font-medium text-neutral/65">{item.label}</p><p className="mt-2 break-words text-3xl font-semibold tracking-tight">{item.value}</p><p className="mt-2 text-xs leading-relaxed text-neutral/60">{item.help}</p></article>)}
+          ].map(item => <article key={item.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-sm font-medium text-neutral/65">{item.label}</p><p className="metric-value mt-2 text-xl sm:text-3xl font-semibold tracking-tight">{item.value}</p><p className="mt-2 text-xs leading-relaxed text-neutral/60">{item.help}</p></article>)}
         </div>
       </section>
 

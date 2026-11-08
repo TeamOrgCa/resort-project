@@ -817,9 +817,9 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 const closed = isClosedReservation(record.status), reviewing = record.status.toLowerCase() === "payment submitted";
                 return <article key={record.id} aria-label={`Booking ${record.reference}`} className="overflow-hidden rounded-2xl border border-neutral/10 transition hover:border-primary/25 hover:shadow-sm">
                   <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
-                    <div className="min-w-0"><p className="break-all text-black font-semibold text-neutral">{record.reference}</p>
+                    <div className="min-w-0"><p className="ui-reference text-black font-semibold text-neutral">{record.reference}</p>
                       <p className="mt-1 flex items-center gap-2 text-xs text-neutral/60"><span className="capitalize">{record.bookingMode?.replace(/_/g, " ") || "Reservation"}</span><span aria-hidden="true">&middot;</span><ManageIcon name="guests" className="h-4 w-4" />{record.guests} guests</p>
-                      <span className={`mt-3 inline-block rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{bookingStatus(record)}</span>
+                      <span className={`status-badge mt-3 rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{bookingStatus(record)}</span>
                     </div>
                     <RecordActionsMenu reference={record.reference} actions={[
                       { label: "View", icon: "view", explanation: "Details, payment and refund updates", onSelect: () => openBookingRecord(record, "view") },
@@ -844,7 +844,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               {activeTab === "ocular" && visibleOcular.map(record => {
                 const closed = isClosedReservation(record.status);
                 return <article key={record.id} aria-label={`Ocular visit ${record.reference}`} className="rounded-2xl border border-neutral/10 p-4 transition hover:border-primary/25 hover:shadow-sm sm:p-5">
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-all font-semibold text-neutral">{record.reference}</p><span className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{record.status}</span></div>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="ui-reference font-semibold text-neutral">{record.reference}</p><span className={`status-badge mt-2 rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{record.status}</span></div>
                     <RecordActionsMenu reference={record.reference} actions={[
                       { label: "View", icon: "view", explanation: "Visit schedule and status", onSelect: () => openOcularRecord(record, "view") },
                       { label: "Edit visit", icon: "edit", disabled: closed, explanation: closed ? "This visit is closed" : "Change the date or time slot", onSelect: () => openOcularRecord(record, "edit") },

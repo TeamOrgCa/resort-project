@@ -48,7 +48,7 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
     fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id, amount, created_at, verified_at")
       .eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`)
       .order("created_at").order("payment_id").range(from, to)),
-    count("payments", "pending"), count("reservation_reschedules", "pending"), count("ocular_visits", "pending"),
+    count("payments", "pending"), count("reservation_reschedules", "pending"), count("ocular_visits", "confirmed"),
     count("refund_requests", ["pending", "reviewed"]), count("refund_requests", ["approved", "payout_submitted"]),
   ]);
 

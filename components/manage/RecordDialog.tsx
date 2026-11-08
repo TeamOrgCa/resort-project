@@ -38,7 +38,7 @@ export default function RecordDialog({ title, reference, busy, onClose, children
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} aria-busy={busy}
       className={`flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl ${variant === "admin" ? "border-neutral/10" : "border-white/60 sm:rounded-3xl"}`}>
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral/10 bg-white px-4 py-3 sm:px-7 sm:py-4">
-        <div className="min-w-0"><p className="break-all text-xs font-semibold uppercase tracking-wide text-primary">{reference}</p><h2 id={titleId} className="mt-1 text-lg font-semibold text-neutral sm:text-xl">{title}</h2></div>
+        <div className="min-w-0"><p className="ui-reference text-xs font-semibold uppercase tracking-wide text-primary">{reference}</p><h2 id={titleId} className="mt-1 text-lg font-semibold text-neutral sm:text-xl">{title}</h2></div>
         <button ref={close} type="button" onClick={() => requestClose(onClose)} disabled={busy} aria-label="Close booking dialog" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-base text-neutral/70 hover:bg-neutral/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-40"><ManageIcon name="close" /></button>
       </header>
       <div ref={formRoot} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onClickCapture={captureClick} onChangeCapture={captureChange} onInputCapture={captureChange} className="min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-6" key={title}><fieldset disabled={busy} className="min-w-0 [overflow-wrap:anywhere]">{children}</fieldset></div>

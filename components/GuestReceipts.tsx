@@ -41,7 +41,7 @@ export default function GuestReceipts({ bookings }: { bookings: Booking[] }) {
     <h3 className="mb-3 text-lg font-semibold">Payment receipts</h3>
     {error && <p role="alert" className="text-sm">{error}</p>}
     <div className="space-y-3">{receipts.map((receipt) => <div key={receipt.receipt_id} className="rounded-lg bg-base p-3 text-sm">
-      <p className="font-semibold">{receipt.receipt_number} · {receipt.reservationReference}</p>
+      <p className="ui-reference font-semibold">{receipt.receipt_number} · {receipt.reservationReference}</p>
       <p>Billed to: {receipt.billed_to_name || "Guest"}</p>
       <p>Amount paid: {new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(receipt.amount_paid ?? 0))}</p>
       <p>Balance after payment: {new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(receipt.balance_after_payment ?? 0))}</p>

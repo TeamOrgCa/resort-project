@@ -268,7 +268,7 @@ function BookingDetailsContent() {
                 {isAlreadySaved && (
                   <div role="status" className="mt-6 rounded-xl border border-secondary/30 bg-secondary/10 p-4 text-sm text-neutral">
                     <p className="font-semibold">{saveSuccess ?? "Your booking is saved. Continue to payment to secure your reservation."}</p>
-                    <p className="mt-2">Booking reference: <span className="break-all font-semibold text-primary">{bookingDraft.reservationReference || "-"}</span></p>
+                    <p className="mt-2">Booking reference: <span className="ui-nowrap font-semibold text-primary">{bookingDraft.reservationReference || "-"}</span></p>
                     {paymentDeadlineAt && <p>Submit payment by {new Date(paymentDeadlineAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} (Manila time).</p>}
                   </div>
                 )}

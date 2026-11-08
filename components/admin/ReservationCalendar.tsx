@@ -18,6 +18,7 @@ import { formatManilaDate, manilaCalendarDate, manilaDateKey } from "@/lib/booki
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { buildBookingWindow } from "@/lib/booking/policy";
 import { isStaffBookingWindowAllowed } from "@/lib/booking/start-time";
+import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { createClient } from "@/lib/supabase/client";
 import { CALENDAR_COLORS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
@@ -61,7 +62,7 @@ type Guest = {
 };
 
 type WalkInGuest = Omit<Guest, "id"> & { walk_in_guest_id: string };
-type MaintenanceBlock = { block_id: string; name: string; reason: string; start_date: string; end_date: string; status: string };
+type MaintenanceBlock = { block_id: string; name: string; reason: string; start_date: string; end_date: string; start_datetime?: string; end_datetime?: string; status: string };
 type EventKind = "booking" | "reservation" | "closed" | "ocular" | "maintenance";
 
 type CalendarEvent = {
@@ -107,7 +108,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [ocularVisits, setOcularVisits] = useState<OcularVisit[]>([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState<MaintenanceBlock[]>([]);
   const [isManager, setIsManager] = useState(initialAccess?.role === "staff");
-  const [canManageMaintenance, setCanManageMaintenance] = useState(initialAccess?.role === "staff" && initiallyAllowed("edit_reservation"));
+  const [canManageMaintenance, setCanManageMaintenance] = useState(initialAccess?.role === "admin" || (initialAccess?.role === "staff" && initiallyAllowed("edit_reservation")));
   const [canCancel, setCanCancel] = useState(initiallyAllowed("cancel_reservation"));
   const [canCreate, setCanCreate] = useState(initiallyAllowed("create_reservation"));
   const [canCheckIn, setCanCheckIn] = useState(initiallyAllowed("edit_reservation"));
@@ -135,6 +136,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [blockReason, setBlockReason] = useState("");
   const [blockStart, setBlockStart] = useState("");
   const [blockEnd, setBlockEnd] = useState("");
+  const [blockStartTime, setBlockStartTime] = useState("08:00");
+  const [blockEndTime, setBlockEndTime] = useState("17:00");
+  const [blockAllDay, setBlockAllDay] = useState(false);
+  const [createdBlockId, setCreatedBlockId] = useState<string | null>(null);
   const [blockBusy, setBlockBusy] = useState(false);
   const [blockMessage, setBlockMessage] = useState<string | null>(null);
   const [blockError, setBlockError] = useState<string | null>(null);
@@ -252,7 +257,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       setIsManager(data?.role === "staff" && data.is_active === true);
       if (data?.role && data.is_active) {
         const { data: grants } = await client.from("role_permissions").select("permissions").eq("role", data.role).maybeSingle();
-        setCanManageMaintenance(data.role === "staff" && hasPermission(data.role, grants?.permissions ?? [], "edit_reservation"));
+        setCanManageMaintenance(data.role === "admin" || (data.role === "staff" && hasPermission(data.role, grants?.permissions ?? [], "edit_reservation")));
         setCanCancel(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "cancel_reservation"));
         setCanCreate(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "create_reservation"));
         setCanCheckIn(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "edit_reservation"));
@@ -269,11 +274,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     setBlockBusy(true); setBlockMessage(null); setBlockError(null);
     try {
       const response = await fetch("/api/admin/maintenance-blocks", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: blockName, reason: blockReason, startDate: blockStart, endDate: blockEnd }) });
+        body: JSON.stringify({ name: blockName, reason: blockReason, startDate: blockStart, endDate: blockEnd, startTime: blockStartTime, endTime: blockEndTime, allDay: blockAllDay }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message ?? "Unable to create block.");
       setBlockMessage(result.message ?? "Dates blocked and guest alerts created.");
+      setCreatedBlockId(result.blockId);
+      setCreationToast("Maintenance period blocked successfully.");
       setShowBlockForm(false);
+      setBlockName(""); setBlockReason("");
       setSearchTerm(""); setAttentionFilter("all");
       setMonth(manilaCalendarDate(blockStart)); setSelectedDay(blockStart);
       setRefreshKey(key => key + 1);
@@ -334,7 +342,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       const events: CalendarEvent[] = [];
       for (let day = new Date(`${block.start_date}T00:00:00Z`); day <= new Date(`${block.end_date}T00:00:00Z`); day = addDaysUtc(day, 1)) {
         events.push({ id: `${block.block_id}:${day.toISOString().slice(0, 10)}`, kind: "maintenance",
-          date: day.toISOString().slice(0, 10), label: block.name, reference: block.reason, status: "blocked" });
+          date: day.toISOString().slice(0, 10), label: `${block.name}${block.start_datetime && block.end_datetime ? ` (${formatTime(block.start_datetime)} - ${formatTime(block.end_datetime)})` : ""}`, reference: block.reason, status: "blocked" });
       }
       return events;
     });
@@ -387,6 +395,12 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     const timer = window.setTimeout(() => setCreationToast(null), 5000);
     return () => window.clearTimeout(timer);
   }, [creationToast]);
+  useEffect(() => {
+    if (!createdBlockId || isLoading || !maintenanceBlocks.some(block => block.block_id === createdBlockId)) return;
+    const scroll = window.setTimeout(() => calendarView.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 100);
+    const finish = window.setTimeout(() => setCreatedBlockId(null), 2600);
+    return () => { window.clearTimeout(scroll); window.clearTimeout(finish); };
+  }, [createdBlockId, isLoading, maintenanceBlocks]);
   const calendarDays = useMemo(() => {
     const start = startOfMonthGrid(month);
     return Array.from({ length: 42 }, (_, index) => addDays(start, index));
@@ -403,8 +417,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         const window = buildBookingWindow({ bookingMode: mode, date: key, wholeDayVariant, packageTimes: packageSchedule?.times });
         if (typeof window.startDatetime !== "string" || typeof window.endDatetime !== "string") return false;
         if (!isStaffBookingWindowAllowed(window.startDatetime, window.endDatetime, now)) return false;
-        const lastDay = manilaDateKey(new Date(new Date(window.endDatetime).getTime() - 1));
-        if (maintenanceBlocks.some((block) => block.status === "active" && block.start_date <= lastDay && block.end_date >= key)) return false;
+        if (maintenanceBlocks.some((block) => block.status === "active" && maintenanceOverlaps(window.startDatetime!, window.endDatetime!, block))) return false;
         return isWindowAvailable(window.startDatetime, window.endDatetime, activeReservations);
       };
       return [key, { day: isAvailable("day"), night: isAvailable("night"), whole: isAvailable("whole_day") || isAvailable("whole_day", "night_to_day") }];
@@ -465,10 +478,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const openMaintenance = () => { if (!canManageMaintenance) return; setBlockError(null); setShowBlockForm(true); };
   const renderEvent = (event: CalendarEvent) => {
     const style = eventStyles[event.kind], reservation = reservations.find(row => row.reservation_id === event.reservationId);
-    return <button key={event.id} type="button" onClick={() => openEvent(event)} style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) ? "calendar-match-pulse" : ""}`}>
+    return <button key={event.id} type="button" onClick={() => openEvent(event)} style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) || (createdBlockId && event.id.startsWith(`${createdBlockId}:`)) ? "calendar-match-pulse" : ""}`}>
       <span className="block text-[10px] font-medium opacity-75">{reservation ? `${formatTime(reservation.start_datetime)} - ${formatTime(reservation.end_datetime)}` : style.label} ? {titleCase(event.status ?? "scheduled")}</span>
       <span className="mt-0.5 block break-words text-xs font-semibold">{event.label}{unviewedDot(event)}</span>
-      <span className="mt-0.5 block break-all text-[10px] opacity-75">{style.label} | {event.reference}</span>
+      <span className="mt-0.5 block whitespace-normal text-[10px] opacity-75">{style.label} | {event.reference}</span>
       {!!event.flags?.length && <span className="mt-1 block text-[10px] font-medium">Needs attention: {event.flags.map(flag => ATTENTION_LABELS[flag]).join(" | ")}</span>}
     </button>;
   };
@@ -498,17 +511,20 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     {isLoading && <div className="mb-4"><LoadingState title="Loading reservation calendar..." description="Fetching bookings, maintenance dates and items needing attention." /></div>}
     {creationToast && <div role="status" className="fixed left-1/2 top-5 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center gap-3 rounded-2xl border border-green-200 bg-white px-4 py-3 text-sm font-semibold text-green-900 shadow-lg">{creationToast}<button type="button" onClick={() => setCreationToast(null)} aria-label="Dismiss reservation success notification" className="ml-auto min-h-11 px-2 text-xl">?</button></div>}
     {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-900">{cancellationMessage}</p>}
+    {blockError && <div role="alert" className="fixed left-1/2 top-5 z-[110] w-[min(90vw,32rem)] -translate-x-1/2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 shadow-xl">{blockError}<button type="button" aria-label="Dismiss maintenance error" onClick={() => setBlockError(null)} className="ml-3 underline">Dismiss</button></div>}
     {blockMessage && <p role="status" className="mb-4 rounded-xl bg-orange-50 p-4 text-sm">{blockMessage}</p>}
     {error && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error} {reservations.length > 0 && "Previously loaded data is shown; flags may be out of date."}<button type="button" onClick={() => setRefreshKey(key => key + 1)} className="ml-2 min-h-11 underline">Retry calendar</button></div>}
     {showBlockForm && <RecordDialog variant="admin" title="Add maintenance block" reference="Resort maintenance" busy={blockBusy} onClose={() => { if (!blockBusy) setShowBlockForm(false); }}>
       <form className="grid gap-4 sm:grid-cols-2" onSubmit={event => { event.preventDefault(); void saveBlock(); }}>
         {blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800 sm:col-span-2">{blockError}</p>}
         <label className="text-sm">Name<input required maxLength={120} value={blockName} onChange={event => setBlockName(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
-        <label className="text-sm">Reason / guest announcement<input required maxLength={2000} value={blockReason} onChange={event => setBlockReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
+        <label className="text-sm">Internal reason (staff only)<input required maxLength={2000} value={blockReason} onChange={event => setBlockReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
         <label className="text-sm">Start date<input required type="date" value={blockStart} onChange={event => setBlockStart(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
         <label className="text-sm">End date<input required type="date" min={blockStart} value={blockEnd} onChange={event => setBlockEnd(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
-        <p className="text-xs text-neutral/60 sm:col-span-2">Dates with active reservations cannot be blocked. Creating a block notifies registered guests.</p>
-        <button disabled={blockBusy} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">{blockBusy ? "Creating..." : "Block dates and alert guests"}</button>
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 sm:col-span-2"><input type="checkbox" checked={blockAllDay} onChange={event => setBlockAllDay(event.target.checked)} />Block entire day(s)</label>
+        {!blockAllDay && <><label className="text-sm">Start time (PHT)<input required type="time" value={blockStartTime} onChange={event => setBlockStartTime(event.target.value)} className="admin-field mt-1 w-full" /></label><label className="text-sm">End time (PHT)<input required type="time" value={blockEndTime} onChange={event => setBlockEndTime(event.target.value)} className="admin-field mt-1 w-full" /></label></>}
+        <p className="text-xs text-neutral/60 sm:col-span-2">All times are Philippine time. Overlapping reservations or ocular visits prevent creation. Guests see only maintenance availability.</p>
+        <button disabled={blockBusy} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">{blockBusy ? "Creating..." : "Create maintenance block"}</button>
       </form>
     </RecordDialog>}
     <div className="hidden gap-4 md:grid md:grid-cols-3">{[{ label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" }, { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" }, { label: "Needs attention", value: attentionCount, detail: "Payments, requests, balances and arrivals" }].map(metric => <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-neutral/50">{metric.label}</p><p className="mt-2 text-3xl font-semibold text-neutral">{isLoading ? "-" : error ? "-" : metric.value}</p><p className="mt-1 text-xs text-neutral/50">{metric.detail}</p></div>)}</div>
@@ -531,14 +547,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         <span className="inline-flex items-center gap-2"><span className="calendar-new-dot h-2 w-2 rounded-full bg-blue-600" />New / not viewed</span>
       </div>
       {(searchTerm.trim() || attentionFilter !== "all") && <p role="status" className="mb-3 text-sm text-neutral/70">{Object.keys(filteredEventsByDay).length ? `${new Set(Object.values(filteredEventsByDay).flat().map(event => event.reservationId ?? event.id)).size} matching entries highlighted` : "No entries match your search and filters in this calendar period."}</p>}
-    <section aria-label="Desktop reservation calendar" aria-busy={isLoading} className="hidden overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm md:block">
+    <section aria-label="Desktop reservation calendar" aria-busy={isLoading} className="hidden overflow-x-auto rounded-2xl border border-neutral/10 bg-white shadow-sm md:block">
       <div className="flex items-center justify-between gap-4 border-b border-neutral/10 p-4"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Month view calendar</p><h2 className="mt-1 text-xl font-semibold text-neutral">{monthLabel}</h2></div><div className="flex gap-2">
         <button type="button" onClick={() => changeMonth(-1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Previous month">&larr;</button>
         <button type="button" onClick={() => { setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-xs font-semibold hover:bg-base">Today</button>
         <button type="button" onClick={() => changeMonth(1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Next month">&rarr;</button>
       </div></div>
-        <div className="grid grid-cols-7 border-b border-neutral/10 bg-base text-[10px] font-semibold uppercase tracking-wide text-neutral/50">{weekDays.map((day) => <div key={day} className="border-r border-neutral/10 px-2 py-3 last:border-r-0">{day.slice(0, 3)}</div>)}</div>
-        <div className="grid grid-cols-7">
+        <div className="grid min-w-[70rem] grid-cols-7 border-b border-neutral/10 bg-base text-[10px] font-semibold uppercase tracking-wide text-neutral/50">{weekDays.map((day) => <div key={day} className="border-r border-neutral/10 px-2 py-3 last:border-r-0">{day.slice(0, 3)}</div>)}</div>
+        <div className="grid min-w-[70rem] grid-cols-7">
           {calendarDays.map((day) => {
             const dayKey = dateKey(day);
             const dayEvents = filteredEventsByDay[dayKey] ?? [];
@@ -548,8 +564,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             const isToday = dayKey === today;
             const availability = availabilityByDay[dayKey];
             const maintenanceBlocked = (eventsByDay[dayKey] ?? []).some((event) => event.kind === "maintenance");
-            const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : availability?.whole ? "Whole day available" : "Fully booked";
-            return <div key={dayKey} className={`min-h-28 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
+            const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked && !availability?.day && !availability?.night && !availability?.whole ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : availability?.whole ? "Whole day available" : "Fully booked";
+            return <div key={dayKey} className={`min-h-28 min-w-0 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
               {dayReservation ? (
                 <button type="button" onClick={() => openEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getUTCDate()}</button>
               ) : (
@@ -574,7 +590,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                         type="button"
                         onClick={() => openEvent(event)}
                         style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)}
-                        className={`block w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) ? "calendar-match-pulse" : ""}`}
+                        className={`block w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) || (createdBlockId && event.id.startsWith(`${createdBlockId}:`)) ? "calendar-match-pulse" : ""}`}
                         title={`${style.label}: ${event.label}${event.flags?.length ? `. Needs attention: ${event.flags.map(flag => ATTENTION_LABELS[flag]).join(", ")}` : ""}`}
                       >
                         <span className="block text-[9px] font-normal opacity-75">{style.label}</span>

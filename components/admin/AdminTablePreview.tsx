@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import RecordDialog from "@/components/manage/RecordDialog";
 import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
 import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
 import AdminActionsMenu from "@/components/admin/AdminActionsMenu";
@@ -31,10 +32,19 @@ interface AdminTablePreviewProps {
   getRowActionLabel?: (action: string, row: AdminTableRow) => string;
   onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
   isRowActionDisabled?: (action: string, row: AdminTableRow) => boolean;
+  onRowClick?: (row: AdminTableRow) => void;
   selectableRows?: boolean;
   singleSelect?: boolean;
   selectedRowIds?: string[];
   onSelectedRowIdsChange?: (rowIds: string[]) => void;
+}
+
+// Presentation only: narrative fields wrap; identifiers and compact values stay intact.
+function columnLayout(column: AdminTableColumn) {
+  if (column.key === "status") return "table-cell-status";
+  if (column.sortType === "number" || /(?:amount|total|balance|paid|price|fee|revenue|cost|charge)/i.test(column.key)) return "table-cell-number";
+  if (/guest|customer|name|staff|actor|description|reason|notes|message|details|address|email|action|entity/i.test(column.key)) return "table-cell-text";
+  return "";
 }
 
 function compareValues(left: string, right: string) {
@@ -74,11 +84,13 @@ export default function AdminTablePreview({
   getRowActionLabel,
   onRowAction,
   isRowActionDisabled,
+  onRowClick,
   selectableRows = false,
   singleSelect = false,
   selectedRowIds,
   onSelectedRowIdsChange,
 }: AdminTablePreviewProps) {
+  const [detailRow, setDetailRow] = useState<AdminTableRow | null>(null);
   const readOnly = useAdminReadOnly();
   const actions = readOnly ? providedActions.filter(action => action.startsWith("Refresh")
     || (allowReadOnlyExport && ["Export CSV", "Print report", "Export Log"].includes(action))) : providedActions;
@@ -115,6 +127,14 @@ export default function AdminTablePreview({
 
     updateSelectedRows([...resolvedSelectedRowIds, rowId]);
   };
+
+  const openRow = (row: AdminTableRow) => {
+    if (onRowClick) { onRowClick(row); return; }
+    const action = rowActions.find(action => /^(View|Review)\b/.test(action));
+    if (action && onRowAction && !isRowActionDisabled?.(action, row)) { void onRowAction(action, row); return; }
+    setDetailRow(row);
+  };
+  const interactive = (target: EventTarget | null) => target instanceof window.Element && Boolean(target.closest('button,a,input,label,select,textarea,[role="menu"]'));
 
   const filteredRows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -246,20 +266,20 @@ export default function AdminTablePreview({
         </div>
       )}
 
-      {sortable && <p className="mb-3 text-xs text-neutral/60 lg:hidden">Tap a column heading to sort records.</p>}
+      {sortable && <p className="mb-3 text-xs text-neutral/60 lg:hidden">Scroll horizontally to view all columns. Tap a column heading to sort.</p>}
       <div className="admin-table-scroll overflow-x-auto rounded-xl border border-neutral/10" tabIndex={0} aria-label={`${title} records`}>
-        <table className="admin-responsive-table w-full min-w-180 text-left text-sm">
+        <table className="record-table admin-responsive-table w-full min-w-180 text-left text-sm">
           <thead className="border-b border-neutral/10 bg-base/60 text-neutral/60">
             <tr>
               {selectableRows ? <th className="px-4 py-3 font-medium" aria-label="Select" /> : null}
 
               {columns.map((column) => (
-                <th key={column.key} className="px-4 py-3 font-medium">
+                <th key={column.key} className={`px-4 py-3 font-medium ${columnLayout(column)}`}>
                   <button
                     type="button"
                     onClick={() => handleSort(column.key)}
                     disabled={!sortable}
-                    className={`inline-flex items-center gap-1 ${sortable ? "hover:text-neutral" : "cursor-default"}`}
+                    className={`inline-flex items-center gap-1 whitespace-nowrap ${sortable ? "hover:text-neutral" : "cursor-default"}`}
                   >
                     {column.label}
                     {sortState?.key === column.key ? (
@@ -276,22 +296,26 @@ export default function AdminTablePreview({
           </thead>
           <tbody>
             {displayedRows.map((row) => (
-              <tr key={row.id} className="border-b border-neutral/10 transition-colors last:border-none hover:bg-base/40">
+              <tr key={row.id} tabIndex={0} aria-selected={selectableRows ? resolvedSelectedRowIds.includes(row.id) : undefined}
+                onClick={event => { if (!interactive(event.target)) openRow(row); }}
+                onKeyDown={event => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault(); openRow(row); } }}
+                className={`cursor-pointer border-b border-neutral/10 transition-colors last:border-none hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary ${resolvedSelectedRowIds.includes(row.id) ? "bg-primary/10" : ""}`}>
                 {selectableRows ? (
                   <td data-label="Select" className="px-4 py-4 text-neutral/75">
+                    <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg hover:bg-primary/10" onClick={event => event.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={resolvedSelectedRowIds.includes(row.id)}
                       onChange={() => toggleRowSelection(row.id)}
                       className="h-4 w-4 rounded border-neutral/30"
                       aria-label={`Select row ${row.id}`}
-                    />
+                    /></label>
                   </td>
                 ) : null}
 
                 {columns.map((column) => (
-                  <td key={`${row.id}-${column.key}`} data-label={column.label} className="px-4 py-4 text-neutral/75">
-                    <span className="min-w-0 [overflow-wrap:anywhere]">{column.key === "status" && row[column.key] ? <AdminStatusBadge status={row[column.key]} /> : row[column.key] ?? "-"}</span>
+                  <td key={`${row.id}-${column.key}`} data-label={column.label} className={`px-4 py-4 text-neutral/75 ${columnLayout(column)}`}>
+                    <span className="cell-text block">{column.key === "status" && row[column.key] ? <AdminStatusBadge status={row[column.key]} /> : row[column.key] ?? "-"}</span>
                   </td>
                 ))}
 
@@ -323,7 +347,7 @@ export default function AdminTablePreview({
               <tr>
                 <td
                   colSpan={columns.length + (rowActions.length > 0 ? 1 : 0) + (selectableRows ? 1 : 0)}
-                  className="px-4 py-12 text-center text-sm text-neutral/60"
+                  className="table-cell-empty px-4 py-12 text-center text-sm text-neutral/60"
                 >
                   No records match the selected filters.
                 </td>
@@ -332,6 +356,10 @@ export default function AdminTablePreview({
           </tbody>
         </table>
       </div>
+      {detailRow && <RecordDialog variant="admin" title={`${title} details`} reference={detailRow.reference ?? detailRow.id} busy={false} onClose={() => setDetailRow(null)}>
+        <dl className="grid gap-4 sm:grid-cols-2">{columns.map(column => <div key={column.key}><dt className="text-sm text-neutral/60">{column.label}</dt><dd className="mt-1 break-words font-medium">{detailRow[column.key] ?? "-"}</dd></div>)}</dl>
+        {rowActions.length > 0 && <div className="mt-6 flex flex-wrap gap-3">{rowActions.map(action => <button key={action} type="button" className="admin-button-secondary" disabled={isRowActionDisabled?.(action, detailRow)} onClick={() => { setDetailRow(null); void onRowAction?.(action, detailRow); }}>{getRowActionLabel?.(action, detailRow) ?? action}</button>)}</div>}
+      </RecordDialog>}
       <TablePagination total={sortedRows.length} page={currentPage} pageSize={size} onPageChange={setPage} label={`${title} pagination`} />
     </section>
   );

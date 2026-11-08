@@ -7,26 +7,21 @@ import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
-import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_PACKAGE_TIMES, PACKAGE_TIME_KEYS, packageTimeSlot, formatPackageTimeSlot, packageTimesLabel } from "@/lib/booking/package-times";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
+import { maintenanceOverlaps, type MaintenanceWindow } from "@/lib/booking/maintenance";
 import { isWindowAvailable, type ReservedWindow } from "@/lib/booking/availability";
 import { formatManilaDate, isValidManilaDate, manilaCalendarDate, manilaDateKey, manilaMonthDate } from "@/lib/booking/manila-date";
 
-interface OcularAvailabilityRow {
-  scheduled_date: string;
-  time_slot_id: string;
-  status: "pending" | "confirmed" | "cancelled";
-}
+
 
 const formatDateForStore = manilaDateKey;
 const toDateKey = manilaDateKey;
 const parseLocalDateValue = (value: string) => isValidManilaDate(value) ? manilaCalendarDate(value) : null;
-const parseDateKey = parseLocalDateValue;
 
 export default function Booking() {
   const { schedule: packageSchedule, error: packageRatesError } = usePackageRates();
@@ -35,6 +30,11 @@ export default function Booking() {
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const resetBookingDraft = useBookingStore((state) => state.resetBookingDraft);
   const [bookingType, setBookingType] = useState<"stay" | "ocular">("stay");
+  useEffect(() => {
+    if (window.location.hash !== "#ocular") return;
+    const timer = window.setTimeout(() => setBookingType("ocular"), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [bookingMode, setBookingMode] = useState<BookingMode>("day");
   const [wholeDayVariant, setWholeDayVariant] = useState<WholeDayVariant>("day_to_night");
   const [selectedStayDate, setSelectedStayDate] = useState<Date | null>(null);
@@ -51,7 +51,7 @@ export default function Booking() {
   const [ocularSubmitting, setOcularSubmitting] = useState(false);
   const [ocularError, setOcularError] = useState<string | null>(null);
   const [reservedWindows, setReservedWindows] = useState<ReservedWindow[]>([]);
-  const [blockedDateRanges, setBlockedDateRanges] = useState<Array<{ start_date: string; end_date: string }>>([]);
+  const [blockedDateRanges, setBlockedDateRanges] = useState<MaintenanceWindow[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [availabilityError, setAvailabilityError] = useState(false);
   const [bookedOcularSlotsByDate, setBookedOcularSlotsByDate] = useState<Record<string, string[]>>({});
@@ -71,55 +71,23 @@ export default function Booking() {
     let isMounted = true;
 
     const loadAvailability = async () => {
-      const supabase = createClient();
-      const [ocularResult, slotsResponse] = await Promise.all([
-        supabase
-          .from("ocular_visits")
-          .select("scheduled_date, time_slot_id, status")
-          .in("status", ["pending", "confirmed"]),
-        fetch("/api/ocular-time-slots", { cache: "no-store" }),
-      ]);
-
-      if (!isMounted) {
-        return;
-      }
-
-      let slotLabelsById: Record<string, string> = {};
-      if (slotsResponse.ok) {
-        const slotsResult = (await slotsResponse.json()) as { slots?: Array<{ slot_id: string; start_time: string; end_time: string }> };
-        const slotLabels = Object.fromEntries((slotsResult.slots ?? []).map((slot) => [slot.slot_id, `${slot.start_time.slice(0, 5)}-${slot.end_time.slice(0, 5)}`]));
-        slotLabelsById = slotLabels;
-        setAvailableTimes(Object.values(slotLabels));
-      }
-
-      if (!ocularResult.error) {
-        const slotMap: Record<string, string[]> = {};
-
-        for (const row of (ocularResult.data as OcularAvailabilityRow[] | null) ?? []) {
-          const parsedDate = parseDateKey(row.scheduled_date);
-          if (!parsedDate) {
-            continue;
-          }
-
-          const key = toDateKey(parsedDate);
-          if (!slotMap[key]) {
-            slotMap[key] = [];
-          }
-
-          const label = slotLabelsById[row.time_slot_id];
-          if (label) slotMap[key].push(label);
-        }
-
-        setBookedOcularSlotsByDate(slotMap);
+      try {
+        const response = await fetch(`/api/ocular-time-slots?month=${manilaDateKey(currentMonth).slice(0, 7)}`, { cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok || result.success === false) throw new Error("Unable to load ocular availability.");
+        if (!isMounted) return;
+        setAvailableTimes((result.slots ?? []).map((slot: { start_time: string; end_time: string }) => `${slot.start_time.slice(0, 5)}-${slot.end_time.slice(0, 5)}`));
+        setBookedOcularSlotsByDate(result.unavailableByDate ?? {});
+        setOcularError(null);
+      } catch {
+        if (isMounted) { setAvailableTimes([]); setOcularError("Unable to load ocular availability. Please refresh."); }
       }
     };
 
     void loadAvailability();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    const refresh = window.setInterval(loadAvailability, 15000);
+    return () => { isMounted = false; window.clearInterval(refresh); };
+  }, [currentMonth]);
 
   useEffect(() => {
     let active = true;
@@ -130,7 +98,7 @@ export default function Booking() {
       try {
         const response = await fetch(`/api/booking/availability?month=${month}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Availability request failed.");
-        const result = (await response.json()) as { reservations: ReservedWindow[]; blockedDates: Array<{ start_date: string; end_date: string }> };
+        const result = (await response.json()) as { reservations: ReservedWindow[]; blockedDates: MaintenanceWindow[] };
         if (!active || currentRequest !== requestId) return;
         setReservedWindows(result.reservations);
         setBlockedDateRanges(result.blockedDates);
@@ -252,12 +220,7 @@ export default function Booking() {
 
   const isBookingWindowAvailable = (start: string, end: string) => {
     if (!isWindowAvailable(start, end, reservedWindows)) return false;
-    const startDay = manilaDateKey(start);
-    const endDay = manilaDateKey(new Date(new Date(end).getTime() - 1));
-    for (let day = new Date(`${startDay}T00:00:00Z`); day <= new Date(`${endDay}T00:00:00Z`); day = new Date(day.getTime() + 86_400_000)) {
-      const key = day.toISOString().slice(0, 10);
-      if (blockedDateRanges.some((block) => block.start_date <= key && block.end_date >= key)) return false;
-    }
+    if (blockedDateRanges.some(block => maintenanceOverlaps(start, end, block))) return false;
     return true;
   };
 
@@ -389,7 +352,7 @@ export default function Booking() {
     ? bookedOcularSlotsByDate[selectedOcularDateKey] ?? []
     : [];
   const selectedOcularTimeAllowed = selectedOcularDateKey && selectedTime
-    ? isOcularSlotStartAllowed(selectedOcularDateKey, selectedTime.split("-")[0], now)
+    ? !bookedSlotsForSelectedDate.includes(selectedTime) && isOcularSlotStartAllowed(selectedOcularDateKey, selectedTime.split("-")[0], now)
     : false;
   const earliestCustomStart = new Date(Math.ceil((now + 30 * 60_000) / 60_000) * 60_000);
   const earliestCustomClock = earliestCustomStart.toLocaleTimeString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });

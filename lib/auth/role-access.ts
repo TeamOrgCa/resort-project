@@ -7,7 +7,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   dashboard: "Dashboard", reservations: "View reservations", create_reservation: "Add reservation",
   edit_reservation: "Edit reservations and services",
   cancel_reservation: "Cancel reservation", reschedule_approval: "Approve or reject reschedules",
-  ocular_approval: "Approve or cancel ocular visits", transactions: "View transactions",
+  ocular_approval: "Manage ocular visits and record attendance", transactions: "View transactions",
   payment_approval: "Approve or reject payments", payment_entry: "Record payments",
   refund_review: "Review refund payment records", refund_approval: "Approve or reject refunds (manager only)", refund_payout: "Record refund payout", refund_verify: "Verify refund payout",
   records: "View records", reports: "View and export reports", analytics: "View analytics",
@@ -27,7 +27,7 @@ export const ADMIN_PERMISSIONS: readonly Permission[] = ["dashboard", "reservati
 
 export function isAdminReadOnlyRequest(role: StaffRole, path: string, method: string): boolean {
   if (role !== "admin" || ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return false;
-  const fullAccessPaths = ["/api/admin/users", "/api/admin/permissions", "/api/admin/settings", "/api/admin/booking-policy", "/api/admin/catalog", "/api/admin/payment-accounts", "/api/admin/auth"];
+  const fullAccessPaths = ["/api/admin/maintenance-blocks", "/api/admin/users", "/api/admin/permissions", "/api/admin/settings", "/api/admin/booking-policy", "/api/admin/catalog", "/api/admin/payment-accounts", "/api/admin/auth"];
   return !fullAccessPaths.some(prefix => path === prefix || path.startsWith(`${prefix}/`));
 }
 
@@ -46,7 +46,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path === "/api/admin/settings" && method === "GET") return null;
   if (path.startsWith("/api/admin/settings") || path.startsWith("/api/admin/booking-policy")) return "configuration";
   if (path.startsWith("/api/admin/catalog") || path.startsWith("/api/admin/payment-accounts")) return "catalog";
-  if (path.startsWith("/api/admin/maintenance-blocks")) return method === "GET" ? "reservations" : "edit_reservation";
+  if (path.startsWith("/api/admin/maintenance-blocks")) return "reservations";
   if (path.startsWith("/api/admin/reservations/create")) return "create_reservation";
   if (path.startsWith("/api/admin/records/")) return "records";
   if (path === "/api/admin/reservations/check-in") return "edit_reservation";

@@ -43,6 +43,7 @@ export default function CatalogClient() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [detail, setDetail] = useState<CatalogRecord | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [action, setAction] = useState<Action | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -183,17 +184,17 @@ export default function CatalogClient() {
         </div>
         {referencesError && <p role="alert" className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">Linked names could not be loaded. {referencesError} Use Refresh to try again.</p>}
         {loadError ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-6 text-center"><p className="text-sm text-red-700">{loadError}</p><button type="button" onClick={refresh} className="mt-3 text-sm font-semibold text-primary underline">Try again</button></div> : <div className="overflow-x-auto rounded-xl border border-neutral/10" aria-busy={loading}>
-          <table className="w-full min-w-[620px] text-left text-sm">
+          <table className="record-table w-full min-w-[620px] text-left text-sm">
             <thead className="border-b border-neutral/10 bg-base/60"><tr>{definition.columns.map((key) => <th key={key} scope="col" className="px-4 py-3 font-medium text-neutral/60">{definition.fields.find((field) => field.key === key)?.label.replace(" (PHP)", "") ?? key}</th>)}<th scope="col" className="px-4 py-3 font-medium text-neutral/60">Status</th><th scope="col" className="px-4 py-3 text-right font-medium text-neutral/60">Actions</th></tr></thead>
             <tbody className="divide-y divide-neutral/10">
               {loading ? <tr><td colSpan={definition.columns.length + 2} className="px-4 py-12 text-center text-neutral/50" role="status">Loading {definition.label.toLowerCase()}...</td></tr> : records.length === 0 ? <tr><td colSpan={definition.columns.length + 2} className="px-4 py-12 text-center"><p className="font-medium text-neutral">{filters.search || filters.unitId ? "No matching items" : `No ${filters.status === "all" ? "" : `${filters.status} `}${definition.label.toLowerCase()} yet`}</p><p className="mt-2 text-sm text-neutral/55">{filters.search || filters.unitId ? "Try another search or clear your filters." : filters.status === "archived" ? "Archived items appear here and can be restored." : `Use Add ${definition.singular} to create your first item.`}</p>{(filters.search || filters.unitId) && <button type="button" onClick={() => { setSearchDraft(""); setFilters((current) => ({ ...current, search: "", unitId: "", page: 1 })); }} className="mt-3 text-sm font-semibold text-primary underline">Clear filters</button>}</td></tr> : records.map((record) => {
                 const name = catalogRecordName(filters.resource, record, references); const active = isCatalogActive(record);
-                return <tr key={String(record[definition.id])} className="transition hover:bg-base/40">
-                  {definition.columns.map((key, index) => <td key={key} className="px-4 py-4 align-top text-neutral/75"><div className={index === 0 ? "flex items-center gap-3" : ""}>
+                return <tr key={String(record[definition.id])} tabIndex={0} onClick={event => { if (!(event.target as Element).closest("button,a,input,label,select,textarea,[role=menu]")) setDetail(record); }} onKeyDown={event => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault(); setDetail(record); } }} className="cursor-pointer transition hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary">
+                  {definition.columns.map((key, index) => <td key={key} className={`px-4 py-4 align-middle text-neutral/75 ${/name|description|notes|address/i.test(key) ? "table-cell-text" : ""}`}><div className={index === 0 ? "cell-text flex items-center gap-3" : "cell-text"}>
                     {filters.resource === "units" && index === 0 && (isContentImageUrl(record.unit_img) ? <Image src={record.unit_img} alt={String(record.name)} width={44} height={44} unoptimized className="h-11 w-11 shrink-0 rounded-xl object-cover" /> : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-lg font-semibold text-primary" aria-hidden="true">{name.charAt(0)}</span>)}
                     <div className="max-w-md"><p className={index === 0 ? "font-medium text-neutral" : key.includes("price") || key.includes("rate") ? "whitespace-nowrap font-medium tabular-nums" : key.startsWith("effective_") ? "whitespace-nowrap" : "line-clamp-2"}>{displayValue(key, record[key])}</p>{index === 0 && record.description ? <p className="mt-1 line-clamp-2 max-w-sm text-xs leading-relaxed text-neutral/50">{String(record.description)}</p> : null}{filters.resource === "payment_accounts" && index === 0 && <p className="mt-1 text-xs text-neutral/50">{record.qr_image ? "QR image attached" : "No QR image"}</p>}</div>
                   </div></td>)}
-                  <td className="px-4 py-4 align-top"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${active ? "bg-green-50 text-green-700" : "bg-neutral/5 text-neutral/55"}`}><span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-green-500" : "bg-neutral/35"}`} />{active ? "Active" : "Archived"}</span></td>
+                  <td className="px-4 py-4 align-middle"><span className={`status-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${active ? "bg-green-50 text-green-700" : "bg-neutral/5 text-neutral/55"}`}><span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-green-500" : "bg-neutral/35"}`} />{active ? "Active" : "Archived"}</span></td>
                   <td className="px-4 py-4 align-middle"><div className="flex justify-end"><AdminActionsMenu reference={name} actions={[
                     { label: "Edit", disabled: busy, onSelect: () => openEditor(record) },
                     { label: active ? "Archive" : "Restore", disabled: busy, onSelect: () => { setAction({ kind: active ? "archive" : "restore", resource: filters.resource, record }); setActionError(null); } },
@@ -209,6 +210,10 @@ export default function CatalogClient() {
         </div>
       </div>}
     </section>
+    {detail && <CatalogDialog title={catalogRecordName(filters.resource, detail, references)} description={`${definition.label} details`} busy={false} onClose={() => setDetail(null)}>
+      <dl className="grid gap-4 sm:grid-cols-2">{definition.fields.map(field => <div key={field.key}><dt className="text-sm text-neutral/60">{field.label}</dt><dd className="break-words">{displayValue(field.key, detail[field.key])}</dd></div>)}</dl>
+      <div className="mt-6 flex gap-3"><button type="button" className="admin-button-primary" onClick={() => { setDetail(null); openEditor(detail); }}>Edit</button><button type="button" className="admin-button-secondary" onClick={() => { setDetail(null); setAction({ kind: isCatalogActive(detail) ? "archive" : "restore", resource: filters.resource, record: detail }); setActionError(null); }}>{isCatalogActive(detail) ? "Archive" : "Restore"}</button></div>
+    </CatalogDialog>}
     {editor && <CatalogEditorDialog key={editor.resource} resource={editor.resource} record={editor.record} references={references} referencesError={referencesError} busy={busy} error={editorError} onClose={closeEditor} onSave={save} />}
     {action && <CatalogDialog title={`${action.kind === "archive" ? "Archive" : "Restore"} ${catalogResources[action.resource].singular}`} description={actionDescription} busy={busy} onClose={closeAction}>
       {actionError && <p role="alert" className="mb-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}

@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     const { data: blocks, error: blocksError } = await admin.from("maintenance_blocks")
-      .select("start_date, end_date").eq("status", "active")
+      .select("start_date, end_date, start_datetime, end_datetime").eq("status", "active")
       .lt("start_date", dayAfterNextMonth).gte("end_date", firstDay).limit(1000);
     if (blocksError) throw blocksError;
 

@@ -67,7 +67,7 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-6 w-6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
               </button>
             </div>
-            <div className="ml-auto flex items-center gap-3">{readOnly && <span className="rounded-full bg-neutral/10 px-3 py-1 text-xs font-medium text-neutral">View only</span>}<p className="text-xs text-neutral/60" title="All admin dates and times use Asia/Manila (UTC+8)">Philippine time (UTC+8)</p></div>
+            <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">{readOnly && <span className="status-badge rounded-full bg-neutral/10 px-3 py-1 text-xs font-medium text-neutral">View only</span>}<p className="whitespace-nowrap text-xs text-neutral/60" title="All admin dates and times use Asia/Manila (UTC+8)">Philippine time (UTC+8)</p></div>
             <div>
               <AdminNotifications role={role} />
             </div>

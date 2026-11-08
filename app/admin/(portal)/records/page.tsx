@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTabs from "@/components/admin/AdminTabs";
+import OcularVisitReview from "@/components/admin/OcularVisitReview";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import type { AdminTableColumn, AdminTableRow } from "@/components/admin/types";
 import { createClient } from "@/lib/supabase/client";
@@ -154,6 +155,7 @@ export default function AdminRecordsPage() {
     }
   };
 
+  const [ocularDetail, setOcularDetail] = useState<AdminTableRow | null>(null);
   const activeRows = useMemo(() => activeTab === "Reservation Records" ? reservations : activeTab === "Reschedule Requests" ? reschedules : ocularVisits, [activeTab, ocularVisits, reservations, reschedules]);
 
   return (
@@ -171,12 +173,16 @@ export default function AdminRecordsPage() {
           pageSize={25}
           showResetFilters
           defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule Requests" ? "requestedAt" : "scheduledDate", direction: "desc" }}
-          filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
-          rowActions={activeTab === "Reservation Records" ? ["View"] : activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" ? [...(canApproveOcular ? ["Approve", "Reject"] : []), ...(canCancelOcular ? ["Cancel visit"] : [])] : []}
-          onRowAction={(action, row) => { if (action === "View") setSelectedReservation(row); else openReview(action as RecordReview["action"], row); }}
+          filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Completed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
+          rowActions={activeTab === "Reservation Records" ? ["View"] : activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" ? ["View"] : []}
+          onRowAction={(action, row) => { if (action === "View") { if (activeTab === "Ocular Visit Records") setOcularDetail(row); else setSelectedReservation(row); } else openReview(action as RecordReview["action"], row); }}
           isRowActionDisabled={(action, row) => action === "View" ? false : Boolean(busyId) || (action === "Cancel visit" ? !["Pending", "Confirmed"].includes(row.status) : row.status !== "Pending")}
         />
       </section>
+      {ocularDetail && <RecordDialog variant="admin" title="Ocular visit details" reference={ocularDetail.reference} busy={Boolean(busyId)} onClose={() => { if (!busyId) setOcularDetail(null); }}>
+        <dl className="mb-5 grid gap-3 sm:grid-cols-2">{ocularColumns.map(column => <div key={column.key}><dt className="text-sm text-neutral/60">{column.label}</dt><dd>{ocularDetail[column.key]}</dd></div>)}</dl>
+        <OcularVisitReview visit={{ visit_id: ocularDetail.id, status: ocularDetail.status.toLowerCase(), cancellation_reason: ocularDetail.reason === "-" ? null : ocularDetail.reason }} canReview={canApproveOcular} canCancel={canCancelOcular} onBusyChange={busy => setBusyId(busy ? ocularDetail.id : null)} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularDetail(row => row ? { ...row, status: titleCase(visit.status), reason: visit.cancellation_reason ?? row.reason } : row); setRefreshKey(value => value + 1); }} />
+      </RecordDialog>}
       {selectedReview && <RecordDialog variant="admin" title={`${selectedReview.action} ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}`} reference={selectedReview.row.reference} busy={Boolean(busyId)} onClose={closeReview}>
         <form className="space-y-5" onSubmit={event => { event.preventDefault(); void review(); }}>
           <dl className="grid gap-3 rounded-xl border border-neutral/10 bg-base p-4 text-sm sm:grid-cols-2">

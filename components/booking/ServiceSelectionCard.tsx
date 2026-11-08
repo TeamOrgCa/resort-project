@@ -35,15 +35,15 @@ interface Props {
 export default function ServiceSelectionCard({ service, selected, onToggle }: Props) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const closePreview = useCallback(() => setPreviewOpen(false), []);
-  return <><div className={`flex items-start gap-3 rounded-xl border p-3 transition-colors focus-within:ring-2 focus-within:ring-primary/40 ${selected ? "border-primary bg-primary/5" : "border-neutral/20 bg-white hover:border-primary/60 hover:bg-primary/5"}`}>
-    <button type="button" onClick={() => setPreviewOpen(true)} aria-label={`View ${service.name} photo`} aria-haspopup="dialog" className="h-20 w-20 shrink-0 cursor-zoom-in overflow-hidden rounded-lg focus-visible:outline-2 focus-visible:outline-primary sm:h-24 sm:w-24"><ServicePhoto src={service.imageUrl} /></button>
-    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-    <div className="min-w-0 flex-1">
-      <span className="block break-words font-semibold text-neutral">{service.name}</span>
-      {service.description && <span className="mt-1 block whitespace-pre-line break-words text-xs leading-relaxed text-neutral/65">{service.description}</span>}
-      <span className="mt-2 block text-sm font-semibold text-primary">{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(service.price)}</span>
-    </div>
-    <input type="checkbox" checked={selected} onChange={onToggle} aria-label={`Add ${service.name}`} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
+  return <><div className={`flex h-full flex-col overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-primary/40 ${selected ? "border-primary bg-primary/5" : "border-neutral/20 bg-white hover:border-primary/60 hover:bg-primary/5"}`}>
+    <button type="button" onClick={() => setPreviewOpen(true)} aria-label={`View ${service.name} photo`} aria-haspopup="dialog" style={{ display: "block", width: "100%", height: "clamp(11rem, 25vw, 13rem)" }} className="relative shrink-0 cursor-zoom-in overflow-hidden bg-stone-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"><ServicePhoto src={service.imageUrl} /></button>
+    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 p-4">
+      <span className="flex min-w-0 flex-1 flex-col self-stretch">
+        <span className="block wrap-break-word font-semibold text-neutral">{service.name}</span>
+        {service.description && <span className="mt-1 block whitespace-pre-line break-words text-sm leading-relaxed text-neutral/65">{service.description}</span>}
+        <span className="ui-nowrap mt-auto block max-w-full overflow-x-auto pt-3 text-sm font-semibold text-primary">{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(service.price)}</span>
+      </span>
+      <input type="checkbox" checked={selected} onChange={onToggle} aria-label={`Add ${service.name}`} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
     </label>
   </div>{previewOpen && <PhotoPreview name={service.name} src={service.imageUrl} onClose={closePreview} />}</>;
 }

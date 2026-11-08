@@ -309,6 +309,7 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle<{ account_name: string; account_number: string | null }>();
     if (receivingAccountError || !receivingAccount) return NextResponse.json({ success: false, message: "The resort's GCash receiving account is unavailable. Please try again later." }, { status: 503 });
+    // Enable/disable OCR with ENABLE_RECEIPT_OCR in lib/server/gcash-ocr.ts.
     const ocr = await inspectPaymentProof(supabase, {
       userId: user.id,
       proofPath: payload.payment.proofPath,
@@ -329,30 +330,32 @@ export async function POST(request: Request) {
     if (ocr.status === "screening_unavailable") {
       return NextResponse.json({ success: false, code: "PROOF_SCREENING_UNAVAILABLE", message: ocr.notes }, { status: 503 });
     }
-    if (!isVerifiedGcashReceipt(ocr)) {
+    if (ocr.status !== "skipped" && !isVerifiedGcashReceipt(ocr)) {
       return NextResponse.json({ success: false, code: "RECEIPT_VALIDATION_FAILED", issues: receiptValidationIssues(ocr.notes), message: `Payment was not submitted: ${ocr.notes}. Upload a clear, complete receipt showing today's Philippine date and time.` }, { status: 422 });
     }
 
+    const betaTest = "betaTest" in ocr && ocr.betaTest === true;
     const { data: payment, error: paymentError } = await createAdminClient()
-      .rpc("submit_consistent_gcash_payment", { p_payment: {
+      .rpc(ocr.status === "skipped" ? "submit_unscreened_gcash_payment" : betaTest ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment", { p_payment: {
+        guest_id: user.id,
         reservation_id: reservation.reservation_id,
         amount: ocr.amount,
         payment_method_id: payload.payment.paymentMethodId,
         payment_type: payload.payment.type,
         status: "pending",
         reference_number: ocr.reference,
-        receipt_paid_at: ocr.paidAt,
+        receipt_paid_at: ocr.paidAt ?? null,
         account_name: payload.payment.accountName,
         account_number: payload.payment.accountNumber,
         proof_path: payload.payment.proofPath,
         ocr_status: ocr.status,
         ocr_notes: ocr.notes,
-        ocr_checked_at: manilaTimestamp(),
+        ocr_checked_at: ocr.status === "skipped" ? null : manilaTimestamp(),
       } });
 
     if (paymentError || !payment) {
       if (paymentError?.code === "PGRST202" || paymentError?.code === "42883") {
-        return NextResponse.json({ success: false, code: "PAYMENT_SCHEMA_MIGRATION_REQUIRED", message: "Apply the OCR auto-approve payments migration before submitting payments." }, { status: 503 });
+        return NextResponse.json({ success: false, code: "PAYMENT_SCHEMA_MIGRATION_REQUIRED", message: "Apply the OCR payment migrations (including the beta receipt reuse migration when enabled) before submitting payments." }, { status: 503 });
       }
       if (paymentError?.code === "40001" || paymentError?.code === "22023") {
         return NextResponse.json({ success: false, message: paymentError.message }, { status: 409 });
@@ -399,8 +402,8 @@ export async function POST(request: Request) {
         actorId: user.id,
         guestId: reservation.guest_id,
         staffRoles: NOTIFICATION_AUDIENCES.payment,
-        title: "Payment automatically approved",
-        message: `Payment for reservation ${reservation.reference_number} was automatically approved because its receipt passed OCR validation.`,
+        title: ocr.status === "skipped" ? "Payment submitted for review" : "Payment automatically approved",
+        message: ocr.status === "skipped" ? `Payment for reservation ${reservation.reference_number} is awaiting staff verification.` : `Payment for reservation ${reservation.reference_number} was automatically approved because its receipt passed OCR validation.`,
         entityType: "payment",
         entityId: payment.payment_id,
         guestActionUrl: "/manage",
@@ -411,7 +414,7 @@ export async function POST(request: Request) {
       console.warn("Failed to create payment notifications:", notificationError);
     }
 
-    await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
+    if (ocr.status !== "skipped" && !betaTest) await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
 
     return NextResponse.json(
       {
@@ -424,6 +427,7 @@ export async function POST(request: Request) {
           proofPath: payload.payment.proofPath,
           ocrStatus: payment.ocr_status,
           autoApproved: payment.auto_approved,
+          betaTest: payment.is_beta_test === true,
         },
         reservation: {
           referenceNumber: reservation.reference_number,

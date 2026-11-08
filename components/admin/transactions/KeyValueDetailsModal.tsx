@@ -52,8 +52,8 @@ export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetai
 
         <div className="mt-5 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
           {fields.map((field) => (
-            <p key={field.label} className="receipt-field">
-              {field.label}: <span className="font-semibold text-neutral">{field.value || "-"}</span>
+            <p key={field.label} className="receipt-field flex min-w-0 flex-col gap-1">
+              {field.label}: <span className={`font-semibold text-neutral ${/amount|total|balance|status|method|paid at|issued at|payment for/i.test(field.label) ? "ui-nowrap max-w-full overflow-x-auto" : "break-words"}`}>{field.value || "-"}</span>
             </p>
           ))}
         </div>
