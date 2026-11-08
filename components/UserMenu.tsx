@@ -1,5 +1,7 @@
 "use client";
 
+import ManageIcon from "@/components/manage/ManageIcon";
+
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import type { User } from "@supabase/supabase-js";
@@ -273,7 +275,7 @@ export default function UserMenu() {
               <div className="min-w-0 flex-1"><p title={displayName} className="truncate text-sm font-semibold text-neutral">{displayName}</p>
               <p title={user.email} className="truncate text-xs text-neutral/60">{user.email}</p></div>
               <button type="button" aria-label="Close user menu" onClick={() => { setIsOpen(false); trigger.current?.focus(); }}
-                className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-neutral/70 hover:bg-base">×</button>
+                className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-neutral/70 hover:bg-base"><ManageIcon name="close" /></button>
             </div>
             <div className="shrink-0 border-b border-neutral/10 py-1" aria-label="Account actions">
               <a href="/profile" onClick={() => setIsOpen(false)} className="flex min-h-11 items-center px-4 py-2 text-sm font-medium text-neutral transition-colors hover:bg-base">Profile Settings</a>

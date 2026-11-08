@@ -239,9 +239,12 @@ export default function Booking() {
   });
 
   const isDateBooked = (date: Date) => {
+    if (bookingMode !== "custom") return !packageAvailable(date, bookingMode, wholeDayVariant);
     const { day, night, whole } = dateAvailability(date);
     return !day && !night && !whole;
   };
+
+  const selectedModeLabel = bookingMode === "whole_day" ? `Whole Day (Variant ${wholeDayVariant === "day_to_night" ? "A" : "B"})` : bookingMode === "night" ? "Night" : bookingMode === "custom" ? "Custom" : "Day";
 
   const isDateSelected = (date: Date) => {
     if (!selectedStayDate) return false;
@@ -262,14 +265,6 @@ export default function Booking() {
       if (isPast) return;
 
       setSelectedStayDate(date);
-      if (bookingMode !== "custom" && !packageAvailable(date, bookingMode, wholeDayVariant)) {
-        if (packageAvailable(date, "day")) setBookingMode("day");
-        else if (packageAvailable(date, "night")) setBookingMode("night");
-        else {
-          setBookingMode("whole_day");
-          setWholeDayVariant(packageAvailable(date, "whole_day", "day_to_night") ? "day_to_night" : "night_to_day");
-        }
-      }
       if (bookingMode === "custom") {
         if (!customEndDate) {
           setCustomEndDate(formatDateForStore(date));
@@ -569,18 +564,15 @@ export default function Booking() {
                     <button
                       key={mode.value}
                       type="button"
+                      aria-pressed={bookingMode === mode.value}
                       onClick={() => {
                         setBookingMode(mode.value as BookingMode);
+                        if (selectedStayDate && mode.value !== "custom" && !packageAvailable(selectedStayDate, mode.value, wholeDayVariant)) setSelectedStayDate(null);
                         if (mode.value === "custom" && selectedStayDate && !customEndDate) {
                           setCustomEndDate(formatDateForStore(selectedStayDate));
                         }
                         setStayError(null);
                       }}
-                      disabled={Boolean(selectedStayDate && mode.value !== "custom" && (
-                        mode.value === "whole_day"
-                          ? !packageAvailable(selectedStayDate, "whole_day", "day_to_night") && !packageAvailable(selectedStayDate, "whole_day", "night_to_day")
-                          : !packageAvailable(selectedStayDate, mode.value)
-                      ))}
                       className={`rounded-xl border px-4 py-3 text-left transition-colors ${
                         bookingMode === mode.value
                           ? "border-primary bg-white"
@@ -598,8 +590,8 @@ export default function Booking() {
                 <div className="grid md:grid-cols-2 gap-3 mb-4">
                   <button
                     type="button"
-                    onClick={() => setWholeDayVariant("day_to_night")}
-                    disabled={Boolean(selectedStayDate && !packageAvailable(selectedStayDate, "whole_day", "day_to_night"))}
+                    aria-pressed={wholeDayVariant === "day_to_night"}
+                    onClick={() => { setWholeDayVariant("day_to_night"); setStayError(null); if (selectedStayDate && !packageAvailable(selectedStayDate, "whole_day", "day_to_night")) setSelectedStayDate(null); }}
                     className={`rounded-lg border px-4 py-3 text-sm text-left disabled:cursor-not-allowed disabled:opacity-40 ${wholeDayVariant === "day_to_night" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
                   >
                     <p className="font-semibold text-neutral">Variant A</p>
@@ -607,8 +599,8 @@ export default function Booking() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setWholeDayVariant("night_to_day")}
-                    disabled={Boolean(selectedStayDate && !packageAvailable(selectedStayDate, "whole_day", "night_to_day"))}
+                    aria-pressed={wholeDayVariant === "night_to_day"}
+                    onClick={() => { setWholeDayVariant("night_to_day"); setStayError(null); if (selectedStayDate && !packageAvailable(selectedStayDate, "whole_day", "night_to_day")) setSelectedStayDate(null); }}
                     className={`rounded-lg border px-4 py-3 text-sm text-left disabled:cursor-not-allowed disabled:opacity-40 ${wholeDayVariant === "night_to_day" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
                   >
                     <p className="font-semibold text-neutral">Variant B</p>
@@ -703,6 +695,7 @@ export default function Booking() {
                   </div>
                 </div>
 
+                {bookingType === "stay" && <p className="mb-4 text-sm text-neutral/70" aria-live="polite">Showing dates available for {selectedModeLabel}. Unavailable dates are disabled.</p>}
                 <div className="mb-6">
                   <h3 className="text-lg sm:text-2xl font-semibold text-neutral text-center mb-2">
                     {monthNames[currentMonth.getUTCMonth()]} {currentMonth.getUTCFullYear()}
@@ -747,11 +740,14 @@ export default function Booking() {
                       );
                     } else {
                     const { day, night, whole } = dateAvailability(date);
-                    const isMaintenance = blockedDateRanges.some(block => block.start_date <= toDateKey(date) && block.end_date >= toDateKey(date));
-                    const isBooked = !day && !night && !whole;
+                    const selectedWindow = bookingMode === "custom" ? null : buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode, date: toDateKey(date), wholeDayVariant });
+                    const isMaintenance = selectedWindow && typeof selectedWindow.startDatetime === "string" && typeof selectedWindow.endDatetime === "string"
+                      ? blockedDateRanges.some(block => maintenanceOverlaps(selectedWindow.startDatetime!, selectedWindow.endDatetime!, block))
+                      : blockedDateRanges.some(block => block.start_date <= toDateKey(date) && block.end_date >= toDateKey(date));
+                    const isBooked = isDateBooked(date);
                     const noRemainingStarts = PACKAGE_TIME_KEYS.every(key => !isBookingStartAllowed(
                       `${toDateKey(date)}T${packageTimeSlot(packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES,key).start}:00+08:00`,now));
-                    const unavailableLabel = isMaintenance ? "Closed for maintenance" : noRemainingStarts ? "No remaining start times" : "Fully booked";
+                    const unavailableLabel = isMaintenance ? "Closed for maintenance" : noRemainingStarts ? "No remaining start times" : !day && !night && !whole ? "Fully booked" : `Unavailable for ${selectedModeLabel}`;
                     const isSelected = isDateSelected(date);
 
                       return (
