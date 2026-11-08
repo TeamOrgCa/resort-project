@@ -1,5 +1,6 @@
 "use client";
 
+import BookingProgress from "@/components/booking/BookingProgress";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -52,7 +53,7 @@ const parseDateTime = (value: string | null) => {
 
 export default function BookingForm() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-base" />}>
+    <Suspense fallback={<div className="booking-flow min-h-screen bg-base" />}>
       <BookingFormContent />
     </Suspense>
   );
@@ -202,7 +203,7 @@ function BookingFormContent() {
   const fallbackStartDate = useMemo(() => new Date(), []);
   const fallbackEndDate = useMemo(() => new Date(fallbackStartDate.getTime() + 8 * 3_600_000), [fallbackStartDate]);
 
-  if (!packageSchedule || packageRatesError) return <div className="min-h-screen bg-base"><Navigation /><main className="mx-auto max-w-3xl px-4 py-36"><p role={packageRatesError ? "alert" : "status"} className="text-neutral">{packageRatesError ?? "Loading current booking prices…"}</p>{packageRatesError && <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-lg bg-primary px-4 py-2 text-white">Try again</button>}</main><Footer /></div>;
+  if (!packageSchedule || packageRatesError) return <div className="booking-flow min-h-screen bg-base"><Navigation /><main className="mx-auto max-w-3xl px-4 py-36"><p role={packageRatesError ? "alert" : "status"} className="text-neutral">{packageRatesError ?? "Loading current booking prices…"}</p>{packageRatesError && <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-lg bg-primary px-4 py-2 text-white">Try again</button>}</main><Footer /></div>;
 
   const effectiveStartDate = parseDateTime(bookingDraft.startDatetime || null) ?? fallbackStartDate;
   const effectiveEndDate = parseDateTime(bookingDraft.endDatetime || null) ?? fallbackEndDate;
@@ -293,44 +294,19 @@ function BookingFormContent() {
   };
 
   return (
-    <div className="min-h-screen bg-base">
+    <div className="booking-flow min-h-screen bg-base">
       <Navigation />
 
       {/* Progress Indicator */}
-      <div className="mt-20 bg-white border-b border-neutral/10">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">1</div>
-              <span className="text-sm font-medium text-neutral">Select Dates</span>
-            </div>
-            <div className="w-12 h-0.5 bg-primary"></div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">2</div>
-              <span className="text-sm font-medium text-primary">Guest Details</span>
-            </div>
-            <div className="w-12 h-0.5 bg-neutral/20"></div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-neutral/20 text-neutral/50 flex items-center justify-center font-semibold">3</div>
-              <span className="text-sm font-medium text-neutral/50">Review & Save</span>
-            </div>
-            <div className="w-12 h-0.5 bg-neutral/20"></div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-neutral/20 text-neutral/50 flex items-center justify-center font-semibold">4</div>
-              <span className="text-sm font-medium text-neutral/50">Payment</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <BookingProgress currentStep={2} />
 
-      {/* Form Section */}
-      <section className="py-12 px-4">
+      <section className="px-4 py-6 sm:py-12">
         <div className="max-w-6xl mx-auto">
-          <div className="grid lg:grid-cols-3 gap-8">
+          <div className="grid min-w-0 gap-6 lg:grid-cols-3 lg:gap-8">
             {/* Form */}
-            <div ref={bookingFormRef} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} className="lg:col-span-2">
+            <div ref={bookingFormRef} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} className="min-w-0 lg:col-span-2">
               <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
-                <h2 className="text-3xl font-bold text-neutral mb-8">Reservation Details</h2>
+                <h2 className="mb-6 text-2xl font-bold text-neutral sm:mb-8 sm:text-3xl">Reservation Details</h2>
 
                 {/* Personal Information */}
                 <div className="mb-8">
@@ -475,7 +451,7 @@ function BookingFormContent() {
                 </div>
 
                 {formError && <p role="alert" className="mb-3 text-sm text-red-700">{formError}</p>}
-                <div className="flex gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
                   <Link href="/booking" className="flex-1">
                     <button className="w-full bg-neutral/10 text-neutral px-6 py-4 rounded-full font-semibold hover:bg-neutral/20 transition-colors">
                       Back
@@ -484,7 +460,7 @@ function BookingFormContent() {
                   <div className="flex-1">
                     <button type="button" onClick={handleContinueToPayment}
                       disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0}
-                      className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Review Full Details
                     </button>
@@ -494,7 +470,7 @@ function BookingFormContent() {
             </div>
 
             {/* Billing Summary */}
-            <div className="lg:col-span-1">
+            <div className="min-w-0 lg:col-span-1">
               <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-6">Billing Summary</h3>
 
@@ -521,7 +497,7 @@ function BookingFormContent() {
                     </div>
                     <div className="flex justify-between mb-2">
                       <span className="text-neutral/70">{pricing.rateTier === "weekend" ? "Weekend" : "Weekday"} {pricing.packageMode.replace("_", " ")} package</span>
-                      <span className="font-semibold text-neutral">₱{pricing.packageRate.toLocaleString("en-PH")}</span>
+                      <span className="whitespace-nowrap font-semibold text-neutral">₱{pricing.packageRate.toLocaleString("en-PH")}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-neutral/70">Guests included</span>
@@ -541,7 +517,7 @@ function BookingFormContent() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-neutral/70">Extra guest total</span>
-                      <span className="text-neutral">₱{pricing.extraGuestTotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="whitespace-nowrap text-neutral">₱{pricing.extraGuestTotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                   </div>
 
@@ -553,7 +529,7 @@ function BookingFormContent() {
                         return (
                           <div key={id} className="flex justify-between text-sm mb-1">
                             <span className="text-neutral/70">{amenity?.name}</span>
-                            <span className="text-neutral">₱{Number(amenity?.price || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span className="whitespace-nowrap text-neutral">₱{Number(amenity?.price || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         );
                       })}
@@ -563,23 +539,23 @@ function BookingFormContent() {
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
                       <span className="text-neutral/70">Subtotal</span>
-                      <span className="font-semibold text-neutral">₱{subtotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="whitespace-nowrap font-semibold text-neutral">₱{subtotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     {tax > 0 && <div className="flex justify-between">
                       <span className="text-neutral/70">Tax</span>
-                      <span className="font-semibold text-neutral">₱{tax.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="whitespace-nowrap font-semibold text-neutral">₱{tax.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>}
                   </div>
 
                   <div className="flex justify-between text-xl font-bold">
                     <span className="text-neutral">Total</span>
-                    <span className="text-primary">₱{total.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="whitespace-nowrap text-primary">₱{total.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
 
                   <div className="bg-accent/10 p-4 rounded-lg">
                     <div className="flex justify-between">
                       <span className="text-sm font-semibold text-neutral">Down Payment ({DOWN_PAYMENT_PERCENT}%)</span>
-                      <span className="text-lg font-bold text-accent">₱{downPayment.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="whitespace-nowrap text-lg font-bold text-accent">₱{downPayment.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <p className="text-xs text-neutral/60 mt-2">Your reservation is confirmed after staff verifies the payment.</p>
                   </div>

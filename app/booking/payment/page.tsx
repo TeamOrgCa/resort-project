@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import BookingProgress from "@/components/booking/BookingProgress";
 import Link from "next/link";
 import Image from "next/image";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -44,7 +45,7 @@ interface PaymentAccountOption {
 
 export default function Payment() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-base" />}>
+    <Suspense fallback={<div className="booking-flow min-h-screen bg-base" />}>
       <PaymentContent />
     </Suspense>
   );
@@ -517,15 +518,15 @@ function PaymentContent() {
 
   if (paymentComplete) {
     return (
-      <div className="min-h-screen bg-base flex items-center justify-center px-4">
+      <div className="booking-flow min-h-screen bg-base flex items-center justify-center px-4 py-6">
         <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-5 sm:p-12 text-center">
           <div className="w-20 h-20 bg-secondary/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <svg className="w-12 h-12 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-4xl font-bold text-neutral mb-4">{paymentAutoApproved ? "Payment Approved!" : "Payment Submitted!"}</h1>
-          <p className="text-xl text-neutral/70 mb-8">{paymentAutoApproved ? "Your receipt passed OCR validation and your reservation is confirmed." : "Your reservation is pending payment review"}</p>
+          <h1 className="mb-4 text-2xl font-bold text-neutral sm:text-4xl">{paymentAutoApproved ? "Payment Approved!" : "Payment Submitted!"}</h1>
+          <p className="mb-8 text-base text-neutral/70 sm:text-xl">{paymentAutoApproved ? "Your receipt passed OCR validation and your reservation is confirmed." : "Your reservation is pending payment review"}</p>
           {successExcess > 0 && <p className="mb-6 rounded-lg bg-secondary/10 px-4 py-3 text-sm text-neutral">
             Excess payment: ₱{successExcess.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. After staff verifies this payment, request the excess refund in Manage Booking.
           </p>}
@@ -567,17 +568,17 @@ function PaymentContent() {
               </div>}
               <div className="flex justify-between pt-3 border-t border-neutral/10">
                 <span className="text-neutral/70">Total Amount</span>
-                <span className="font-semibold text-neutral">₱{successTotalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="whitespace-nowrap font-semibold text-neutral">₱{successTotalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">
                   {paymentAutoApproved ? "Approved payment" : "Submitted for review"} ({successPayOption === "full" ? "Full Payment" : "Down Payment"})
                 </span>
-                <span className="font-semibold text-secondary">₱{successPaidAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="whitespace-nowrap font-semibold text-secondary">₱{successPaidAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral/70">{paymentAutoApproved ? "Remaining balance" : "Expected balance after approval"}</span>
-                <span className="font-bold text-primary text-lg">₱{Math.max(successTotalAmount - (submittedSummary?.previousPaidAmount ?? 0) - successPaidAmount, 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="whitespace-nowrap font-bold text-primary text-lg">₱{Math.max(successTotalAmount - (submittedSummary?.previousPaidAmount ?? 0) - successPaidAmount, 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               {uploadedProofPath && (
                 <div className="flex justify-between">
@@ -625,7 +626,7 @@ function PaymentContent() {
               </button>
             </Link>
             <Link href="/manage" className="flex-1">
-              <button className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105">
+              <button className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105">
                 Manage Booking
               </button>
             </Link>
@@ -642,41 +643,17 @@ function PaymentContent() {
   }
 
   return (
-    <div className="min-h-screen bg-base">
+    <div className="booking-flow min-h-screen bg-base">
       <Navigation />
 
-      <div className="mt-20 bg-white border-b border-neutral/10">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">✓</div>
-              <span className="text-sm font-medium text-neutral">Select Dates</span>
-            </div>
-            <div className="w-12 h-0.5 bg-primary" />
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">✓</div>
-              <span className="text-sm font-medium text-neutral">Guest Details</span>
-            </div>
-            <div className="w-12 h-0.5 bg-primary" />
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">✓</div>
-              <span className="text-sm font-medium text-neutral">Review & Save</span>
-            </div>
-            <div className="w-12 h-0.5 bg-primary" />
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">4</div>
-              <span className="text-sm font-medium text-primary">Payment</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <BookingProgress currentStep={4} />
 
-      <section className="py-12 px-4">
+      <section className="px-4 py-6 sm:py-12">
         <div className="max-w-6xl mx-auto">
-          <div className="grid lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2">
+          <div className="grid min-w-0 gap-6 lg:grid-cols-3 lg:gap-8">
+            <div className="min-w-0 lg:col-span-2">
               <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
-                <h2 className="text-3xl font-bold text-neutral mb-8">Payment Details</h2>
+                <h2 className="mb-6 text-2xl font-bold text-neutral sm:mb-8 sm:text-3xl">Payment Details</h2>
 
                 {!reservationId ? (
                   <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
@@ -740,9 +717,9 @@ function PaymentContent() {
                           </div>
                         </div>
                       )}
-                      <div className="mt-4 flex items-center justify-between rounded-lg bg-white px-4 py-3">
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-3 sm:px-4">
                         <span className="font-semibold text-neutral">Amount due now</span>
-                        <span className="text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span className="whitespace-nowrap text-xl font-bold text-primary">₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     </div>
                   ) : (
@@ -792,7 +769,7 @@ function PaymentContent() {
                     <div className="mb-8">
                       <h3 className="text-xl font-semibold text-neutral mb-4">Bank Transfer Details</h3>
 
-                      <div className="bg-neutral/5 p-6 rounded-xl mb-6">
+                      <div className="bg-neutral/5 p-3 sm:p-6 rounded-xl mb-6">
                         <h4 className="font-semibold text-neutral mb-3">Transfer to:</h4>
                         <div className="space-y-2 text-sm">
                           <p><span className="text-neutral/70">Method:</span> <span className="font-semibold">{selectedPaymentMethod?.name ?? "-"}</span></p>
@@ -846,7 +823,7 @@ function PaymentContent() {
                           />
                           {bankDetails.uploadProof && (
                             <div className="mt-3 rounded-lg border border-neutral/20 p-3">
-                              <p className="text-xs text-neutral/70 mb-2">Selected file: {bankDetails.uploadProof.name}</p>
+                              <p className="mb-2 break-words text-xs text-neutral/70">Selected file: {bankDetails.uploadProof.name}</p>
                               {bankDetails.uploadProof.type.startsWith("image/") && bankProofPreviewUrl ? (
                                 <Image
                                   src={bankProofPreviewUrl}
@@ -894,7 +871,7 @@ function PaymentContent() {
                         </div>
                       </div>
 
-                      <div className="bg-neutral/5 p-6 rounded-xl mb-6">
+                      <div className="bg-neutral/5 p-3 sm:p-6 rounded-xl mb-6">
                         <h4 className="font-semibold text-neutral mb-3">Send payment to:</h4>
                         <div className="space-y-2 text-sm">
                           <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">{selectedPaymentAccount?.account_name ?? "-"}</span></p>
@@ -971,7 +948,7 @@ function PaymentContent() {
                           />
                           {ewalletDetails.uploadProof && (
                             <div className="mt-3 rounded-lg border border-neutral/20 p-3">
-                              <p className="text-xs text-neutral/70 mb-2">Selected file: {ewalletDetails.uploadProof.name}</p>
+                              <p className="mb-2 break-words text-xs text-neutral/70">Selected file: {ewalletDetails.uploadProof.name}</p>
                               {ewalletDetails.uploadProof.type.startsWith("image/") && ewalletProofPreviewUrl ? (
                                 <Image
                                   src={ewalletProofPreviewUrl}
@@ -1002,7 +979,7 @@ function PaymentContent() {
                     <PolicyAgreement key={reservationId} accepted={acceptedTerms} onChange={(accepted) => setAcceptedTermsForReservation(accepted ? reservationId : "")} reservationId={reservationId || undefined} />
                   </div>
 
-                  <div className="flex gap-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
                     <Link href={backToFormHref} className="flex-1">
                       <button type="button" className="w-full bg-neutral/10 text-neutral px-6 py-4 rounded-full font-semibold hover:bg-neutral/20 transition-colors">
                         Back
@@ -1011,7 +988,7 @@ function PaymentContent() {
                     <button
                       type="submit"
                       disabled={isSubmitting || isCheckingPendingPayment || isCheckingVerifiedDownpayment || hasPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentAccount?.qr_image}
-                      className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                      className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {isSubmitting ? "Processing..." : "Confirm Payment"}
                     </button>
@@ -1020,7 +997,7 @@ function PaymentContent() {
               </div>
             </div>
 
-            <div className="lg:col-span-1">
+            <div className="min-w-0 lg:col-span-1">
               <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-6">Payment Summary</h3>
 
@@ -1038,9 +1015,9 @@ function PaymentContent() {
 
                   {!isBalancePayment && <div className="pb-4 border-b border-neutral/10">
                     <p className="text-sm font-semibold text-neutral mb-2">Booking Charges</p>
-                    <div className="flex justify-between text-sm mb-1"><span className="text-neutral/70">{costSummary.packageLabel}</span><span className="text-neutral">₱{costSummary.packageCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                    <div className="flex justify-between text-sm mb-1"><span className="text-neutral/70">{costSummary.packageLabel}</span><span className="whitespace-nowrap text-neutral">₱{costSummary.packageCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                     <div className="flex justify-between text-sm mb-1"><span className="text-neutral/70">Guests</span><span className="text-neutral">{adultCount} adults, {childCount} children</span></div>
-                    {costSummary.extraGuestCharge > 0 && <div className="flex justify-between text-sm"><span className="text-neutral/70">Extra guests ({costSummary.extraGuests})</span><span className="text-neutral">₱{costSummary.extraGuestCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                    {costSummary.extraGuestCharge > 0 && <div className="flex justify-between text-sm"><span className="text-neutral/70">Extra guests ({costSummary.extraGuests})</span><span className="whitespace-nowrap text-neutral">₱{costSummary.extraGuestCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                   </div>}
 
                   {!isBalancePayment && selectedServices.length > 0 && (
@@ -1049,7 +1026,7 @@ function PaymentContent() {
                       {selectedServices.map((service) => (
                         <div key={service.id || service.name} className="flex justify-between text-sm mb-1">
                           <span className="text-neutral/70">{service.name}</span>
-                          <span className="text-neutral">₱{service.price.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span className="whitespace-nowrap text-neutral">₱{service.price.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
                       ))}
                     </div>
@@ -1057,22 +1034,22 @@ function PaymentContent() {
 
                   {!isBalancePayment && <div className="flex justify-between">
                     <span className="text-neutral/70">Subtotal</span>
-                    <span className="font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="whitespace-nowrap font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>}
 
                   {!isBalancePayment && costSummary.tax > 0 && <div className="flex justify-between">
                     <span className="text-neutral/70">Tax</span>
-                    <span className="font-semibold text-neutral">₱{costSummary.tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="whitespace-nowrap font-semibold text-neutral">₱{costSummary.tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>}
 
                   <div className="flex justify-between">
                     <span className="text-neutral/70">Total Amount</span>
-                    <span className="font-semibold text-neutral">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="whitespace-nowrap font-semibold text-neutral">₱{totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
 
                   {paidAmount > 0 && <div className="flex justify-between">
                     <span className="text-neutral/70">Already paid</span>
-                    <span className="font-semibold text-neutral">₱{paidAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="whitespace-nowrap font-semibold text-neutral">₱{paidAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>}
 
                   <div className="bg-primary/5 p-4 rounded-lg">
@@ -1080,14 +1057,14 @@ function PaymentContent() {
                       <span className="font-semibold text-neutral">
                         Amount sent
                       </span>
-                      <span className="text-xl font-bold text-primary">₱{previewAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="whitespace-nowrap text-xl font-bold text-primary">₱{previewAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <p className="text-xs text-neutral/60">{effectivePayOption === "full" ? "Payment is subject to staff verification." : "Your reservation is confirmed after staff verifies this payment."}</p>
                   </div>
 
                   <div className="flex justify-between pt-4 border-t border-neutral/10">
                     <span className="text-neutral/70">Balance after approval</span>
-                    <span className="font-semibold text-neutral">₱{remainingAfterThisPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="whitespace-nowrap font-semibold text-neutral">₱{remainingAfterThisPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
 
                   <p className="text-xs text-neutral/60">You can pay the remaining balance through Manage Booking after this payment is approved.</p>
