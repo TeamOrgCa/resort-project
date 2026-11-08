@@ -3,24 +3,24 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { useSiteContent } from "@/components/content/SiteContent";
+import { configuredFaqs, validFacebookChatUrl } from "@/lib/chatbot/config";
 
 type ChatMessage = {
   role: "assistant" | "user";
   content: string;
+  supportLink?: { label: string; url: string };
 };
 
 const CHATBOT_ENABLED = true;
 const quickQuestions = ["How do I book?", "What are your swimming rates?", "How do payments work?", "Can I reschedule?"];
-const faqQuestions = [
-  "What is included in a private pool booking?",
-  "Is an ocular visit free?",
-  "Where is Marville Resort located?",
-  "Can we bring food and drinks?",
-  "How much is an additional room?",
-  "What time are the swimming packages?",
-];
 
 export default function ChatBotMars() {
+  const settings = useSiteContent();
+  const faqQuestions = Object.keys(configuredFaqs(settings));
+  const [showSupportForm, setShowSupportForm] = useState(false);
+  const [supportReason, setSupportReason] = useState("");
+  const [supportReference, setSupportReference] = useState("");
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -73,6 +73,7 @@ export default function ChatBotMars() {
         ...currentMessages,
         {
           role: "assistant",
+          ...(data.supportLink?.url && validFacebookChatUrl(data.supportLink.url) ? { supportLink: data.supportLink } : {}),
           content:
             data.reply ||
             "I’m not sure how to answer that yet, but I can help with bookings, rooms, and resort info.",
@@ -130,6 +131,7 @@ export default function ChatBotMars() {
                   } whitespace-pre-wrap`}
                 >
                   {message.content}
+                  {message.supportLink && <a href={message.supportLink.url} target="_blank" rel="noopener noreferrer" className="mt-3 block rounded-lg border border-white/40 bg-primary px-3 py-2 font-semibold text-white underline hover:bg-primary/80">{message.supportLink.label}</a>}
                 </div>
               </div>
             ))}
@@ -166,6 +168,18 @@ export default function ChatBotMars() {
           <div className="flex gap-4 px-4 pb-3 text-xs font-semibold text-white/85">
             <Link href="/booking" onClick={() => setOpen(false)} className="hover:text-white hover:underline">Book a stay or visit</Link>
             <Link href="/manage" onClick={() => setOpen(false)} className="hover:text-white hover:underline">Manage booking</Link>
+          </div>
+          <div className="border-t border-white/10 px-4 py-3 text-sm text-white">
+            <button type="button" disabled={loading} onClick={() => setShowSupportForm(value => !value)} className="min-h-11 rounded-lg border border-white/30 px-3 font-semibold hover:bg-white/10 disabled:opacity-50">Talk to a resort employee</button>
+            {showSupportForm && <form className="mt-3 space-y-2" onSubmit={event => {
+              event.preventDefault(); if (loading || supportReason.trim().length < 5) return;
+              const question = `I need human support. Reason: ${supportReason.trim()}${supportReference.trim() ? ` Booking reference: ${supportReference.trim()}` : ""}`;
+              setShowSupportForm(false); setSupportReason(""); setSupportReference(""); void sendMessage(question);
+            }}>
+              <label className="block text-xs">What do you need help with?<textarea required minLength={5} maxLength={700} value={supportReason} onChange={event => setSupportReason(event.target.value)} className="mt-1 w-full rounded-lg border border-white/30 bg-white/10 p-2 text-white" /></label>
+              <label className="block text-xs">Booking reference (optional)<input maxLength={40} value={supportReference} onChange={event => setSupportReference(event.target.value)} className="mt-1 w-full rounded-lg border border-white/30 bg-white/10 p-2 text-white" /></label>
+              <button type="submit" disabled={loading || supportReason.trim().length < 5} className="min-h-11 rounded-lg bg-primary px-3 font-semibold disabled:opacity-50">Request human support</button>
+            </form>}
           </div>
 
           <form onSubmit={handleSubmit} className="border-t border-white/10 p-4">

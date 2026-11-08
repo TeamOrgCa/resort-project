@@ -75,7 +75,7 @@ export default function ConfigurationClient() {
         </fieldset>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-5">
           <p className="text-sm text-neutral/60">{isRefreshing ? "Refreshing..." : activeCategory === "content" ? contentChanges ? `${contentChanges} unsaved ${contentChanges === 1 ? "change" : "changes"}. Save publishes all sections in ${contentGroup.toLowerCase()}.` : "Choose a section to edit its text and images." : "Changes apply to new workflows immediately."}</p>
-          <button type="button" disabled={saving || uploadingImages > 0 || Boolean(error)} onClick={() => void handleSave()} className="admin-button-primary">{saving ? "Saving..." : uploadingImages > 0 ? "Uploading image..." : activeCategory === "content" ? `Save ${contentGroup.toLowerCase()}` : "Save other settings"}</button>
+          <button type="button" disabled={saving || uploadingImages > 0 || Boolean(error)} onClick={() => void handleSave()} className="admin-button-primary">{saving ? "Saving..." : uploadingImages > 0 ? "Uploading image..." : activeCategory === "content" ? `Save ${contentGroup.toLowerCase()}` : activeCategory === "chatbot" ? "Save chatbot settings" : "Save other settings"}</button>
         </div>
       </div>}
     </section>

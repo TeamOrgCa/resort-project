@@ -13,7 +13,7 @@ globalThis.HTMLElement = dom.window.HTMLElement; globalThis.Node = dom.window.No
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
-const button = (container, label) => [...container.querySelectorAll("button")].find(el => el.textContent.trim() === label);
+const button = (container, label) => label === "Close" ? container.querySelector('[aria-label="Close booking dialog"]') : [...container.querySelectorAll("button")].find(el => el.textContent.trim() === label);
 const menuItem = label => [...document.querySelectorAll('[role="menuitem"]')].find(el => el.querySelector("span > span")?.textContent === label);
 const dialog = () => document.querySelector('[role="dialog"]');
 async function click(el) { assert.ok(el, "Expected control to exist"); assert.equal(el.disabled, false); await act(async () => el.click()); }
@@ -98,8 +98,8 @@ test("booking actions open a focused dialog without inline details and restore t
     assert.match(dialog().textContent, /Booking details/); assert.match(dialog().textContent, /Extra table/);
     for (const label of ["Edit booking", "Reschedule", "Cancel reservation", "Continue to Payment"]) assert.ok(button(dialog(), label), label);
     assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
-    const last = button(dialog(), "Close"); last.focus(); await key(last, "Tab"); assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
-    await key(document.activeElement, "Escape"); assert.equal(dialog(), null); assert.equal(document.body.style.overflow, ""); assert.equal(document.activeElement, trigger);
+    const last = [...dialog().querySelectorAll("button, a[href], input, select, textarea")].at(-1); last.focus(); await key(last, "Tab"); assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
+    await key(document.activeElement, "Escape"); assert.ok(dialog()); await click(button(dialog(), "Close")); assert.equal(dialog(), null); assert.equal(document.body.style.overflow, ""); assert.equal(document.activeElement, trigger);
     await action("MV-CONFIRMED", "Pay balance"); assert.deepEqual(h.pushes, ["/booking/payment"]); assert.equal(h.drafts[0].reservationId, "booking");
   } finally { await h.close(); }
 });

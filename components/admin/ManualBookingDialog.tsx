@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { usePortalTarget } from "@/lib/use-portal-target";
+import { useReservationFormGuard } from "@/components/booking/use-reservation-form-guard";
 import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_PACKAGE_TIMES, formatPackageTimeSlot, packageTimesLabel } from "@/lib/booking/package-times";
 import { buildBookingWindow, toIsoLocalDay, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
@@ -19,13 +22,18 @@ import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/li
 type Unit = { unit_id: string; name: string; capacity: number };
 type Service = { service_id: string; name: string; description: string | null; price: number };
 type PackageMode = Exclude<BookingMode, "custom">;
-type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreated: (booking: { date: string }) => void };
+type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreated: (booking: { date: string; id?: string; reference?: string }) => void };
 type BookingForm = { bookingDate: string; bookingMode: PackageMode; wholeDayVariant: WholeDayVariant; adultCount: string; childCount: string; unitId: string; specialRequests: string };
 const money = (value: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value);
 const fieldClass = "admin-field mt-1 w-full";
 const validQuantity = (value: string) => Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10000;
 
-export default function ManualBookingDialog({ isOpen, onClose, onCreated }: ManualBookingDialogProps) {
+export default function ManualBookingDialog(props: ManualBookingDialogProps) {
+  const portalTarget = usePortalTarget();
+  return props.isOpen && portalTarget ? createPortal(<ManualBookingForm {...props} />, portalTarget) : null;
+}
+
+function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogProps) {
   const { schedule: packageSchedule, error: packageRatesError } = usePackageRates(isOpen);
   const [units, setUnits] = useState<Unit[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -41,6 +49,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
   const saving = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { root: formRoot, requestClose, reset: resetForm, captureInitial, captureChange, captureClick, confirmation } = useReservationFormGuard(isOpen, isSaving);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -65,6 +74,25 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     void loadOptions();
     return () => { active = false; };
   }, [isOpen, optionsRevision]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    formRoot.current?.querySelector<HTMLInputElement>('input[type="text"]')?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (document.querySelector('[role="alertdialog"]')) return;
+      if (event.key === "Escape") { event.preventDefault(); return; }
+      if (event.key !== "Tab") return;
+      const fields = Array.from(formRoot.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]') ?? []).filter(field => !field.closest('fieldset:disabled'));
+      const first = fields[0], last = fields.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", keydown); previousFocus?.focus(); };
+  }, [isOpen, formRoot]);
 
   if (!isOpen) return null;
 
@@ -108,6 +136,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     event.preventDefault();
     if (saving.current) return;
     setError(null); setSuccess(null);
+    if (!("error" in previewWindow) && !isStaffBookingWindowAllowed(previewWindow.startDatetime, previewWindow.endDatetime)) { setError(STAFF_BOOKING_WINDOW_MESSAGE); return; }
     if (selectedIssue) { setError(selectedIssue); return; }
     if (optionsLoading || optionsError) { setError(optionsError ?? "Please wait for booking options to load."); return; }
     if (!quantitiesValid) { setError("Enter a whole-number quantity from 1 to 10,000 for each selected service."); return; }
@@ -115,7 +144,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
     if ("error" in previewWindow) { setError(previewWindow.error ?? "Invalid booking window."); return; }
     const adults = Number(form.adultCount), children = Number(form.childCount);
     if (!form.unitId || !isValidGuestCounts(adults, children)) { setError("Select a unit and enter valid guest counts."); return; }
-    if (Object.values(walkIn).some(value => !value.trim())) { setError("Complete all walk-in guest details."); return; }
+    if (Object.entries(walkIn).some(([key, value]) => key !== "email" && !value.trim())) { setError("Complete the required walk-in guest details. Email is optional."); return; }
     const firstName = normalizePersonName(walkIn.firstName), lastName = normalizePersonName(walkIn.lastName);
     if (!firstName || !lastName) { setError(PERSON_NAME_ERROR); return; }
     const phoneNumber = normalizePhilippineMobile(walkIn.phoneNumber);
@@ -128,22 +157,23 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
         startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime,
         adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests, selectedServices,
       }) });
-      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; reservation?: { referenceNumber?: string } } | null;
+      const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; reservation?: { id?: string; referenceNumber?: string } } | null;
       if (!response.ok || !result?.success) {
         if (response.status === 409) availability.refresh();
         throw new Error(result?.message ?? "Failed to create manual reservation.");
       }
       setSuccess(`Manual reservation ${result.reservation?.referenceNumber ?? "created"}.`);
-      onCreated({ date: form.bookingDate });
+      resetForm();
+      onCreated({ date: form.bookingDate, id: result.reservation?.id, reference: result.reservation?.referenceNumber });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Failed to create manual reservation."); }
     finally { saving.current = false; setIsSaving(false); }
   };
 
-  return <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true" aria-labelledby="manual-booking-title">
-    <div className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
+  return <div className="admin-workspace fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true" aria-labelledby="manual-booking-title">
+    <div ref={formRoot} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onClickCapture={captureClick} onChangeCapture={captureChange} onInputCapture={captureChange} className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral/10 pb-5">
         <div className="min-w-0"><h2 id="manual-booking-title" className="text-xl font-semibold text-neutral">New Manual Reservation</h2><p className="mt-1 text-sm text-neutral/60">Choose an available package and add any services requested by the guest.</p></div>
-        <button type="button" disabled={isSaving} onClick={onClose} className="min-h-11 rounded-xl border border-neutral/20 px-3 text-sm font-semibold text-neutral">Close</button>
+        <button type="button" disabled={isSaving} onClick={() => requestClose(onClose)} aria-label="Close booking dialog" className="flex h-11 w-11 items-center justify-center rounded-full border border-neutral/20 text-neutral hover:bg-base"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path d="m6 6 12 12M6 18 18 6" /></svg></button>
       </div>
       <form onSubmit={handleSubmit} className="mt-5">
         {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
@@ -154,7 +184,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
             <p className="text-sm text-neutral/65 md:col-span-2">For guests without an account who book by phone, Messenger or walk-in. Registered guests should book through their own account.</p>
             {(Object.keys(walkIn) as Array<keyof typeof walkIn>).map(key => key === "phoneNumber"
               ? <div key={key}><label htmlFor="walk-in-phone" className="block text-sm text-neutral">Phone</label><PhilippinePhoneInput id="walk-in-phone" name="phoneNumber" value={walkIn.phoneNumber} onChange={phoneNumber => setWalkIn(current => ({ ...current, phoneNumber }))} /></div>
-              : <Input key={key} label={({ firstName: "First name", lastName: "Last name", email: "Email", address: "Address" })[key]} type={key === "email" ? "email" : "text"} value={walkIn[key]} onChange={value => setWalkIn(current => ({ ...current, [key]: key === "firstName" || key === "lastName" ? sanitizePersonName(value) : value }))} />)}
+              : <Input key={key} label={({ firstName: "First name", lastName: "Last name", email: "Email (optional)", address: "Address" })[key]} type={key === "email" ? "email" : "text"} value={walkIn[key]} onChange={value => setWalkIn(current => ({ ...current, [key]: key === "firstName" || key === "lastName" ? sanitizePersonName(value) : value }))} />)}
           </div>
           <div className="grid min-w-0 gap-4 md:grid-cols-2">
             <div className="min-w-0 space-y-3">
@@ -163,7 +193,7 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
               <BookingDateCalendar value={form.bookingDate} onChange={chooseDate} onMonthChange={setCalendarMonth} minDate={manilaDateKey(new Date(availability.now))} minimumDateReason="Past date"
                 getUnavailableReason={dateIssue} disabled={isSaving}
                 getDateHint={date => !packageIssue(date, "day") && !packageIssue(date, "night") ? "Day / Night" : !packageIssue(date, "day") ? "Day only" : !packageIssue(date, "night") ? "Night only" : "Whole day only"}
-                footnote="Staff can record today's available packages even after their start time, until the package ends. Scheduled package times and prices still apply; availability is checked again before saving." />
+                footnote="Only packages whose scheduled start time has not passed can be booked. Times are Philippine time; availability is checked again before saving." />
             </div>
             <div className="min-w-0 space-y-4">
               <SelectField label="Booking package" value={form.bookingMode} onChange={value => {
@@ -208,10 +238,11 @@ export default function ManualBookingDialog({ isOpen, onClose, onCreated }: Manu
             <p className="mt-2 font-semibold text-primary">Total: {money(preview.total)}</p>
             <p className="mt-1 text-xs text-neutral/60">Minimum 20% downpayment: {money(preview.downPaymentMin)}</p>
           </> : <p>Choose a valid date and guest count to view the current package price.</p>}</div>
-          <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={onClose} className="min-h-11 rounded-xl border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral">Cancel</button><button type="submit" disabled={isSaving || !preview || Boolean(packageRatesError) || !quantitiesValid || Boolean(selectedIssue) || optionsLoading || Boolean(optionsError)} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
+          <div className="flex flex-wrap justify-end gap-2"><button type="submit" disabled={isSaving || !preview || Boolean(packageRatesError) || !quantitiesValid || Boolean(selectedIssue) || optionsLoading || Boolean(optionsError)} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
         </fieldset>
       </form>
     </div>
+    {confirmation}
   </div>;
 }
 

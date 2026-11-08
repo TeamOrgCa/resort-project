@@ -17,6 +17,7 @@ import type { StaffRole } from "@/lib/auth/staff-auth";
 import { formatManilaDate, manilaCalendarDate, manilaDateKey } from "@/lib/booking/manila-date";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { buildBookingWindow } from "@/lib/booking/policy";
+import { isStaffBookingWindowAllowed } from "@/lib/booking/start-time";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { createClient } from "@/lib/supabase/client";
 import { CALENDAR_COLORS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
@@ -48,6 +49,7 @@ type OcularVisit = {
   scheduled_date: string;
   status: string;
   review_reason?: string | null;
+  cancellation_reason?: string | null;
 };
 
 type Guest = {
@@ -141,6 +143,9 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [searchTerm, setSearchTerm] = useState("");
   const appearance = useCalendarAppearance();
   const calendarView = useRef<HTMLDivElement>(null);
+  const [newBooking, setNewBooking] = useState<{ id?: string; reference?: string; date: string } | null>(null);
+  const [highlightCreated, setHighlightCreated] = useState<string | null>(null);
+  const [creationToast, setCreationToast] = useState<string | null>(null);
   const [highlightMatches, setHighlightMatches] = useState(false);
   const [showColorSettings, setShowColorSettings] = useState(false);
   const [isManualBookingOpen, setIsManualBookingOpen] = useState(openNew);
@@ -168,7 +173,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         const availabilityEnd = dateKey(addDays(startOfMonthGrid(month), 43));
         const [{ data: reservationData, error: reservationError }, { data: ocularData, error: ocularError }, blocksResponse] = await Promise.all([
           supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at, checked_in_at, checked_out_at").neq("status", "expired").lt("start_datetime", `${availabilityEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(1000),
-          supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, status, review_reason").gte("scheduled_date", gridStart).lt("scheduled_date", gridEnd).order("scheduled_date", { ascending: true }).limit(300),
+          supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, status, review_reason, cancellation_reason").gte("scheduled_date", gridStart).lt("scheduled_date", gridEnd).order("scheduled_date", { ascending: true }).limit(300),
           fetch(`/api/admin/maintenance-blocks?start=${gridStart}&end=${availabilityEnd}`, { cache: "no-store" }),
         ]);
 
@@ -366,6 +371,22 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     }, 450);
     return () => { window.clearTimeout(timer); clearTimeout(finish); };
   }, [searchTerm, attentionFilter, matchingDates, isLoading]);
+  useEffect(() => {
+    if (!newBooking || isLoading) return;
+    const created = reservations.find(row => newBooking.id ? row.reservation_id === newBooking.id : row.reference_number === newBooking.reference);
+    if (!created) return;
+    const timer = window.setTimeout(() => {
+      setHighlightCreated(created.reservation_id);
+      calendarView.current?.scrollIntoView?.({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+    }, 100);
+    const finish = window.setTimeout(() => { setHighlightCreated(null); setNewBooking(null); }, 2600);
+    return () => { window.clearTimeout(timer); window.clearTimeout(finish); };
+  }, [newBooking, isLoading, reservations]);
+  useEffect(() => {
+    if (!creationToast) return;
+    const timer = window.setTimeout(() => setCreationToast(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [creationToast]);
   const calendarDays = useMemo(() => {
     const start = startOfMonthGrid(month);
     return Array.from({ length: 42 }, (_, index) => addDays(start, index));
@@ -381,6 +402,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       const isAvailable = (mode: "day" | "night" | "whole_day", wholeDayVariant: "day_to_night" | "night_to_day" = "day_to_night") => {
         const window = buildBookingWindow({ bookingMode: mode, date: key, wholeDayVariant, packageTimes: packageSchedule?.times });
         if (typeof window.startDatetime !== "string" || typeof window.endDatetime !== "string") return false;
+        if (!isStaffBookingWindowAllowed(window.startDatetime, window.endDatetime, now)) return false;
         const lastDay = manilaDateKey(new Date(new Date(window.endDatetime).getTime() - 1));
         if (maintenanceBlocks.some((block) => block.status === "active" && block.start_date <= lastDay && block.end_date >= key)) return false;
         return isWindowAvailable(window.startDatetime, window.endDatetime, activeReservations);
@@ -443,7 +465,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const openMaintenance = () => { if (!canManageMaintenance) return; setBlockError(null); setShowBlockForm(true); };
   const renderEvent = (event: CalendarEvent) => {
     const style = eventStyles[event.kind], reservation = reservations.find(row => row.reservation_id === event.reservationId);
-    return <button key={event.id} type="button" onClick={() => openEvent(event)} style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${highlightMatches ? "calendar-match-pulse" : ""}`}>
+    return <button key={event.id} type="button" onClick={() => openEvent(event)} style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) ? "calendar-match-pulse" : ""}`}>
       <span className="block text-[10px] font-medium opacity-75">{reservation ? `${formatTime(reservation.start_datetime)} - ${formatTime(reservation.end_datetime)}` : style.label} ? {titleCase(event.status ?? "scheduled")}</span>
       <span className="mt-0.5 block break-words text-xs font-semibold">{event.label}{unviewedDot(event)}</span>
       <span className="mt-0.5 block break-all text-[10px] opacity-75">{style.label} | {event.reference}</span>
@@ -474,6 +496,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         </button>
       </div>} />
     {isLoading && <div className="mb-4"><LoadingState title="Loading reservation calendar..." description="Fetching bookings, maintenance dates and items needing attention." /></div>}
+    {creationToast && <div role="status" className="fixed left-1/2 top-5 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center gap-3 rounded-2xl border border-green-200 bg-white px-4 py-3 text-sm font-semibold text-green-900 shadow-lg">{creationToast}<button type="button" onClick={() => setCreationToast(null)} aria-label="Dismiss reservation success notification" className="ml-auto min-h-11 px-2 text-xl">?</button></div>}
     {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-900">{cancellationMessage}</p>}
     {blockMessage && <p role="status" className="mb-4 rounded-xl bg-orange-50 p-4 text-sm">{blockMessage}</p>}
     {error && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error} {reservations.length > 0 && "Previously loaded data is shown; flags may be out of date."}<button type="button" onClick={() => setRefreshKey(key => key + 1)} className="ml-2 min-h-11 underline">Retry calendar</button></div>}
@@ -551,7 +574,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                         type="button"
                         onClick={() => openEvent(event)}
                         style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)}
-                        className={`block w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${highlightMatches ? "calendar-match-pulse" : ""}`}
+                        className={`block w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) ? "calendar-match-pulse" : ""}`}
                         title={`${style.label}: ${event.label}${event.flags?.length ? `. Needs attention: ${event.flags.map(flag => ATTENTION_LABELS[flag]).join(", ")}` : ""}`}
                       >
                         <span className="block text-[9px] font-normal opacity-75">{style.label}</span>
@@ -603,7 +626,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       <p className="mt-3 text-[10px] text-neutral/50">Philippine time. Tap an entry to view details and actions.</p>
     </section>
     </div>
-    {selectedEvent && <RecordDialog variant="admin" title={`${eventStyles[selectedReservation ? calendarBookingKind(selectedReservation.status) : selectedEvent.kind].label} details`} reference={selectedEvent.reference ?? selectedEvent.label} busy={checkInBusy || editorBusy || blockBusy || paymentBusy || ocularBusy} onClose={() => { if (!checkInBusy && !editorBusy && !blockBusy && !paymentBusy && !ocularBusy) setSelectedEvent(null); }}>
+    {selectedEvent && <RecordDialog resetKey={paymentRevision} variant="admin" title={`${eventStyles[selectedReservation ? calendarBookingKind(selectedReservation.status) : selectedEvent.kind].label} details`} reference={selectedEvent.reference ?? selectedEvent.label} busy={checkInBusy || editorBusy || blockBusy || paymentBusy || ocularBusy} onClose={() => { if (!checkInBusy && !editorBusy && !blockBusy && !paymentBusy && !ocularBusy) setSelectedEvent(null); }}>
       {selectedEvent.reservationId ? <>
         {!!selectedFlags.length && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><p className="font-semibold">Needs attention</p><ul className="mt-2 list-disc space-y-1 pl-5">{selectedFlags.map(flag => <li key={flag}>{ATTENTION_LABELS[flag]}{flag === "balance" ? `: ${new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(signals[selectedEvent.reservationId!]?.balance ?? 0)}` : ""}</li>)}</ul></div>}
         {selectedReservation && <div className="mb-4 rounded-xl border border-neutral/10 p-4 text-sm"><p className="font-semibold">Guest arrival</p><p className="mt-1">{selectedReservation.checked_in_at ? `Checked in: ${new Date(selectedReservation.checked_in_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}` : "Not checked in"}</p>
@@ -626,13 +649,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         {canReviewPayments && <ReservationPaymentReview key={selectedEvent.reservationId} reservationId={selectedEvent.reservationId} reference={selectedReservation?.reference_number ?? selectedEvent.reference ?? "Reservation"} onBusyChange={setPaymentBusy} onReviewed={() => { setPaymentRevision(value => value + 1); setRefreshKey(key => key + 1); }} />}
         <ReservationEditor key={`${selectedEvent.reservationId}:${paymentRevision}`} reservationId={selectedEvent.reservationId} onBusyChange={setEditorBusy} onSaved={() => setRefreshKey(key => key + 1)} />
         {canCancel && selectedReservation && !selectedReservation.checked_in_at && !["cancelled", "completed", "expired", "rejected"].includes(selectedReservation.status) && <button type="button" onClick={() => { setCancelId(selectedEvent.reservationId!); setSelectedEvent(null); }} className="mt-5 min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700">Cancel reservation / review refund</button>}
-      </> : <div className="space-y-3 text-sm"><p>{selectedEvent.label}</p><p>Date: {selectedEvent.date}</p><p>Status: {titleCase(selectedOcular?.status ?? selectedEvent.status ?? "scheduled")}</p><p>{selectedEvent.reference}</p>{blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{blockError}</p>}{selectedOcular && <OcularVisitReview key={selectedOcular.visit_id} visit={selectedOcular} canReview={canReviewOcular} onBusyChange={setOcularBusy} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularVisits(rows => rows.map(row => row.visit_id === visit.visit_id ? { ...row, ...visit } : row)); setRefreshKey(value => value + 1); }} />}{canManageMaintenance && selectedEvent.kind === "maintenance" && <button type="button" disabled={blockBusy} onClick={() => void releaseBlock(selectedEvent.id.split(":")[0])} className="min-h-11 rounded-xl border px-3 py-2">Release block</button>}</div>}
+      </> : <div className="space-y-3 text-sm"><p>{selectedEvent.label}</p><p>Date: {selectedEvent.date}</p><p>Status: {titleCase(selectedOcular?.status ?? selectedEvent.status ?? "scheduled")}</p><p>{selectedEvent.reference}</p>{blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{blockError}</p>}{selectedOcular && <OcularVisitReview key={selectedOcular.visit_id} visit={selectedOcular} canReview={canReviewOcular} canCancel={isManager && canReviewOcular} onBusyChange={setOcularBusy} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularVisits(rows => rows.map(row => row.visit_id === visit.visit_id ? { ...row, ...visit } : row)); setRefreshKey(value => value + 1); }} />}{canManageMaintenance && selectedEvent.kind === "maintenance" && <button type="button" disabled={blockBusy} onClick={() => void releaseBlock(selectedEvent.id.split(":")[0])} className="min-h-11 rounded-xl border px-3 py-2">Release block</button>}</div>}
     </RecordDialog>}
     {cancelId && <CancellationDialog staff canCancelForResort={isManager && canCancel} reservationId={cancelId} onClose={() => setCancelId(null)} onCancelled={result => {
       setCancellationMessage(result.message + (!result.emailSent ? " In-app alerts were recorded; email delivery could not be confirmed." : ""));
       setCancelId(null); setSelectedEvent(null); setRefreshKey(key => key + 1);
     }} />}
     <ManualBookingDialog isOpen={isManualBookingOpen && canCreate} onClose={() => setIsManualBookingOpen(false)} onCreated={booking => {
+      setNewBooking(booking); setCreationToast(`Reservation ${booking.reference ?? ""} created successfully.`);
       setIsManualBookingOpen(false); setSearchTerm(""); setAttentionFilter("all");
       setMonth(manilaCalendarDate(booking.date)); setSelectedDay(booking.date);
       setRefreshKey(key => key + 1); setCancellationMessage("Manual reservation created. New bookings have a glowing dot until you view them.");

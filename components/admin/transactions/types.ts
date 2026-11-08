@@ -168,6 +168,7 @@ export interface ReceiptDetailReservationRow {
   walk_in_guest_id?: string | null;
   reference_number: string;
   booking_type: "online" | "walk_in" | null;
+  booking_mode?: string | null;
   status: "pending" | "confirmed" | "cancelled" | "completed" | null;
   start_datetime: string;
   end_datetime: string;
@@ -175,6 +176,7 @@ export interface ReceiptDetailReservationRow {
 
 export interface ReceiptDetailGuestRow {
   first_name: string | null;
+  middle_name?: string | null;
   last_name: string | null;
   email: string;
 }

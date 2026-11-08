@@ -17,10 +17,11 @@ test("ocular slots use Manila dates and start times even across UTC midnight", (
   assert.equal(isOcularSlotStartAllowed("2026-10-09", "00:30:00", nearMidnightUtc), true);
 });
 
-test("staff entry accepts today's ongoing and imminent packages while guest entry retains its lead time", () => {
+test("staff rejects already started packages while allowing future imminent packages", () => {
   const noon = Date.parse("2026-10-17T12:00:00+08:00");
-  assert.equal(isStaffBookingWindowAllowed("2026-10-17T08:00:00+08:00", "2026-10-17T16:00:00+08:00", noon), true);
+  assert.equal(isStaffBookingWindowAllowed("2026-10-17T08:00:00+08:00", "2026-10-17T16:00:00+08:00", noon), false);
   assert.equal(isBookingStartAllowed("2026-10-17T08:00:00+08:00", noon), false);
+  assert.equal(isStaffBookingWindowAllowed("2026-10-17T12:00:00+08:00", "2026-10-17T16:00:00+08:00", noon), false);
   assert.equal(isStaffBookingWindowAllowed("2026-10-17T12:15:00+08:00", "2026-10-17T16:00:00+08:00", noon), true);
   assert.equal(isBookingStartAllowed("2026-10-17T12:15:00+08:00", noon), false);
   assert.equal(isStaffBookingWindowAllowed("2026-10-18T08:00:00+08:00", "2026-10-18T16:00:00+08:00", noon), true);

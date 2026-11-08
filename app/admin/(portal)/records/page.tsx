@@ -28,6 +28,7 @@ const rescheduleColumns: AdminTableColumn[] = [
 const ocularColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reference" }, { key: "guest", label: "Guest" },
   { key: "scheduledDate", label: "Scheduled Date" }, { key: "timeSlot", label: "Time" }, { key: "status", label: "Status" },
+  { key: "reason", label: "Review / cancellation reason" },
   { key: "createdAt", label: "Created" },
 ];
 
@@ -37,7 +38,7 @@ const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (
 
 type Guest = { id: string; first_name: string; last_name: string };
 type WalkInGuest = Omit<Guest, "id"> & { walk_in_guest_id: string };
-type RecordReview = { action: "Approve" | "Reject"; row: AdminTableRow; isOcular: boolean };
+type RecordReview = { action: "Approve" | "Reject" | "Cancel visit"; row: AdminTableRow; isOcular: boolean };
 
 export default function AdminRecordsPage() {
   const [activeTab, setActiveTab] = useModuleTab<(typeof tabs)[number]>("Reservation Records", {
@@ -53,6 +54,7 @@ export default function AdminRecordsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [canApproveReschedules, setCanApproveReschedules] = useState(false);
   const [canApproveOcular, setCanApproveOcular] = useState(false);
+  const [canCancelOcular, setCanCancelOcular] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState<AdminTableRow | null>(null);
   const [selectedReview, setSelectedReview] = useState<RecordReview | null>(null);
   const [reviewReason, setReviewReason] = useState("");
@@ -67,7 +69,7 @@ export default function AdminRecordsPage() {
         const [{ data: reservationData, error: reservationError }, { data: rescheduleData, error: rescheduleError }, { data: ocularData, error: ocularError }, { data: slotData, error: slotError }] = await Promise.all([
           fetchAllPages((from, to) => supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, created_at").order("created_at", { ascending: false }).order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
           fetchAllPages((from, to) => supabase.from("reservation_reschedules").select("reschedule_id, reservation_id, requested_by, old_start, old_end, new_start, new_end, reschedule_fee, rate_adjustment, reason, status, created_at").order("created_at", { ascending: false }).order("reschedule_id").range(from, to)).then(data => ({ data, error: null })),
-          fetchAllPages((from, to) => supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, time_slot_id, status, created_at").order("created_at", { ascending: false }).order("visit_id").range(from, to)).then(data => ({ data, error: null })),
+          fetchAllPages((from, to) => supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, time_slot_id, status, review_reason, cancellation_reason, created_at").order("created_at", { ascending: false }).order("visit_id").range(from, to)).then(data => ({ data, error: null })),
           supabase.from("ocular_time_slots").select("slot_id, start_time, end_time"),
         ]);
         if (reservationError || rescheduleError || ocularError || slotError) throw reservationError ?? rescheduleError ?? ocularError ?? slotError;
@@ -93,7 +95,7 @@ export default function AdminRecordsPage() {
         const reservationReference = reservationRows.reduce<Record<string, string>>((map, row) => ({ ...map, [String(row.reservation_id)]: String(row.reference_number) }), {});
         setReschedules((((rescheduleData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.reschedule_id), reference: reservationReference[String(row.reservation_id)] ?? "-", guest: reservationMap[String(row.reservation_id)] ? reservationGuestName(reservationMap[String(row.reservation_id)]) : guestName(row.requested_by), oldDates: `${dateTime(String(row.old_start))} - ${dateTime(String(row.old_end))}`, newDates: `${dateTime(String(row.new_start))} - ${dateTime(String(row.new_end))}`, additionalCharge: `₱${(Number(row.reschedule_fee ?? 0) + Number(row.rate_adjustment ?? 0)).toFixed(2)}`, reason: String(row.reason ?? "Not recorded"), status: titleCase(String(row.status ?? "")), requestedAt: dateTime(String(row.created_at)) }))));
         const slots = Object.fromEntries(((slotData as Array<{ slot_id: string; start_time: string; end_time: string }> | null) ?? []).map((slot) => [slot.slot_id, `${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)}`]));
-        setOcularVisits((((ocularData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.visit_id), reference: String(row.reference_number), guest: guestName(row.guest_id), scheduledDate: dateOnly(String(row.scheduled_date)), timeSlot: slots[String(row.time_slot_id)] ?? "-", status: titleCase(String(row.status ?? "")), createdAt: dateTime(String(row.created_at)) }))));
+        setOcularVisits((((ocularData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.visit_id), reference: String(row.reference_number), guest: guestName(row.guest_id), scheduledDate: dateOnly(String(row.scheduled_date)), timeSlot: slots[String(row.time_slot_id)] ?? "-", status: titleCase(String(row.status ?? "")), reason: String(row.cancellation_reason ?? row.review_reason ?? "-"), createdAt: dateTime(String(row.created_at)) }))));
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data: staff } = await supabase.from("staff_users").select("role").eq("id", user.id).maybeSingle<{ role: StaffRole }>();
@@ -102,6 +104,7 @@ export default function AdminRecordsPage() {
             if (mounted) {
               setCanApproveReschedules(hasPermission(staff.role, grants?.permissions ?? [], "reschedule_approval"));
               setCanApproveOcular(hasPermission(staff.role, grants?.permissions ?? [], "ocular_approval"));
+              setCanCancelOcular(staff.role === "staff" && hasPermission(staff.role, grants?.permissions ?? [], "ocular_approval"));
             }
           }
         }
@@ -115,7 +118,7 @@ export default function AdminRecordsPage() {
     return () => { mounted = false; };
   }, [refreshKey]);
 
-  const openReview = (action: "Approve" | "Reject", row: AdminTableRow) => {
+  const openReview = (action: RecordReview["action"], row: AdminTableRow) => {
     setSelectedReview({ action, row, isOcular: activeTab === "Ocular Visit Records" });
     setReviewReason("");
     setReviewError(null);
@@ -134,9 +137,9 @@ export default function AdminRecordsPage() {
     setError(null);
     setMessage(null);
     try {
-      const url = isOcular ? `/api/admin/ocular-visits/${action === "Approve" ? "approve" : "reject"}` : `/api/admin/reschedule-requests/${action === "Approve" ? "approve" : "reject"}`;
+      const url = isOcular ? `/api/admin/ocular-visits/${action === "Cancel visit" ? "cancel" : action === "Approve" ? "approve" : "reject"}` : `/api/admin/reschedule-requests/${action === "Approve" ? "approve" : "reject"}`;
       const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(isOcular
-        ? { visitId: row.id, reviewReason: rejectionReason }
+        ? { visitId: row.id, ...(action === "Cancel visit" ? { cancellationReason: rejectionReason } : { reviewReason: rejectionReason }) }
         : { rescheduleId: row.id, ...(rejectionReason ? { rejectionReason } : {}) }) });
       const result = await response.json() as { success?: boolean; message?: string };
       if (!response.ok || !result.success) throw new Error(result.message ?? "Unable to review request.");
@@ -169,9 +172,9 @@ export default function AdminRecordsPage() {
           showResetFilters
           defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule Requests" ? "requestedAt" : "scheduledDate", direction: "desc" }}
           filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
-          rowActions={activeTab === "Reservation Records" ? ["View"] : activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" && canApproveOcular ? ["Approve", "Reject"] : []}
-          onRowAction={(action, row) => { if (action === "View") setSelectedReservation(row); else openReview(action as "Approve" | "Reject", row); }}
-          isRowActionDisabled={(action, row) => action === "View" ? false : Boolean(busyId) || row.status !== "Pending"}
+          rowActions={activeTab === "Reservation Records" ? ["View"] : activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" ? [...(canApproveOcular ? ["Approve", "Reject"] : []), ...(canCancelOcular ? ["Cancel visit"] : [])] : []}
+          onRowAction={(action, row) => { if (action === "View") setSelectedReservation(row); else openReview(action as RecordReview["action"], row); }}
+          isRowActionDisabled={(action, row) => action === "View" ? false : Boolean(busyId) || (action === "Cancel visit" ? !["Pending", "Confirmed"].includes(row.status) : row.status !== "Pending")}
         />
       </section>
       {selectedReview && <RecordDialog variant="admin" title={`${selectedReview.action} ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}`} reference={selectedReview.row.reference} busy={Boolean(busyId)} onClose={closeReview}>
@@ -184,18 +187,18 @@ export default function AdminRecordsPage() {
                 : [["Original schedule", selectedReview.row.oldDates], ["Requested schedule", selectedReview.row.newDates], ["Additional charge", selectedReview.row.additionalCharge]]),
             ].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="mt-1 font-medium text-neutral">{value}</dd></div>)}
           </dl>
-          <p className="text-sm text-neutral/75">{selectedReview.action === "Approve"
+          <p className="text-sm text-neutral/75">{selectedReview.action === "Cancel visit" ? "Cancel this ocular visit. The cancellation reason will be shared with the guest." : selectedReview.action === "Approve"
             ? `Confirm approval of this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}.`
             : `Confirm rejection of this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}. The reason will be shared with the guest.`}</p>
           {needsReason && <label className="block text-sm font-medium text-neutral">
-            {selectedReview.isOcular ? "Review reason" : "Rejection reason"} <span className="text-red-700">(required)</span>
-            <textarea name="reviewReason" required minLength={selectedReview.isOcular ? 5 : 1} maxLength={2000} rows={4} value={reviewReason} onChange={event => setReviewReason(event.target.value)} aria-describedby="record-review-reason-help" className="admin-field mt-2 w-full" placeholder={`Explain why this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"} should be ${selectedReview.action === "Approve" ? "approved" : "rejected"}.`} />
+            {selectedReview.action === "Cancel visit" ? "Cancellation reason" : selectedReview.isOcular ? "Review reason" : "Rejection reason"} <span className="text-red-700">(required)</span>
+            <textarea name="reviewReason" required minLength={selectedReview.isOcular ? 5 : 1} maxLength={2000} rows={4} value={reviewReason} onChange={event => setReviewReason(event.target.value)} aria-describedby="record-review-reason-help" className="admin-field mt-2 w-full" placeholder={`Explain why this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"} should be ${selectedReview.action === "Cancel visit" ? "cancelled" : selectedReview.action === "Approve" ? "approved" : "rejected"}.`} />
             <span id="record-review-reason-help" className="mt-1 block text-xs font-normal text-neutral/60">{selectedReview.isOcular ? "Enter 5 to 2,000 characters. " : "Enter up to 2,000 characters. "}This reason will be shared with the guest.</span>
           </label>}
           {reviewError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{reviewError}</p>}
           <div className="flex flex-wrap justify-end gap-3">
             <button type="button" onClick={closeReview} disabled={Boolean(busyId)} className="admin-button-secondary">Cancel</button>
-            <button type="submit" disabled={Boolean(busyId) || !validReason} className={selectedReview.action === "Approve" ? "admin-button-primary" : "admin-button-secondary border-red-200 text-red-700 hover:bg-red-50"}>{busyId ? "Saving..." : selectedReview.action === "Approve" ? "Confirm approval" : "Confirm rejection"}</button>
+            <button type="submit" disabled={Boolean(busyId) || !validReason} className={selectedReview.action === "Approve" ? "admin-button-primary" : "admin-button-secondary border-red-200 text-red-700 hover:bg-red-50"}>{busyId ? "Saving..." : selectedReview.action === "Cancel visit" ? "Confirm cancellation" : selectedReview.action === "Approve" ? "Confirm approval" : "Confirm rejection"}</button>
           </div>
         </form>
       </RecordDialog>}

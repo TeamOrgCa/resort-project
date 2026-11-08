@@ -4412,3 +4412,265 @@ create trigger notification_customer_name before insert or update of title,messa
 update public.notifications set message=message;
 notify pgrst,'reload schema';
 commit;
+-- Apply after ocular-review and admin-read-only-manager-refunds migrations.
+begin;
+alter table public.ocular_visits add column if not exists cancellation_reason text;
+alter table public.ocular_visits add column if not exists cancelled_at timestamptz;
+alter table public.ocular_visits add column if not exists cancelled_by uuid references public.staff_users(id);
+
+create or replace function public.guard_manager_ocular_cancellation()
+returns trigger language plpgsql security definer set search_path='' as $$
+begin
+  if auth.role() in ('anon','authenticated') and (new.cancelled_by is distinct from old.cancelled_by
+    or (exists(select 1 from public.staff_users where id=auth.uid()) and
+      (new.status is distinct from old.status or new.cancellation_reason is distinct from old.cancellation_reason or new.cancelled_at is distinct from old.cancelled_at))) then
+    raise exception 'Use the manager ocular cancellation action' using errcode='42501';
+  end if;
+  return new;
+end $$;
+revoke all on function public.guard_manager_ocular_cancellation() from public,anon,authenticated;
+drop trigger if exists guard_manager_ocular_cancellation on public.ocular_visits;
+create trigger guard_manager_ocular_cancellation before update of status,cancellation_reason,cancelled_at,cancelled_by on public.ocular_visits
+  for each row execute function public.guard_manager_ocular_cancellation();
+
+create or replace function public.cancel_manager_ocular_visit(p_visit uuid,p_reason text,p_staff uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare v_visit public.ocular_visits%rowtype;
+begin
+  if not exists(select 1 from public.staff_users s where s.id=p_staff and s.role='staff' and s.is_active
+    and exists(select 1 from public.role_permissions rp where rp.role=s.role and 'ocular_approval'=any(rp.permissions))) then
+    raise exception 'Manager ocular approval permission required' using errcode='42501'; end if;
+  if length(btrim(coalesce(p_reason,''))) not between 5 and 2000 then
+    raise exception 'Enter a cancellation reason of 5 to 2000 characters' using errcode='22023'; end if;
+  select * into v_visit from public.ocular_visits where visit_id=p_visit for update;
+  if not found then raise exception 'Ocular visit not found' using errcode='P0002'; end if;
+  if v_visit.status='cancelled' and v_visit.cancelled_by=p_staff and v_visit.cancellation_reason=btrim(p_reason) then
+    return to_jsonb(v_visit)||jsonb_build_object('alreadyCancelled',true); end if;
+  if v_visit.status not in ('pending','confirmed') then
+    raise exception 'Only pending or confirmed ocular visits can be cancelled. Refresh the visit' using errcode='40001'; end if;
+  update public.ocular_visits set status='cancelled',cancellation_reason=btrim(p_reason),cancelled_at=clock_timestamp(),cancelled_by=p_staff
+    where visit_id=p_visit returning * into v_visit;
+  insert into public.audit_logs(user_id,auth_user_id,action,entity_type,entity_id,details)
+    values(p_staff,p_staff,'Cancelled ocular visit','ocular_visit',p_visit,
+      jsonb_build_object('reference_number',v_visit.reference_number,'reason',v_visit.cancellation_reason,'scheduled_date',v_visit.scheduled_date));
+  return to_jsonb(v_visit)||jsonb_build_object('alreadyCancelled',false);
+end $$;
+revoke all on function public.cancel_manager_ocular_visit(uuid,text,uuid) from public,anon,authenticated;
+grant execute on function public.cancel_manager_ocular_visit(uuid,text,uuid) to service_role;
+notify pgrst,'reload schema';
+commit;
+
+
+-- Additional service photos
+-- Apply before deploying service photos in Business Catalog and booking.
+-- Uses the same admin-only upload endpoint and public bucket as website images.
+begin;
+alter table public.services add column if not exists image_url text;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('site-content', 'site-content', true, 5242880, array['image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do update set public = excluded.public,
+  file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+notify pgrst, 'reload schema';
+commit;
+
+
+-- Apply after reschedule-policy, stay-completion and admin-read-only-manager-refunds.
+-- New reservations must start in the future; offline email is optional.
+-- Authorized operational staff can update guest counts during an active stay.
+begin;
+alter table public.walk_in_guests alter column email drop not null;
+
+create or replace function public.guard_new_reservation_start()
+returns trigger language plpgsql set search_path='' as $$
+begin
+  -- timestamptz compares instants. Application package clocks use Asia/Manila.
+  if new.start_datetime is null or not isfinite(new.start_datetime)
+    or new.start_datetime <= clock_timestamp() then
+    raise exception 'The selected package has already started. Choose a future start time (Philippine time)' using errcode='22023';
+  end if;
+  return new;
+end $$;
+revoke all on function public.guard_new_reservation_start() from public,anon,authenticated;
+drop trigger if exists guard_new_reservation_start on public.reservations;
+create trigger guard_new_reservation_start before insert on public.reservations
+  for each row execute function public.guard_new_reservation_start();
+
+create or replace function public.edit_staff_reservation(
+  p_reservation uuid, p_staff uuid, p_expected jsonb, p_patch jsonb
+) returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  v_r public.reservations%rowtype;
+  v_t public.transactions%rowtype;
+  v_old_services jsonb;
+  v_old_units jsonb;
+  v_item jsonb;
+  v_existing public.reservation_services%rowtype;
+  v_catalog public.services%rowtype;
+  v_unit public.units%rowtype;
+  v_unit_id uuid;
+  v_old_unit_id uuid;
+  v_seen uuid[] := array[]::uuid[];
+  v_service uuid;
+  v_quantity integer;
+  v_details_changed boolean;
+  v_unit_changed boolean;
+  v_start timestamptz;
+  v_end timestamptz;
+  v_old_services_total numeric;
+  v_new_services_total numeric;
+  v_total numeric(10,2);
+  v_paid numeric(10,2);
+  v_status text;
+begin
+  -- Only the server can execute this function or supply a package price delta.
+  -- Recheck the actor's grant inside the same database transaction.
+  if not exists (select 1 from public.staff_users s where s.id = p_staff and s.is_active
+    and s.role <> 'admin' and exists (select 1 from public.role_permissions rp
+      where rp.role = s.role and 'edit_reservation' = any(rp.permissions))) then
+    raise exception 'You do not have permission to edit reservations' using errcode = '42501';
+  end if;
+  select * into v_r from public.reservations where reservation_id = p_reservation for update;
+  if not found then raise exception 'Reservation not found' using errcode = '22023'; end if;
+  select * into v_t from public.transactions where reservation_id = p_reservation for update;
+  if not found then raise exception 'Reservation bill not found' using errcode = '22023'; end if;
+  select coalesce(jsonb_agg(jsonb_build_object('serviceId', service_id, 'quantity', quantity, 'price', price_at_time)
+    order by service_id), '[]'::jsonb), coalesce(sum(quantity * price_at_time), 0)
+    into v_old_services, v_old_services_total from public.reservation_services where reservation_id = p_reservation;
+  select coalesce(jsonb_agg(jsonb_build_object('unitId', unit_id, 'quantity', quantity, 'price', price_per_night)
+    order by unit_id), '[]'::jsonb) into v_old_units from public.reservation_units where reservation_id = p_reservation;
+  if v_r.updated_at is distinct from (p_expected->>'updatedAt')::timestamptz
+    or v_t.total_amount is distinct from (p_expected->>'totalAmount')::numeric
+    or coalesce(v_t.paid_amount, 0) is distinct from (p_expected->>'paidAmount')::numeric
+    or v_old_services is distinct from p_expected->'services'
+    or v_old_units is distinct from p_expected->'units' then
+    raise exception 'This reservation or bill changed. Reload it before saving' using errcode = '40001';
+  end if;
+  if v_r.status not in ('pending', 'confirmed') or v_r.checked_out_at is not null
+    or (v_r.end_datetime <= now() and v_r.checked_in_at is null)
+    or (v_r.status = 'pending' and v_r.payment_deadline_at <= now()) then
+    raise exception 'This reservation is no longer editable' using errcode = '40001';
+  end if;
+  if exists (select 1 from public.payments where reservation_id = p_reservation and status = 'pending')
+    or exists (select 1 from public.reservation_reschedules where reservation_id = p_reservation and status = 'pending') then
+    raise exception 'Resolve pending payments or reschedule requests before editing' using errcode = '40001';
+  end if;
+  if length(trim(coalesce(p_patch->>'reason', ''))) = 0 or length(p_patch->>'reason') > 1000
+    or jsonb_typeof(p_patch->'services') is distinct from 'array' or jsonb_array_length(p_patch->'services') > 100 then
+    raise exception 'Provide a reason and valid service list' using errcode = '22023';
+  end if;
+  v_start := (p_patch->>'startDatetime')::timestamptz;
+  v_end := (p_patch->>'endDatetime')::timestamptz;
+  if v_start is null or v_end is null or v_end <= v_start or
+    (p_patch->>'adultCount')::integer < 1 or (p_patch->>'childCount')::integer < 0 or
+    (p_patch->>'adultCount')::integer + (p_patch->>'childCount')::integer > 30 then
+    raise exception 'Invalid schedule or guest counts' using errcode = '22023';
+  end if;
+  if v_start is distinct from v_r.start_datetime or v_end is distinct from v_r.end_datetime
+    or p_patch->>'bookingMode' is distinct from coalesce(v_r.booking_mode,'day') then
+    raise exception 'Schedule changes must use the reschedule policy workflow' using errcode='22023'; end if;
+  v_details_changed := v_r.start_datetime <> v_start or v_r.end_datetime <> v_end
+    or v_r.booking_mode is distinct from p_patch->>'bookingMode'
+    or v_r.adult_count <> (p_patch->>'adultCount')::integer or v_r.child_count <> (p_patch->>'childCount')::integer;
+  v_unit_id := (p_patch->>'unitId')::uuid;
+  if jsonb_array_length(v_old_units) = 1 and (v_old_units->0->>'quantity')::integer = 1 then
+    v_old_unit_id := (v_old_units->0->>'unitId')::uuid;
+  end if;
+  v_unit_changed := v_old_unit_id is distinct from v_unit_id;
+  -- The schedule above stays fixed. Guest counts remain editable during an
+  -- active checked-in stay; accommodation changes remain locked after arrival.
+  if v_unit_changed and (v_r.checked_in_at is not null or v_r.start_datetime <= now()) then
+    raise exception 'The stay has started. Accommodation cannot be changed' using errcode = '40001';
+  end if;
+  if not v_details_changed and coalesce((p_patch->>'packageDelta')::numeric, 0) <> 0 then
+    raise exception 'Invalid package adjustment' using errcode = '22023';
+  end if;
+  if v_unit_changed then
+    if jsonb_array_length(v_old_units) > 1 or exists (select 1 from public.reservation_units
+      where reservation_id = p_reservation and quantity <> 1) then
+      raise exception 'Multiple accommodations require individual billing review' using errcode = '22023';
+    end if;
+    select * into v_unit from public.units where unit_id = v_unit_id and is_active and archived_at is null for share;
+    if not found then raise exception 'Selected accommodation is unavailable' using errcode = '22023'; end if;
+  end if;
+  -- Validate and lock catalog prices before modifying any booking rows.
+  for v_item in select value from jsonb_array_elements(p_patch->'services') loop
+    v_service := (v_item->>'serviceId')::uuid;
+    v_quantity := (v_item->>'quantity')::integer;
+    if v_service is null or v_quantity is null or v_quantity < 1 or v_quantity > 10000 or v_service = any(v_seen) then
+      raise exception 'Invalid service or quantity' using errcode = '22023';
+    end if;
+    v_seen := array_append(v_seen, v_service);
+    select * into v_existing from public.reservation_services where reservation_id = p_reservation and service_id = v_service;
+    if found then
+      if (v_r.checked_in_at is not null or v_r.start_datetime <= now()) and v_quantity < v_existing.quantity then
+        raise exception 'Services cannot be reduced during a stay' using errcode = '22023';
+      end if;
+      if v_existing.price_at_time is distinct from (v_item->>'price')::numeric then
+        raise exception 'Service price changed. Reload the reservation' using errcode = '40001';
+      end if;
+    else
+      select * into v_catalog from public.services where service_id = v_service and is_active for share;
+      if not found then raise exception 'Selected service is unavailable' using errcode = '22023'; end if;
+      if v_catalog.price is distinct from (v_item->>'price')::numeric then
+        raise exception 'Service price changed. Reload the reservation' using errcode = '40001';
+      end if;
+    end if;
+  end loop;
+  if (v_r.checked_in_at is not null or v_r.start_datetime <= now()) and exists (select 1 from public.reservation_services
+    where reservation_id = p_reservation and not (service_id = any(v_seen))) then
+    raise exception 'Services cannot be removed during a stay' using errcode = '22023';
+  end if;
+  -- Date constraints and the existing maintenance trigger remain authoritative.
+  -- Updating a note alone does not run schedule or package recalculation triggers.
+  if v_details_changed then
+    update public.reservations set start_datetime = v_start, end_datetime = v_end,
+      booking_mode = p_patch->>'bookingMode', adult_count = (p_patch->>'adultCount')::integer,
+      child_count = (p_patch->>'childCount')::integer, special_requests = nullif(p_patch->>'specialRequests', ''), updated_at = now()
+      where reservation_id = p_reservation;
+  else
+    update public.reservations set special_requests = nullif(p_patch->>'specialRequests', ''), updated_at = now()
+      where reservation_id = p_reservation;
+  end if;
+  if v_unit_changed then
+    delete from public.reservation_units where reservation_id = p_reservation;
+    insert into public.reservation_units(reservation_id, unit_id, quantity, price_per_night)
+      values(p_reservation, v_unit_id, 1, v_unit.base_price);
+  end if;
+  delete from public.reservation_services where reservation_id = p_reservation and not (service_id = any(v_seen));
+  for v_item in select value from jsonb_array_elements(p_patch->'services') loop
+    insert into public.reservation_services(reservation_id, service_id, quantity, price_at_time)
+      values(p_reservation, (v_item->>'serviceId')::uuid, (v_item->>'quantity')::integer, (v_item->>'price')::numeric)
+      on conflict(reservation_id, service_id) do update set quantity = excluded.quantity
+      where public.reservation_services.quantity <> excluded.quantity;
+  end loop;
+  select coalesce(sum(quantity * price_at_time), 0) into v_new_services_total
+    from public.reservation_services where reservation_id = p_reservation;
+  -- Override intermediate legacy trigger totals with the captured bill + deltas.
+  v_total := round(v_t.total_amount + (p_patch->>'packageDelta')::numeric + v_new_services_total - v_old_services_total, 2);
+  if v_total < 0 or v_total is distinct from (p_patch->>'expectedTotal')::numeric then
+    raise exception 'Bill changed. Reload to review the updated amount' using errcode = '40001';
+  end if;
+  v_paid := coalesce(v_t.paid_amount, 0);
+  v_status := case when v_paid >= v_total then 'paid' when v_paid > 0 then 'partial' else 'unpaid' end;
+  update public.transactions set total_amount = v_total, paid_amount = v_paid, status = v_status where reservation_id = p_reservation;
+  update public.invoices set total_amount = v_total,
+    status = case when v_paid >= v_total then 'paid' when v_paid > 0 then 'partially_paid' else 'issued' end
+    where invoice_id = (select invoice_id from public.invoices where reservation_id = p_reservation and status <> 'void'
+      order by created_at desc, invoice_id desc limit 1);
+  insert into public.audit_logs(user_id, auth_user_id, action, entity_type, entity_id, details)
+    values(p_staff, p_staff, 'Edited reservation and bill', 'reservation', p_reservation,
+      jsonb_build_object('reference_number', v_r.reference_number, 'reason', p_patch->>'reason',
+        'before', to_jsonb(v_r), 'before_bill', to_jsonb(v_t), 'before_services', v_old_services, 'before_units', v_old_units,
+        'guest_count_changed', v_r.adult_count is distinct from (p_patch->>'adultCount')::integer or v_r.child_count is distinct from (p_patch->>'childCount')::integer,
+        'after_check_in', v_r.checked_in_at is not null,
+        'after', p_patch - 'version', 'new_total', v_total, 'paid_amount', v_paid,
+        'balance', greatest(v_total - v_paid, 0), 'overpaid_amount', greatest(v_paid - v_total, 0)));
+  return jsonb_build_object('totalAmount', v_total, 'paidAmount', v_paid, 'remainingBalance', greatest(v_total - v_paid, 0),
+    'overpaidAmount', greatest(v_paid - v_total, 0), 'status', v_status);
+end $$;
+revoke all on function public.edit_staff_reservation(uuid,uuid,jsonb,jsonb) from public,anon,authenticated;
+grant execute on function public.edit_staff_reservation(uuid,uuid,jsonb,jsonb) to service_role;
+notify pgrst, 'reload schema';
+commit;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useReservationFormGuard } from "@/components/booking/use-reservation-form-guard";
 import type { CancellationPreview } from "@/lib/booking/cancellation";
 const money = (n: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(n);
 export type CancellationResult = CancellationPreview & { refundId: string | null; message: string; emailSent: boolean };
@@ -17,14 +18,14 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
   const [error, setError] = useState<string | null>(null), [confirmed, setConfirmed] = useState(false);
   const [reload, setReload] = useState(0);
   const dialog = useRef<HTMLDivElement>(null);
-  const submitting = useRef(false), closeRef = useRef(onClose);
-  useEffect(() => { closeRef.current = onClose; }, [onClose]);
+  const submitting = useRef(false);
+  const { root: formRoot, requestClose, captureInitial, captureChange, captureClick, confirmation } = useReservationFormGuard(true, busy, `${reservationId}:${choosing}`);
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden"; dialog.current?.focus({ preventScroll: true });
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); if (!submitting.current) closeRef.current(); }
+      if (event.key === "Escape") { event.preventDefault(); return; }
       if (event.key !== "Tab") return;
       const controls = [...(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') ?? [])];
       const first = controls[0], last = controls.at(-1);
@@ -61,17 +62,18 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to cancel reservation."); }
     finally { submitting.current = false; setBusy(false); }
   }
-  return <div ref={dialog} role="dialog" tabIndex={-1} aria-modal="true" aria-busy={busy} aria-label="Review cancellation and refund" className="fixed inset-0 z-[85] flex items-center justify-center bg-neutral/50 p-4 text-neutral" onClick={() => { if (!submitting.current) onClose(); }}>
-    <div className="max-h-[90dvh] w-full max-w-xl overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl sm:p-6" onClick={e => e.stopPropagation()}>
+  return <div ref={dialog} role="dialog" tabIndex={-1} aria-modal="true" aria-busy={busy} aria-label="Review cancellation and refund" className="fixed inset-0 z-[85] flex items-center justify-center bg-neutral/50 p-4 text-neutral">
+    <div ref={formRoot} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} className="relative max-h-[90dvh] w-full max-w-xl overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl sm:p-6" onClick={e => e.stopPropagation()}>
+      <div className="mb-2 flex justify-end"><button type="button" disabled={busy} onClick={() => requestClose(onClose)} aria-label="Close cancellation dialog" className="flex h-11 w-11 items-center justify-center rounded-full bg-base text-2xl hover:bg-neutral/10 disabled:opacity-40">?</button></div>
       {choosing ? <>
         <h3 className="text-lg font-semibold">Would you prefer to reschedule?</h3>
         <p className="mt-2 text-sm text-neutral/70">Keep your reservation and choose a different available swimming date instead of cancelling. Your package stays the same. Guest reschedules are approved automatically, and the applicable notice fee and any higher date rate are added when saved.</p>
         {rescheduleBlockedReason && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{rescheduleBlockedReason} Contact the resort for assistance.</p>}
         {!rescheduleBlockedReason && rescheduleNotice && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{rescheduleNotice}</p>}
         <div className="mt-5 flex flex-col gap-3">
-          <button type="button" disabled={Boolean(rescheduleBlockedReason)} onClick={onReschedule} className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Reschedule instead</button>
+          <button type="button" disabled={Boolean(rescheduleBlockedReason)} onClick={() => { if (onReschedule) requestClose(onReschedule); }} className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Reschedule instead</button>
           <button type="button" onClick={() => setChoosing(false)} className="min-h-11 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700">Continue to cancellation</button>
-          <button type="button" onClick={onClose} className="min-h-11 rounded-lg border px-4 py-2 text-sm">Keep reservation</button>
+
         </div>
       </> : <>
       <h3 className="text-lg font-semibold">Cancel reservation</h3>
@@ -79,7 +81,7 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
       {!staff && onReschedule && <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
         <p className="font-medium">Prefer a different swimming date?</p>
         {(rescheduleBlockedReason || rescheduleNotice) && <p className="mt-1 text-neutral/75">{rescheduleBlockedReason || rescheduleNotice}</p>}
-        <button type="button" disabled={busy || Boolean(rescheduleBlockedReason)} onClick={onReschedule} className="mt-2 min-h-11 rounded-lg bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50">Reschedule instead</button>
+        <button type="button" disabled={busy || Boolean(rescheduleBlockedReason)} onClick={() => { if (onReschedule) requestClose(onReschedule); }} className="mt-2 min-h-11 rounded-lg bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50">Reschedule instead</button>
       </div>}
       {staff && <div className="mt-4 space-y-3">
         <label className="block text-sm font-medium">Who initiated cancellation?<select disabled={busy} value={initiator} className="mt-1 w-full rounded-lg border p-2" onChange={e => {
@@ -109,9 +111,10 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
       </div>}
       {preview?.allowed && <label className="mt-4 flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={confirmed} onChange={e => setConfirmed(e.target.checked)} className="mt-1" />I reviewed the deduction and refundable amount and want to cancel this reservation.</label>}
       {error && <div role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}<button disabled={busy} type="button" onClick={refresh} className="ml-2 min-h-11 underline">Reload preview</button></div>}
-      <div className="mt-5 flex flex-col justify-end gap-3 sm:flex-row"><button type="button" disabled={busy} onClick={onClose} className="min-h-11 rounded-lg border px-4 py-2 text-sm">Keep reservation</button>
+      <div className="mt-5 flex flex-col justify-end gap-3 sm:flex-row">
         <button type="button" disabled={busy || loading || !preview?.allowed || !confirmed || reason.trim().length < 5 || reason.length > 2000} onClick={() => void submit()} className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Cancelling..." : "Confirm cancellation"}</button></div>
       </>}
     </div>
+    {confirmation}
   </div>;
 }

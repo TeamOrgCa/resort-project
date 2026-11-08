@@ -94,7 +94,7 @@ export default function AdminUsersPage() {
         fullName: row.full_name,
         email: row.email,
         role: row.role === "staff" ? "Manager" : row.role === "admin" ? "Admin" : "Cashier",
-        status: row.is_active ? "Active" : "Inactive",
+        status: row.is_active ? "Active" : "Deactivated",
         lastLogin: formatManilaDateTime(row.last_login_at, undefined, "Never"),
         createdAt: formatManilaDateTime(row.created_at),
       })),
@@ -310,7 +310,7 @@ export default function AdminUsersPage() {
             defaultSort={{ key: "createdAt", direction: "desc" }}
             filters={[
               { key: "role", label: "Role", options: ["Admin", "Manager", "Cashier"] },
-              { key: "status", label: "Status", options: ["Active", "Inactive"] },
+              { key: "status", label: "Status", options: ["Active", "Deactivated"] },
             ]}
             actions={["Add Staff User"]}
             onAction={() => setIsCreateOpen(true)}

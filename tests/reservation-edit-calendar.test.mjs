@@ -152,3 +152,18 @@ test("staff without approval cannot unlock late dates; ended confirmed stays can
     assert.equal(h.c.querySelector('input[type="checkbox"]'), null); assert.equal(day(h.c, "2027-06-20").disabled, true);
   } finally { await h?.close(); Date.now = originalNow; }
 });
+
+
+test("checked-in stays enable guest counts while keeping accommodation and dates locked", async () => {
+  const detail={...fixture(),canChangeDetails:false}; detail.reservation.checked_in_at="2027-06-14T08:00:00+08:00";
+  const h=await mount({detail});
+  try {
+    assert.equal(field(h.c,"Adults","input").disabled,false);
+    assert.equal(field(h.c,"Children","input").disabled,false);
+    assert.equal(field(h.c,"Accommodation").disabled,true);
+    await value(field(h.c,"Adults","input"),"22");
+    await submit(h.c);
+    assert.equal(h.saved[0].adultCount,22); assert.equal(h.saved[0].expectedTotal,8850);
+    assert.equal(h.saved[0].startDatetime,"2027-06-14T00:00:00.000Z");
+  } finally {await h.close();}
+});

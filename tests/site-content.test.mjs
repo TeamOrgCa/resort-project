@@ -32,7 +32,7 @@ test("public content returns saved values and defaults without exposing operatio
   assert.equal(body.settings["content.branding.logo"], "/website_logo_transparent.png");
   assert.equal("notifications.email_templates" in body.settings, false);
   assert.deepEqual(requested, publicContentKeys);
-  assert.ok(requested.every((key) => key.startsWith("content.") || key.startsWith("resort.")));
+  assert.ok(requested.every((key) => key.startsWith("content.") || key.startsWith("resort.") || ["chatbot.faqs", "chatbot.facebook_chat_url"].includes(key)));
 });
 
 test("admin content saves reject malformed, oversized, and unsafe content", async () => {

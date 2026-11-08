@@ -784,7 +784,7 @@ export default function AdminTransactionsPage() {
       const { data: reservationRecord, error: reservationError } = await supabase
         .from("reservations")
         .select(
-          "reservation_id, guest_id, walk_in_guest_id, reference_number, booking_type, status, start_datetime, end_datetime"
+          "reservation_id, guest_id, walk_in_guest_id, reference_number, booking_type, booking_mode, status, start_datetime, end_datetime"
         )
         .eq("reservation_id", paymentRecord.reservation_id)
         .maybeSingle<ReceiptDetailReservationRow>();
@@ -797,24 +797,25 @@ export default function AdminTransactionsPage() {
       const guestLookup = reservationRecord.guest_id
         ? supabase
             .from("guests")
-            .select("first_name, last_name, email")
+            .select("first_name, middle_name, last_name")
             .eq("id", reservationRecord.guest_id)
             .maybeSingle<ReceiptDetailGuestRow>()
         : reservationRecord.walk_in_guest_id
           ? supabase
               .from("walk_in_guests")
-              .select("first_name, last_name, email")
+              .select("first_name, middle_name, last_name")
               .eq("walk_in_guest_id", reservationRecord.walk_in_guest_id)
               .maybeSingle<ReceiptDetailGuestRow>()
           : Promise.resolve({ data: null, error: null });
 
-      const { data: guestRecord } = await guestLookup;
-
-      const receiptStatus =
-        receiptRecord.is_active === false || receiptRecord.archived_at ? "Archived" : "Active";
-      const guestName = `${guestRecord?.first_name ?? ""} ${guestRecord?.last_name ?? ""}`
-        .replace(/\s+/g, " ")
-        .trim();
+      const [{ data: guestRecord }, { data: methodRecord }] = await Promise.all([
+        guestLookup,
+        paymentRecord.payment_method_id ? supabase.from("payment_methods").select("name").eq("payment_method_id", paymentRecord.payment_method_id).maybeSingle<{ name: string }>()
+          : Promise.resolve({ data: null, error: null }),
+      ]);
+      const guestName = [guestRecord?.first_name, guestRecord?.middle_name, guestRecord?.last_name].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+      const purpose = { downpayment: "Reservation down payment", full: "Reservation payment", additional: "Additional reservation payment" }[paymentRecord.payment_type] ?? "Reservation payment";
+      const packageLabel = ({ day: "Day swimming", night: "Overnight swimming", whole_day: "Whole-day stay", custom: "Custom stay" } as Record<string, string>)[reservationRecord.booking_mode ?? ""];
 
       setViewDetails({
         title: "Receipt Details",
@@ -823,26 +824,15 @@ export default function AdminTransactionsPage() {
         fields: [
           { label: "Receipt No.", value: receiptRecord.receipt_number ?? "-" },
           { label: "Issued At", value: formatDateTime(receiptRecord.issued_at) },
-          { label: "Receipt Status", value: receiptStatus },
-          { label: "Amount Paid", value: formatCurrency(Number(receiptRecord.amount_paid ?? 0)) },
-          { label: "Transaction Total at Time", value: formatCurrency(Number(receiptRecord.transaction_total_at_time ?? 0)) },
-          { label: "Balance After Payment", value: formatCurrency(Number(receiptRecord.balance_after_payment ?? 0)) },
+          { label: "Guest Name", value: receiptRecord.billed_to_name?.trim() || guestName || "Guest unavailable" },
           { label: "Reservation Ref", value: reservationRecord.reference_number ?? "-" },
-          { label: "Billed To", value: receiptRecord.billed_to_name || guestName || "-" },
-          { label: "Guest Email", value: guestRecord?.email ?? "-" },
-          { label: "Booking Type", value: toTitleCase(reservationRecord.booking_type ?? "online") },
-          { label: "Reservation Status", value: toTitleCase(reservationRecord.status ?? "pending") },
-          { label: "Check-in", value: formatDateTime(reservationRecord.start_datetime) },
-          { label: "Check-out", value: formatDateTime(reservationRecord.end_datetime) },
+          { label: "Payment for", value: `${purpose}${packageLabel ? ` — ${packageLabel}` : ""}` },
+          { label: "Payment Method", value: methodRecord?.name?.trim() || (paymentRecord.payment_method_id ? "Unavailable" : "Not recorded") },
           { label: "Payment Ref", value: paymentRecord.reference_number ?? "-" },
-          { label: "Payment Amount", value: formatCurrency(Number(paymentRecord.amount ?? 0)) },
-          { label: "Payment Method", value: paymentRecord.payment_method_id ?? "-" },
-          { label: "Payment Type", value: toTitleCase(paymentRecord.payment_type ?? "") },
-          { label: "Payment Status", value: toTitleCase(paymentRecord.status ?? "") },
           { label: "Paid At", value: paymentRecord.paid_at ? formatDateTime(paymentRecord.paid_at) : "-" },
-          { label: "Account Name", value: paymentRecord.account_name || "-" },
-          { label: "Account Number", value: paymentRecord.account_number || "-" },
-          { label: "Proof Path", value: paymentRecord.proof_path || "-" },
+          { label: "Amount Paid", value: formatCurrency(Number(receiptRecord.amount_paid ?? 0)) },
+          { label: "Booking Total at Payment", value: formatCurrency(Number(receiptRecord.transaction_total_at_time ?? 0)) },
+          { label: "Balance After Payment", value: formatCurrency(Number(receiptRecord.balance_after_payment ?? 0)) },
         ],
       });
     } catch {

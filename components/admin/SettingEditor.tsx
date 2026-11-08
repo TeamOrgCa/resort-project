@@ -1,4 +1,5 @@
 "use client";
+import ChatbotFaqEditor from "@/components/admin/ChatbotFaqEditor";
 
 import { useId } from "react";
 import type { SettingDefinition, SettingValue } from "@/lib/settings/types";
@@ -46,7 +47,9 @@ export default function SettingEditor({ definition, value, onChange, onUploading
   const simpleControl = ["text", "textarea", "number"].includes(definition.input);
   const controlClass = compact ? `admin-field mt-1 w-full ${definition.input === "textarea" ? "resize-y" : ""}` : fieldClass;
   let control: React.ReactNode;
-  if (definition.input === "image") {
+  if (definition.key === "chatbot.faqs") {
+    control = <ChatbotFaqEditor value={record} onChange={onChange} />;
+  } else if (definition.input === "image") {
     control = <ContentImageEditor compact={compact} value={typeof value === "string" ? value : ""} onChange={onChange} label={definition.label} onUploadingChange={onUploadingChange} />;
   } else if (definition.key === "resort.contact_numbers" || definition.key === "payments.accepted_methods") {
     control = <ListEditor value={asList(value)} onChange={onChange} itemLabel={definition.key === "resort.contact_numbers" ? "Phone number" : "Payment method"} />;

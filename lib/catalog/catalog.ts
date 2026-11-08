@@ -29,11 +29,12 @@ export interface CatalogDefinition {
 export const catalogResources = {
   services: {
     label: "Services", singular: "service", description: "Manage the extras guests can add to their stay.",
-    id: "service_id", select: "service_id, name, description, price, is_active, created_at", order: "name", search: "name",
+    id: "service_id", select: "service_id, name, description, image_url, price, is_active, created_at", order: "name", search: "name",
     columns: ["name", "price"], fields: [
       { key: "name", label: "Service name", kind: "text", required: true },
       { key: "price", label: "Price (PHP)", kind: "money", required: true, min: 0 },
       { key: "description", label: "Description", kind: "textarea" },
+      { key: "image_url", label: "Service photo", kind: "image", help: "Upload or replace a photo, or remove it to use the default placeholder. Save changes to publish." },
     ],
   },
   units: {

@@ -122,6 +122,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
     event.preventDefault();
     if (!draft || !detail || !preview || (!canEdit && !(canMove && scheduleChanged)) || saving.current) return;
     if (selectedIssue) { setError(selectedIssue); return; }
+    const formElement = event.currentTarget;
     saving.current = true;
     setBusy(true); setError(null); setSuccess(null);
     try {
@@ -130,6 +131,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
       const result = await response.json();
       if (!response.ok) { if (response.status === 409) availability.refresh(); throw new Error(result.message ?? "Unable to save reservation."); }
       setSuccess(result.message);
+      formElement.dispatchEvent(new window.Event("reservation-form-saved", { bubbles: true }));
       reloadDetails(); onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to save reservation."); }
     finally { saving.current = false; setBusy(false); }
@@ -144,7 +146,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
     {success && <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{success}</p>}
     {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800"><p>{error}</p><button type="button" disabled={busy} onClick={reloadDetails} className="mt-2 underline">Reload reservation</button></div>}
     {!canEdit && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{detail.lockedReason ?? "Your role has view-only access. An administrator can grant permission to edit reservations."}</p>}
-    {canEdit && !canChange && <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">The stay has started. Add services or update notes below. Existing services remain on the bill.</p>}
+    {canEdit && !canChange && <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">The stay has started. Update guest counts, add services or update notes below. Schedule and accommodation are locked. Existing services remain on the bill.</p>}
     {(canChange || detail.canRescheduleException) && <div className="rounded-xl border border-neutral/10 bg-base p-4 text-sm text-neutral">
       <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
       <p className="mt-2">Original swimming date: {manilaDateKey(detail.reservation.start_datetime)}. Standard notice deadline: {noticePolicy.deadline} (Philippines).</p>
@@ -173,8 +175,11 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
         <div><dt className="text-xs text-neutral/60">Departure (Philippines)</dt><dd>{scheduleLabel(draft.endDatetime)}</dd></div>
       </dl>
       {selectedIssue && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2">{selectedIssue} Choose another date or time slot.</p>}
-      <label className="text-sm text-neutral/70">Adults<input disabled={!canChange} required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value) })} /></label>
-      <label className="text-sm text-neutral/70">Children<input disabled={!canChange} required type="number" min={0} max={MAX_GUESTS - 1} className={inputClass} value={draft.childCount} onChange={e => setDraft({ ...draft, childCount: Number(e.target.value) })} /></label>
+      </fieldset>
+    <fieldset disabled={busy || !canEdit} className="grid gap-4 sm:grid-cols-2">
+      <legend className="mb-3 font-semibold text-neutral">Guest counts</legend>
+      <label className="text-sm text-neutral/70">Adults<input disabled={!canEdit} required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value) })} /></label>
+      <label className="text-sm text-neutral/70">Children<input disabled={!canEdit} required type="number" min={0} max={MAX_GUESTS - 1} className={inputClass} value={draft.childCount} onChange={e => setDraft({ ...draft, childCount: Number(e.target.value) })} /></label>
       <p className="text-xs text-neutral/60 sm:col-span-2">Times are in Philippine time. Up to {MAX_GUESTS} guests. Package rates apply to the selected schedule and guest count.</p>
     </fieldset>
     <fieldset disabled={busy || !canEdit} className="space-y-3">
