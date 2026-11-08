@@ -13,6 +13,7 @@ type Feed = { key: string; items: NotificationItem[]; error: string | null };
 type Center = {
   notifications: NotificationItem[]; loading: boolean; error: string | null;
   refresh: () => void; markAllRead: () => Promise<void>; markingRead: boolean;
+  markRead: (id: string) => Promise<void>;
   pauseAlerts: () => () => void;
   popupsEnabled: boolean; setPopupsEnabled: (enabled: boolean) => Promise<void>;
   savingPreference: boolean; preferenceError: string | null;
@@ -113,9 +114,9 @@ export default function NotificationCenter({ children }: { children: ReactNode }
       setPreferenceError({ key, message: "Could not save your notification preference. Please try again." });
     } finally { savingPreferenceRef.current = false; setSavingPreference(false); }
   };
-  const markAllRead = async () => {
+  const markNotificationsRead = async (id?: string) => {
     if (!key || saving.current) return;
-    const ids = notifications.filter(item => !item.is_read).map(item => item.notification_id);
+    const ids = notifications.filter(item => !item.is_read && (!id || item.notification_id === id)).map(item => item.notification_id);
     if (!ids.length) return;
     saving.current = true; setMarkingRead(true);
     try {
@@ -129,7 +130,7 @@ export default function NotificationCenter({ children }: { children: ReactNode }
     } finally { saving.current = false; setMarkingRead(false); }
   };
 
-  return <Context.Provider value={{ notifications, loading: Boolean(key && feed?.key !== key), error: feed?.key === key ? feed.error : null, refresh, markAllRead, markingRead, pauseAlerts,
+  return <Context.Provider value={{ notifications, loading: Boolean(key && feed?.key !== key), error: feed?.key === key ? feed.error : null, refresh, markAllRead: () => markNotificationsRead(), markRead: id => markNotificationsRead(id), markingRead, pauseAlerts,
     popupsEnabled: account?.popupsEnabled ?? true, setPopupsEnabled, savingPreference, preferenceError: preferenceError?.key === key ? preferenceError.message : null }}>
     {children}
     <NotificationAlerts items={paused || account?.popupsEnabled === false ? [] : pending.slice(0, 3)} remaining={Math.max(pending.length - 3, 0)}

@@ -13,6 +13,8 @@ export interface TransactionRow {
 
 export interface ReservationRow {
   reservation_id: string;
+  guest_id?: string | null;
+  walk_in_guest_id?: string | null;
   reference_number: string;
   booking_type: "online" | "walk_in" | null;
   status?: string;

@@ -109,6 +109,39 @@ test("empty data and restricted permissions hide unavailable module actions", as
   try { assert.equal(h.container.querySelector("a"), null); assert.equal(button(h.container, "View"), undefined); assert.equal(button(h.container, "Export CSV").disabled, true); assert.match(h.container.textContent, /No activity recorded/); assert.doesNotMatch(h.container.innerHTML, /NaN|Infinity/); } finally { await h.close(); }
 });
 
+test("transaction tables show and search registered and walk-in guest names across tabs", async () => {
+  const timestamp = "2026-11-01T00:00:00Z";
+  const db = dashboardDatabase({
+    staff_users: [{ id: "staff", role: "staff", is_active: true }], role_permissions: [{ role: "staff", permissions: ["transactions"] }],
+    reservations: [{ reservation_id: "online", guest_id: "g", reference_number: "MV-ONLINE", booking_type: "online", status: "confirmed" },
+      { reservation_id: "walk", walk_in_guest_id: "w", reference_number: "MV-WALK", booking_type: "walk_in", status: "confirmed" }],
+    guests: [{ id: "g", first_name: "Ana", middle_name: "Reyes", last_name: "Santos" }],
+    walk_in_guests: [{ walk_in_guest_id: "w", first_name: "Juan", middle_name: null, last_name: "Cruz" }],
+    transactions: ["online", "walk"].map(id => ({ transaction_id: `t-${id}`, reservation_id: id, total_amount: 100, paid_amount: 20, balance: 80, overpaid_amount: 0, status: "partial", updated_at: timestamp })),
+    invoices: ["online", "walk"].map(id => ({ invoice_id: `i-${id}`, reservation_id: id, total_amount: 100, created_at: timestamp })),
+    payments: ["online", "walk"].map(id => ({ payment_id: `p-${id}`, reservation_id: id, reference_number: `PAY-${id}`, amount: 20, status: "pending", ocr_status: "consistent", payment_type: "downpayment", account_name: "Different sender", paid_at: timestamp })),
+    receipts: ["online", "walk"].map(id => ({ receipt_id: `c-${id}`, payment_id: `p-${id}`, receipt_number: `RCPT-${id}`, billed_to_name: null, issued_at: timestamp })),
+  });
+  const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } } });
+  try {
+    for (const tab of ["Transaction Ledger", "Payment Verification Queue", "Generated Invoices", "Issued Receipts"]) {
+      await click(button(h.container, tab));
+      assert.match(h.container.querySelector("thead").textContent, /Guest name/);
+      const search = h.container.querySelector('input[type="search"]') ?? h.container.querySelector('input[placeholder^="Search"]');
+      assert.match(h.container.querySelector("tbody").textContent, /Ana Reyes Santos/);
+      assert.match(h.container.querySelector("tbody").textContent, /Juan Cruz/);
+      await value(search, "sAnToS");
+      assert.equal(h.container.querySelectorAll("tbody tr").length, 1);
+      assert.match(h.container.querySelector("tbody").textContent, /Ana Reyes Santos/);
+      assert.doesNotMatch(h.container.querySelector("tbody").textContent, /Juan Cruz|Different sender/);
+      await value(search, "Juan Cruz");
+      assert.equal(h.container.querySelectorAll("tbody tr").length, 1);
+      assert.match(h.container.querySelector("tbody").textContent, /Juan Cruz/);
+      await value(search, "");
+    }
+  } finally { await h.close(); }
+});
+
 test("transaction links open payment/refund tabs and pending payments outside the recent ledger remain visible", async () => {
   const db = dashboardDatabase({ staff_users: [{ id: "staff", role: "admin", is_active: true }],
     transactions: [{ transaction_id: "t1", reservation_id: "recent", total_amount: 1000, paid_amount: 1000, balance: 0, overpaid_amount: 0, status: "paid", updated_at: "2026-10-13T01:00:00Z" }],

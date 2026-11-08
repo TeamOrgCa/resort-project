@@ -40,6 +40,7 @@ import { useModuleTab } from "@/lib/admin/use-module-tab";
 import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
+import { loadReservationGuestNames } from "@/lib/booking/reservation-guest-names";
 
 interface PaymentSnapshotRow {
   payment_id: string;
@@ -67,6 +68,7 @@ const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Re
 
 const transactionColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reservation Ref" },
+  { key: "guest", label: "Guest name" },
   { key: "bookingType", label: "Booking Type" },
   { key: "total", label: "Total Amount" },
   { key: "paid", label: "Paid Amount" },
@@ -78,6 +80,7 @@ const transactionColumns: AdminTableColumn[] = [
 
 const invoiceColumns: AdminTableColumn[] = [
   { key: "invoiceId", label: "Invoice ID" },
+  { key: "guest", label: "Guest name" },
   { key: "reference", label: "Reservation Ref" },
   { key: "total", label: "Total Amount" },
   { key: "createdAt", label: "Created At" },
@@ -85,7 +88,7 @@ const invoiceColumns: AdminTableColumn[] = [
 
 const receiptColumns: AdminTableColumn[] = [
   { key: "receiptNumber", label: "Receipt No." },
-  { key: "guest", label: "Guest" },
+  { key: "guest", label: "Guest name" },
   { key: "reference", label: "Reservation Ref" },
   { key: "paymentReference", label: "Payment Ref" },
   { key: "issuedAt", label: "Issued At" },
@@ -94,6 +97,7 @@ const receiptColumns: AdminTableColumn[] = [
 
 const paymentVerificationColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reservation Ref" },
+  { key: "guest", label: "Guest name" },
   { key: "paymentReference", label: "Payment Ref" },
   { key: "amount", label: "Amount" },
   { key: "status", label: "Status" },
@@ -176,6 +180,7 @@ export default function AdminTransactionsPage() {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
   const [reservationReferencesById, setReservationReferencesById] = useState<Record<string, string>>({});
+  const [guestNamesByReservationId, setGuestNamesByReservationId] = useState<Record<string, string>>({});
   const [bookingTypesById, setBookingTypesById] = useState<Record<string, string>>({});
   const [paymentReferencesById, setPaymentReferencesById] = useState<Record<string, string>>({});
   const [paymentReservationById, setPaymentReservationById] = useState<Record<string, string>>({});
@@ -248,7 +253,7 @@ export default function AdminTransactionsPage() {
         const [{ data: reservationsData, error: reservationsError }, { data: invoicesData, error: invoicesError }, { data: paymentsData, error: paymentsError }, { data: receiptsData, error: receiptsError }] =
           await Promise.all([
             fetchByIds<ReservationRow>(reservationIds, (ids, from, to) => supabase.from("reservations")
-              .select("reservation_id, reference_number, booking_type, status").in("reservation_id", ids)
+              .select("reservation_id, guest_id, walk_in_guest_id, reference_number, booking_type, status").in("reservation_id", ids)
               .order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
             fetchByIds<InvoiceRow>(ledgerReservationIds, (ids, from, to) => supabase.from("invoices")
               .select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", ids)
@@ -265,6 +270,7 @@ export default function AdminTransactionsPage() {
         if (invoicesError) throw invoicesError;
         if (paymentsError) throw paymentsError;
         if (receiptsError) throw receiptsError;
+        const guestNames = await loadReservationGuestNames(supabase, reservationsData ?? []);
 
         if (!isMounted) return;
 
@@ -302,6 +308,7 @@ export default function AdminTransactionsPage() {
         setInvoices((invoicesData as InvoiceRow[] | null) ?? []);
         setReceipts((receiptsData as ReceiptRow[] | null) ?? []);
         setReservationReferencesById(nextReservationReferencesById);
+        setGuestNamesByReservationId(guestNames);
         setBookingTypesById(nextBookingTypesById);
         setPaymentReferencesById(nextPaymentReferencesById);
         setPaymentReservationById(nextPaymentReservationById);
@@ -334,6 +341,7 @@ export default function AdminTransactionsPage() {
         return {
           id: transaction.transaction_id,
           reference: reservationReferencesById[transaction.reservation_id] ?? "-",
+          guest: guestNamesByReservationId[transaction.reservation_id] ?? "Guest unavailable",
           bookingType: toTitleCase(bookingTypesById[transaction.reservation_id] ?? "online"),
           total: formatCurrency(totalAmount),
           paid: formatCurrency(paidAmount),
@@ -343,7 +351,7 @@ export default function AdminTransactionsPage() {
           updatedAt: formatDateTime(transaction.updated_at),
         };
       }),
-    [bookingTypesById, reservationReferencesById, transactions]
+    [bookingTypesById, reservationReferencesById, guestNamesByReservationId, transactions]
   );
 
   const invoiceRows: AdminTableRow[] = useMemo(
@@ -351,11 +359,12 @@ export default function AdminTransactionsPage() {
       invoices.map((invoice) => ({
         id: invoice.invoice_id,
         invoiceId: invoice.invoice_id.slice(0, 8).toUpperCase(),
+        guest: guestNamesByReservationId[invoice.reservation_id] ?? "Guest unavailable",
         reference: reservationReferencesById[invoice.reservation_id] ?? "-",
         total: formatCurrency(Number(invoice.total_amount ?? 0)),
         createdAt: formatDateTime(invoice.created_at),
       })),
-    [invoices, reservationReferencesById]
+    [invoices, reservationReferencesById, guestNamesByReservationId]
   );
 
   const receiptRows: AdminTableRow[] = useMemo(
@@ -363,13 +372,13 @@ export default function AdminTransactionsPage() {
       receipts.map((receipt) => ({
         id: receipt.receipt_id,
         receiptNumber: receipt.receipt_number,
-        guest: receipt.billed_to_name ?? "-",
+        guest: receipt.billed_to_name?.trim() || guestNamesByReservationId[paymentReservationById[receipt.payment_id] ?? ""] || "Guest unavailable",
         reference: reservationReferencesById[paymentReservationById[receipt.payment_id] ?? ""] ?? "-",
         paymentReference: paymentReferencesById[receipt.payment_id] ?? "-",
         issuedAt: formatDateTime(receipt.issued_at),
         status: receipt.is_active === false ? "Archived" : receipt.archived_at ? "Archived" : "Active",
       })),
-    [paymentReferencesById, paymentReservationById, receipts, reservationReferencesById]
+    [paymentReferencesById, paymentReservationById, receipts, reservationReferencesById, guestNamesByReservationId]
   );
 
   const paymentVerificationRows: AdminTableRow[] = useMemo(
@@ -378,6 +387,7 @@ export default function AdminTransactionsPage() {
         id: payment.payment_id,
         reservationId: payment.reservation_id,
         reference: reservationReferencesById[payment.reservation_id] ?? "-",
+        guest: guestNamesByReservationId[payment.reservation_id] ?? "Guest unavailable",
         paymentReference: payment.reference_number,
         amount: formatCurrency(Number(payment.amount ?? 0)),
         status: toTitleCase(payment.status),
@@ -386,7 +396,7 @@ export default function AdminTransactionsPage() {
         paidAt: payment.paid_at ? formatDateTime(payment.paid_at) : "-",
         proofPath: payment.proof_path,
       })),
-    [payments, reservationReferencesById]
+    [payments, reservationReferencesById, guestNamesByReservationId]
   );
 
   const totalDue = useMemo(
