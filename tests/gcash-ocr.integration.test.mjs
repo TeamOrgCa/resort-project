@@ -4,6 +4,36 @@ import sharp from "sharp";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 import { androidSendMoneyReceiptImage, sendMoneyReceiptImage } from "./helpers/gcash-receipt-image.mjs";
 
+test("OCR reads a centered stacked reference/date footer with grouped leading zeroes", async () => {
+  const png = await androidSendMoneyReceiptImage({ centeredFooter: true, amount: "2.00", phone: "+63 9•••••5095", reference: "0047 061 749617", date: "Nov 09, 2026 3:09 PM" });
+  const jpeg = await sharp(png).resize({ width: 820 }).jpeg({ quality: 90 }).toBuffer();
+  const tesseract = await import("tesseract.js");
+  let focusedReference = false;
+  const { inspectPaymentProof } = loadTsModule("lib/server/gcash-ocr.ts", {
+    "tesseract.js": { ...tesseract, createWorker: async (...args) => {
+      const worker = await tesseract.createWorker(...args), recognize = worker.recognize.bind(worker);
+      worker.recognize = async (...inputs) => {
+        const result = await recognize(...inputs);
+        // Reproduce uncertain labelled reference recognition, then let real OCR
+        // read the focused numeric pixels without changing its result or confidence.
+        for (const block of result.data.blocks ?? []) for (const paragraph of block.paragraphs) for (const line of paragraph.lines) {
+          if (/^Ref No\./i.test(line.text.trim())) for (const word of line.words) if (/\d/.test(word.text)) word.confidence = 55;
+        }
+        if (/^\d[\d\s-]*\d$/.test(result.data.text.trim()) && result.data.text.replace(/\D/g, "").length === 13) focusedReference = true;
+        return result;
+      };
+      return worker;
+    } },
+  });
+  const storage = { storage: { from: () => ({ download: async () => ({ data: new Blob([jpeg], { type: "image/jpeg" }), error: null }) }) } };
+  const result = await inspectPaymentProof(storage, { userId: "guest", proofPath: "guest/centered.jpg", methodName: "GCash", methodType: "ewallet", amount: 2, minimumAmount: 2, reference: "0047061749617", recipientNumber: "09171235095" });
+  assert.equal(result.status, "consistent", result.notes);
+  assert.equal(result.reference, "0047061749617");
+  assert.equal(result.amount, 2);
+  assert.equal(result.paidAt, "2026-11-09T07:09:00.000Z");
+  assert.equal(focusedReference, true, "the digit-only retry must run through real OCR");
+});
+
 test("bundled OCR reads amount, labelled reference and Philippine timestamp from a complete receipt image", async () => {
   const date = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "short", day: "2-digit", year: "numeric" }).format(new Date());
   const time = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hour12: true }).format(new Date());
@@ -107,8 +137,12 @@ test("Android JPEG ignores simulated low-confidence carbon OCR and retries uncer
   const png = await androidSendMoneyReceiptImage({ amount: "100.00", date: `${date} ${time}` });
   const jpeg = await sharp(png).resize({ width: 864 }).jpeg({ quality: 85 }).toBuffer();
   const tesseract = await import("tesseract.js");
+  const assessment = loadTsModule("lib/booking/gcash-receipt.ts");
   let alteredBadge = false, retriedFooter = false;
-  const { inspectPaymentProof } = loadTsModule("lib/server/gcash-ocr.ts", { "tesseract.js": { ...tesseract, createWorker: async (...args) => {
+  const { inspectPaymentProof } = loadTsModule("lib/server/gcash-ocr.ts", {
+    // This test checks normal reference matching, independently of the beta toggle.
+    "@/lib/booking/gcash-receipt": { ...assessment, assessGcashText: (text, expected) => assessment.assessGcashText(text, { ...expected, skipReferenceAndDateChecks: false }) },
+    "tesseract.js": { ...tesseract, createWorker: async (...args) => {
     const worker = await tesseract.createWorker(...args);
     const recognize = worker.recognize.bind(worker);
     worker.recognize = async (...inputs) => {
