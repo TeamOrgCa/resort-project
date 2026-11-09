@@ -24,7 +24,7 @@ export async function sendMoneyReceiptImage({ marker = "check", phone = "+63 9**
 }
 
 // Reproduce the supplied Android layout with synthetic account/reference values.
-export async function androidSendMoneyReceiptImage({ date, amount = "200.00", phone = "+63 917 123 5095", reference = "0046 080 000001" } = {}) {
+export async function androidSendMoneyReceiptImage({ date, amount = "200.00", phone = "+63 917 123 5095", reference = "0046 080 000001", centeredFooter = false } = {}) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1741">
     <rect width="720" height="1741" fill="#1000ff"/>
     <rect x="34" y="113" width="652" height="1310" rx="28" fill="white"/>
@@ -39,7 +39,9 @@ export async function androidSendMoneyReceiptImage({ date, amount = "200.00", ph
       <path d="M 72 421 H 648 M 72 521 H 648" stroke="#999999"/>
       <text x="72" y="481" font-size="30">Amount</text><text x="555" y="481" font-size="30">${amount}</text>
       <text x="72" y="597" font-size="30">Total Amount Sent</text><text x="460" y="604" font-size="48">₱${amount}</text>
-      <text x="72" y="716" font-size="24">Ref No. ${reference}</text><text x="430" y="716" font-size="22">${date}</text>
+      ${centeredFooter
+        ? `<text x="360" y="716" text-anchor="middle" font-size="24">Ref No. ${reference}</text><text x="360" y="748" text-anchor="middle" font-size="22">${date}</text>`
+        : `<text x="72" y="716" font-size="24">Ref No. ${reference}</text><text x="430" y="716" font-size="22">${date}</text>`}
       <rect x="72" y="1192" width="576" height="174" rx="10" fill="#9ae6c8"/>
       <text x="110" y="1258" font-size="30" fill="#126946">279g (gCO2e)</text>
       <text x="107" y="1305" font-size="21" fill="#126946">By going digital, you reduce your carbon footprint from</text>

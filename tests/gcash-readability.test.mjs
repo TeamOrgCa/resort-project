@@ -13,6 +13,38 @@ function receiptPage(text, confidence = 50, height = 24) {
   }] }] }] };
 }
 const text = "Ref No. 0046 080 000001 Oct 13, 2026 7:14 PM";
+
+test("centered grouped references retry digits separately when the labelled line remains uncertain", async () => {
+  const png = await androidSendMoneyReceiptImage({ centeredFooter: true, date: "Nov 09, 2026 3:09 PM" });
+  for (const confident of [true, false]) {
+    const original = receiptPage("Ref No. 0047 061 749617");
+    const line = original.blocks[0].paragraphs[0].lines[0];
+    line.words = [
+      { text: "Ref No.", confidence: 95, bbox: { x0: 72, x1: 210, y0: 692, y1: 716 } },
+      { text: "0047", confidence: 60, bbox: { x0: 220, x1: 320, y0: 692, y1: 716 } },
+      { text: "061", confidence: 60, bbox: { x0: 330, x1: 410, y0: 692, y1: 716 } },
+      { text: "749617", confidence: 60, bbox: { x0: 420, x1: 600, y0: 692, y1: 716 } },
+    ];
+    let calls = 0;
+    const result = await retryGcashNumericLines(png, original, { recognize: async bytes => {
+      calls++;
+      if (calls <= 2) return retryResult({ confidence: 60 });
+      const size = await sharp(bytes).metadata();
+      const scale = size.width / 396;
+      const retry = retryResult({ replacement: "0047 061 749617", confidence: confident ? 95 : 60 });
+      retry.data.blocks[0].paragraphs[0].lines[0].words[0].bbox = { x0: 8 * scale, x1: 388 * scale, y0: 8 * scale, y1: 32 * scale };
+      return retry;
+    } });
+    assert.equal(inspectReceiptReadability(result, { gcash: true }).accepted, confident);
+    assert.equal(calls, confident ? 3 : 4);
+    assert.equal(result.text, original.text, "label, spacing and leading zeroes are retained");
+    if (confident) {
+      const word = result.blocks[0].paragraphs[0].lines[0].words[0];
+      assert.equal(word.bbox.x0, 220);
+      assert.equal(word.bbox.y1 - word.bbox.y0, 24);
+    }
+  }
+});
 function retryResult({ confidence = 95, height = 48, replacement = text } = {}) {
   const result = receiptPage(replacement, confidence, height);
   result.blocks[0].paragraphs[0].lines[0].words[0].bbox = { x0: 16, x1: 1168, y0: 16, y1: 16 + height };
