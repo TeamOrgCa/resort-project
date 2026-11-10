@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
 import PasswordInput from "@/components/ui/PasswordInput";
 import { showLoginSuccessToast } from "@/components/ui/LoginSuccessToast";
+import { beginSessionChange } from "@/lib/auth/session-events";
 
 interface LoginApiResponse {
   success: boolean;
@@ -31,6 +32,7 @@ export default function AdminLoginForm() {
     setError("");
     if (!isValidLoginEmail(email)) { setError(EMAIL_INPUT_ERROR); return; }
     setIsSubmitting(true);
+    const finishSessionChange = beginSessionChange();
 
     try {
       const response = await fetch(requiresOtp ? "/api/admin/auth/verify-otp" : "/api/admin/auth/login", {
@@ -63,6 +65,7 @@ export default function AdminLoginForm() {
     } catch {
       setError("Unable to connect to the server. Please try again.");
     } finally {
+      finishSessionChange();
       setIsSubmitting(false);
     }
   };

@@ -6,6 +6,7 @@ import { adminNavigation } from "@/components/admin/content";
 import { filterNavigationByRole } from "@/lib/auth/role-access";
 import { createClient } from "@/lib/supabase/client";
 import type { StaffRole } from "@/lib/auth/staff-auth";
+import { beginSessionChange } from "@/lib/auth/session-events";
 
 interface AdminSidebarProps {
   role: StaffRole;
@@ -18,10 +19,15 @@ export default function AdminSidebar({ role, permissions, onNavigate }: AdminSid
   const router = useRouter();
 
   const handleLogout = async () => {
+    const finishSessionChange = beginSessionChange();
     const supabase = createClient();
-    await fetch("/api/admin/auth/logout", { method: "POST" });
-    await supabase.auth.signOut({ scope: "local" });
-    router.replace("/staff/login");
+    try {
+      await fetch("/api/admin/auth/logout", { method: "POST" });
+      await supabase.auth.signOut({ scope: "local" });
+      router.replace("/staff/login");
+    } finally {
+      finishSessionChange();
+    }
   };
 
   // Filter navigation based on role

@@ -8,6 +8,7 @@ import { DEACTIVATED_GUEST_MESSAGE } from "@/lib/auth/guest-access";
 import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
 import PasswordInput from "@/components/ui/PasswordInput";
 import { showLoginSuccessToast } from "@/components/ui/LoginSuccessToast";
+import { beginSessionChange } from "@/lib/auth/session-events";
 
 function LoginContent() {
   const router = useRouter();
@@ -29,6 +30,7 @@ function LoginContent() {
     setError("");
     if (!isValidLoginEmail(email)) { setError(EMAIL_INPUT_ERROR); return; }
     setLoading(true);
+    const finishSessionChange = beginSessionChange();
 
     try {
       const response = await fetch("/api/auth/login", {
@@ -49,6 +51,7 @@ function LoginContent() {
     } catch {
       setError("Unable to connect to the server. Please try again.");
     } finally {
+      finishSessionChange();
       setLoading(false);
     }
   };

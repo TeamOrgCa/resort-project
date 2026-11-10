@@ -1,6 +1,11 @@
 @import "tailwindcss";
 
 @layer base {
+  /* Explicit author colors keep native fields readable in device dark mode. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]), select, textarea {
+    background-color: var(--color-white, #fff);
+    color: var(--neutral);
+  }
   :where(a[href], button, summary, select, input:is([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="file"]), [role="button"]):not(:disabled):not([aria-disabled="true"]) {
     cursor: pointer;
   }

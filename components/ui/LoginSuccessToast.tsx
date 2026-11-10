@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SESSION_CHANGE_EVENT, SESSION_CHANGE_STORAGE_KEY } from "@/lib/auth/session-events";
 
 const eventName = "marville:login-success";
 
@@ -16,8 +17,20 @@ export default function LoginSuccessToast() {
       const message: unknown = (event as CustomEvent).detail;
       if (typeof message === "string" && message.trim()) setToast({ message });
     };
+    const changingSession = (event: Event) => {
+      if ((event as CustomEvent).detail === "changing") setToast(null);
+    };
+    const otherTab = (event: StorageEvent) => {
+      if (event.key === SESSION_CHANGE_STORAGE_KEY) setToast(null);
+    };
     window.addEventListener(eventName, show);
-    return () => window.removeEventListener(eventName, show);
+    window.addEventListener(SESSION_CHANGE_EVENT, changingSession);
+    window.addEventListener("storage", otherTab);
+    return () => {
+      window.removeEventListener(eventName, show);
+      window.removeEventListener(SESSION_CHANGE_EVENT, changingSession);
+      window.removeEventListener("storage", otherTab);
+    };
   }, []);
 
   useEffect(() => {

@@ -109,6 +109,21 @@ test("staff and admin welcome toasts appear only after complete authentication a
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("welcome toasts clear when logout starts or another tab changes account", async () => {
+  const { showLoginSuccessToast } = loadTsModule("components/ui/LoginSuccessToast.tsx");
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  try {
+    await act(async () => root.render(createElement(LoginSuccessToast)));
+    await act(async () => showLoginSuccessToast("Welcome, Alex!"));
+    assert.match(container.textContent, /Welcome, Alex/);
+    await act(async () => window.dispatchEvent(new window.CustomEvent("marville:session-change", { detail: "changing" })));
+    assert.equal(container.querySelector('[role="status"]'), null);
+    await act(async () => showLoginSuccessToast("Welcome, Jamie!"));
+    await act(async () => window.dispatchEvent(new window.StorageEvent("storage", { key: "marville:session-changed" })));
+    assert.equal(container.querySelector('[role="status"]'), null);
+  } finally { await act(async () => root.unmount()); container.remove(); }
+});
+
 test("the login toast dismisses automatically after five seconds without blocking the page", async () => {
   const originalTimer = window.setTimeout, originalClear = window.clearTimeout;
   let expire, delay;

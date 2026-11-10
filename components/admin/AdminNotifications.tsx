@@ -27,28 +27,26 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
   const notifications = notificationCenter?.notifications ?? localNotifications;
   const visibleNotifications = notifications.filter(item => notificationMatchesFilter(item, statusFilter));
   const notificationsLoading = notificationCenter?.loading ?? localNotificationsLoading;
-  const [userId, setUserId] = useState<string | null>(null);
+  const [localUserId, setUserId] = useState<string | null>(null);
+  const userId = notificationCenter ? notificationCenter.user?.id ?? null : localUserId;
+  const hasNotificationCenter = Boolean(notificationCenter);
   const supabase = useMemo(() => createClient(), []);
   const pauseAlerts = notificationCenter?.pauseAlerts;
   useEffect(() => isOpen ? pauseAlerts?.() : undefined, [isOpen, pauseAlerts]);
 
   useEffect(() => {
-    const loadUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUserId(user?.id ?? null);
-    };
-
-    loadUser();
-
+    if (hasNotificationCenter) return;
+    let active = true, authChanged = false;
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      if (active && !authChanged) setUserId(user?.id ?? null);
+    }).catch(() => { if (active) setUserId(null); });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user?.id ?? null);
-      if (!session?.user) {
-        setNotifications([]);
-      }
+      authChanged = true;
+      if (!active) return;
+      setUserId(session?.user?.id ?? null); setNotifications([]); setIsOpen(false);
     });
-
-    return () => subscription.unsubscribe();
-  }, [supabase]);
+    return () => { active = false; subscription.unsubscribe(); };
+  }, [supabase, hasNotificationCenter]);
 
   const fetchNotifications = useCallback(async (activeUserId: string) => {
     if (notificationCenter) { notificationCenter.refresh(); return; }
