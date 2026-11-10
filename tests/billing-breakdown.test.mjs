@@ -41,3 +41,14 @@ test("uses the booking period count for longer stays", () => {
   assert.deepEqual(breakdown.lines.map(({ amount }) => amount), [15000, 400, 600]);
   assert.equal(breakdown.total, 16000);
 });
+
+test("reschedule fees and date-rate adjustments are separate additions, not hidden in package charges", () => {
+  const breakdown = buildBillingBreakdown({ ...booking, recordedTotal: 9000, rescheduleFees: 500, dateRateAdjustment: 200 });
+  assert.deepEqual(breakdown.lines.map(({ description, amount }) => [description, amount]), [
+    ["Pool Villa", 7500], ["Adult guest charges", 200], ["Extra mattress", 600],
+    ["Reschedule fees (non-refundable)", 500], ["Higher-date-rate adjustments", 200],
+  ]);
+  const fallback = buildBillingBreakdown({ ...booking, recordedTotal: 8700, rescheduleFees: 500, dateRateAdjustment: 200 });
+  assert.deepEqual(fallback.lines.map(line => line.amount), [7400, 600, 500, 200]);
+  assert.equal(fallback.lines.reduce((sum, line) => sum + line.amount, 0), fallback.total);
+});

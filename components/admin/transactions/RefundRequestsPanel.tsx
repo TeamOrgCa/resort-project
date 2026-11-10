@@ -99,7 +99,9 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
       {selected.calculation_snapshot && <dl className="grid grid-cols-2 gap-2 rounded-xl bg-base p-3 text-sm">
         <dt>Verified payments at cancellation</dt><dd className="ui-nowrap text-right tabular-nums">{money(selected.calculation_snapshot.verifiedPaid)}</dd>
         <dt>Previous refunds</dt><dd className="ui-nowrap text-right tabular-nums">{money(selected.calculation_snapshot.previousRefunds)}</dd>
-        <dt>Retained deposit</dt><dd className="ui-nowrap text-right tabular-nums">{money(selected.calculation_snapshot.deduction)}</dd>
+        {selected.calculation_snapshot.retainedDeposit !== undefined && <><dt>Retained deposit</dt><dd className="ui-nowrap text-right tabular-nums">{money(selected.calculation_snapshot.retainedDeposit)}</dd></>}
+        {Number(selected.calculation_snapshot.retainedRescheduleFees) > 0 && <><dt>Non-refundable reschedule fees</dt><dd className="ui-nowrap text-right tabular-nums">{money(Number(selected.calculation_snapshot.retainedRescheduleFees))}</dd></>}
+        <dt>Total non-refundable deduction</dt><dd className="ui-nowrap text-right tabular-nums">{money(selected.calculation_snapshot.deduction)}</dd>
         <dt>Refund calculated automatically</dt><dd className="ui-nowrap text-right font-semibold tabular-nums">{money(selected.amount)}</dd></dl>}
       <p className="text-sm">Recorded bill: {money(bill?.total_amount ?? 0)}; net verified payments after completed refunds: {money(bill?.paid_amount ?? 0)}. A cancelled reservation has no active booking balance to collect.</p>
       <h4 className="font-medium">Payment records</h4>

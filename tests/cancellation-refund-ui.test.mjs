@@ -31,6 +31,17 @@ test("guest cancellation shows calculated deduction, requires acknowledgement, s
     assert.equal(JSON.parse(calls.find(r=>r.options?.method==="POST").options.body).cancellationReason,"Family plans changed");
   }finally{await h.close();}
 });
+test("cancellation displays retained reschedule fees separately from the deposit and total",async()=>{
+  const h=await mount("components/CancellationDialog.tsx",{reservationId:"reservation",onClose:()=>{},onCancelled:()=>{}},async()=>Response.json({preview:{...preview,retainedDeposit:600,retainedRescheduleFees:500,deduction:1100,refundableAmount:1900}}));
+  try {
+    const amounts=Object.fromEntries([...h.c.querySelectorAll('dt')].map(dt=>[dt.textContent,dt.nextElementSibling.textContent]));
+    assert.match(amounts['Retained deposit'],/600/);
+    assert.match(amounts['Non-refundable reschedule fees'],/500/);
+    assert.match(amounts['Total non-refundable deduction'],/1,100/);
+    assert.match(amounts['Refundable amount'],/1,900/);
+  } finally {await h.close();}
+});
+
 test("resort cancellation requires admin selection, a documented reason and a fresh confirmation",async()=>{
   let posted=null;const h=await mount("components/CancellationDialog.tsx",{reservationId:"reservation",staff:true,canCancelForResort:true,onClose:()=>{},onCancelled:()=>{}},async(url,options)=>{
     if(options?.method==="POST"){posted=JSON.parse(options.body);return Response.json({success:true});}

@@ -1,13 +1,13 @@
 
 import test from"node:test";import assert from"node:assert/strict";import{loadTsModule}from"./helpers/load-ts-module.mjs";
-function harness({allowed=true,permission=true,error=null,replayed=false,deliveryFails=false,remaining=0,reservationStatus="confirmed",guestEmail="guest@example.com",walkIn=false}={}){
+function harness({allowed=true,permission=true,error=null,replayed=false,deliveryFails=false,remaining=0,reservationStatus="confirmed",guestEmail="guest@example.com",walkIn=false,billingError=null}={}){
  const calls=[],emails=[],notifications=[],confirmations=[];
  const data={payment:{payment_id:"payment",amount:2400},reservation:{reservation_id:"reservation",guest_id:walkIn?null:"guest",walk_in_guest_id:walkIn?"walk-in":null,reference_number:"MV-CASH",status:"pending",start_datetime:"2027-01-15T04:30:00Z",end_datetime:"2027-01-15T08:00:00Z"},receipt:{receipt_number:"RCPT-CASH"},remainingBalance:remaining,overpaidAmount:0,alreadyRecorded:replayed};
  const {POST}=loadTsModule("app/api/admin/payments/manual-entry/route.ts",{
  "@/lib/server/admin-audit":{requireActiveStaff:async()=>allowed?{staffUser:{id:"admin",role:"admin"},supabase:{from:table=>{const query={select:()=>query,eq:()=>query,maybeSingle:async()=>({data:table==="reservations"?{...data.reservation,status:reservationStatus}:{email:guestEmail,first_name:"Maria",last_name:"Cruz"},error:null})};return query;},rpc:async(name,args)=>{calls.push({name,args});return{data,error};}}}:null},
  "@/lib/server/role-permissions":{staffHasPermission:async()=>permission},
  "@/lib/email":{sendReservationConfirmedEmail:async payload=>{confirmations.push(payload);if(deliveryFails)throw Error("SMTP unavailable");return true;}},
- "@/lib/server/billing-email":{emailBillingDocuments:async(...args)=>{emails.push(args);if(deliveryFails)throw Error("SMTP unavailable");return{receiptSent:true,invoiceSent:true};}},
+ "@/lib/server/billing-email":{emailBillingDocuments:async(...args)=>{emails.push(args);if(deliveryFails)throw Error("SMTP unavailable");return billingError?{receiptSent:false,invoiceSent:false,error:billingError}:{receiptSent:true,invoiceSent:true};}},
  "@/lib/notifications":{createNotifications:async args=>{notifications.push(args);if(deliveryFails)throw Error("Notifications unavailable");return{error:null};}},
  });
  return{calls,emails,notifications,confirmations,post:body=>POST(new Request("http://localhost",{method:"POST",body:JSON.stringify({reservationId:"reservation",amount:2400,paymentMethod:"cash",paymentReference:"CASH-TEST123456",expectedBalance:2400,cashReceived:true,...body})}))};
@@ -78,4 +78,11 @@ test("cash confirmation requires a confirmed booking and handles optional walk-i
  assert.equal(noEmail.confirmations.length,0);assert.ok(noEmail.notifications.some(item=>item.title==="Reservation confirmed"));
  const offline=harness({walkIn:true});assert.equal((await offline.post()).status,201);
  assert.equal(offline.confirmations.length,1);assert.equal(offline.notifications.length,0);
+});
+
+
+test("cash response exposes the billing failure even when the separate confirmation email succeeds",async()=>{
+ const h=harness({billingError:"Unable to read billing email setting"});
+ const response=await h.post(),body=await response.json();assert.equal(response.status,201);assert.equal(body.emailSent,true);
+ assert.equal(body.billingEmails.receiptSent,false);assert.match(body.billingEmails.error,/billing email setting/);
 });

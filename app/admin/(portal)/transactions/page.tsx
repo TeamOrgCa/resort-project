@@ -512,7 +512,10 @@ export default function AdminTransactionsPage() {
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.message ?? "Unable to record cash payment.");
-      setCashMessage(`${result.message ?? "Cash payment recorded."} ${result.receipt?.receipt_number ? `Receipt ${result.receipt.receipt_number}. ` : ""}Remaining balance: ${formatCurrency(Number(result.remainingBalance ?? 0))}. Print the receipt from Issued Receipts.`);
+      const emailFeedback = result.alreadyRecorded ? "" : result.billingEmails?.error
+        ? ` Email notice: ${result.billingEmails.error}`
+        : ` Receipt email: ${result.billingEmails?.receiptSent ? "sent" : result.billingEmails?.receiptAlreadySent ? "already sent" : "not sent"}. Invoice email: ${result.billingEmails?.invoiceSent ? "sent" : result.billingEmails?.invoiceAlreadySent ? "already sent" : "not sent"}.`;
+      setCashMessage(`${result.message ?? "Cash payment recorded."} ${result.receipt?.receipt_number ? `Receipt ${result.receipt.receipt_number}. ` : ""}Remaining balance: ${formatCurrency(Number(result.remainingBalance ?? 0))}. Print the receipt from Issued Receipts.${emailFeedback}`);
       setCashReservationId(null);
       setRefreshRevision((revision) => revision + 1);
     } catch (cause) { setCashError(cause instanceof Error ? cause.message : "Unable to record cash payment."); }

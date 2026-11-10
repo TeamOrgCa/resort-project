@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import type { BillingBreakdown } from "@/lib/booking/billing-breakdown";
 import { getEmailBranding } from "@/lib/server/email-branding";
+import { createBillingPdf, billingPdfFilename, type BillingPdfInput } from "@/lib/server/billing-pdf";
 
 interface ReservationEmailBase {
   guestEmail: string;
@@ -11,6 +12,8 @@ interface ReservationEmailBase {
 }
 
 interface BillingEmailBase {
+  paymentMethod?: string;
+  paymentReference?: string;
   guestEmail: string;
   guestName: string;
   reservationReference: string;
@@ -31,6 +34,7 @@ interface ReceiptEmailPayload extends BillingEmailBase {
 }
 
 interface InvoiceEmailPayload extends BillingEmailBase {
+  invoiceId?: string;
   issuedAt: string;
   totalAmount: number;
   paidAmount: number;
@@ -250,11 +254,13 @@ const sendMail = async ({
   subject,
   html,
   text,
+  pdf,
 }: {
   to: string;
   subject: string;
   html: string;
   text: string;
+  pdf?: BillingPdfInput;
 }) => {
   if (!transporter || !senderEmail) {
     console.error("Email transporter is not configured.");
@@ -263,12 +269,15 @@ const sendMail = async ({
 
   try {
     const { logoUrl, attachments } = await getEmailBranding();
+    const documents = pdf ? [{ filename: billingPdfFilename(pdf.kind, pdf.documentNumber),
+      content: await createBillingPdf(pdf, attachments[0]?.content),
+      contentType: "application/pdf", contentDisposition: "attachment" as const }] : [];
     const result = await transporter.sendMail({
       from: `\"${senderName}\" <${senderEmail}>`,
       to,
       subject,
       html: emailLayout(subject, html, logoUrl),
-      attachments,
+      attachments: [...attachments, ...documents],
       text,
     });
     return result.accepted.length > 0;
@@ -299,7 +308,7 @@ export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
     `Reservation total: ${formatMoney(payload.totalAmount)}`,
     `Remaining balance: ${formatMoney(payload.balance)}`,
     "", ...billingNotesText(payload.balance),
-    "", "Keep this email for your records.",
+    "", "Your downloadable receipt PDF is attached. Keep this email for your records.",
   ];
   const rows = [
     ["Receipt", payload.receiptNumber],
@@ -314,8 +323,9 @@ export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
   return sendMail({
     to: payload.guestEmail,
     subject: `Payment Receipt ${payload.receiptNumber}`,
+    pdf: { ...payload, kind: "receipt", documentNumber: payload.receiptNumber, paidAmount: payload.amountPaid },
     text: lines.join("\n"),
-    html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.5"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Payment Receipt</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your verified payment receipt is ready.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>Keep this email for your records.</p></div>`,
+    html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.5"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Payment Receipt</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your verified payment receipt is ready. A downloadable PDF copy is attached to this email.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>Keep this email for your records.</p></div>`,
   });
 };
 
@@ -331,7 +341,7 @@ export const sendReservationInvoiceEmail = async (payload: InvoiceEmailPayload) 
     `Payments received: ${formatMoney(payload.paidAmount)}`,
     `Remaining balance: ${formatMoney(payload.balance)}`,
     "", ...billingNotesText(payload.balance),
-    "", "You can review your booking in your account.",
+    "", "Your downloadable invoice PDF is attached. You can review your booking in your account.",
   ];
   const rows = [
     ["Issued", formatDateTimeLabel(payload.issuedAt)],
@@ -345,8 +355,9 @@ export const sendReservationInvoiceEmail = async (payload: InvoiceEmailPayload) 
   return sendMail({
     to: payload.guestEmail,
     subject: `Reservation Invoice ${payload.reservationReference}`,
+    pdf: { ...payload, kind: "invoice", documentNumber: payload.invoiceId ?? payload.reservationReference },
     text: lines.join("\n"),
-    html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.5"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Reservation Invoice</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your reservation invoice is ready.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>You can review your booking in your account.</p></div>`,
+    html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.5"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Reservation Invoice</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your reservation invoice is ready. A downloadable PDF copy is attached to this email.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>You can review your booking in your account.</p></div>`,
   });
 };
 

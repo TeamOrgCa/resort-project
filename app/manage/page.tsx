@@ -18,6 +18,7 @@ import RecordActionsMenu from "@/components/manage/RecordActionsMenu";
 import RecordDialog from "@/components/manage/RecordDialog";
 import LoadingState from "@/components/ui/LoadingState";
 import GuestBookingEditor from "@/components/manage/GuestBookingEditor";
+import BookingAmountBreakdown from "@/components/manage/BookingAmountBreakdown";
 import RescheduleCalendar from "@/components/manage/RescheduleCalendar";
 import { moveReservationToDate } from "@/lib/booking/reservation-edit";
 import { useGuestRescheduleAvailability } from "@/lib/booking/use-guest-reschedule-availability";
@@ -877,8 +878,10 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               <div><dt className="text-neutral/55">Check-in</dt><dd className="mt-1 font-semibold">{formatDateTime(selectedBooking.startDatetime)}</dd></div>
               <div><dt className="text-neutral/55">Check-out</dt><dd className="mt-1 font-semibold">{formatDateTime(selectedBooking.endDatetime)}</dd></div>
               <div><dt className="text-neutral/55">Package</dt><dd className="mt-1 font-medium capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Reservation"}</dd></div>
+              <div><dt className="text-neutral/55">Guests</dt><dd className="mt-1 font-medium">{selectedBooking.adultCount} {selectedBooking.adultCount === 1 ? "adult" : "adults"}, {selectedBooking.childCount} {selectedBooking.childCount === 1 ? "child" : "children"}</dd></div>
               <div><dt className="text-neutral/55">Contact email</dt><dd className="mt-1 break-all font-medium">{selectedBooking.email}</dd></div>
             </dl>
+            <BookingAmountBreakdown reservationId={selectedBooking.id} totalAmount={selectedBooking.totalAmount} />
             <div className="grid gap-3 rounded-2xl border border-neutral/10 p-5 text-sm sm:grid-cols-3">
               <div><p className="text-neutral/55">Reservation total</p><p className="mt-1 text-lg font-semibold">{formatCurrency(selectedBooking.totalAmount)}</p></div>
               <div><p className="text-neutral/55">Net verified paid</p><p className="mt-1 text-lg font-semibold">{formatCurrency(selectedBooking.paidAmount)}</p></div>
@@ -933,7 +936,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
               <div className="rounded-xl border border-neutral/10 bg-white p-3 text-sm text-neutral">
                 <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
-                <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(selectedReschedulePolicy?.noticeFee ?? 0)}.</p>
+                <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(selectedReschedulePolicy?.noticeFee ?? 0)}. Reschedule fees are non-refundable.</p>
                 {canRequestReschedule && !selectedReschedulePolicy?.allowed && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">Short-notice rescheduling is automatically approved when the selected date is available. The applicable notice fee and any higher date rate are added immediately when you save.</p>}
               </div>
               {!canRequestReschedule && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">

@@ -2,6 +2,7 @@ import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
+import { PDFDocument } from "pdf-lib";
 
 const messages = [];
 const previous = Object.fromEntries(["EMAIL_USER","EMAIL_PASS","EMAIL_APP_NAME"].map(key => [key,process.env[key]]));
@@ -44,6 +45,11 @@ test("every guest email uses the shared themed frame and preserves escaped recip
       assert.ok(doc.querySelector('a[href="tel:+639172796592"]'));
       assert.match(message.text,/Maria & Juan <Guest>/);
       assert.equal(message.to,base.guestEmail);
+      const attachments=message.attachments.filter(file=>file.contentType==="application/pdf");
+      if(fn==="sendPaymentReceiptEmail"||fn==="sendReservationInvoiceEmail"){
+        assert.equal(attachments.length,1);assert.equal(attachments[0].contentDisposition,"attachment");
+        assert.match(attachments[0].filename,/\.pdf$/);assert.ok((await PDFDocument.load(attachments[0].content)).getPageCount()>0);
+      }else assert.equal(attachments.length,0);
     }finally{dom.window.close();}
   }
 });

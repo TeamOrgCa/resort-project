@@ -2,6 +2,7 @@ export type CancellationPreview = {
   reservationId: string; reference: string; initiator: "guest" | "resort";
   totalAmount: number; verifiedPaid: number; previousRefunds: number; netPaid: number;
   depositBase: number; depositAmount: number; deduction: number; refundableAmount: number;
+  rescheduleFees?: number; retainedRescheduleFees?: number; retainedDeposit?: number;
   policyVersion: number; noticeHours: number; allowed: boolean; blockedReason: string | null;
   outcome: "pending_refund" | "no_refund"; rule: string; quote: string;
 };

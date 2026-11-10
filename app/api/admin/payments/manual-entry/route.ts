@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { staffHasPermission } from "@/lib/server/role-permissions";
 import { createNotifications } from "@/lib/notifications";
-import { emailBillingDocuments } from "@/lib/server/billing-email";
+import { emailBillingDocuments, type BillingEmailResult } from "@/lib/server/billing-email";
 import { sendReservationConfirmedEmail } from "@/lib/email";
 import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
 import { generateReceiptNumber } from "@/lib/booking/receipt-number";
@@ -144,11 +144,14 @@ export async function POST(request: Request) {
         }
         return NextResponse.json({ success: false, errorCode: code, message: `${message} (Error ${code})` }, { status });
       }
-      let billingEmails = { receiptSent: false, invoiceSent: false };
+      let billingEmails: BillingEmailResult = { receiptSent: false, invoiceSent: false };
       let emailSent = false;
       if (!data.alreadyRecorded) {
         try { billingEmails = await emailBillingDocuments(staffContext.supabase, data.reservation, data.payment.payment_id, Number(data.payment.amount)); }
-        catch (cause) { console.warn("Cash was recorded, but billing email delivery failed.", cause); }
+        catch (cause) {
+          console.warn("Cash was recorded, but billing email delivery failed.", cause);
+          billingEmails.error = "Receipt and invoice email delivery failed. Check the server log; the cash payment was saved.";
+        }
         // The cash RPC returns its original reservation snapshot. Read the
         // committed status after payment triggers before confirming the booking.
         let confirmedReservation: ReservationRow | null = null;
