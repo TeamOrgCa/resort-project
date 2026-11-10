@@ -6,6 +6,7 @@ const credentials = { email: "Guest@Example.com", password: "correct-password" }
 const deviceId = "00000000-0000-4000-8000-000000000001";
 function harness({ code = "email_not_confirmed", locked = false, verified = false, active = true, deactivateDuringLogin = false } = {}) {
   const attempts = []; const signIns = []; const signOuts = []; const updates = [];
+  let failures = 0, lockedUntil = locked ? new Date(Date.now() + 60000).toISOString() : null;
   const sessionId = "00000000-0000-4000-8000-000000000002";
   const token = `header.${Buffer.from(JSON.stringify({ session_id: sessionId })).toString("base64url")}.signature`;
   const supabase = { auth: {
@@ -18,8 +19,11 @@ function harness({ code = "email_not_confirmed", locked = false, verified = fals
   } };
   const admin = {
     rpc: async (name, payload) => {
-      if (name === "check_login_lock") return { data: locked ? new Date(Date.now() + 60000).toISOString() : null, error: null };
-      attempts.push(payload); return { data: null, error: null };
+      if (name === "check_login_lock") return { data: lockedUntil, error: null };
+      if (name === "guest_login_attempt_state") return { data: { attemptsRemaining: Math.max(4-failures,0), lockedUntil }, error: null };
+      attempts.push(payload);
+      if (payload.p_result === "failed" && ++failures >= (payload.p_kind === "guest" ? 4 : 5)) lockedUntil = new Date(Date.now()+60000).toISOString();
+      return { data: lockedUntil, error: null };
     },
     from: () => ({
       select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: deviceId, is_active: active, first_name: "Maria" }, error: null }) }) }),
@@ -61,6 +65,18 @@ test("existing login lockout takes priority over the confirmation prompt", async
   const h = harness({ locked: true }); const response = await h.request();
   assert.equal(response.status, 429); assert.equal(h.signIns.length, 0);
   assert.equal(h.attempts[0].p_result, "blocked");
+});
+
+test("guest API reports 3, 2, 1 attempts then blocks further authentication for 60 seconds", async () => {
+  const h = harness({ code: "invalid_credentials" });
+  for (const remaining of [3,2,1,0]) {
+    const response = await h.request(), body = await response.json();
+    assert.equal(body.attemptsRemaining,remaining);
+    assert.equal(response.status,remaining ? 401 : 429);
+    if (!remaining) { assert.ok(body.retryAfterSeconds > 0 && body.retryAfterSeconds <= 60); assert.ok(body.lockedUntil); assert.ok(response.headers.get("Retry-After")); }
+  }
+  assert.equal((await h.request()).status,429);
+  assert.equal(h.signIns.length,4,"a locked request must not attempt password authentication");
 });
 test("confirmed guests continue through the existing login session flow", async () => {
   const h = harness({ verified: true }); const response = await h.request();

@@ -45,7 +45,7 @@ export async function loginAccess(kind: LoginKind, body: unknown) {
   if (stateError) throw stateError;
   if (state && new Date(state).getTime() > Date.now()) {
     await recordAttempt(admin, credentials.email, deviceId, kind, "blocked");
-    return { response: finish(loginError("Too many attempts. Try again in one minute.", 429)) };
+    return { response: finish(kind === "guest" ? guestLoginError("Too many attempts. Try again in one minute.", 429, 0, state) : loginError("Too many attempts. Try again in one minute.", 429)) };
   }
 
   const { data: { user: existingUser } } = await supabase.auth.getUser();
@@ -77,6 +77,12 @@ export async function loginAccess(kind: LoginKind, body: unknown) {
   }
   if (error || !data.user) {
     const lockedUntil = await recordAttempt(admin, credentials.email, deviceId, kind, "failed");
+    if (kind === "guest") {
+      const { data: limit, error: limitError } = await admin.rpc("guest_login_attempt_state", { p_email: credentials.email });
+      if (limitError) throw limitError;
+      const until = lockedUntil ?? limit?.lockedUntil;
+      return { response: finish(guestLoginError(until ? "Too many attempts. Try again in one minute." : "Invalid credentials.", until ? 429 : 401, limit?.attemptsRemaining ?? 0, until)) };
+    }
     return { response: finish(loginError(lockedUntil ? "Too many attempts. Try again in one minute." : "Invalid credentials.", lockedUntil ? 429 : 401)) };
   }
 
@@ -105,4 +111,11 @@ export async function recordAttempt(
 
 export function loginError(message: string, status: number) {
   return NextResponse.json({ success: false, message }, { status });
+}
+
+function guestLoginError(message: string, status: number, attemptsRemaining: number, lockedUntil?: string | null) {
+  const retryAfterSeconds = lockedUntil ? Math.max(0, Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1000)) : 0;
+  return NextResponse.json({ success: false, message, attemptsRemaining, lockedUntil: lockedUntil ?? null, retryAfterSeconds }, {
+    status, headers: retryAfterSeconds ? { "Retry-After": String(retryAfterSeconds) } : undefined,
+  });
 }

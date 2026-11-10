@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DEACTIVATED_GUEST_MESSAGE } from "@/lib/auth/guest-access";
 import { EMAIL_INPUT_ERROR, isValidLoginEmail, sanitizeEmailInput } from "@/lib/validation/email";
@@ -23,10 +23,27 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [signedIn, setSignedIn] = useState(false);
+  const [limit, setLimit] = useState<{ email: string; remaining: number; until: number } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const currentLimit = limit?.email === email.toLowerCase() ? limit : null;
+  const secondsLeft = currentLimit ? Math.max(0, Math.ceil((currentLimit.until - now) / 1000)) : 0;
+  const attemptsLeft = currentLimit?.until && secondsLeft === 0 ? 4 : currentLimit?.remaining ?? 4;
+
+  useEffect(() => {
+    if (!limit?.until) return;
+    const timer = window.setInterval(() => {
+      const currentTime = Date.now(); setNow(currentTime);
+      if (limit.until <= currentTime) {
+        setLimit(current => current ? { ...current, remaining: 4, until: 0 } : current);
+        if (limit.email === email.toLowerCase()) setError("");
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [limit, email]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loading || signedIn) return;
+    if (loading || signedIn || secondsLeft > 0) return;
     setError("");
     if (!isValidLoginEmail(email)) { setError(EMAIL_INPUT_ERROR); return; }
     setLoading(true);
@@ -38,8 +55,13 @@ function LoginContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = (await response.json()) as { success: boolean; message: string; firstName?: string };
+      const data = (await response.json()) as { success: boolean; message: string; firstName?: string; attemptsRemaining?: number; retryAfterSeconds?: number };
       if (!response.ok || !data.success) {
+        if (typeof data.attemptsRemaining === "number") {
+          const receivedAt = Date.now(); setNow(receivedAt);
+          setLimit({ email: email.toLowerCase(), remaining: data.attemptsRemaining,
+            until: data.retryAfterSeconds ? receivedAt + data.retryAfterSeconds * 1000 : 0 });
+        }
         setError(data.message || "Unable to sign in.");
         return;
       }
@@ -126,12 +148,15 @@ function LoginContent() {
               </Link>
             </div>
 
+            <p id="login-attempt-status" aria-live="polite" className={`text-sm ${secondsLeft > 0 ? "font-semibold text-red-700" : "text-neutral/70"}`}>
+              {secondsLeft > 0 ? `Too many failed attempts. Try again in ${secondsLeft} ${secondsLeft === 1 ? "second" : "seconds"}.` : `${attemptsLeft} login ${attemptsLeft === 1 ? "attempt" : "attempts"} remaining. Four failed attempts lock login for 1 minute.`}
+            </p>
             <button
               type="submit"
-              disabled={loading || signedIn}
+              disabled={loading || signedIn || secondsLeft > 0}
               className="w-full bg-primary text-base py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? "Signing in..." : "Sign In"}
+              {loading ? "Signing in..." : secondsLeft > 0 ? `Try again in ${secondsLeft}s` : "Sign In"}
             </button>
           </form>
 

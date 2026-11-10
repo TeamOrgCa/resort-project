@@ -53,7 +53,7 @@ interface OcularVisitEmailPayload {
   timeSlot: string;
 }
 
-const appName = process.env.EMAIL_APP_NAME ?? "Marville Resort";
+const appName = process.env.EMAIL_APP_NAME ?? "MarVille Resort Complex";
 const senderName = process.env.EMAIL_FROM_NAME ?? appName;
 const senderEmail = process.env.EMAIL_FROM ?? process.env.EMAIL_USER;
 
@@ -64,6 +64,39 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
+
+// Table-based structure and inline colors also work in email clients that strip
+// stylesheets. No external fonts or images are needed to display the branding.
+const emailLayout = (subject: string, content: string) => `<!doctype html>
+<html lang="en" style="color-scheme:only light"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="only light">
+<title>${escapeHtml(subject)}</title>
+<style>
+  body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
+  table{mso-table-lspace:0pt;mso-table-rspace:0pt}
+  .email-copy p{margin:0 0 16px}.email-copy h3{font-size:17px;color:#3B2A1E;margin:24px 0 12px}
+  @media only screen and (max-width:600px){.email-outer{padding:16px 8px!important}.email-padding{padding:24px 20px!important}.email-brand{font-size:22px!important}.email-copy h2{font-size:25px!important}}
+</style></head>
+<body style="margin:0;padding:0;background-color:#F8F4EC;color:#3B2A1E;font-family:'Segoe UI',Arial,sans-serif;line-height:1.65">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${escapeHtml(subject)} — an update from ${escapeHtml(appName)}.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#F8F4EC"><tr><td class="email-outer" align="center" style="padding:40px 16px">
+<!--[if mso]><table role="presentation" width="640" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background-color:#FFFFFF;border:1px solid #E9DFD3;border-radius:20px;overflow:hidden">
+<tr><td height="6" bgcolor="#F4C430" style="font-size:0;line-height:6px">&nbsp;</td></tr>
+<tr><td class="email-padding" bgcolor="#A9442B" style="padding:30px 36px;color:#FFFFFF">
+  <p style="margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#FFE4D5">Your private resort escape</p>
+  <p class="email-brand" style="margin:0;font-size:27px;line-height:1.25;font-weight:700;color:#FFFFFF">${escapeHtml(appName)}</p>
+  <p style="margin:10px 0 0;font-size:13px;color:#FFF1D6">Where the Sun Never Sets</p>
+</td></tr>
+<tr><td class="email-padding email-copy" bgcolor="#FFFFFF" style="padding:32px 36px;color:#3B2A1E;font-size:15px;line-height:1.65;overflow-wrap:break-word;word-wrap:break-word">${content}</td></tr>
+<tr><td class="email-padding" bgcolor="#F8F4EC" style="padding:24px 36px;border-top:1px solid #E9DFD3">
+  <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#2F6B3F">Here to help you plan your visit</p>
+  <p style="margin:0;font-size:13px;color:#705D4E">Call <a href="tel:+639172796592" style="color:#A9442B;text-decoration:underline">09172796592</a> or <a href="tel:82360633" style="color:#A9442B;text-decoration:underline">82360633</a>.</p>
+  <p style="margin:14px 0 0;font-size:11px;color:#705D4E">${escapeHtml(appName)} &middot; Taytay, Rizal<br>This email contains updates about your account or visit.</p>
+</td></tr>
+<tr><td height="5" bgcolor="#2F6B3F" style="font-size:0;line-height:5px">&nbsp;</td></tr>
+</table><!--[if mso]></td></tr></table><![endif]-->
+</td></tr></table></body></html>`;
 
 const formatDateLabel = (value?: string | null) => {
   if (!value) {
@@ -119,8 +152,8 @@ const billingRows = (payload: BillingEmailBase) => [
   ["Check-out", formatDateTimeLabel(payload.checkOutDate)],
 ];
 
-const billingTable = (rows: string[][]) => `<table style="border-collapse:collapse;width:100%;max-width:480px">${rows.map(([label, value]) =>
-  `<tr><th scope="row" style="text-align:left;padding:7px 12px 7px 0">${escapeHtml(label)}</th><td style="padding:7px 0">${escapeHtml(value)}</td></tr>`
+const billingTable = (rows: string[][]) => `<table class="email-details" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F8F4EC" style="border-collapse:collapse;width:100%;table-layout:fixed;margin:16px 0;border:1px solid #E9DFD3">${rows.map(([label, value]) =>
+  `<tr><th scope="row" style="width:35%;text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid #E9DFD3;color:#705D4E;font-size:12px;font-weight:600">${escapeHtml(label)}</th><td style="padding:12px;border-bottom:1px solid #E9DFD3;color:#3B2A1E;font-size:14px;font-weight:600;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(value)}</td></tr>`
 ).join("")}</table>`;
 
 const breakdownText = (breakdown: BillingBreakdown) => [
@@ -133,20 +166,18 @@ const breakdownText = (breakdown: BillingBreakdown) => [
 ];
 
 const breakdownTable = (breakdown: BillingBreakdown) => `
-  <h3 style="margin:24px 0 8px">Items availed and charges</h3>
-  <table style="border-collapse:collapse;width:100%;max-width:640px;font-size:14px">
-    <thead><tr style="border-bottom:2px solid #d1d5db;text-align:left">
-      <th style="padding:8px 6px">Item</th><th style="padding:8px 6px;text-align:right">Qty</th>
-      <th style="padding:8px 6px;text-align:right">Rate</th><th style="padding:8px 6px;text-align:right">Amount</th>
+  <h3 style="margin:24px 0 12px;color:#3B2A1E;font-size:17px">Items availed and charges</h3>
+  <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;width:100%;font-size:14px">
+    <thead><tr bgcolor="#F8F4EC" style="text-align:left;color:#705D4E">
+      <th scope="col" style="padding:10px 12px;font-size:12px">Item</th>
+      <th scope="col" style="padding:10px 12px;text-align:right;font-size:12px">Amount</th>
     </tr></thead>
-    <tbody>${breakdown.lines.map((line) => `<tr style="border-bottom:1px solid #e5e7eb">
-      <td style="padding:9px 6px"><strong>${escapeHtml(line.description)}</strong><br><span style="color:#6b7280">${escapeHtml(line.detail)}</span></td>
-      <td style="padding:9px 6px;text-align:right">${line.quantity}</td>
-      <td style="padding:9px 6px;text-align:right">${escapeHtml(formatMoney(line.unitPrice))}</td>
-      <td style="padding:9px 6px;text-align:right">${escapeHtml(formatMoney(line.amount))}</td>
+    <tbody>${breakdown.lines.map((line) => `<tr style="border-bottom:1px solid #E9DFD3">
+      <td style="padding:14px 12px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word"><strong style="color:#3B2A1E">${escapeHtml(line.description)}</strong><br><span style="color:#705D4E;font-size:12px">${escapeHtml(line.detail)}</span><br><span style="color:#705D4E;font-size:12px">Qty: ${line.quantity} &middot; Rate: ${escapeHtml(formatMoney(line.unitPrice))}</span></td>
+      <td style="padding:14px 12px;text-align:right;vertical-align:top;white-space:nowrap;font-weight:600;color:#3B2A1E">${escapeHtml(formatMoney(line.amount))}</td>
     </tr>`).join("")}</tbody>
-    <tfoot><tr><th colspan="3" style="padding:10px 6px;text-align:right">Total charges</th>
-      <th style="padding:10px 6px;text-align:right">${escapeHtml(formatMoney(breakdown.total))}</th></tr></tfoot>
+    <tfoot><tr bgcolor="#EDF4ED"><th scope="row" style="padding:14px 12px;text-align:left;color:#2F6B3F">Total charges</th>
+      <td style="padding:14px 12px;text-align:right;white-space:nowrap;font-weight:700;color:#2F6B3F">${escapeHtml(formatMoney(breakdown.total))}</td></tr></tfoot>
   </table>`;
 
 // Standard swimming inclusions and payment timing are from RESORT_CONTEXT.md.
@@ -233,7 +264,7 @@ const sendMail = async ({
       from: `\"${senderName}\" <${senderEmail}>`,
       to,
       subject,
-      html,
+      html: emailLayout(subject, html),
       text,
     });
     return result.accepted.length > 0;
@@ -248,7 +279,7 @@ export const sendGuestConfirmationEmail = async ({ email, guestName, confirmatio
   to: email,
   subject: `Confirm your email for ${appName}`,
   text: [`Hi ${guestName || "Guest"},`, "", `Welcome to ${appName}. Confirm your email address before signing in:`, confirmationUrl, "", "This link can only be used once. If it expires, request another confirmation email from the registration page.", "If you did not create this account, you can ignore this email."].join("\n"),
-  html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.6;max-width:560px;margin:auto;padding:24px"><h2>Confirm your email</h2><p>Hi ${escapeHtml(guestName || "Guest")},</p><p>Welcome to ${escapeHtml(appName)}. Confirm your email address before signing in.</p><p style="margin:28px 0"><a href="${escapeHtml(confirmationUrl)}" style="display:inline-block;padding:12px 24px;background:#A9442B;color:white;text-decoration:none;border-radius:8px;font-weight:bold">Confirm email address</a></p><p>If the button does not work, open this link:</p><p style="word-break:break-all"><a href="${escapeHtml(confirmationUrl)}">${escapeHtml(confirmationUrl)}</a></p><p>This link can only be used once. If it expires, request another confirmation email from the registration page.</p><p>If you did not create this account, you can ignore this email.</p></div>`,
+  html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.6;width:100%;margin:0;padding:0"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Confirm your email</h2><p>Hi ${escapeHtml(guestName || "Guest")},</p><p>Welcome to ${escapeHtml(appName)}. Confirm your email address before signing in.</p><p style="margin:28px 0"><a href="${escapeHtml(confirmationUrl)}" style="display:inline-block;padding:14px 24px;background:#A9442B;color:#FFFFFF;text-decoration:none;border-radius:28px;font-weight:bold;line-height:1.4;text-align:center">Confirm email address</a></p><p>If the button does not work, open this link:</p><p style="word-break:break-all"><a href="${escapeHtml(confirmationUrl)}" style="color:#A9442B;text-decoration:underline;word-break:break-all">${escapeHtml(confirmationUrl)}</a></p><p>This link can only be used once. If it expires, request another confirmation email from the registration page.</p><p>If you did not create this account, you can ignore this email.</p></div>`,
 });
 
 export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
@@ -280,7 +311,7 @@ export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
     to: payload.guestEmail,
     subject: `Payment Receipt ${payload.receiptNumber}`,
     text: lines.join("\n"),
-    html: `<div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5"><h2>Payment Receipt</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your verified payment receipt is ready.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>Keep this email for your records.</p></div>`,
+    html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.5"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Payment Receipt</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your verified payment receipt is ready.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>Keep this email for your records.</p></div>`,
   });
 };
 
@@ -311,7 +342,7 @@ export const sendReservationInvoiceEmail = async (payload: InvoiceEmailPayload) 
     to: payload.guestEmail,
     subject: `Reservation Invoice ${payload.reservationReference}`,
     text: lines.join("\n"),
-    html: `<div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5"><h2>Reservation Invoice</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your reservation invoice is ready.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>You can review your booking in your account.</p></div>`,
+    html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.5"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Reservation Invoice</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your reservation invoice is ready.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>You can review your booking in your account.</p></div>`,
   });
 };
 
@@ -342,22 +373,22 @@ export const sendReservationConfirmedEmail = async ({
   ].join("\n");
 
   const html = `
-    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #1f2937; line-height: 1.6;">
-      <h2 style="margin: 0 0 12px; color: #0f172a;">Reservation Confirmed</h2>
+    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #3B2A1E; line-height: 1.6;">
+      <h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Reservation Confirmed</h2>
       <p style="margin: 0 0 12px;">Hi ${safeName},</p>
       <p style="margin: 0 0 16px;">Your reservation has been successfully confirmed.</p>
-      <table style="border-collapse: collapse; width: 100%; max-width: 420px;">
+      <table class="email-details" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F8F4EC" style="border-collapse:collapse;width:100%;table-layout:fixed;border:1px solid #E9DFD3;margin:16px 0">
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Reference</td>
-          <td style="padding: 8px 0;">${safeReference}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Reference</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeReference}</td>
         </tr>
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Check-in</td>
-          <td style="padding: 8px 0;">${safeCheckIn}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Check-in</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeCheckIn}</td>
         </tr>
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Check-out</td>
-          <td style="padding: 8px 0;">${safeCheckOut}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Check-out</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeCheckOut}</td>
         </tr>
       </table>
       <p style="margin: 16px 0 0;">Thank you for choosing ${escapeHtml(appName)}.</p>
@@ -402,26 +433,26 @@ export const sendReservationCancelledEmail = async ({
   ].join("\n");
 
   const html = `
-    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #1f2937; line-height: 1.6;">
-      <h2 style="margin: 0 0 12px; color: #991b1b;">Reservation Cancelled</h2>
+    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #3B2A1E; line-height: 1.6;">
+      <h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Reservation Cancelled</h2>
       <p style="margin: 0 0 12px;">Hi ${safeName},</p>
       <p style="margin: 0 0 16px;">Your reservation has been cancelled.</p>
-      <table style="border-collapse: collapse; width: 100%; max-width: 420px;">
+      <table class="email-details" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F8F4EC" style="border-collapse:collapse;width:100%;table-layout:fixed;border:1px solid #E9DFD3;margin:16px 0">
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Reference</td>
-          <td style="padding: 8px 0;">${safeReference}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Reference</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeReference}</td>
         </tr>
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Check-in</td>
-          <td style="padding: 8px 0;">${escapeHtml(formattedCheckIn)}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Check-in</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(formattedCheckIn)}</td>
         </tr>
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Check-out</td>
-          <td style="padding: 8px 0;">${escapeHtml(formattedCheckOut)}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Check-out</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(formattedCheckOut)}</td>
         </tr>
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Reason</td>
-          <td style="padding: 8px 0;">${safeReason}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Reason</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeReason}</td>
         </tr>
       </table>
       ${refundSummary ? `<p>${escapeHtml(refundSummary)}</p>` : ""}
@@ -445,7 +476,7 @@ export const sendRefundStatusEmail = async (payload: {
   const status = labels[payload.status] ?? payload.status;
   const text = `Hi ${payload.guestName},\nReservation ${payload.reservationReference}\nRefund: PHP ${Number(payload.amount).toFixed(2)}\nStatus: ${status}\n${payload.notes}\nView updates in Manage Booking. Money is transferred manually; only verified payouts are marked Refunded.`;
   return sendMail({ to: payload.guestEmail, subject: `Refund ${status} - ${payload.reservationReference}`,
-    text, html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>Refund update</h2><p style="white-space:pre-wrap">${escapeHtml(text)}</p></div>` });
+    text, html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Refund update</h2><p style="white-space:pre-wrap">${escapeHtml(text)}</p></div>` });
 };
 
 export const sendOcularVisitScheduledEmail = async ({
@@ -479,8 +510,8 @@ export const sendOcularVisitScheduledEmail = async ({
   ].join("\n");
 
   const html = `
-    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #1f2937; line-height: 1.6;">
-      <h2 style="margin: 0 0 12px; color: #0f172a;">
+    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #3B2A1E; line-height: 1.6;">
+      <h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">
         Ocular Visit Scheduled
       </h2>
 
@@ -492,25 +523,25 @@ export const sendOcularVisitScheduledEmail = async ({
         Your ocular visit is confirmed. We look forward to welcoming you.
       </p>
 
-      <table style="border-collapse: collapse; width: 100%; max-width: 420px;">
+      <table class="email-details" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F8F4EC" style="border-collapse:collapse;width:100%;table-layout:fixed;border:1px solid #E9DFD3;margin:16px 0">
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Reference</td>
-          <td style="padding: 8px 0;">${safeReference}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Reference</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeReference}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Visit Date</td>
-          <td style="padding: 8px 0;">${escapeHtml(formattedDate)}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Visit Date</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(formattedDate)}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Time Slot</td>
-          <td style="padding: 8px 0;">${escapeHtml(formattedTimeSlot)}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Time Slot</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(formattedTimeSlot)}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Status</td>
-          <td style="padding: 8px 0;">Confirmed</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Status</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">Confirmed</td>
         </tr>
       </table>
 
@@ -562,8 +593,8 @@ export const sendOcularVisitApprovedEmail = async ({
   ].join("\n");
 
   const html = `
-    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #1f2937; line-height: 1.6;">
-      <h2 style="margin: 0 0 12px; color: #166534;">
+    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #3B2A1E; line-height: 1.6;">
+      <h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">
         Ocular Visit Approved
       </h2>
 
@@ -575,25 +606,25 @@ export const sendOcularVisitApprovedEmail = async ({
         Your ocular visit has been approved. We look forward to welcoming you to the resort.
       </p>
 
-      <table style="border-collapse: collapse; width: 100%; max-width: 420px;">
+      <table class="email-details" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F8F4EC" style="border-collapse:collapse;width:100%;table-layout:fixed;border:1px solid #E9DFD3;margin:16px 0">
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Reference</td>
-          <td style="padding: 8px 0;">${safeReference}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Reference</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeReference}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Visit Date</td>
-          <td style="padding: 8px 0;">${escapeHtml(formattedDate)}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Visit Date</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(formattedDate)}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Time Slot</td>
-          <td style="padding: 8px 0;">${escapeHtml(formattedTimeSlot)}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Time Slot</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(formattedTimeSlot)}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Status</td>
-          <td style="padding: 8px 0; color: #166534; font-weight: 600;">
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Status</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3; color: #2F6B3F; font-weight: 600;">
             Approved
           </td>
         </tr>
@@ -623,7 +654,7 @@ export const sendOcularVisitReviewedEmail = async (payload: { guestEmail: string
   const date = formatDateLabel(payload.scheduledDate);
   return sendMail({ to: payload.guestEmail, subject: `${title} - ${payload.referenceNumber}`,
     text: `Hi ${payload.guestName || "Guest"},\n\n${title}\nReference: ${payload.referenceNumber}\nScheduled date: ${date}\nReason: ${payload.reason}\n\nView your visit details in your account.`,
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>${title}</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p>${billingTable([["Reference", payload.referenceNumber], ["Scheduled date", date], ["Reason", payload.reason]])}<p>View your visit details in your account.</p></div>` });
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">${title}</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p>${billingTable([["Reference", payload.referenceNumber], ["Scheduled date", date], ["Reason", payload.reason]])}<p>View your visit details in your account.</p></div>` });
 };
 
 export const sendOcularVisitCancelledEmail = async ({
@@ -660,8 +691,8 @@ export const sendOcularVisitCancelledEmail = async ({
   ].join("\n");
 
   const html = `
-    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #1f2937; line-height: 1.6;">
-      <h2 style="margin: 0 0 12px; color: #991b1b;">
+    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; color: #3B2A1E; line-height: 1.6;">
+      <h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">
         Ocular Visit Cancelled
       </h2>
 
@@ -673,30 +704,30 @@ export const sendOcularVisitCancelledEmail = async ({
         Your ocular visit has been cancelled.
       </p>
 
-      <table style="border-collapse: collapse; width: 100%; max-width: 420px;">
+      <table class="email-details" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F8F4EC" style="border-collapse:collapse;width:100%;table-layout:fixed;border:1px solid #E9DFD3;margin:16px 0">
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Reference</td>
-          <td style="padding: 8px 0;">${safeReference}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Reference</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeReference}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Visit Date</td>
-          <td style="padding: 8px 0;">${escapeHtml(formattedDate)}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Visit Date</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(formattedDate)}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Time Slot</td>
-          <td style="padding: 8px 0;">${escapeHtml(formattedTimeSlot)}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Time Slot</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${escapeHtml(formattedTimeSlot)}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Reason</td>
-          <td style="padding: 8px 0;">${safeReason}</td>
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Reason</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3;font-size:14px;overflow-wrap:anywhere;word-break:break-word">${safeReason}</td>
         </tr>
 
         <tr>
-          <td style="padding: 8px 0; font-weight: 600;">Status</td>
-          <td style="padding: 8px 0; color: #991b1b; font-weight: 600;">
+          <td style="width:35%;padding:12px;border-bottom:1px solid #E9DFD3;font-size:12px;color:#705D4E;vertical-align:top;font-weight:600">Status</td>
+          <td style="padding:12px;border-bottom:1px solid #E9DFD3; color: #A9442B; font-weight: 600;">
             Cancelled
           </td>
         </tr>
