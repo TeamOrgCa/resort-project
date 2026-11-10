@@ -186,7 +186,7 @@ Administrators can search registered guests and deactivate/reactivate access und
 
 ## Cash received at the resort
 
-Online bookings and guest payment submissions remain GCash only. Authorized staff can receive cash at check-in and record a full or partial balance settlement in Transactions > Transaction Ledger > Record cash / Settle in cash. This credits the actual cash received, updates the bill, issues a printable receipt and records an audit entry atomically. Cash is hidden from the public payment catalog. Apply docs/staff-cash-payments-migration.sql after the existing billing/refund/permission migrations before deploying.
+Online bookings and guest payment submissions remain GCash only. Authorized staff can receive cash at check-in and record a full or partial balance settlement in Transactions > Transaction Ledger > Record cash / Settle in cash. This credits the actual cash received, updates the bill, issues a printable receipt and records an audit entry atomically. For a newly recorded cash payment on a confirmed reservation, the guest receives a reservation-confirmed notification and confirmation email alongside the cash-payment notice and billing documents. Confirmation checks use the committed reservation status, and replaying the same cash reference does not resend notices. Cash is hidden from the public payment catalog. Apply docs/staff-cash-payments-migration.sql after the existing billing/refund/permission migrations before deploying.
 
 ## Guest booking edits
 
