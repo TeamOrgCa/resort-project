@@ -25,6 +25,8 @@ type BreakdownInput = {
   units: BilledUnit[];
   services: BilledService[];
   recordedTotal: number;
+  rescheduleFees?: number;
+  dateRateAdjustment?: number;
 };
 
 const cents = (value: number) => Math.round(value * 100);
@@ -57,7 +59,11 @@ export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
     amount: money(service.quantity * service.priceAtBooking),
   }));
 
-  const detailedLines = [...unitLines, ...guestLines, ...serviceLines];
+  const adjustmentLines: BillingLine[] = [
+    { description: "Reschedule fees (non-refundable)", amount: money(input.rescheduleFees ?? 0), detail: "Accumulated fees from completed reschedules" },
+    { description: "Higher-date-rate adjustments", amount: money(input.dateRateAdjustment ?? 0), detail: "Additional package cost for the selected dates" },
+  ].filter(line => line.amount > 0).map(line => ({ ...line, quantity: 1, unitPrice: line.amount }));
+  const detailedLines = [...unitLines, ...guestLines, ...serviceLines, ...adjustmentLines];
   if (detailedLines.length && cents(detailedLines.reduce((sum, line) => sum + line.amount, 0)) === cents(input.recordedTotal)) {
     return { lines: detailedLines, total: money(input.recordedTotal) };
   }
@@ -65,14 +71,15 @@ export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
   // Package pricing can differ from the unit and per-guest rate snapshots.
   // Keep the charged service snapshots visible and reconcile to the recorded bill.
   const servicesTotal = serviceLines.reduce((sum, line) => sum + line.amount, 0);
+  const adjustmentsTotal = adjustmentLines.reduce((sum, line) => sum + line.amount, 0);
   const mode = input.bookingMode?.replaceAll("_", " ") ?? "resort";
   const units = input.units.map((unit) => `${unit.quantity} × ${unit.name}`).join(", ") || "selected resort package";
   const packageLine: BillingLine = {
     description: "Private pool package and guest charges",
     detail: `${mode}; ${units}; ${input.adultCount} ${input.adultCount === 1 ? "adult" : "adults"}, ${input.childCount} ${input.childCount === 1 ? "child" : "children"}`,
     quantity: 1,
-    unitPrice: money(input.recordedTotal - servicesTotal),
-    amount: money(input.recordedTotal - servicesTotal),
+    unitPrice: money(input.recordedTotal - servicesTotal - adjustmentsTotal),
+    amount: money(input.recordedTotal - servicesTotal - adjustmentsTotal),
   };
-  return { lines: [packageLine, ...serviceLines], total: money(input.recordedTotal) };
+  return { lines: [packageLine, ...serviceLines, ...adjustmentLines], total: money(input.recordedTotal) };
 }

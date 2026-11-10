@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendPaymentReceiptEmail, sendReservationInvoiceEmail } from "@/lib/email";
 import { buildBillingBreakdown, type BilledService, type BilledUnit } from "@/lib/booking/billing-breakdown";
+import { tryCreateAdminClient } from "@/lib/supabase/admin";
+
+export type BillingEmailResult = {
+  receiptSent: boolean; invoiceSent: boolean;
+  receiptAlreadySent?: boolean; invoiceAlreadySent?: boolean;
+  error?: string;
+};
 
 type Reservation = {
   reservation_id: string;
@@ -32,29 +39,64 @@ export async function emailBillingDocuments(
   paymentId: string,
   paymentAmount: number,
 ) {
-  const result = { receiptSent: false, invoiceSent: false };
+  const result: BillingEmailResult = { receiptSent: false, invoiceSent: false };
+  let metadataClient: SupabaseClient | null = null;
 
-  const { data: enabled, error: settingError } = await supabase.rpc("billing_email_enabled");
+  let { data: enabled, error: settingError } = await supabase.rpc("billing_email_enabled");
   if (settingError) {
-    console.error("Unable to read billing email setting.", settingError);
-    return result;
+    console.warn("Billing email setting RPC unavailable; using the authorized server fallback.", { code: settingError.code, message: settingError.message });
+    // Callers have already authorized and committed a verified payment. Read
+    // only its email preference with the server client if the legacy RPC is
+    // missing, stale in PostgREST, or denies the cashier session.
+    metadataClient = tryCreateAdminClient();
+    if (metadataClient) {
+      const setting = await metadataClient.from("business_settings").select("setting_value")
+        .eq("setting_key", "payments.receipt_settings").maybeSingle();
+      if (!setting.error) {
+        enabled = String(setting.data?.setting_value?.emailEnabled) !== "false";
+        settingError = null;
+      }
+    }
+    if (settingError) {
+      result.error = "Billing emails were not sent because the receipt email setting could not be read. Apply the billing email migration or check the server configuration.";
+      return result;
+    }
   }
-  if (enabled === false) return result;
+  if (enabled === false) { result.error = "Billing emails are disabled in Configuration > Receipt settings (emailEnabled)."; return result; }
+
+  const recordDelivery = async (type: "receipt" | "invoice", id: string, sent: boolean) => {
+    const { error } = await supabase.rpc("record_billing_email_delivery", {
+      p_document_type: type, p_document_id: id, p_sent: sent,
+      p_error: sent ? null : "Email delivery failed; check mail configuration or provider logs.",
+    });
+    if (!error) return;
+    metadataClient ??= tryCreateAdminClient();
+    if (metadataClient) {
+      const { error: fallbackError } = await metadataClient.from(type === "receipt" ? "receipts" : "invoices")
+        .update({ email_sent: sent, email_sent_at: sent ? new Date().toISOString() : null,
+          email_error: sent ? null : "Email delivery failed; check mail configuration or provider logs." })
+        .eq(type === "receipt" ? "receipt_id" : "invoice_id", id);
+      if (!fallbackError) return;
+    }
+    console.error("Unable to save billing email delivery status.", { documentType: type, code: error.code, message: error.message });
+    result.error = "Email was processed, but its delivery status could not be saved. Check the billing email migration before retrying.";
+  };
 
   const guestQuery = reservation.guest_id
     ? supabase.from("guests").select("email, first_name, last_name").eq("id", reservation.guest_id).maybeSingle<Guest>()
     : reservation.walk_in_guest_id
       ? supabase.from("walk_in_guests").select("email, first_name, last_name").eq("walk_in_guest_id", reservation.walk_in_guest_id).maybeSingle<Guest>()
       : null;
-  if (!guestQuery) return result;
+  if (!guestQuery) { result.error = "No guest is linked to this reservation for billing email delivery."; return result; }
   const { data: guest, error: guestError } = await guestQuery;
   if (guestError || !guest?.email) {
     if (guestError) console.error("Unable to read billing email recipient.", guestError);
+    result.error = guestError ? "Unable to read the guest's billing email address." : "This guest has no email address for billing document delivery.";
     return result;
   }
 
-  const [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult] = await Promise.all([
-    supabase.from("receipts").select("receipt_id, receipt_number, issued_at, email_sent, amount_paid")
+  const [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult, paymentResult] = await Promise.all([
+    supabase.from("receipts").select("receipt_id, receipt_number, issued_at, email_sent, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name")
       .eq("payment_id", paymentId).maybeSingle(),
     supabase.from("invoices").select("invoice_id, created_at, status, total_amount, email_sent")
       .eq("reservation_id", reservation.reservation_id).neq("status", "void")
@@ -68,15 +110,17 @@ export async function emailBillingDocuments(
       .eq("reservation_id", reservation.reservation_id),
     supabase.from("reservation_services").select("quantity, price_at_time, services(name)")
       .eq("reservation_id", reservation.reservation_id),
+    supabase.from("payments").select("reference_number,payment_methods(name)").eq("payment_id",paymentId).maybeSingle(),
   ]);
   const { data: receipt } = receiptResult;
   const { data: invoice } = invoiceResult;
   const { data: transaction } = transactionResult;
   const { data: charges } = chargesResult;
-  const queryError = [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult]
+  const queryError = [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult, paymentResult]
     .find((query) => query.error)?.error;
   if (queryError || !transaction || !charges) {
     console.error("Unable to load billing details for email.", queryError ?? "Missing transaction or reservation charges.");
+    result.error = "Unable to load the issued billing documents. Check the billing migrations and server log.";
     return result;
   }
 
@@ -101,6 +145,8 @@ export async function emailBillingDocuments(
     bookingMode: ({ day: "Day swimming", night: "Overnight swimming", whole_day: "Whole day swimming", custom: "Custom booking" } as Record<string, string>)[charges.booking_mode ?? ""] ?? "Resort booking",
     adultCount: Number(charges.adult_count),
     childCount: Number(charges.child_count),
+    paymentMethod: relatedName(paymentResult.data?.payment_methods as NameRelation, "Resort payment"),
+    paymentReference: paymentResult.data?.reference_number ?? undefined,
   };
   const totalAmount = Number(transaction?.total_amount ?? 0);
   const paidAmount = Number(transaction?.paid_amount ?? 0);
@@ -120,39 +166,37 @@ export async function emailBillingDocuments(
   if (receipt && !receipt.email_sent) {
     result.receiptSent = await sendPaymentReceiptEmail({
       ...base,
+      guestName: receipt.billed_to_name || base.guestName,
       receiptNumber: receipt.receipt_number,
       issuedAt: receipt.issued_at,
       amountPaid: Number(receipt.amount_paid ?? paymentAmount),
-      totalAmount,
-      balance,
-      breakdown: buildBillingBreakdown({ ...breakdownInput, recordedTotal: totalAmount }),
+      totalAmount: Number(receipt.transaction_total_at_time ?? totalAmount),
+      balance: Number(receipt.balance_after_payment ?? balance),
+      breakdown: buildBillingBreakdown({ ...breakdownInput, recordedTotal: Number(receipt.transaction_total_at_time ?? totalAmount) }),
     });
-    const { error } = await supabase.rpc("record_billing_email_delivery", {
-      p_document_type: "receipt",
-      p_document_id: receipt.receipt_id,
-      p_sent: result.receiptSent,
-      p_error: result.receiptSent ? null : "Email delivery failed; check mail configuration or provider logs.",
-    });
-    if (error) console.error("Unable to save receipt email status.", error);
+    await recordDelivery("receipt", receipt.receipt_id, result.receiptSent);
   }
 
-  if (invoice && !invoice.email_sent && ["issued", "partially_paid", "paid"].includes(invoice.status) && Number(invoice.total_amount) > 0) {
+  let invoiceAttempted = false;
+  if (invoice && (!invoice.email_sent || (receipt && !receipt.email_sent)) && ["issued", "partially_paid", "paid"].includes(invoice.status) && Number(invoice.total_amount) > 0) {
+    invoiceAttempted = true;
     result.invoiceSent = await sendReservationInvoiceEmail({
       ...base,
+      invoiceId: invoice.invoice_id,
       issuedAt: invoice.created_at,
       totalAmount: Number(invoice.total_amount),
       paidAmount,
       balance,
       breakdown: buildBillingBreakdown({ ...breakdownInput, recordedTotal: Number(invoice.total_amount) }),
     });
-    const { error } = await supabase.rpc("record_billing_email_delivery", {
-      p_document_type: "invoice",
-      p_document_id: invoice.invoice_id,
-      p_sent: result.invoiceSent,
-      p_error: result.invoiceSent ? null : "Email delivery failed; check mail configuration or provider logs.",
-    });
-    if (error) console.error("Unable to save invoice email status.", error);
+    await recordDelivery("invoice", invoice.invoice_id, result.invoiceSent);
   }
+
+  if (receipt?.email_sent) result.receiptAlreadySent = true;
+  if (invoice?.email_sent && !invoiceAttempted) result.invoiceAlreadySent = true;
+  if (!receipt || !invoice) result.error ??= "A receipt or invoice was not found. Check the issued documents before retrying email delivery.";
+  else if ((!result.receiptSent && !result.receiptAlreadySent) || (!result.invoiceSent && !result.invoiceAlreadySent))
+    result.error ??= "A billing email could not be sent. Check the server log for PDF generation or mail-provider errors.";
 
   return result;
 }

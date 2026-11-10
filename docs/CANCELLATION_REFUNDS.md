@@ -4,6 +4,8 @@ Apply `docs/cancellation-refund-workflow-migration.sql` in Supabase SQL Editor *
 
 The reservation stays `cancelled`; refund processing has its own status. The guest never needs to request a cancellation refund separately. An excess-payment refund on an active booking remains a separate Manage Booking feature.
 
+Apply `docs/non-refundable-reschedule-fees-migration.sql` after the manager-permission, reservation-edit, stay-completion and guest-auto-reschedule migrations. New cancellation calculations retain approved guest-reschedule fees and committed staff-reschedule notice fees for both guest and resort cancellations. Guest cancellations additionally retain the frozen initial deposit. Date-rate adjustments are not classified as reschedule fees. The total retained cannot exceed remaining verified payments. Previews show the fee and deposit deductions separately; historical refund snapshots and completed payouts remain unchanged. The examples below assume no reschedule fees.
+
 | Cancellation | Verified payments | Retained | Automatic refund |
 | --- | --- | --- | --- |
 | Guest, unpaid | 0 | 0 | None |

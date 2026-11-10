@@ -105,7 +105,9 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
           <dt>Previous completed refunds</dt><dd className="text-right">{money(preview.previousRefunds)}</dd>
           <dt>Remaining verified payments</dt><dd className="text-right">{money(preview.netPaid)}</dd>
           <dt>Initial deposit basis</dt><dd className="text-right">{money(preview.depositBase)}</dd>
-          <dt>Retained deposit / deduction</dt><dd className="text-right">{money(preview.deduction)}</dd>
+          {preview.retainedDeposit !== undefined && <><dt>Retained deposit</dt><dd className="text-right">{money(preview.retainedDeposit)}</dd></>}
+          {Number(preview.retainedRescheduleFees) > 0 && <><dt>Non-refundable reschedule fees</dt><dd className="text-right">{money(Number(preview.retainedRescheduleFees))}</dd></>}
+          <dt>{preview.retainedDeposit === undefined ? "Retained deposit / deduction" : "Total non-refundable deduction"}</dt><dd className="text-right">{money(preview.deduction)}</dd>
           <dt className="font-semibold">Refundable amount</dt><dd className="text-right font-semibold text-primary">{money(preview.refundableAmount)}</dd></dl>
         <p className="mt-3 font-medium">{preview.refundableAmount > 0 ? "Cancelled - Pending Refund: a request will be created automatically." : "Cancelled - No Refund: no request will be generated."}</p>
         {preview.refundableAmount > 0 && <p className="mt-2 text-neutral/65">Payment review, manager approval, manual transfer and verification are required.</p>}

@@ -16,7 +16,7 @@ const ocrRuntimeFiles = [
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     // The default website logo is embedded in transactional emails at runtime.
-    "/*": ["./public/website_logo_transparent.png"],
+    "/*": ["./public/website_logo_transparent.png", "./assets/fonts/NotoSans-Regular.ttf"],
     "/api/reservations/payment": ocrRuntimeFiles,
     "/api/reservations/checkout": ocrRuntimeFiles,
   },

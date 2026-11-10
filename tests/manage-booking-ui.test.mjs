@@ -54,6 +54,11 @@ function client() {
 async function mount(fetcher = async () => Response.json({ refunds: [], eligible: [] }), availabilityFetcher = async () => Response.json({ reservations: [], blockedDates: [] }), pricingFetcher) {
   const original = globalThis.fetch;
   globalThis.fetch = (url, options) => {
+    if (url.startsWith("/api/reservations/billing-breakdown")) return Promise.resolve(Response.json({ breakdown: { total: 3000, lines: [
+      {description:"Private pool package and guest charges",quantity:1,unitPrice:2300,amount:2300},
+      {description:"Extra table",quantity:2,unitPrice:100,amount:200},
+      {description:"Reschedule fees (non-refundable)",quantity:1,unitPrice:500,amount:500},
+    ] } }));
     if (url.startsWith("/api/booking/availability")) return availabilityFetcher(url, options);
     if (url.startsWith("/api/reservations/edit") && !options?.method && pricingFetcher) return pricingFetcher(url, options);
     if (url.startsWith("/api/reservations/edit") && !options?.method) return Promise.resolve(Response.json({
@@ -96,6 +101,11 @@ test("booking actions open a focused dialog without inline details and restore t
     await action("MV-CONFIRMED", "View");
     assert.ok(dialog()); assert.equal(h.container.contains(dialog()), false); assert.equal(document.body.style.overflow, "hidden");
     assert.match(dialog().textContent, /Booking details/); assert.match(dialog().textContent, /Extra table/);
+    assert.match(dialog().textContent, /3 adults, 1 child/);
+    const breakdown = dialog().querySelector('[aria-label="Amount breakdown"]');
+    assert.match(breakdown.textContent, /Reschedule fees \(non-refundable\)/);
+    assert.match(breakdown.textContent, /2,300/); assert.match(breakdown.textContent, /500/);
+    assert.match(breakdown.textContent, /Total reservation amount/);
     for (const label of ["Edit booking", "Reschedule", "Cancel reservation", "Continue to Payment"]) assert.ok(button(dialog(), label), label);
     assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
     const last = [...dialog().querySelectorAll("button, a[href], input, select, textarea")].at(-1); last.focus(); await key(last, "Tab"); assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
@@ -144,6 +154,7 @@ test("a paid-downpayment booking opens edits from View and carries saved adult/c
     await click(button(dialog(), "Save Booking Changes"));
     assert.equal(posted.adultCount, 5); assert.equal(posted.childCount, 2); assert.deepEqual(posted.services, []);
     assert.match(dialog().textContent, /7 guests/); assert.match(dialog().textContent, /No services selected/);
+    assert.match(dialog().textContent, /5 adults, 2 children/);
     await click(button(dialog(), "Continue to Payment")); assert.equal(h.drafts[0].adultCount, 5); assert.equal(h.drafts[0].childCount, 2);
     assert.equal(h.drafts[0].bookingMode, "day"); assert.equal(h.drafts[0].roomPrice, 2300);
   } finally { await h.close(); }

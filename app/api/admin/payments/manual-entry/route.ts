@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { staffHasPermission } from "@/lib/server/role-permissions";
 import { createNotifications } from "@/lib/notifications";
-import { emailBillingDocuments } from "@/lib/server/billing-email";
+import { emailBillingDocuments, type BillingEmailResult } from "@/lib/server/billing-email";
+import { sendReservationConfirmedEmail } from "@/lib/email";
 import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
 import { generateReceiptNumber } from "@/lib/booking/receipt-number";
 import { normalizeSenderName, SENDER_NAME_ERROR } from "@/lib/validation/sender-name";
@@ -143,10 +144,51 @@ export async function POST(request: Request) {
         }
         return NextResponse.json({ success: false, errorCode: code, message: `${message} (Error ${code})` }, { status });
       }
-      let billingEmails = { receiptSent: false, invoiceSent: false };
+      let billingEmails: BillingEmailResult = { receiptSent: false, invoiceSent: false };
+      let emailSent = false;
       if (!data.alreadyRecorded) {
         try { billingEmails = await emailBillingDocuments(staffContext.supabase, data.reservation, data.payment.payment_id, Number(data.payment.amount)); }
-        catch (cause) { console.warn("Cash was recorded, but billing email delivery failed.", cause); }
+        catch (cause) {
+          console.warn("Cash was recorded, but billing email delivery failed.", cause);
+          billingEmails.error = "Receipt and invoice email delivery failed. Check the server log; the cash payment was saved.";
+        }
+        // The cash RPC returns its original reservation snapshot. Read the
+        // committed status after payment triggers before confirming the booking.
+        let confirmedReservation: ReservationRow | null = null;
+        try {
+          const { data: current, error: lookupError } = await staffContext.supabase.from("reservations")
+            .select("reservation_id,guest_id,walk_in_guest_id,reference_number,start_datetime,end_datetime,status")
+            .eq("reservation_id", payload.reservationId).maybeSingle<ReservationRow>();
+          if (lookupError) throw lookupError;
+          if (current?.status === "confirmed") confirmedReservation = current;
+          if (confirmedReservation) {
+            const guestQuery = confirmedReservation.guest_id
+              ? staffContext.supabase.from("guests").select("email,first_name,last_name").eq("id", confirmedReservation.guest_id)
+              : confirmedReservation.walk_in_guest_id
+                ? staffContext.supabase.from("walk_in_guests").select("email,first_name,last_name").eq("walk_in_guest_id", confirmedReservation.walk_in_guest_id)
+                : null;
+            if (guestQuery) {
+              const { data: guest, error: guestError } = await guestQuery.maybeSingle();
+              if (guestError) throw guestError;
+              if (guest?.email) emailSent = await sendReservationConfirmedEmail({
+                guestEmail: guest.email,
+                guestName: `${guest.first_name ?? ""} ${guest.last_name ?? ""}`.replace(/\s+/g, " ").trim() || "Guest",
+                reservationReference: confirmedReservation.reference_number,
+                checkInDate: confirmedReservation.start_datetime,
+                checkOutDate: confirmedReservation.end_datetime,
+              });
+            }
+          }
+        } catch (cause) { console.warn("Cash was recorded, but reservation confirmation email delivery failed.", cause); }
+        if (confirmedReservation?.guest_id) {
+          try {
+            const { error: notificationError } = await createNotifications({ actorId: staffContext.staffUser.id,
+              guestId: confirmedReservation.guest_id, title: "Reservation confirmed",
+              message: `Your reservation ${confirmedReservation.reference_number} is confirmed. Your cash payment has been received. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
+              entityType: "reservation", entityId: confirmedReservation.reservation_id, guestActionUrl: "/manage" });
+            if (notificationError) console.warn("Cash reservation confirmation notification failed.", notificationError);
+          } catch (cause) { console.warn("Cash was recorded, but its reservation confirmation notification could not be delivered.", cause); }
+        }
         if (data.reservation.guest_id) {
           try { await createNotifications({ actorId: staffContext.staffUser.id, guestId: data.reservation.guest_id,
             title: "Cash payment recorded", message: `The resort recorded your cash payment. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
@@ -156,7 +198,7 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ success: true, payment: data.payment, receipt: data.receipt,
         reservationId: payload.reservationId, remainingBalance: Number(data.remainingBalance), overpaidAmount: Number(data.overpaidAmount ?? 0),
-        alreadyRecorded: data.alreadyRecorded, billingEmails,
+        alreadyRecorded: data.alreadyRecorded, emailSent, billingEmails,
         message: data.alreadyRecorded ? "This cash payment was already recorded. No duplicate payment was created." : "Cash payment recorded and receipt issued." }, { status: data.alreadyRecorded ? 200 : 201 });
     }
 
