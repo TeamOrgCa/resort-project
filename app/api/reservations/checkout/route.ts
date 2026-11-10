@@ -648,7 +648,7 @@ export async function POST(request: Request) {
       if (notificationError) console.warn("Failed to create checkout notifications:", notificationError);
     } catch (notificationError) { console.warn("Failed to create checkout notifications:", notificationError); }
 
-    if (ocr.status !== "skipped" && !betaTest) await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
+    if (ocr.status !== "skipped") await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
 
     return NextResponse.json(
       {

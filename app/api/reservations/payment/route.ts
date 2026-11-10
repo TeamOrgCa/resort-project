@@ -414,7 +414,7 @@ export async function POST(request: Request) {
       console.warn("Failed to create payment notifications:", notificationError);
     }
 
-    if (ocr.status !== "skipped" && !betaTest) await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
+    if (ocr.status !== "skipped") await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
 
     return NextResponse.json(
       {

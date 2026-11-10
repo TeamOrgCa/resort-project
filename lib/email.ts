@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import type { BillingBreakdown } from "@/lib/booking/billing-breakdown";
+import { getEmailBranding } from "@/lib/server/email-branding";
 
 interface ReservationEmailBase {
   guestEmail: string;
@@ -66,8 +67,8 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, "&#039;");
 
 // Table-based structure and inline colors also work in email clients that strip
-// stylesheets. No external fonts or images are needed to display the branding.
-const emailLayout = (subject: string, content: string) => `<!doctype html>
+// stylesheets. Brand text remains visible when remote images are blocked.
+const emailLayout = (subject: string, content: string, logoUrl: string | null) => `<!doctype html>
 <html lang="en" style="color-scheme:only light"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="only light">
 <title>${escapeHtml(subject)}</title>
@@ -84,6 +85,7 @@ const emailLayout = (subject: string, content: string) => `<!doctype html>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background-color:#FFFFFF;border:1px solid #E9DFD3;border-radius:20px;overflow:hidden">
 <tr><td height="6" bgcolor="#F4C430" style="font-size:0;line-height:6px">&nbsp;</td></tr>
 <tr><td class="email-padding" bgcolor="#A9442B" style="padding:30px 36px;color:#FFFFFF">
+  ${logoUrl ? `<table role="presentation" cellpadding="0" cellspacing="0" bgcolor="#FFFFFF" style="margin:0 0 20px;border-radius:12px"><tr><td style="padding:12px"><img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(appName)} logo" width="180" style="display:block;width:180px;max-width:100%;height:auto;border:0"></td></tr></table>` : ""}
   <p style="margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#FFE4D5">Your private resort escape</p>
   <p class="email-brand" style="margin:0;font-size:27px;line-height:1.25;font-weight:700;color:#FFFFFF">${escapeHtml(appName)}</p>
   <p style="margin:10px 0 0;font-size:13px;color:#FFF1D6">Where the Sun Never Sets</p>
@@ -260,11 +262,13 @@ const sendMail = async ({
   }
 
   try {
+    const { logoUrl, attachments } = await getEmailBranding();
     const result = await transporter.sendMail({
       from: `\"${senderName}\" <${senderEmail}>`,
       to,
       subject,
-      html: emailLayout(subject, html),
+      html: emailLayout(subject, html, logoUrl),
+      attachments,
       text,
     });
     return result.accepted.length > 0;
