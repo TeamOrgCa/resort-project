@@ -12,6 +12,36 @@ after(() => dom.window.close());
 const LoginSuccessToast = loadTsModule("components/ui/LoginSuccessToast.tsx").default;
 const withToast = Component => createElement(Fragment, null, createElement(LoginSuccessToast), createElement(Component));
 
+test("guest login shows remaining attempts and prevents submissions during the one-minute countdown", async () => {
+  const originalFetch = globalThis.fetch, originalNow = Date.now, originalInterval = window.setInterval, originalClear = window.clearInterval;
+  let calls = 0, now = originalNow(), tick;
+  Date.now = () => now;
+  window.setInterval = callback => { tick = callback; return 1; }; window.clearInterval = () => {};
+  globalThis.fetch = async () => { calls++; return Response.json({ success:false,message: calls < 4 ? "Invalid credentials." : "Too many attempts. Try again in one minute.",attemptsRemaining:Math.max(4-calls,0),retryAfterSeconds:calls >= 4 ? 60 : 0 },{status:calls >= 4 ? 429 : 401}); };
+  const Component = loadTsModule("app/auth/login/page.tsx", {
+    "next/navigation":{useRouter:()=>({push(){},refresh(){}}),useSearchParams:()=>new URLSearchParams()},
+    "next/image":()=>null,"next/link":({href,children})=>createElement("a",{href},children),
+  }).default;
+  const container=document.createElement("div");document.body.append(container);const root=createRoot(container);
+  const submit=()=>act(async()=>container.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+  try {
+    await act(async()=>root.render(createElement(Component)));
+    for(const [id,value] of [["email","guest@example.com"],["password","wrong-password"]]) await act(async()=>{
+      const input=container.querySelector(`#${id}`);Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set.call(input,value);input.dispatchEvent(new window.Event("input",{bubbles:true}));
+    });
+    for(const remaining of [3,2,1]) {await submit();assert.match(container.querySelector("#login-attempt-status").textContent,new RegExp(`${remaining} login attempt`));}
+    await submit(); assert.equal(container.querySelector('button[type="submit"]').disabled,true);
+    assert.match(container.querySelector("#login-attempt-status").textContent,/60 seconds/);
+    await submit(); assert.equal(calls,4);
+    now+=59000;await act(async()=>tick());assert.match(container.querySelector("#login-attempt-status").textContent,/1 second\./);
+    now+=1000;await act(async()=>tick());assert.equal(container.querySelector('button[type="submit"]').disabled,false);
+    assert.match(container.querySelector("#login-attempt-status").textContent,/4 login attempts/);
+    assert.equal(container.querySelector('[role="alert"]'),null);
+  } finally {
+    await act(async()=>root.unmount());container.remove();globalThis.fetch=originalFetch;Date.now=originalNow;window.setInterval=originalInterval;window.clearInterval=originalClear;
+  }
+});
+
 for (const [name, file, emailId, passwordId, endpoint] of [
   ["guest", "app/auth/login/page.tsx", "email", "password", "/api/auth/login"],
   ["staff", "components/admin/auth/AdminLoginForm.tsx", "admin-email", "admin-password", "/api/admin/auth/login"],
@@ -107,6 +137,21 @@ test("staff and admin welcome toasts appear only after complete authentication a
       } finally { await act(async () => root.unmount()); container.remove(); }
     }
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("welcome toasts clear when logout starts or another tab changes account", async () => {
+  const { showLoginSuccessToast } = loadTsModule("components/ui/LoginSuccessToast.tsx");
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  try {
+    await act(async () => root.render(createElement(LoginSuccessToast)));
+    await act(async () => showLoginSuccessToast("Welcome, Alex!"));
+    assert.match(container.textContent, /Welcome, Alex/);
+    await act(async () => window.dispatchEvent(new window.CustomEvent("marville:session-change", { detail: "changing" })));
+    assert.equal(container.querySelector('[role="status"]'), null);
+    await act(async () => showLoginSuccessToast("Welcome, Jamie!"));
+    await act(async () => window.dispatchEvent(new window.StorageEvent("storage", { key: "marville:session-changed" })));
+    assert.equal(container.querySelector('[role="status"]'), null);
+  } finally { await act(async () => root.unmount()); container.remove(); }
 });
 
 test("the login toast dismisses automatically after five seconds without blocking the page", async () => {

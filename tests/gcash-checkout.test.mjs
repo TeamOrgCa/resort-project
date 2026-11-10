@@ -7,7 +7,7 @@ const account = "22222222-2222-4222-8222-222222222222";
 const body = { bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
   payment: { paymentMethodId: "gcash", receivingAccountId: account, type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guest}/proof.png` } };
 function harness({ beta = false, status = "consistent", method = "GCash", insertError = null, notificationFails = false } = {}) {
-  const writes = [], inspected = [], accountFilters = [];
+  const writes = [], inspected = [], accountFilters = [], emails = [];
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: guest } }, error: null }) },
     from: table => {
@@ -31,14 +31,14 @@ function harness({ beta = false, status = "consistent", method = "GCash", insert
       assert.equal(name, status === "skipped" ? "submit_unscreened_gcash_payment" : beta ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment"); writes.push({ table: "payments", operation: "insert", payload });
       return { error: insertError, data: insertError ? null : { payment_id: "payment", is_beta_test: beta, status: status === "skipped" ? "pending" : "verified", ocr_status: status === "skipped" ? "not_applicable" : payload.ocr_status, auto_approved: status !== "skipped", reservation_status: status === "skipped" ? "payment_submitted" : "confirmed" } };
     } }) },
-    "@/lib/server/ocr-payment-emails": { sendOcrPaymentEmails: async () => {} },
+    "@/lib/server/ocr-payment-emails": { sendOcrPaymentEmails: async (...args) => { emails.push(args); } },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict: false, error: null }) },
     "@/lib/server/package-rates": { loadQuotedPackageRates: async () => ({ version: 1, rates: {} }), PackageRatesError: class extends Error {} },
     "@/lib/booking/pricing": { computeBookingPricing: () => ({ total: 5000 }) },
     "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return { status, betaTest: beta, notes: "Checked", amount: input.amount, reference: input.reference, paidAt: status === "skipped" ? undefined : "2026-10-13T01:00:00Z" }; } },
     "@/lib/notifications": { createNotifications: async () => { if (notificationFails) throw new Error("Unavailable"); return { error: null }; }, NOTIFICATION_AUDIENCES: { checkout: [] } },
   });
-  return { writes, inspected, accountFilters, post: data => POST(new Request("http://localhost", { method: "POST", body: JSON.stringify(data) })) };
+  return { writes, inspected, accountFilters, emails, post: data => POST(new Request("http://localhost", { method: "POST", body: JSON.stringify(data) })) };
 }
 test("legacy checkout enforces GCash and blocks all failed field checks before creating a booking", async () => {
   for (const [options, expected] of [[{ status: "mismatch" }, 422], [{ status: "unreadable" }, 422], [{ status: "not_applicable" }, 422], [{ status: "screening_unavailable" }, 503], [{ method: "Bank" }, 400]]) {
@@ -99,4 +99,16 @@ test("checkout chooses the beta RPC for server-marked receipt reuse",async()=>{
 test("a client beta flag cannot select the beta workflow",async()=>{
  const h=harness();const response=await h.post({...body,betaTest:true,payment:{...body.payment,betaTest:true}});
  assert.equal(response.status,201);assert.equal((await response.json()).payment.betaTest,false);
+});
+
+
+test("checkout sends confirmation and billing email workflows for normal and beta approvals only", async () => {
+  for (const beta of [false, true]) {
+    const h = harness({ beta });
+    assert.equal((await h.post(body)).status, 201);
+    assert.deepEqual(h.emails, [["reservation", "payment", 1500]]);
+  }
+  const pending = harness({ status: "skipped" });
+  assert.equal((await pending.post(body)).status, 201);
+  assert.deepEqual(pending.emails, []);
 });

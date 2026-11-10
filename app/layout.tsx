@@ -21,7 +21,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  colorScheme: "light",
+  colorScheme: "only light",
+  themeColor: "#F8F4EC",
 };
 
 export default function RootLayout({
@@ -30,7 +31,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" style={{ colorScheme: "only light" }}>
+      <head><meta name="supported-color-schemes" content="light" /></head>
       <body
         className={`${montserrat.variable} antialiased`}
         style={{ fontFamily: "var(--font-montserrat)" }}

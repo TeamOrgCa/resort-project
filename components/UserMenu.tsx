@@ -9,6 +9,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import NotificationStatusFilters, { notificationMatchesFilter, notificationStatusClass, type NotificationFilter } from "@/components/notifications/NotificationStatusFilters";
 import { createPortal } from "react-dom";
 import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
+import { beginSessionChange } from "@/lib/auth/session-events";
 
 type NotificationItem = {
   notification_id: string;
@@ -25,15 +26,19 @@ type GuestProfile = {
 };
 
 export default function UserMenu() {
-  const [user, setUser] = useState<User | null>(null);
+  const [localUser, setUser] = useState<User | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<NotificationFilter>("All");
-  const [profile, setProfile] = useState<GuestProfile | null>(null);
+  const [localProfile, setProfile] = useState<(GuestProfile & { userId: string }) | null>(null);
   const [localNotifications, setNotifications] = useState<NotificationItem[]>([]);
   const [localNotificationsLoading, setNotificationsLoading] = useState(false);
   const [localNotificationError, setNotificationError] = useState<string | null>(null);
   const [localMarkingRead, setMarkingRead] = useState(false);
   const notificationCenter = useNotificationCenter();
+  const user = notificationCenter ? notificationCenter.user : localUser;
+  const userId = user?.id;
+  const profile = localProfile?.userId === userId ? localProfile : null;
+  const hasNotificationCenter = Boolean(notificationCenter);
   const notifications = notificationCenter?.notifications ?? localNotifications;
   const visibleNotifications = notifications.filter(item => notificationMatchesFilter(item, statusFilter));
   const notificationsLoading = notificationCenter?.loading ?? localNotificationsLoading;
@@ -78,39 +83,27 @@ export default function UserMenu() {
   }, [isOpen]);
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-
-      if (user) {
-        // Fetch profile data
-        const { data } = await supabase
-          .from('guests')
-          .select('first_name, last_name')
-          .eq('id', user.id)
-          .maybeSingle<GuestProfile>();
-        
-        setProfile(data);
-      } else {
-        setIsOpen(false);
-        setProfile(null);
-        setNotifications([]);
-      }
-    };
-
-    getUser();
-
+    if (hasNotificationCenter) return;
+    let active = true, authChanged = false;
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      if (active && !authChanged) setUser(user);
+    }).catch(() => { if (active) setUser(null); });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (!session?.user) {
-        setIsOpen(false);
-        setProfile(null);
-        setNotifications([]);
-      }
+      authChanged = true;
+      if (active) setUser(session?.user ?? null);
     });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, [supabase, hasNotificationCenter]);
 
-    return () => subscription.unsubscribe();
-  }, [supabase]);
+  useEffect(() => {
+    let active = true;
+    setIsOpen(false); setNotifications([]); setProfile(null);
+    if (userId) {
+      void supabase.from("guests").select("first_name, last_name").eq("id", userId).maybeSingle<GuestProfile>()
+        .then(({ data }) => { if (active && data) setProfile({ ...data, userId }); });
+    }
+    return () => { active = false; };
+  }, [supabase, userId]);
 
   const fetchNotifications = useCallback(async (activeUser: User) => {
     if (notificationCenter) { notificationCenter.refresh(); return; }
@@ -154,6 +147,7 @@ export default function UserMenu() {
     if (isLoggingOut) return;
     setIsLoggingOut(true);
     setLogoutError(null);
+    const finishSessionChange = beginSessionChange();
 
     let serverSignedOut = false;
     try {
@@ -176,6 +170,8 @@ export default function UserMenu() {
       console.error("Guest logout failed", error);
       setLogoutError("Could not sign out. Please try again.");
       setIsLoggingOut(false);
+    } finally {
+      finishSessionChange();
     }
   };
 

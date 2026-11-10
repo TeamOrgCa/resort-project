@@ -16,7 +16,7 @@ async function click(control) { assert.ok(control); assert.equal(control.disable
 
 async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true, preferences = {}, deferRead = null, staffRole = "admin" } = {}) {
   if (clearStorage) sessionStorage.clear();
-  const state = { rows, readError: false, writeError: false, defer: deferRead, preferenceError: false, deferPreference: null };
+  const state = { rows, readError: false, writeError: false, defer: deferRead, preferenceError: false, deferPreference: null, deferUser: null, rawRows: false };
   const calls = { reads: [], writes: [], preferenceWrites: [], unsubscribed: 0, removed: [], intervals: [], cleared: [] };
   let activeUser = userId;
   const user = id => id ? { id, email: `${id}@example.com`, user_metadata: { notification_popups_enabled: preferences[id] } } : null;
@@ -26,7 +26,10 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
   window.clearInterval = id => calls.cleared.push(id);
   const channels = [];
   const client = {
-    auth: { getUser: async () => ({ data: { user: user(activeUser) } }),
+    auth: { getUser: async () => {
+        const result = { data: { user: user(activeUser) } };
+        return state.deferUser ? state.deferUser(result) : result;
+      },
       updateUser: async payload => {
         const account = activeUser; calls.preferenceWrites.push({ account, payload });
         const save = () => { if (state.preferenceError) return { error: Error("Offline") }; preferences[account] = payload.data.notification_popups_enabled; return { data: { user: user(account) }, error: null }; };
@@ -46,7 +49,7 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
             return Promise.resolve({ error: state.writeError ? Error("Offline") : null }).then(resolve, reject);
           }
           calls.reads.push({ table, filters });
-          const result = { data: state.rows.filter(item => item.recipient_id === recipient).map(item => ({ ...item })), error: state.readError ? Error("Offline") : null };
+          const result = { data: state.rows.filter(item => state.rawRows || item.recipient_id === recipient).map(item => ({ ...item })), error: state.readError ? Error("Offline") : null };
           if (state.defer) return state.defer(result, recipient).then(resolve, reject);
           return Promise.resolve(result).then(resolve, reject);
         } };
@@ -70,8 +73,10 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
   return { container, state, calls, channels,
     emit: () => act(async () => channels.at(-1)?.callback()),
     auth: id => act(async () => { activeUser = id; authChanged("SIGNED_IN", id ? { user: user(id) } : null); }),
+    serverAuth: id => { activeUser = id; },
+    sessionEvent: detail => act(async () => window.dispatchEvent(new window.CustomEvent("marville:session-change", { detail }))),
     focus: () => act(async () => window.dispatchEvent(new window.Event("focus"))),
-    poll: () => act(async () => calls.intervals.at(-1).callback()),
+    poll: () => act(async () => [...calls.intervals].forEach(interval => interval.callback())),
     close: async () => { await act(async () => root.unmount()); container.remove(); window.setInterval = originalSetInterval; window.clearInterval = originalClearInterval; },
   };
 }
@@ -143,7 +148,7 @@ test("realtime, polling and return-to-page refreshes show new notifications with
     h.state.rows.unshift(row("polled")); await h.poll(); assert.equal(alerts().querySelectorAll("article").length, 2);
     h.state.rows.unshift(row("focus")); await h.focus(); assert.equal(alerts().querySelectorAll("article").length, 3);
   } finally { await h.close(); }
-  assert.equal(h.calls.removed.length, 1); assert.equal(h.calls.unsubscribed, 1); assert.equal(h.calls.cleared.length, 1);
+  assert.equal(h.calls.removed.length, 1); assert.equal(h.calls.unsubscribed, 1); assert.equal(h.calls.cleared.length, 2);
 });
 
 test("account changes clear previous popups and discard old in-flight responses", async () => {
@@ -157,6 +162,94 @@ test("account changes clear previous popups and discard old in-flight responses"
     assert.deepEqual(h.calls.reads.at(-1).filters, [["recipient_id", "other"]]);
     await h.auth(null); assert.equal(alerts(), null); assert.equal(h.container.querySelector("[data-feed]").textContent, "");
   } finally { await h.close(); }
+});
+
+test("server-cookie logout and account switches are detected without Supabase auth events", async () => {
+  const h = await mount({ rows: [row("first"), row("other", { recipient_id: "other" })] });
+  try {
+    h.serverAuth(null);
+    await h.focus();
+    assert.equal(alerts(), null);
+    assert.equal(h.container.querySelector("[data-feed]").textContent, "");
+    const oldChannel = h.channels[0], reads = h.calls.reads.length;
+    await act(async () => oldChannel.callback());
+    assert.equal(h.calls.reads.length, reads, "retired realtime callbacks cannot query notifications");
+    h.serverAuth("other"); await h.poll();
+    assert.match(alerts().textContent, /Booking update other/);
+    assert.equal(alerts().textContent.includes("Booking update first"), false);
+    h.serverAuth("guest"); await h.focus();
+    assert.match(alerts().textContent, /Booking update first/);
+    assert.equal(alerts().textContent.includes("Booking update other"), false);
+  } finally { await h.close(); }
+});
+
+test("session transitions hide popups immediately and never restore a previous login's cached feed", async () => {
+  const h = await mount(); let release;
+  try {
+    await h.sessionEvent("changing"); assert.equal(alerts(), null);
+    await h.focus(); assert.equal(alerts(), null, "the old cookie must not restore data during logout");
+    h.serverAuth(null); await h.sessionEvent("changed"); assert.equal(alerts(), null);
+    h.state.rows = [];
+    h.state.defer = result => new Promise(resolve => { release = () => resolve(result); });
+    await h.auth("guest");
+    assert.equal(alerts(), null, "same-account login cannot reuse the previous session's feed");
+    await act(async () => release()); assert.equal(alerts(), null);
+  } finally { await h.close(); }
+});
+
+test("an in-flight identity check or feed from an older session cannot repopulate a new login", async () => {
+  const h = await mount(); const releases = [];
+  try {
+    h.state.deferUser = result => new Promise(resolve => releases.push(() => resolve(result)));
+    await h.focus();
+    await h.auth(null);
+    h.state.rows = []; h.state.deferUser = null;
+    await h.auth("guest");
+    await act(async () => releases.forEach(release => release()));
+    assert.equal(alerts(), null);
+    assert.equal(h.container.querySelector("[data-feed]").textContent, "");
+  } finally { await h.close(); }
+});
+
+test("recipient mismatches are discarded even if a response contains another account's rows", async () => {
+  const h = await mount();
+  try {
+    h.state.rawRows = true;
+    h.state.rows.push(row("private", { recipient_id: "other" }));
+    await h.focus();
+    assert.equal(alerts().textContent.includes("Booking update private"), false);
+    assert.equal(h.container.querySelector("[data-feed]").textContent, "first:false");
+  } finally { await h.close(); }
+});
+
+test("another tab's session-change signal clears notifications and verifies the current cookies", async () => {
+  const h = await mount();
+  try {
+    h.serverAuth(null);
+    await act(async () => window.dispatchEvent(new window.StorageEvent("storage", { key: "marville:session-changed", newValue: "changed" })));
+    assert.equal(alerts(), null);
+  } finally { await h.close(); }
+});
+
+test("guest and staff trays use the same verified account as popups after cookie-only session changes", async () => {
+  for (const menus of ["guest", "admin"]) {
+    const h = await mount({ menus });
+    const label = menus === "guest" ? "Open user menu" : "Open admin notifications";
+    try {
+      assert.ok(h.container.querySelector(`[aria-label="${label}"]`));
+      h.serverAuth(null); await h.focus();
+      assert.equal(h.container.querySelector(`[aria-label="${label}"]`), null);
+      assert.equal(alerts(), null);
+      h.state.rows = [row("new-account", { recipient_id: "other" })];
+      h.serverAuth("other"); await h.sessionEvent("changed");
+      assert.ok(h.container.querySelector(`[aria-label="${label}"]`));
+      assert.match(alerts().textContent, /Booking update new-account/);
+      await click(h.container.querySelector(`[aria-label="${label}"]`));
+      const panel = menus === "guest" ? document.querySelector('[aria-label="Your account and notifications"]') : h.container;
+      assert.match(panel.textContent, /Booking update new-account/);
+      assert.equal(panel.textContent.includes("Booking update first"), false);
+    } finally { await h.close(); }
+  }
 });
 
 test("read failures are retryable and an older fetch cannot undo successful mark-all-read", async () => {
