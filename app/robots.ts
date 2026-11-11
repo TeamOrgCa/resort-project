@@ -11,6 +11,8 @@ export default function robots(): MetadataRoute.Robots {
         "/manager/",
         "/cashier/",
         "/api/",
+        "/auth/",
+        "/staff/",
       ],
     },
     sitemap: "https://www.marvilleresort.com/sitemap.xml",
