@@ -80,7 +80,35 @@ type CalendarEvent = {
   reservationId?: string;
   status?: string;
   flags?: AttentionFlag[];
+  checkedIn?: boolean;
 };
+
+const calendarTypeOptions = [
+  { value: "reservations", label: "Reservations (all statuses)" },
+  { value: "booking", label: "Booking requests" },
+  { value: "ocular", label: "Ocular visits" },
+  { value: "maintenance", label: "Maintenance" },
+] as const;
+const calendarStatusOptions = [
+  { value: "pending", label: "Pending payment" },
+  { value: "payment_submitted", label: "Payment submitted" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "checked_in", label: "Checked in" },
+  { value: "reschedule_requested", label: "Reschedule requested" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "no_show", label: "No show" },
+  { value: "rejected", label: "Rejected" },
+] as const;
+type CalendarEntryFilter = "all" | typeof calendarTypeOptions[number]["value"] | typeof calendarStatusOptions[number]["value"];
+
+function matchesCalendarEntry(event: CalendarEvent, filter: CalendarEntryFilter) {
+  if (filter === "all") return true;
+  if (filter === "reservations") return Boolean(event.reservationId);
+  if (filter === "booking" || filter === "ocular" || filter === "maintenance") return event.kind === filter;
+  if (filter === "checked_in") return Boolean(event.checkedIn);
+  return event.status === filter;
+}
 
 const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const eventStyles: Record<EventKind, { label: string; className: string; dotClassName: string }> = {
@@ -130,6 +158,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [editorBusy, setEditorBusy] = useState(false);
   const [signals, setSignals] = useState<Record<string, CalendarSignals>>({});
   const [attentionFilter, setAttentionFilter] = useState<"all" | "attention" | AttentionFlag>("all");
+  const [entryFilter, setEntryFilter] = useState<CalendarEntryFilter>("all");
   const [selectedDay, setSelectedDay] = useState(initialDate ?? manilaDateKey(new Date()));
   const [mobileView, setMobileView] = useState<"Week" | "Month" | "Agenda">("Month");
   const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
@@ -166,6 +195,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(() => initialReservationId ? { id: initialReservationId, kind: "reservation", date: initialDate ?? "", label: "Reservation details", reservationId: initialReservationId } : null);
   const [now, setNow] = useState(() => Date.now());
+  const hasActiveFilters = Boolean(searchTerm.trim() || attentionFilter !== "all" || entryFilter !== "all");
+  const clearFilters = () => { setSearchTerm(""); setAttentionFilter("all"); setEntryFilter("all"); setHighlightMatches(false); };
   useEffect(() => {
     if (selectedEvent?.reservationId) appearance.markViewed(selectedEvent.reservationId);
   }, [selectedEvent?.reservationId, appearance]);
@@ -297,7 +328,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       setCreationToast("Maintenance period blocked successfully.");
       setShowBlockForm(false);
       setBlockName(""); setBlockReason("");
-      setSearchTerm(""); setAttentionFilter("all");
+      clearFilters();
       setMonth(manilaCalendarDate(blockStart)); setSelectedDay(blockStart);
       setRefreshKey(key => key + 1);
     } catch (error) { setBlockError(error instanceof Error ? error.message : "Unable to create block."); }
@@ -341,6 +372,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
           reference: reservation.reference_number,
           reservationId: reservation.reservation_id,
           status: reservation.status,
+          checkedIn: Boolean(reservation.checked_in_at && !reservation.checked_out_at && ["confirmed", "reschedule_requested"].includes(reservation.status)),
         });
       }
       return events;
@@ -373,16 +405,21 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
 
     return Object.entries(eventsByDay).reduce<Record<string, CalendarEvent[]>>((map, [date, events]) => {
       const matchingEvents = events.filter((event) =>
-        `${event.label} ${event.reference ?? ""} ${eventStyles[event.kind].label} ${event.status ?? ""} ${(event.flags ?? []).map(flag => ATTENTION_LABELS[flag]).join(" ")}`.toLowerCase().includes(normalizedSearch)
+        `${event.label} ${event.reference ?? ""} ${eventStyles[event.kind].label} ${event.status ?? ""} ${event.checkedIn ? "Checked in" : ""} ${(event.flags ?? []).map(flag => ATTENTION_LABELS[flag]).join(" ")}`.toLowerCase().includes(normalizedSearch)
+        && matchesCalendarEntry(event, entryFilter)
         && (attentionFilter === "all" || (attentionFilter === "attention" ? Boolean(event.flags?.length) : event.flags?.includes(attentionFilter)))
       );
       if (matchingEvents.length) map[date] = matchingEvents;
       return map;
     }, {});
-  }, [eventsByDay, searchTerm, attentionFilter]);
+  }, [eventsByDay, searchTerm, attentionFilter, entryFilter]);
   const matchingDates = Object.keys(filteredEventsByDay).sort().join(",");
   useEffect(() => {
-    if (isLoading || (!searchTerm.trim() && attentionFilter === "all")) return;
+    if (isLoading) return;
+    if (!hasActiveFilters) {
+      const reset = window.setTimeout(() => setHighlightMatches(false), 0);
+      return () => window.clearTimeout(reset);
+    }
     let finish: ReturnType<typeof setTimeout>;
     const timer = window.setTimeout(() => {
       const dates = matchingDates.split(",").filter(Boolean);
@@ -393,7 +430,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       finish = setTimeout(() => setHighlightMatches(false), 2400);
     }, 450);
     return () => { window.clearTimeout(timer); clearTimeout(finish); };
-  }, [searchTerm, attentionFilter, matchingDates, isLoading]);
+  }, [searchTerm, attentionFilter, entryFilter, hasActiveFilters, matchingDates, isLoading]);
   useEffect(() => {
     if (!newBooking || isLoading) return;
     const created = reservations.find(row => newBooking.id ? row.reservation_id === newBooking.id : row.reference_number === newBooking.reference);
@@ -497,6 +534,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       <span className="block text-[10px] font-medium opacity-75">{reservation ? `${formatTime(reservation.start_datetime)} - ${formatTime(reservation.end_datetime)}` : style.label} ? {titleCase(event.status ?? "scheduled")}</span>
       <span className="mt-0.5 block break-words text-xs font-semibold">{event.label}{unviewedDot(event)}</span>
       <span className="mt-0.5 block whitespace-normal text-[10px] opacity-75">{style.label} | {event.reference}</span>
+      {event.checkedIn && <span className="mt-1 block text-[10px] font-semibold">Checked in</span>}
       {!!event.flags?.length && <span className="mt-1 block text-[10px] font-medium">Needs attention: {event.flags.map(flag => ATTENTION_LABELS[flag]).join(" | ")}</span>}
     </button>;
   };
@@ -543,11 +581,21 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       </form>
     </RecordDialog>}
     <div className="hidden gap-4 md:grid md:grid-cols-3">{[{ label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" }, { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" }, { label: "Needs attention", value: attentionCount, detail: "Payments, requests, balances and arrivals" }].map(metric => <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-neutral/50">{metric.label}</p><p className="mt-2 text-3xl font-semibold text-neutral">{isLoading ? "-" : error ? "-" : metric.value}</p><p className="mt-1 text-xs text-neutral/50">{metric.detail}</p></div>)}</div>
-    <section aria-label="Calendar filters" className="my-4 flex flex-wrap items-end gap-3 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm">
-      <label className="min-w-0 flex-1 text-xs font-medium text-neutral/65">Search bookings<input type="search" value={searchTerm} onChange={event => setSearchTerm(event.target.value)} placeholder="Guest or booking reference" className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm" /></label>
-      <label className="min-w-0 flex-1 text-xs font-medium text-neutral/65 md:max-w-xs">Show<select aria-label="Filter calendar entries" value={attentionFilter} onChange={event => setAttentionFilter(event.target.value as typeof attentionFilter)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
-        <option value="all">All entries</option><option value="attention">Needs attention ({attentionCount})</option>{(Object.keys(ATTENTION_LABELS) as AttentionFlag[]).map(flag => <option key={flag} value={flag}>{ATTENTION_LABELS[flag]} ({flagCount(flag)})</option>)}
+    <section aria-label="Calendar filters" className="@container my-4 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm">
+      <div className="grid grid-cols-1 items-end gap-3 @sm:grid-cols-[minmax(0,1fr)_auto] @3xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+      <label className="min-w-0 text-xs font-medium text-neutral/65">Search bookings<input type="search" value={searchTerm} onChange={event => setSearchTerm(event.target.value)} placeholder="Guest or booking reference" className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm" /></label>
+      <div className="grid min-w-0 gap-3 @sm:order-3 @sm:col-span-2 @sm:grid-cols-2 @3xl:contents">
+      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-2">Type or status<select aria-label="Filter calendar by type or status" value={entryFilter} onChange={event => setEntryFilter(event.target.value as CalendarEntryFilter)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
+        <option value="all">All types and statuses</option>
+        <optgroup label="Entry type">{calendarTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>
+        <optgroup label="Status">{calendarStatusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>
       </select></label>
+      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-3">Attention<select aria-label="Filter calendar entries" value={attentionFilter} onChange={event => setAttentionFilter(event.target.value as typeof attentionFilter)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
+        <option value="all">All attention levels</option><option value="attention">Needs attention ({attentionCount})</option>{(Object.keys(ATTENTION_LABELS) as AttentionFlag[]).map(flag => <option key={flag} value={flag}>{ATTENTION_LABELS[flag]} ({flagCount(flag)})</option>)}
+      </select></label>
+      </div>
+      <button type="button" onClick={clearFilters} disabled={!hasActiveFilters} className="min-h-11 whitespace-nowrap rounded-xl border border-neutral/20 px-3 text-sm font-semibold hover:bg-base disabled:opacity-45 @sm:order-2 @3xl:order-4">Clear filters</button>
+      </div>
     </section>
     {showColorSettings && <CatalogDialog title="Calendar colors" description="Choose your status colors. Items needing attention always use red. Your choices are saved automatically for your account in this browser." busy={false} onClose={() => setShowColorSettings(false)}>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{(Object.keys(CALENDAR_COLORS) as CalendarColorKey[]).map(key => <label key={key} className="flex items-center gap-2 text-xs">
@@ -561,7 +609,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         <span className="inline-flex items-center gap-2 font-semibold"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: URGENT_CALENDAR_COLOR }} />Needs attention</span>
         <span className="inline-flex items-center gap-2"><span className="calendar-new-dot h-2 w-2 rounded-full bg-blue-600" />New / not viewed</span>
       </div>
-      {(searchTerm.trim() || attentionFilter !== "all") && <p role="status" className="mb-3 text-sm text-neutral/70">{Object.keys(filteredEventsByDay).length ? `${new Set(Object.values(filteredEventsByDay).flat().map(event => event.reservationId ?? event.id)).size} matching entries highlighted` : "No entries match your search and filters in this calendar period."}</p>}
+      {hasActiveFilters && <p role="status" className="mb-3 text-sm text-neutral/70">{Object.keys(filteredEventsByDay).length ? `${new Set(Object.values(filteredEventsByDay).flat().map(event => event.reservationId ?? event.id)).size} matching entries highlighted` : "No entries match your search and filters in this calendar period."}</p>}
     <section aria-label="Desktop reservation calendar" aria-busy={isLoading} className="hidden overflow-x-auto rounded-2xl border border-neutral/10 bg-white shadow-sm md:block">
       <div className="flex items-center justify-between gap-4 border-b border-neutral/10 p-4"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Month view calendar</p><h2 className="mt-1 text-xl font-semibold text-neutral">{monthLabel}</h2></div><div className="flex gap-2">
         <button type="button" onClick={() => changeMonth(-1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Previous month">&larr;</button>
@@ -609,6 +657,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                         title={`${style.label}: ${event.label}${event.flags?.length ? `. Needs attention: ${event.flags.map(flag => ATTENTION_LABELS[flag]).join(", ")}` : ""}`}
                       >
                         <span className="block text-[9px] font-normal opacity-75">{style.label}</span>
+                        {event.checkedIn && <span className="block text-[9px] font-semibold">Checked in</span>}
                         {event.label}{unviewedDot(event)}
                         {!!event.flags?.length && <span className="mt-1 block text-[9px] font-medium">Needs attention</span>}
                       </button>
@@ -694,7 +743,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     }} />}
     <ManualBookingDialog isOpen={isManualBookingOpen && canCreate} onClose={() => setIsManualBookingOpen(false)} onCreated={booking => {
       setNewBooking(booking); setCreationToast(`Reservation ${booking.reference ?? ""} created successfully.`);
-      setIsManualBookingOpen(false); setSearchTerm(""); setAttentionFilter("all");
+      setIsManualBookingOpen(false); clearFilters();
       setMonth(manilaCalendarDate(booking.date)); setSelectedDay(booking.date);
       setRefreshKey(key => key + 1); setCancellationMessage("Manual reservation created. New bookings have a glowing dot until you view them.");
     }} />
