@@ -34,6 +34,8 @@ test("About rates display the current schedule for all six packages, including a
 test("loading and failed rate requests never substitute old printed prices", () => {
   const loading = render(); const failed = render({ error: "Rates unavailable" });
   assert.match(loading, /Loading current package prices/);
+  assert.match(loading, /aria-busy="true"/); assert.match(loading, /animate-pulse/);
+  assert.doesNotMatch(failed, /animate-pulse/);
   assert.match(failed, /temporarily unavailable/);
   assert.doesNotMatch(loading + failed, /₱/);
   for (const markup of [loading, failed]) {

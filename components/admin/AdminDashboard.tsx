@@ -1,6 +1,7 @@
 "use client";
 
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+import { AdminDashboardSkeleton } from "@/components/admin/AdminSkeletons";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -95,7 +96,7 @@ export default function AdminDashboard() {
         </nav></>} />
 
     {error && <div role="alert" className="rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm">{error}{dashboard && <p className="mt-1 font-semibold">Showing the last successful update. Refresh before acting on these figures.</p>}</div>}
-    {!dashboard && loading && <div className="grid animate-pulse gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Loading dashboard"><div className="h-32 rounded-2xl bg-neutral/5" /><div className="h-32 rounded-2xl bg-neutral/5" /><div className="h-32 rounded-2xl bg-neutral/5" /><div className="h-32 rounded-2xl bg-neutral/5" /></div>}
+    {!dashboard && loading && <AdminDashboardSkeleton />}
 
     {dashboard && <>
       <section aria-label="Today’s overview">

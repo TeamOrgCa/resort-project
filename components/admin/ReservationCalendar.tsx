@@ -12,7 +12,8 @@ import OcularVisitReview from "@/components/admin/OcularVisitReview";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import RecordDialog from "@/components/manage/RecordDialog";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
-import LoadingState from "@/components/ui/LoadingState";
+import Skeleton from "@/components/ui/Skeleton";
+import { AdminCardsSkeleton } from "@/components/admin/AdminSkeletons";
 import ReservationPaymentReview from "@/components/admin/transactions/ReservationPaymentReview";
 import { ATTENTION_LABELS, calendarBookingKind, reservationAttention, type AttentionFlag, type CalendarSignals } from "@/lib/booking/calendar-attention";
 import { hasPermission, type Permission } from "@/lib/auth/role-access";
@@ -561,7 +562,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={`h-5 w-5 ${isLoading ? "animate-spin motion-reduce:animate-none" : ""}`} aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 19.5 9M17.9 17.9A8 8 0 0 1 4.5 15" /></svg>
         </button>
       </div>} />
-    {isLoading && <div className="mb-4"><LoadingState title="Loading reservation calendar..." description="Fetching bookings, maintenance dates and items needing attention." /></div>}
+    {isLoading && <p role="status" aria-live="polite" data-no-auto-scroll className="sr-only">Loading reservation calendar...</p>}
     {creationToast && <div role="status" className="fixed left-1/2 top-5 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center gap-3 rounded-2xl border border-green-200 bg-white px-4 py-3 text-sm font-semibold text-green-900 shadow-lg">{creationToast}<button type="button" onClick={() => setCreationToast(null)} aria-label="Dismiss reservation success notification" className="ml-auto min-h-11 px-2 text-xl"><ManageIcon name="close" /></button></div>}
     {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-900">{cancellationMessage}</p>}
     {blockError && <div role="alert" className="fixed left-1/2 top-5 z-[110] w-[min(90vw,32rem)] -translate-x-1/2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 shadow-xl">{blockError}<button type="button" aria-label="Dismiss maintenance error" onClick={() => setBlockError(null)} className="ml-3 underline">Dismiss</button></div>}
@@ -580,7 +581,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         <button disabled={blockBusy} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">{blockBusy ? "Creating..." : "Create maintenance block"}</button>
       </form>
     </RecordDialog>}
-    <div className="hidden gap-4 md:grid md:grid-cols-3">{[{ label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" }, { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" }, { label: "Needs attention", value: attentionCount, detail: "Payments, requests, balances and arrivals" }].map(metric => <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-neutral/50">{metric.label}</p><p className="mt-2 text-3xl font-semibold text-neutral">{isLoading ? "-" : error ? "-" : metric.value}</p><p className="mt-1 text-xs text-neutral/50">{metric.detail}</p></div>)}</div>
+    <div className="hidden gap-4 md:grid md:grid-cols-3">{[{ label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" }, { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" }, { label: "Needs attention", value: attentionCount, detail: "Payments, requests, balances and arrivals" }].map(metric => <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-neutral/50">{metric.label}</p>{isLoading ? <Skeleton className="mt-2 h-9 w-14" /> : <p className="mt-2 text-3xl font-semibold text-neutral">{error ? "-" : metric.value}</p>}<p className="mt-1 text-xs text-neutral/50">{metric.detail}</p></div>)}</div>
     <section aria-label="Calendar filters" className="@container my-4 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm">
       <div className="grid grid-cols-1 items-end gap-3 @sm:grid-cols-[minmax(0,1fr)_auto] @3xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
       <label className="min-w-0 text-xs font-medium text-neutral/65">Search bookings<input type="search" value={searchTerm} onChange={event => setSearchTerm(event.target.value)} placeholder="Guest or booking reference" className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm" /></label>
@@ -629,14 +630,15 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             const maintenanceBlocked = (eventsByDay[dayKey] ?? []).some((event) => event.kind === "maintenance");
             const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked && !availability?.day && !availability?.night && !availability?.whole ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : availability?.whole ? "Whole day available" : "Fully booked";
             return <div key={dayKey} className={`min-h-28 min-w-0 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
-              {dayReservation ? (
+              {dayReservation && !isLoading ? (
                 <button type="button" onClick={() => openEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getUTCDate()}</button>
               ) : (
                 <div className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getUTCDate()}</div>
               )}
-              <p className={`mb-1 rounded px-1 py-0.5 text-[10px] font-medium ${isLoading || error ? "bg-neutral/5 text-neutral/60" : availability?.day && availability?.night ? "bg-green-50 text-green-800" : availability?.day || availability?.night || availability?.whole ? "bg-amber-50 text-amber-900" : "bg-neutral/10 text-neutral/60"}`} title={availabilityLabel}>{availabilityLabel}</p>
+              {isLoading && <div aria-hidden="true" className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-6 w-4/5" /></div>}
+              <p className={isLoading ? "sr-only" : `mb-1 rounded px-1 py-0.5 text-[10px] font-medium ${error ? "bg-neutral/5 text-neutral/60" : availability?.day && availability?.night ? "bg-green-50 text-green-800" : availability?.day || availability?.night || availability?.whole ? "bg-amber-50 text-amber-900" : "bg-neutral/10 text-neutral/60"}`} title={availabilityLabel}>{availabilityLabel}</p>
               <div className="space-y-1">
-                {dayEvents.map((event) => {
+                {!isLoading && dayEvents.map((event) => {
                   const style = eventStyles[event.kind];
                   const reservation = event.reservationId
                     ? reservations.find((item) => item.reservation_id === event.reservationId)
@@ -697,11 +699,11 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       <div className="my-3"><button type="button" onClick={() => { setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 px-1 text-xs font-medium text-neutral/65">Today</button></div>
       {mobileView === "Week" && <p className="mb-3 text-xs text-neutral/65">{formatManilaDate(weekStart, { month: "short", day: "numeric" })} - {formatManilaDate(addDays(weekEnd, -1), { month: "short", day: "numeric" })}</p>}
       <div aria-label="Mobile calendar entries" className="space-y-1 rounded-xl bg-white p-1.5">
-        {mobileDays.map(day => <section key={dateKey(day)} aria-label={`Bookings for ${dateKey(day)}`} className="rounded-xl p-1">
+        {isLoading ? <AdminCardsSkeleton label="Loading bookings..." /> : mobileDays.map(day => <section key={dateKey(day)} aria-label={`Bookings for ${dateKey(day)}`} className="rounded-xl p-1">
           <h3 className={`mb-1.5 text-xs font-bold ${dateKey(day) === today ? "text-primary" : "text-neutral"}`}>{formatManilaDate(day, { weekday: "short" })}<span className="ml-2">{mobileView === "Agenda" ? formatManilaDate(day, { month: "short", day: "numeric" }) : day.getUTCDate()}</span>{dateKey(day) === today && <span className="ml-2 text-[10px] font-medium">Today</span>}</h3>
           <div className="space-y-1">{(filteredEventsByDay[dateKey(day)] ?? []).map(renderEvent)}</div>
         </section>)}
-        {mobileDays.length === 0 && <p role="status" className="p-4 text-xs text-neutral/60">{isLoading ? "Loading bookings..." : "No entries match this period and your filters."}</p>}
+        {!isLoading && mobileDays.length === 0 && <p role="status" className="p-4 text-xs text-neutral/60">No entries match this period and your filters.</p>}
       </div>
       <p className="mt-3 text-[10px] text-neutral/50">Philippine time. Tap an entry to view details and actions.</p>
     </section>

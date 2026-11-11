@@ -2,16 +2,18 @@ import { SiteText, SiteImage, SiteContact, SiteSocialLink } from "@/components/c
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import PageReveal from "@/components/ui/PageReveal";
 import ResortRates from "@/components/content/ResortRates";
 
 export default function About() {
   return (
     <div className="min-h-screen bg-base">
       <Navigation />
+      <PageReveal>
 
       {/* Hero Section */}
-      <section className="relative h-96 flex items-center justify-center overflow-hidden mt-20">
-        <SiteImage
+      <section className="relative h-96 flex items-center justify-center overflow-hidden bg-neutral mt-20">
+        <SiteImage skeleton
           contentKey="content.about.cover_image"
           alt="About Resort" 
           fill 
@@ -19,7 +21,7 @@ export default function About() {
           priority
         />
         <div className="absolute inset-0 bg-neutral/40"></div>
-        <div className="relative z-10 text-center px-4">
+        <div data-reveal className="relative z-10 text-center px-4">
           <h1 className="text-4xl sm:text-6xl font-bold text-base mb-4"><SiteText contentKey="content.about.about_us" /></h1>
           <p className="text-xl text-base/90"><SiteText contentKey="content.about.discover_the_story_behind_paradise" /></p>
         </div>
@@ -27,7 +29,7 @@ export default function About() {
 
       {/* History Section */}
       <section className="py-20 px-4 bg-base">
-        <div className="max-w-6xl mx-auto">
+        <div data-reveal className="max-w-6xl mx-auto">
           <div className="grid md:grid-cols-2 gap-12 items-center">
             <div>
               <h2 className="text-4xl font-bold text-neutral mb-6"><SiteText contentKey="content.about.our_story" /></h2>
@@ -36,7 +38,7 @@ export default function About() {
               <p className="text-lg text-neutral/80"><SiteText contentKey="content.about.over_three_decades_we_ve_maintained_our_commi" /></p>
             </div>
             <div className="relative h-96 rounded-3xl overflow-hidden shadow-2xl">
-              <SiteImage
+              <SiteImage skeleton
                 contentKey="content.about.story_image"
                 alt="Resort History" 
                 fill 
@@ -51,7 +53,7 @@ export default function About() {
 
       {/* Location Section */}
       <section className="py-20 px-4 bg-neutral/5">
-        <div className="max-w-6xl mx-auto">
+        <div data-reveal className="max-w-6xl mx-auto">
           <h2 className="text-4xl font-bold text-neutral mb-12 text-center"><SiteText contentKey="content.about.find_us" /></h2>
           <div className="grid md:grid-cols-2 gap-12">
             <div>
@@ -102,7 +104,7 @@ export default function About() {
 
       {/* Contact Section */}
       <section className="py-20 px-4 bg-base">
-        <div className="max-w-6xl mx-auto">
+        <div data-reveal className="max-w-6xl mx-auto">
           <h2 className="text-4xl font-bold text-neutral mb-12 text-center"><SiteText contentKey="content.about.get_in_touch" /></h2>
           <div className="grid md:grid-cols-3 gap-8">
             <div className="bg-base border-2 border-neutral/10 p-8 rounded-2xl text-center hover:border-primary/50 transition-colors">
@@ -143,7 +145,7 @@ export default function About() {
 
       {/* Social Media Section */}
       <section className="py-20 px-4 bg-neutral/5">
-        <div className="max-w-4xl mx-auto text-center">
+        <div data-reveal className="max-w-4xl mx-auto text-center">
           <h2 className="text-4xl font-bold text-neutral mb-6"><SiteText contentKey="content.about.follow_our_journey" /></h2>
           <p className="text-lg text-neutral/70 mb-10"><SiteText contentKey="content.about.stay_connected_with_us_on_social_media_for_up" /></p>
           <div className="flex justify-center gap-6 flex-wrap">
@@ -177,7 +179,7 @@ export default function About() {
 
       {/* CTA Section */}
       <section className="py-20 px-4 bg-linear-to-r from-primary to-primary/80">
-        <div className="max-w-4xl mx-auto text-center">
+        <div data-reveal className="max-w-4xl mx-auto text-center">
           <h2 className="text-4xl font-bold text-base mb-6"><SiteText contentKey="content.about.ready_to_experience_paradise" /></h2>
           <p className="text-xl text-base/90 mb-10"><SiteText contentKey="content.about.book_your_stay_with_us_and_create_memories_th" /></p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -190,6 +192,8 @@ export default function About() {
           </div>
         </div>
       </section>
+
+      </PageReveal>
 
       <Footer />
     </div>

@@ -206,6 +206,26 @@ main, fieldset { min-width: 0; }
 }
 @page admin-report { size: A4 landscape; margin: 12mm; }
 
+@keyframes page-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes site-image-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes site-image-loading {
+  0%, 100% { background-color: rgb(59 42 30 / .08); }
+  50% { background-color: rgb(59 42 30 / .16); }
+}
+.site-image-loading { background-color: rgb(59 42 30 / .1); }
+@media (prefers-reduced-motion: no-preference) {
+  .site-image-loading { animation: site-image-loading 1.5s ease-in-out infinite; }
+  .site-image-loaded { animation: site-image-fade-in .4s ease-out; }
+  .page-reveal [data-reveal-state="pending"] { opacity: 0; }
+  .page-reveal [data-reveal-state="visible"], .page-reveal .content-fade-in { animation: page-fade-in .65s ease-out both; }
+}
+
 @keyframes calendar-match-pulse {
   0%, 100% { outline: 3px solid transparent; outline-offset: 2px; }
   50% { outline: 3px solid #0f172a; outline-offset: 3px; }

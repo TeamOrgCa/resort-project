@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import BookingGuide from "@/components/booking/BookingGuide";
 import BookingProgress from "@/components/booking/BookingProgress";
 import Link from "next/link";
 import Image from "next/image";
@@ -519,6 +520,7 @@ function PaymentContent() {
   if (paymentComplete) {
     return (
       <div className="booking-flow min-h-screen bg-base flex items-center justify-center px-4 py-6">
+        <BookingGuide page="payment-complete" />
         <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-5 sm:p-12 text-center">
           <div className="w-20 h-20 bg-secondary/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <svg className="w-12 h-12 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -531,7 +533,7 @@ function PaymentContent() {
             Excess payment: ₱{successExcess.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. After staff verifies this payment, request the excess refund in Manage Booking.
           </p>}
 
-          <div className="booking-summary bg-base p-4 sm:p-8 rounded-2xl mb-8">
+          <div data-booking-guide="payment-result" className="booking-summary bg-base p-4 sm:p-8 rounded-2xl mb-8">
             <h2 className="text-2xl font-bold text-neutral mb-6">Reservation Summary</h2>
             <div className="space-y-4 text-left">
               <div className="flex justify-between pb-3 border-b border-neutral/10">
@@ -625,7 +627,7 @@ function PaymentContent() {
                 Return Home
               </button>
             </Link>
-            <Link href="/manage" className="flex-1">
+            <Link data-booking-guide="payment-manage" href="/manage" className="flex-1">
               <button className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105">
                 Manage Booking
               </button>
@@ -647,6 +649,7 @@ function PaymentContent() {
       <Navigation />
 
       <BookingProgress currentStep={4} />
+      <BookingGuide page="payment" balance={isBalancePayment} disabled={isSubmitting} />
 
       <section className="px-4 py-6 sm:py-12">
         <div className="max-w-6xl mx-auto">
@@ -681,7 +684,7 @@ function PaymentContent() {
                   )}
 
                   {isBalancePayment ? (
-                    <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                    <div data-booking-guide="payment-amount" className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4">
                       <h3 className="text-lg font-semibold text-neutral mb-2">Pay for This Reservation</h3>
                       <p className="text-sm text-neutral/70">
                         {paidAmount > 0 ? "Pay the outstanding balance for your selected reservation." : `Choose a ${downpaymentPercentage}% down payment or full payment for your selected reservation.`}
@@ -723,7 +726,7 @@ function PaymentContent() {
                       </div>
                     </div>
                   ) : (
-                    <div className="mb-6 rounded-xl border border-neutral/10 bg-base p-4">
+                    <div data-booking-guide="payment-amount" className="mb-6 rounded-xl border border-neutral/10 bg-base p-4">
                       <h3 className="text-lg font-semibold text-neutral mb-3">Choose Amount To Pay</h3>
                       <div className="grid md:grid-cols-2 gap-3">
                         <button
@@ -754,7 +757,7 @@ function PaymentContent() {
                     </div>
                   )}
 
-                  <div className="mb-6 rounded-xl border border-neutral/15 p-4">
+                  <div data-booking-guide="payment-sent" className="mb-6 rounded-xl border border-neutral/15 p-4">
                     <label htmlFor="amount-sent" className="mb-2 block text-sm font-semibold text-neutral">Amount sent (PHP) *</label>
                     <input id="amount-sent" type="number" inputMode="decimal" step="0.01" min={payableNow} max="99999999.99"
                       value={amountSent ?? String(payableNow)} onChange={(event) => setAmountSent(event.target.value)} required
@@ -805,7 +808,7 @@ function PaymentContent() {
                             required
                           />
                         </div>
-                        <div className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
+                        <div data-booking-guide="payment-proof" className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
                           <label htmlFor="bank-payment-proof" className="mb-2 flex items-center gap-2 text-base font-semibold text-neutral">
                             <svg aria-hidden="true" className="h-6 w-6 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4" /></svg>
                             Upload Proof of Payment *
@@ -871,7 +874,7 @@ function PaymentContent() {
                         </div>
                       </div>
 
-                      <div className="bg-neutral/5 p-3 sm:p-6 rounded-xl mb-6">
+                      <div data-booking-guide="payment-account" className="bg-neutral/5 p-3 sm:p-6 rounded-xl mb-6">
                         <h4 className="font-semibold text-neutral mb-3">Send payment to:</h4>
                         <div className="space-y-2 text-sm">
                           <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">{selectedPaymentAccount?.account_name ?? "-"}</span></p>
@@ -885,7 +888,7 @@ function PaymentContent() {
                         <div>
                           <label htmlFor="gcash-sender-name" className="block text-sm font-medium text-neutral/70 mb-2">Sender Name *</label>
                           <input
-                            id="gcash-sender-name"
+                            id="gcash-sender-name" data-booking-guide="payment-sender"
                             aria-describedby="gcash-sender-name-hint"
                             type="text"
                             maxLength={100}
@@ -930,7 +933,7 @@ function PaymentContent() {
                           <p id="gcash-reference-help" className="mt-1 text-xs text-neutral/60">8–20 digits only. Leading zeroes are kept; pasted spaces and hyphens are removed.</p>
                           {referenceInputError && <p id="gcash-reference-error" role="alert" className="mt-1 text-sm text-red-700">{referenceInputError}</p>}
                         </div>
-                        <div className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
+                        <div data-booking-guide="payment-proof" className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
                           <label htmlFor="gcash-payment-proof" className="mb-2 flex items-center gap-2 text-base font-semibold text-neutral">
                             <svg aria-hidden="true" className="h-6 w-6 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4" /></svg>
                             Upload original GCash screenshot *
@@ -975,7 +978,7 @@ function PaymentContent() {
                     </div>
                   )}
 
-                  <div className="mb-6">
+                  <div data-booking-guide="payment-policies" className="mb-6">
                     <PolicyAgreement key={reservationId} accepted={acceptedTerms} onChange={(accepted) => setAcceptedTermsForReservation(accepted ? reservationId : "")} reservationId={reservationId || undefined} />
                   </div>
 
@@ -987,6 +990,7 @@ function PaymentContent() {
                     </Link>
                     <button
                       type="submit"
+                      data-booking-guide="payment-submit"
                       disabled={isSubmitting || isCheckingPendingPayment || isCheckingVerifiedDownpayment || hasPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentAccount?.qr_image}
                       className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >

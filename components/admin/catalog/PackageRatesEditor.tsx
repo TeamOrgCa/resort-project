@@ -1,4 +1,6 @@
 "use client";
+
+import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import { useEffect, useState } from "react";
 import { RATE_TIERS, PACKAGE_MODES, PACKAGE_LABELS, parsePackageRates, parsePackageRateSchedule, type PackageRates, type PackageRateSchedule, type RateTier, type PackageMode } from "@/lib/booking/package-rates";
 import { INCLUDED_GUESTS } from "@/lib/booking/guest-count";
@@ -67,7 +69,7 @@ export default function PackageRatesEditor() {
     <p className="mt-1 text-sm text-neutral/60">Set weekday and weekend prices for packages covering {INCLUDED_GUESTS} guests, and choose their time slots in Philippine time.</p>
     {error && <div role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700"><p>{error}</p><button type="button" disabled={busy} onClick={() => { setSchedule(null); setDraft(null); setReload(n => n + 1); }} className="mt-2 underline">Reload rates</button></div>}
     {message && <p role="status" className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">{message}</p>}
-    {!draft && !error && <p role="status" className="py-8 text-sm text-neutral/60">Loading package rates…</p>}
+    {!draft && !error && <AdminFormSkeleton label="Loading package rates…" fields={6} />}
     {draft && <>
       <fieldset disabled={busy} className="mt-6 rounded-xl border border-neutral/10 bg-base/40 p-4">
         <legend className="px-2 font-semibold text-neutral">Package time slots</legend>

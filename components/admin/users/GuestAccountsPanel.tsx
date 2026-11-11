@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import AdminActionsMenu from "@/components/admin/AdminActionsMenu";
+import { AdminCardsSkeleton } from "@/components/admin/AdminSkeletons";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import GuestReservationHistory from "@/components/admin/users/GuestReservationHistory";
 
@@ -77,7 +78,7 @@ export default function GuestAccountsPanel() {
       <button type="button" disabled={loading} onClick={() => setReload(current => current + 1)} className="min-h-11 rounded-xl border border-neutral/20 px-4 text-sm font-semibold disabled:opacity-50">Refresh guests</button>
     </div>
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
-    {loading ? <p role="status" className="py-6 text-sm text-neutral/60">Loading guest accounts...</p>
+    {loading ? <AdminCardsSkeleton label="Loading guest accounts..." />
       : !error && !rows.length ? <p className="rounded-xl bg-base p-8 text-center text-sm text-neutral/65">No guest accounts match these filters.</p>
       : !error && <div className="space-y-3">{rows.map(guest => <article key={guest.id} aria-label={`Guest account ${guest.email}`} className="flex min-w-0 flex-col gap-4 rounded-2xl border border-neutral/10 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="break-words font-semibold text-neutral">{name(guest)}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${guest.is_active ? "bg-emerald-50 text-emerald-800" : "bg-neutral/10 text-neutral/65"}`}>{guest.is_active ? "Active" : "Inactive"}</span></div>

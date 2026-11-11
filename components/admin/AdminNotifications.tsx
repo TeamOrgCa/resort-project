@@ -1,5 +1,7 @@
 "use client";
 
+import Skeleton, { SkeletonGroup } from "@/components/ui/Skeleton";
+
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
@@ -174,7 +176,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
             {notificationCenter?.preferenceError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">{notificationCenter.preferenceError}</p>}
             <div className="mt-3 max-h-[60dvh] space-y-2 overflow-y-auto" aria-label="Recent notifications">
               {notificationsLoading ? (
-                <p className="text-xs text-neutral/60">Loading notifications...</p>
+                <SkeletonGroup label="Loading notifications..."><div className="space-y-2">{[0, 1, 2].map(index => <div key={index} className="space-y-2 rounded-md border border-neutral/10 p-3"><Skeleton className="h-3 w-2/3" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-1/3" /></div>)}</div></SkeletonGroup>
               ) : visibleNotifications.length === 0 ? (
                 <p className="text-xs text-neutral/60">{statusFilter === "All" ? "No notifications yet." : `No ${statusFilter.toLowerCase()} notifications.`}</p>
               ) : (

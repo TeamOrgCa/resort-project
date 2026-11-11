@@ -47,11 +47,17 @@ export function SiteText({ contentKey }: { contentKey: string }) {
   return <span className="whitespace-pre-line">{contentText(settings, contentKey)}</span>;
 }
 
-export function SiteImage({ contentKey, alt, ...props }: Omit<ImageProps, "src"> & { contentKey: string }) {
+export function SiteImage({ contentKey, alt, skeleton = false, onLoad, onError, ...props }: Omit<ImageProps, "src"> & { contentKey: string; skeleton?: boolean }) {
   const settings = useSiteContent();
+  const [settledSource, setSettledSource] = useState<string | null>(null);
   const source = contentText(settings, contentKey);
   const fallback = String(publicContentDefaults[contentKey] ?? "/website_photo.jpg");
-  return <Image {...props} alt={alt} src={isContentImageUrl(source) ? source : fallback} unoptimized={source.startsWith("https://")} />;
+  const src = isContentImageUrl(source) ? source : fallback;
+  if (!skeleton) return <Image {...props} alt={alt} src={src} unoptimized={src.startsWith("https://")} onLoad={onLoad} onError={onError} />;
+  const ready = settledSource === src;
+  return <Image {...props} alt={alt} src={src} unoptimized={src.startsWith("https://")} aria-busy={!ready}
+    className={`${props.className ?? ""} ${ready ? "site-image-loaded" : "site-image-loading"}`}
+    onLoad={event => { setSettledSource(src); onLoad?.(event); }} onError={event => { setSettledSource(src); onError?.(event); }} />;
 }
 
 export function SiteContact({ field }: { field: "name" | "address" | "phone" | "email" }) {

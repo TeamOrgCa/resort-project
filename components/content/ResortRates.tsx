@@ -7,6 +7,7 @@ import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { packageTimesLabel } from "@/lib/booking/package-times";
 import { PACKAGE_LABELS, PACKAGE_MODES, RATE_TIERS } from "@/lib/booking/package-rates";
 import { INCLUDED_GUESTS } from "@/lib/booking/guest-count";
+import Skeleton, { SkeletonGroup } from "@/components/ui/Skeleton";
 
 const currency = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 });
 const brochures = [
@@ -21,7 +22,7 @@ export default function ResortRates() {
   return (
     <section id="rates" className="scroll-mt-28 bg-neutral/5 px-4 py-16 sm:py-20" aria-labelledby="rates-heading">
       <div className="mx-auto max-w-6xl">
-        <div className="mx-auto mb-10 max-w-3xl text-center">
+        <div data-reveal className="mx-auto mb-10 max-w-3xl text-center">
           <h2 id="rates-heading" className="mb-4 text-3xl font-bold text-neutral sm:text-4xl"><SiteText contentKey="content.about.rates_heading" /></h2>
           <p className="text-lg text-neutral/75"><SiteText contentKey="content.about.rates_description" /></p>
         </div>
@@ -29,7 +30,7 @@ export default function ResortRates() {
         {schedule ? (
           <div className="grid gap-5 lg:grid-cols-3">
             {PACKAGE_MODES.map(mode => (
-              <article key={mode} className="rounded-2xl border border-neutral/10 bg-base p-5 shadow-sm sm:p-6">
+              <article key={mode} className="content-fade-in rounded-2xl border border-neutral/10 bg-base p-5 shadow-sm sm:p-6">
                 <h3 className="text-xl font-bold text-primary">{PACKAGE_LABELS[mode].name}</h3>
                 <p className="mt-2 min-h-12 text-sm leading-relaxed text-neutral/70">{packageTimesLabel(mode, schedule.times)}</p>
                 <dl className="mt-5 space-y-4">
@@ -47,10 +48,17 @@ export default function ResortRates() {
               </article>
             ))}
           </div>
+        ) : error ? (
+          <p role="alert" className="rounded-2xl border border-neutral/10 bg-base p-6 text-center text-neutral/75">Current package prices are temporarily unavailable. Please contact the resort or try again later.</p>
         ) : (
-          <p role={error ? "alert" : "status"} className="rounded-2xl border border-neutral/10 bg-base p-6 text-center text-neutral/75">
-            {error ? "Current package prices are temporarily unavailable. Please contact the resort or try again later." : "Loading current package prices…"}
-          </p>
+          <SkeletonGroup label="Loading current package prices…">
+            <div className="grid gap-5 lg:grid-cols-3">{PACKAGE_MODES.map(mode => <div key={mode} className="rounded-2xl border border-neutral/10 bg-base p-5 sm:p-6">
+              <Skeleton className="h-7 w-40 max-w-full" /><Skeleton className="mt-2 h-12 w-full" />
+              <div className="mt-5 space-y-4">{RATE_TIERS.map(tier => <div key={tier} className="space-y-3 rounded-xl bg-white p-4">
+                <Skeleton className="h-5 w-full" /><Skeleton className="h-8 w-32" /><Skeleton className="h-5 w-36 max-w-full" /><Skeleton className="h-5 w-40 max-w-full" />
+              </div>)}</div>
+            </div>)}</div>
+          </SkeletonGroup>
         )}
         <p className="mt-5 text-center text-sm leading-relaxed text-neutral/70"><SiteText contentKey="content.about.rates_note" /></p>
         <div className="mt-6 text-center">
@@ -58,13 +66,13 @@ export default function ResortRates() {
         </div>
 
         <div className="my-12 grid gap-6 md:grid-cols-2">
-          <article className="rounded-2xl border border-neutral/10 bg-base p-6 sm:p-8">
+          <article data-reveal className="rounded-2xl border border-neutral/10 bg-base p-6 sm:p-8">
             <h3 className="mb-4 text-xl font-bold text-neutral"><SiteText contentKey="content.about.inclusions_heading" /></h3>
             <ul className="list-disc space-y-2 pl-5 text-neutral/75">
               {contentText(content, "content.about.inclusions").split("\n").filter(line => line.trim()).map((line, index) => <li key={index}>{line}</li>)}
             </ul>
           </article>
-          <article className="rounded-2xl border border-neutral/10 bg-base p-6 sm:p-8">
+          <article data-reveal className="rounded-2xl border border-neutral/10 bg-base p-6 sm:p-8">
             <h3 className="mb-4 text-xl font-bold text-neutral"><SiteText contentKey="content.about.reminders_heading" /></h3>
             <ul className="list-disc space-y-3 pl-5 text-sm leading-relaxed text-neutral/75">
               {contentText(content, "content.about.reminders").split("\n").filter(line => line.trim()).map((line, index) => <li key={index}>{line}</li>)}
@@ -82,13 +90,13 @@ export default function ResortRates() {
             const source = contentText(content, brochure.key);
             const href = isContentImageUrl(source) ? source : String(publicContentDefaults[brochure.key]);
             return (
-              <figure key={brochure.key} className="overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm">
+              <figure data-reveal key={brochure.key} className="overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm">
                 <figcaption className="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
                   <h4 className="font-semibold text-neutral"><SiteText contentKey={brochure.title} /></h4>
                   <a href={href} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-primary underline underline-offset-4">Open full size<span className="sr-only">: {contentText(content, brochure.title)} (new tab)</span></a>
                 </figcaption>
                 <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open ${contentText(content, brochure.title)} at full size (new tab)`}>
-                  <SiteImage contentKey={brochure.key} alt={brochure.alt} width={brochure.width} height={brochure.height} sizes="(min-width: 768px) 50vw, 100vw" className="h-auto w-full" />
+                  <SiteImage skeleton contentKey={brochure.key} alt={brochure.alt} width={brochure.width} height={brochure.height} sizes="(min-width: 768px) 50vw, 100vw" className="h-auto w-full" />
                 </a>
               </figure>
             );

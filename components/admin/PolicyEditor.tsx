@@ -1,5 +1,7 @@
 "use client";
 
+import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
+
 import { useEffect, useState } from "react";
 import type { BookingPolicy } from "@/lib/booking/booking-policy";
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
@@ -69,7 +71,7 @@ export default function PolicyEditor() {
         <h2 className="text-lg font-bold text-neutral">Cancellation and refund policy</h2>
         <p className="text-sm text-neutral/70">Only administrators can publish changes. Every version is retained and recorded in the audit log. Refunds still require admin review.</p>
       </div>
-      {loading ? <p className="text-sm text-neutral/70">Loading policy...</p> : null}
+      {loading && <AdminFormSkeleton label="Loading policy..." fields={2} />}
       {error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {message ? <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{message}</p> : null}
       {current && <>

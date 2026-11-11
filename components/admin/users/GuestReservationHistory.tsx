@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import LoadingState from "@/components/ui/LoadingState";
+import { AdminCardsSkeleton } from "@/components/admin/AdminSkeletons";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
 import { manilaDateKey } from "@/lib/booking/manila-date";
@@ -34,7 +34,7 @@ export default function GuestReservationHistory({ guestId, name, email, onClose 
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
       <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-neutral/65">All reservations linked to this account, including completed and cancelled bookings. Times are Philippine time.</p>
         <button type="button" disabled={loading} onClick={() => setReload(value => value + 1)} className="admin-button-secondary">Refresh history</button></div>
-      {loading ? <LoadingState title="Loading reservation history..." description="Fetching this guest's bookings and recorded balances." />
+      {loading ? <AdminCardsSkeleton label="Loading reservation history..." />
         : error ? <div role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}<button type="button" onClick={() => setReload(value => value + 1)} className="ml-2 min-h-11 font-semibold underline">Try again</button></div>
           : result && <>
             <p className="text-sm font-medium">{result.total} {result.total === 1 ? "reservation" : "reservations"}</p>

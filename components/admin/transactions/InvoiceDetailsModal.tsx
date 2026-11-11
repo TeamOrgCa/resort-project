@@ -1,5 +1,7 @@
 "use client";
 
+import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
+
 import type { InvoiceViewDetails } from "./types";
 import { formatManilaDate, formatManilaDateTime } from "@/lib/booking/manila-date";
 
@@ -55,7 +57,7 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
           </button>
         </div>
 
-        {isLoading ? <p className="mt-5 text-sm text-neutral/70">Loading invoice details...</p> : null}
+        {isLoading && <AdminFormSkeleton label="Loading invoice details..." fields={6} />}
 
         {error ? <p className="mt-4 rounded-xl border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm text-neutral">{error}</p> : null}
 

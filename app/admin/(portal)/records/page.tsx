@@ -167,7 +167,8 @@ export default function AdminRecordsPage() {
         <AdminTabs tabs={tabs} value={activeTab} onChange={setActiveTab} label="Record sections" />
         <AdminTablePreview
           key={activeTab}
-          title={isLoading ? `${activeTab} (Loading...)` : activeTab}
+          title={activeTab}
+          isLoading={isLoading}
           columns={activeTab === "Reservation Records" ? reservationColumns : activeTab === "Reschedule Requests" ? rescheduleColumns : ocularColumns}
           rows={activeRows}
           pageSize={25}

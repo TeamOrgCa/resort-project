@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+import { AdminReportSkeleton } from "@/components/admin/AdminSkeletons";
 import AdminTabs from "@/components/admin/AdminTabs";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
 import ReportChart, { type ChartType } from "@/components/admin/ReportChart";
@@ -116,7 +117,7 @@ export default function AdminAnalyticsPage() {
       <p className="mt-3 text-xs text-neutral/65">Dates update automatically when applied. Chart selectors change how the same values are displayed.</p>
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-800">{error} Use Refresh analytics to retry.</p>}
       {actionError && <p role="alert" className="mt-4 text-sm text-red-700">{actionError}</p>}
-      {loading && <p role="status" className="py-12 text-center text-sm text-neutral/65">Loading analytics...</p>}
+      {loading && activeTab !== "Guest feedback" && <AdminReportSkeleton label="Loading analytics..." />}
       {reports && <p className="mt-5 text-sm text-neutral/70">{reports.booking.startDate} through {reports.booking.endDate} | Updated {new Date(reports.booking.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</p>}
       {activeTab === "Guest feedback" && <GuestFeedbackPanel key={query} query={query} revision={generation} onChanged={refresh} />}
       {activeTab === "Guest feedback" && reports && !readOnly && <article className="mt-4 rounded-xl bg-base p-4">

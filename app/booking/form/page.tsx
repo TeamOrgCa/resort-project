@@ -1,5 +1,6 @@
 "use client";
 
+import BookingGuide from "@/components/booking/BookingGuide";
 import BookingProgress from "@/components/booking/BookingProgress";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -299,6 +300,7 @@ function BookingFormContent() {
 
       {/* Progress Indicator */}
       <BookingProgress currentStep={2} />
+      <BookingGuide page="guest" />
 
       <section className="px-4 py-6 sm:py-12">
         <div className="max-w-6xl mx-auto">
@@ -309,7 +311,7 @@ function BookingFormContent() {
                 <h2 className="mb-6 text-2xl font-bold text-neutral sm:mb-8 sm:text-3xl">Reservation Details</h2>
 
                 {/* Personal Information */}
-                <div className="mb-8">
+                <div data-booking-guide="guest-personal" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Personal Information</h3>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
@@ -357,7 +359,7 @@ function BookingFormContent() {
                 </div>
 
                 {/* Booking Details */}
-                <div className="mb-8">
+                <div data-booking-guide="guest-group" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Booking Details</h3>
                   <div className="grid md:grid-cols-3 gap-4">
                     <div>
@@ -419,7 +421,7 @@ function BookingFormContent() {
                 </div>
 
                 {/* Additional Services */}
-                <div className="mb-8">
+                <div data-booking-guide="guest-services" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Additional Services & Amenities</h3>
                   {catalogError && (
                     <div role="alert" className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
@@ -438,7 +440,7 @@ function BookingFormContent() {
                 </div>
 
                 {/* Special Requests */}
-                <div className="mb-8">
+                <div data-booking-guide="guest-requests" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Special Requests</h3>
                   <textarea
                     name="specialRequests"
@@ -458,7 +460,7 @@ function BookingFormContent() {
                     </button>
                   </Link>
                   <div className="flex-1">
-                    <button type="button" onClick={handleContinueToPayment}
+                    <button data-booking-guide="guest-continue" type="button" onClick={handleContinueToPayment}
                       disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
@@ -471,7 +473,7 @@ function BookingFormContent() {
 
             {/* Billing Summary */}
             <div className="min-w-0 lg:col-span-1">
-              <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
+              <div data-booking-guide="guest-summary" className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-6">Billing Summary</h3>
 
                 <div className="space-y-4 mb-6">

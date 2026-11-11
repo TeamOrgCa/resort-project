@@ -99,16 +99,17 @@ export default function HeroCarousel() {
   }, [totalSlides]);
 
   return (
-    <section className="relative min-h-svh overflow-hidden">
+    <section className="relative min-h-svh overflow-hidden bg-neutral">
       {slides.map((slide, index) => (
         <div
           key={slide.src}
-          className={`absolute inset-0 transition-opacity duration-500 ease-out ${
+          className={`absolute inset-0 transition-opacity duration-500 ease-out motion-reduce:transition-none ${
             index === activeIndex ? "opacity-100" : "opacity-0"
           }`}
           aria-hidden={index !== activeIndex}
         >
           <SiteImage
+            skeleton
             contentKey={`content.home.hero_image_${index + 1}`}
             alt={slide.alt}
             fill
@@ -120,7 +121,7 @@ export default function HeroCarousel() {
       ))}
 
       <div className="absolute inset-0 z-10 flex items-center justify-center px-4 pt-20 sm:pt-24">
-        <div className="w-full max-w-4xl text-center sm:max-w-5xl">
+        <div data-reveal className="w-full max-w-4xl text-center sm:max-w-5xl">
           <h1 className="text-4xl font-bold leading-tight text-white sm:text-5xl md:text-7xl lg:text-8xl mb-5 sm:mb-6">
             <SiteText contentKey="content.home.hero_title" />
           </h1>

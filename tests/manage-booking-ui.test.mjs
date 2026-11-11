@@ -333,7 +333,8 @@ test("ocular visit edits show their saved schedule in a dialog and cancellation 
     assert.deepEqual(calls[0], { url: "/api/ocular-visits/reschedule", body: { visitId: "visit", scheduledDate: day(16), timeSlotId: "slot" } });
     assert.match(dialog().textContent, /Visit updated/); assert.match(dialog().textContent, /Ocular visit details/);
     await click(button(dialog(), "Close")); await action("OC-VISIT", "Cancel visit");
-    assert.match(dialog().textContent, /Cancel Ocular Visit/); await click(button(dialog(), "Confirm Cancel"));
+    const confirmation = document.querySelector('[role="alertdialog"]');
+    assert.match(confirmation.textContent, /Cancel Ocular Visit/); await click(button(confirmation, "Confirm Cancel"));
     assert.equal(calls[1].url, "/api/ocular-visits/cancel"); assert.equal(dialog(), null); assert.match(h.container.textContent, /has been cancelled/);
   } finally { await h.close(); }
 });

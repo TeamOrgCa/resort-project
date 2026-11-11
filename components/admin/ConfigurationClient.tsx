@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
+import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import AdminTabs from "@/components/admin/AdminTabs";
 import PolicyEditor from "@/components/admin/PolicyEditor";
 import SettingEditor from "@/components/admin/SettingEditor";
@@ -62,7 +63,7 @@ export default function ConfigurationClient() {
     <section className="admin-panel">
       <AdminTabs tabs={settingCategories.map(category => category.label)} value={settingCategories.find(category => category.key === activeCategory)?.label ?? ""} label="Configuration sections" disabled={saving || uploadingImages > 0} onChange={label => { const category = settingCategories.find(item => item.label === label); if (category) { setActiveCategory(category.key); setMessage(null); } }} />
       {message && <p role={saveFailed ? "alert" : "status"} className={`mb-5 rounded-xl border px-4 py-3 text-sm ${saveFailed ? "border-red-200 bg-red-50 text-red-800" : "border-green-200 bg-green-50 text-green-800"}`}>{message}</p>}
-      {isLoading && <p className="py-8 text-sm text-neutral/70">Loading configuration...</p>}
+      {isLoading && <AdminFormSkeleton label="Loading configuration..." />}
       {error && <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
       {!isLoading && <div className={activeCategory === "content" ? "space-y-4" : "space-y-5"}>
         {activeCategory === "content" && <div className="flex flex-wrap items-center justify-between gap-3">

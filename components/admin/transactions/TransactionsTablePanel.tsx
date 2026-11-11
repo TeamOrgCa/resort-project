@@ -40,6 +40,7 @@ export default function TransactionsTablePanel({
       paginationResetKey={paginationResetKey}
       columns={columns}
       rows={rows}
+      isLoading={isLoading}
       defaultSort={defaultSort}
       filters={filters}
       actions={actions}
