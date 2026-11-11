@@ -8,6 +8,8 @@ Confirmation dialogs open above the parent form, focus the cancel action, contai
 
 Calendar color pickers have circular native swatches in Chromium/WebKit and Firefox. Their saved colors and account preferences use the existing storage.
 
+The reservation calendar has a responsive search field that fills the available card space, a grouped **Type or status** dropdown and the existing **Attention** filter. Types include all stay reservations, booking requests, ocular visits and maintenance. Status choices include pending payment, payment submitted, confirmed, checked in, reschedule requested, completed, cancelled, no show and rejected. Checked in requires an active stay with a recorded arrival and no checkout. The filters combine on desktop and mobile, and **Clear filters** resets all three. The reset button keeps its space and is disabled when no filters are active, so the layout does not shift. Narrow cards stack the controls; wider cards give search more room alongside the dropdowns. Newly created reservations or maintenance blocks clear filters so their entries remain visible. Filtering does not change package availability.
+
 Transactions offers Today, This week, This month, Overall and Custom date directly above the active table, below the transaction tabs. Overall is the default. All ranges use Asia/Manila; weeks run Monday–Sunday and custom ranges include both end dates. Invalid or incomplete custom ranges show an error and no matching records.
 
 | Tab | Date used |

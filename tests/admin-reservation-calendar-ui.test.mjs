@@ -20,7 +20,7 @@ async function confirmMaintenanceIfOpen() {
   const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Confirm maintenance block");
   if (confirm) await click(confirm);
 }
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
@@ -35,6 +35,15 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
   if (arrived) data.reservations[0].checked_in_at = new Date().toISOString();
   if (fullyPaid) { data.payments = []; data.reservation_reschedules = []; data.transactions[0].balance = 0; }
   if (includeOcular) data.ocular_visits = [{ visit_id:"ocular",reference_number:"MV-OCULAR",guest_id:"guest",scheduled_date:day,status:ocularStatus }];
+  if (mixedEntries) {
+    for (const [key, status, attendance] of [
+      ["awaiting", "pending", {}], ["checked-in", "confirmed", { checked_in_at: day + "T08:00:00+08:00" }],
+      ["completed", "completed", { checked_in_at: day + "T08:00:00+08:00", checked_out_at: day + "T16:00:00+08:00" }],
+      ["no-show", "no_show", {}], ["rejected", "rejected", {}], ["rescheduled", "reschedule_requested", {}],
+    ]) data.reservations.push({ ...base, ...attendance, reservation_id: key, reference_number: `MV-${key.toUpperCase()}`, status });
+    data.ocular_visits.push(...["cancelled", "completed"].map(status => ({ visit_id: `ocular-${status}`, reference_number: `MV-OCULAR-${status.toUpperCase()}`, guest_id: "guest", scheduled_date: day, status })));
+    blocks.push({ block_id: "maintenance", name: "Pool maintenance", reason: "Pool repairs", start_date: day, end_date: day, status: "active" });
+  }
   const tables = [];
   const client = { storage:{from:()=>({createSignedUrl:async()=>({data:{signedUrl:"https://example.com/proof.png"},error:null})})}, auth: { getUser: async () => ({ data: { user: { id: userId } } }) }, from(table) {
     tables.push(table);
@@ -106,6 +115,50 @@ test("calendar reads all workflow signals, distinguishes bookings and confirms a
     await click(button(h.c,"Agenda")); assert.match(agenda().textContent,/MV-CONFIRMED/);
     await click(button(h.c,"Next month") ?? h.c.querySelector('[aria-label="Next month"]'));
     assert.match(agenda().textContent,/No entries match/);
+  } finally { await h.close(); }
+});
+
+test("type and status filters work in both calendars, combine with search and attention, and clear together", async () => {
+  const h = await mount({ includeOcular: true, ocularStatus: "confirmed", mixedEntries: true });
+  const selector = '[aria-label="Filter calendar by type or status"]';
+  const visible = root => new Set([...root.querySelectorAll('[data-calendar-event]')].map(el => el.getAttribute("data-calendar-event").split(":")[0]));
+  const desktop = h.c.querySelector('[aria-label="Desktop reservation calendar"]');
+  try {
+    assert.equal(button(h.c, "Clear filters").disabled, true);
+    const all = visible(agenda());
+    const availability = () => [...desktop.querySelectorAll("p[title]")].map(p => p.textContent);
+    const originalAvailability = availability();
+    const cases = [
+      ["reservations", [id, "pending", "cancelled", "awaiting", "checked-in", "completed", "no-show", "rejected", "rescheduled"]],
+      ["booking", ["pending", "awaiting"]], ["ocular", ["ocular", "ocular-cancelled", "ocular-completed"]], ["maintenance", ["maintenance"]],
+      ["pending", ["awaiting"]], ["payment_submitted", ["pending"]], ["confirmed", [id, "checked-in", "ocular"]],
+      ["checked_in", ["checked-in"]], ["completed", ["completed", "ocular-completed"]],
+      ["cancelled", ["cancelled", "ocular-cancelled"]], ["no_show", ["no-show"]], ["rejected", ["rejected"]], ["reschedule_requested", ["rescheduled"]],
+    ];
+    for (const [value, expected] of cases) {
+      await filter(h.c, value, selector);
+      assert.deepEqual(visible(agenda()), new Set(expected), value + " mobile");
+      assert.deepEqual(visible(desktop), new Set(expected), value + " desktop");
+      assert.deepEqual(availability(), originalAvailability, "Filtering does not change package availability");
+    }
+    await filter(h.c, "checked_in", selector); assert.match(agenda().textContent, /Checked in/);
+    await click(button(h.c, "Week"));
+    await act(async () => new Promise(resolve => setTimeout(resolve, 500)));
+    assert.deepEqual(visible(agenda()), new Set(["checked-in"]));
+    assert.ok(h.c.querySelector(".calendar-match-pulse"));
+    await filter(h.c, "cancelled", selector); await filter(h.c, "refund");
+    assert.deepEqual(visible(agenda()), new Set(["cancelled"]));
+    await filter(h.c, "all");
+    await input(h.c.querySelector('input[type="search"]'), "MV-OCULAR");
+    assert.deepEqual(visible(agenda()), new Set(["ocular-cancelled"]));
+    await input(h.c.querySelector('input[type="search"]'), "no-such-entry");
+    assert.deepEqual(visible(agenda()), new Set());
+    assert.match(h.c.textContent, /No entries match your search and filters/);
+    await click(button(h.c, "Clear filters"));
+    assert.equal(h.c.querySelector(selector).value, "all"); assert.equal(h.c.querySelector('input[type="search"]').value, "");
+    assert.deepEqual(visible(agenda()), all);
+    assert.equal(h.c.querySelector(".calendar-match-pulse"), null);
+    assert.equal(button(h.c, "Clear filters").disabled, true);
   } finally { await h.close(); }
 });
 
@@ -217,8 +270,8 @@ test("failed financial flag reads show an error and retry rather than claiming t
   finally{await h.close();}
 });
 
-async function filter(c,next) {
-  const select=c.querySelector('[aria-label="Filter calendar entries"]');
+async function filter(c,next,selector = '[aria-label="Filter calendar entries"]') {
+  const select=c.querySelector(selector);
   await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,"value").set.call(select,next);select.dispatchEvent(new window.Event("change",{bubbles:true}));});
 }
 async function input(el,next) {
@@ -369,6 +422,7 @@ test("new reservation creation navigates and scrolls to the calendar, pulses onl
   window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.getAttribute("aria-label")); };
   const h = await mount({manualCreation:true});
   try {
+    await filter(h.c, "completed", '[aria-label="Filter calendar by type or status"]');
     await click(button(h.c,"New reservation"));
     await click(button(h.c,"Create test booking"));
     await act(async () => new Promise(resolve => setTimeout(resolve, 160)));
@@ -377,6 +431,7 @@ test("new reservation creation navigates and scrolls to the calendar, pulses onl
     assert.equal(h.c.querySelector('[data-calendar-event^="11111111"].calendar-match-pulse'),null);
     assert.match(h.c.textContent,/Reservation MB-NEW created successfully/);
     assert.match(agenda().textContent,/MB-NEW/);
+    assert.equal(h.c.querySelector('[aria-label="Filter calendar by type or status"]').value, "all");
   } finally { await h.close(); window.HTMLElement.prototype.scrollIntoView = previous; }
 });
 
