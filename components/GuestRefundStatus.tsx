@@ -66,7 +66,7 @@ export default function GuestRefundStatus({ refreshKey = 0, reservationId, refer
       <button type="button" disabled={loading || busy !== null} onClick={() => { setLoading(true); setError(null); setReload(n => n + 1); }} className="ml-3 font-semibold text-primary underline disabled:opacity-50">Try again</button>
     </div>}
     {visibleEligible.length > 0 && <div className="mb-5 space-y-3">
-      <p className="text-sm text-neutral/70">You can request a refund for verified payments above your reservation bill. Staff will review the request and send approved refunds manually through GCash or another approved method.</p>
+      <p className="text-sm text-neutral/70">You can request a refund for verified payments above your reservation bill. A manager will approve or reject the request. A cashier sends approved refunds manually through GCash or another approved method, and a manager verifies the transfer.</p>
       {visibleEligible.map((item) => <div key={item.reservation_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-secondary/30 bg-secondary/5 p-4">
         <div className="min-w-0"><p className="ui-reference font-semibold">{item.reference_number}</p><p className="text-sm">Excess payment: {currency(item.amount)}</p></div>
         <button type="button" disabled={busy !== null} onClick={() => void requestRefund(item.reservation_id)} className="min-h-11 w-full rounded-lg bg-primary px-4 py-2 sm:w-auto text-sm font-semibold text-white disabled:opacity-50">{busy === item.reservation_id ? "Requesting…" : "Request excess refund"}</button>
@@ -76,10 +76,10 @@ export default function GuestRefundStatus({ refreshKey = 0, reservationId, refer
       <p className="font-semibold">{refund.reference_number} · {currency(refund.amount)}</p>
       <p>{refund.request_kind === "overpayment" ? "Excess payment" : "Cancellation"} refund · {refundStatusLabels[refund.status] ?? refund.status}</p>
       <p className="text-neutral/70">Requested {new Date(refund.requested_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</p>
-      {refund.status === "approved" && <p>Approved; awaiting manual payout.</p>}
-      {refund.status === "pending" && <p>Your request is awaiting payment-record review. Cancellation refunds are created automatically.</p>}
-      {refund.status === "reviewed" && <p>Payment records checked; awaiting the administrator&apos;s decision.</p>}
-      {refund.status === "payout_submitted" && <p>The transfer was documented and is awaiting staff verification. It is not completed yet.</p>}
+      {refund.status === "approved" && <p>Approved; awaiting cashier transfer.</p>}
+      {refund.status === "pending" && <p>Your request is awaiting manager approval. Cancellation refunds are created automatically.</p>}
+      {refund.status === "reviewed" && <p>Your request is awaiting manager approval.</p>}
+      {refund.status === "payout_submitted" && <p>The transfer was documented and is awaiting manager verification. It is not completed yet.</p>}
       {refund.status === "refunded" && <p>The refund transfer was verified and your net payment records were updated.</p>}
       {refund.review_reason && <p>Review note: {refund.review_reason}</p>}
       {refund.gcash_reference && <p>Transfer reference: {refund.gcash_reference}</p>}

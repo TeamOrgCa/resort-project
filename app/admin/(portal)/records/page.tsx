@@ -173,7 +173,7 @@ export default function AdminRecordsPage() {
           pageSize={25}
           showResetFilters
           defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule Requests" ? "requestedAt" : "scheduledDate", direction: "desc" }}
-          filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Completed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed"] }]}
+          filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Completed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed", "No Show"] }]}
           rowActions={activeTab === "Reservation Records" ? ["View"] : activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" ? ["View"] : []}
           onRowAction={(action, row) => { if (action === "View") { if (activeTab === "Ocular Visit Records") setOcularDetail(row); else setSelectedReservation(row); } else openReview(action as RecordReview["action"], row); }}
           isRowActionDisabled={(action, row) => action === "View" ? false : Boolean(busyId) || (action === "Cancel visit" ? !["Pending", "Confirmed"].includes(row.status) : row.status !== "Pending")}

@@ -20,7 +20,7 @@ export async function GET(_request: Request, { params }: Context) {
   try {
     const admin = createAdminClient();
     const { data: reservation, error } = await admin.from("reservations")
-      .select("reservation_id,reference_number,guest_id,walk_in_guest_id,start_datetime,end_datetime,booking_mode,booking_type,adult_count,child_count,status,special_requests,created_at,checked_in_at,checked_out_at")
+      .select("reservation_id,reference_number,guest_id,walk_in_guest_id,start_datetime,end_datetime,booking_mode,booking_type,adult_count,child_count,status,special_requests,created_at,checked_in_at,checked_out_at,no_show_at,no_show_reason")
       .eq("reservation_id", id).maybeSingle<ReservationRecord>();
     if (error) throw error;
     if (!reservation) return NextResponse.json({ message: "Reservation record not found." }, { status: 404 });

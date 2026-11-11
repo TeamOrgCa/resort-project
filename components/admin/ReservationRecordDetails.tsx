@@ -44,6 +44,9 @@ export default function ReservationRecordDetails({ reservationId }: { reservatio
         ["Actual check-in", dateTime(r.checked_in_at)], ["Actual checkout", dateTime(r.checked_out_at)], ["Booking created", dateTime(r.created_at)],
       ].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="mt-1 break-words font-medium">{value}</dd></div>)}</dl>
     </section>
+    {r.status === "no_show" && <section className="rounded-xl border border-amber-200 bg-amber-50 p-4"><h3 className="font-semibold">No show</h3>
+      <p className="mt-2">Recorded: {dateTime(r.no_show_at ?? null)}</p><p className="mt-2 whitespace-pre-wrap break-words">{r.no_show_reason || "No reason available."}</p>
+    </section>}
     <section className="rounded-xl border border-neutral/10 p-4"><h3 className="font-semibold">Accommodation</h3>{detail.units.length ? lines(detail.units) : <p className="mt-2 text-neutral/60">No accommodation recorded.</p>}</section>
     <section className="rounded-xl border border-neutral/10 p-4"><h3 className="font-semibold">Additional services</h3>{detail.services.length ? lines(detail.services) : <p className="mt-2 text-neutral/60">No additional services recorded.</p>}</section>
     <section className="rounded-xl border border-neutral/10 p-4"><h3 className="font-semibold">Recorded bill</h3>{detail.bill ? <dl className="mt-3 grid grid-cols-[1fr_auto] gap-2">

@@ -37,7 +37,7 @@ export interface InvoiceDetailInvoiceRow {
 export interface InvoiceDetailReservationRow {
   reference_number: string;
   booking_type: "online" | "walk_in" | null;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | null;
+  status: "pending" | "confirmed" | "cancelled" | "completed" | "no_show" | null;
   start_datetime: string;
   end_datetime: string;
 }
@@ -169,7 +169,7 @@ export interface ReceiptDetailReservationRow {
   reference_number: string;
   booking_type: "online" | "walk_in" | null;
   booking_mode?: string | null;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | null;
+  status: "pending" | "confirmed" | "cancelled" | "completed" | "no_show" | null;
   start_datetime: string;
   end_datetime: string;
 }

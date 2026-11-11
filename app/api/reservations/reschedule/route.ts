@@ -32,6 +32,7 @@ interface ReservationRow {
     | "confirmed"
     | "cancelled"
     | "completed"
+    | "no_show"
     | "reschedule_requested";
 }
 
@@ -152,7 +153,7 @@ export async function POST(request: Request) {
     /* -----------------------------
        STATUS CHECK
     ------------------------------*/
-    if (reservation.checked_in_at || ["cancelled", "completed"].includes(reservation.status)) {
+    if (reservation.checked_in_at || ["cancelled", "completed", "no_show"].includes(reservation.status)) {
       return NextResponse.json(
         {
           success: false,

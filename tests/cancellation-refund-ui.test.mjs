@@ -91,15 +91,15 @@ test("cancellation keeps focus in its dialog and prevents duplicate submissions 
   } finally { await h.close(); }
   assert.equal(document.body.style.overflow, "");
 });
-test("cashier refund screen exposes verified records and review but no administrator approval",async()=>{
-  const calls=[];let status="pending";
-  const h=await mount("components/admin/transactions/RefundRequestsPanel.tsx",{},async(url,options)=>{
-    calls.push({url,options});if(options?.method==="POST"){status="reviewed";return Response.json({success:true,message:"Review submitted",emailSent:true});}
-    return Response.json({refunds:[{refund_id:"refund",reservation_id:"reservation",amount:2400,status,request_kind:"cancellation",workflow_version:2,requested_at:"2026-10-14T01:00:00Z",policy_snapshot:"Retain initial 20%",calculation_snapshot:preview}],reservations:[{reservation_id:"reservation",reference_number:"MV-TEST"}],bills:[{reservation_id:"reservation",total_amount:3000,paid_amount:3000}],payments:[{payment_id:"payment",reservation_id:"reservation",amount:3000,status:"verified",payment_type:"full",reference_number:"1234567890123"}],permissions:{canReview:true,canApprove:false,canPay:true,canVerify:true,staffId:"cashier"}});});
-  try{await click(button(h.c,"View / process"));assert.match(h.c.textContent,/1234567890123/);assert.equal(button(h.c,"Approve refund"),undefined);
-    assert.equal(button(h.c,"Submit payment review").disabled,true);await value(h.c.querySelector("textarea"),"Verified records match the refund");await click(h.c.querySelector('input[type="checkbox"]'));await click(button(h.c,"Submit payment review"));
-    const form=calls.find(r=>r.options?.method==="POST").options.body;assert.equal(form.get("action"),"reviewed");assert.equal(form.get("verified"),"true");assert.match(h.c.textContent,/Review submitted/);}
-  finally{await h.close();}
+test("cashiers can inspect pending refunds without an initial review or approval action",async()=>{
+  let posts=0;
+  const h=await mount("components/admin/transactions/RefundRequestsPanel.tsx",{},async(_url,options)=>{
+    if(options?.method==="POST")posts++;
+    return Response.json({refunds:[{refund_id:"refund",reservation_id:"reservation",amount:2400,status:"pending",request_kind:"cancellation",workflow_version:2,requested_at:"2026-10-14T01:00:00Z",policy_snapshot:"Retain initial 20%",calculation_snapshot:preview}],payments:[{payment_id:"payment",reservation_id:"reservation",amount:3000,status:"verified",payment_type:"full",reference_number:"1234567890123"}],permissions:{canApprove:false,canPay:true,canVerify:false,staffId:"cashier"}});});
+  try{await click(button(h.c,"View / process"));assert.match(h.c.textContent,/1234567890123/);assert.match(h.c.textContent,/Awaiting manager approval/);
+    for(const label of ["Approve refund","Reject with reason","Submit payment review","Submit transfer for verification","Verify transfer and complete refund"])assert.equal(button(h.c,label),undefined);
+    assert.equal(posts,0);
+  }finally{await h.close();}
 });
 
 test("refund requests show guest names and combine name searches with status filters", async () => {
@@ -137,12 +137,12 @@ test("view-only administrators can inspect refund records without processing con
   } finally { await h.close(); }
 });
 
-test("authorized managers can approve reviewed refunds while payout verification requires another staff member", async () => {
+test("authorized managers can approve pending refunds directly without cashier review", async () => {
   let submitted;
   const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async (_url, options) => {
     if (options?.method === "POST") { submitted = options.body; return Response.json({ success: true, message: "Manager approved", emailSent: true }); }
-    return Response.json({ refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "reviewed", request_kind: "cancellation", workflow_version: 2, requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],
-      permissions: { canReview: true, canApprove: true, canPay: true, canVerify: true, canVerifyOwnPayout: false, staffId: "manager" } });
+    return Response.json({ refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "pending", request_kind: "cancellation", workflow_version: 2, requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],
+      permissions: { canApprove: true, canPay: false, canVerify: true, staffId: "manager" } });
   });
   try { await click(button(h.c, "View / process")); await click(button(h.c, "Approve refund")); assert.equal(submitted.get("action"), "approved"); }
   finally { await h.close(); }
@@ -155,4 +155,41 @@ test("authorized managers can approve reviewed refunds while payout verification
   }));
   try { await click(button(h.c, "View / process")); assert.match(h.c.textContent, /You cannot verify your own payout/); assert.equal(button(h.c, "Verify transfer and complete refund"), undefined); }
   finally { await h.close(); }
+});
+
+test("cashier records an approved transfer and manager completes it only after explicit verification", async () => {
+  for (const role of ["cashier", "manager"]) {
+    let submitted;
+    const status = role === "cashier" ? "approved" : "payout_submitted";
+    const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async (_url, options) => {
+      if (options?.method === "POST") { submitted = options.body; return Response.json({ success: true, message: "Saved", emailSent: true }); }
+      return Response.json({ refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status,
+        payout_submitted_by: role === "manager" ? "cashier" : null, request_kind: "cancellation", workflow_version: 2,
+        requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],
+        paymentMethods: [{ payment_method_id: "gcash", name: "GCash" }],
+        permissions: { canApprove: role === "manager", canPay: role === "cashier", canVerify: role === "manager", staffId: role } });
+    });
+    try {
+      await click(button(h.c, "View / process"));
+      assert.equal(button(h.c, "Submit payment review"), undefined);
+      if (role === "cashier") {
+        assert.equal(button(h.c, "Verify transfer and complete refund"), undefined);
+        const submit = button(h.c, "Submit transfer for verification"); assert.equal(submit.disabled, true);
+        await value(h.c.querySelector('input[maxlength="100"]'), "1234567890123");
+        const fileInput = h.c.querySelector('input[type="file"]');
+        Object.defineProperty(fileInput, "files", { value: [new File(["%PDF-1.7"], "proof.pdf", { type: "application/pdf" })] });
+        await act(async () => fileInput.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+        await click(submit);
+        assert.equal(submitted.get("action"), "payout_submitted"); assert.equal(submitted.get("reference"), "1234567890123");
+        assert.ok(submitted.get("proof") instanceof File);
+      } else {
+        assert.equal(button(h.c, "Submit transfer for verification"), undefined);
+        const submit = button(h.c, "Verify transfer and complete refund"); assert.equal(submit.disabled, true);
+        await value(h.c.querySelector("textarea"), "Matched amount, recipient and transaction reference");
+        assert.equal(submit.disabled, true);
+        await click(h.c.querySelector('input[type="checkbox"]')); await click(submit);
+        assert.equal(submitted.get("action"), "refunded"); assert.equal(submitted.get("verified"), "true");
+      }
+    } finally { await h.close(); }
+  }
 });

@@ -22,7 +22,7 @@ export async function cancellationEmail(client: SupabaseClient, id: string, reas
     return await sendReservationCancelledEmail({ guestEmail: info.guestEmail, guestName: info.guestName,
       reservationReference: info.reservation.reference_number, checkInDate: info.reservation.start_datetime,
       checkOutDate: info.reservation.end_datetime, cancellationReason: reason,
-      refundSummary: `Verified payments PHP ${result.verifiedPaid}; previous refunds PHP ${result.previousRefunds}; retained deposit PHP ${result.deduction}; refundable PHP ${result.refundableAmount}. ${result.refundableAmount > 0 ? "Your refund request was created automatically and awaits manual staff review and payout verification." : "Cancelled - No Refund."}` });
+      refundSummary: `Verified payments PHP ${result.verifiedPaid}; previous refunds PHP ${result.previousRefunds}; retained deposit PHP ${result.retainedDeposit ?? result.deduction}; retained reschedule fees PHP ${result.retainedRescheduleFees ?? 0}; refundable PHP ${result.refundableAmount}. ${result.refundableAmount > 0 ? "Your refund request was created automatically and awaits manager approval, cashier transfer and manager verification." : "Cancelled - No Refund."}` });
   } catch { return false; }
 }
 export async function refundEmail(client: SupabaseClient, id: string, amount: number, status: string, notes: string): Promise<boolean> {

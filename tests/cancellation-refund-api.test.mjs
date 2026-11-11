@@ -48,11 +48,23 @@ function refund({role="cashier",authorized=true,status="approved",rpcError=null}
   return {calls,uploads,removed,post:async(action,extra={})=>{const form=new FormData();form.set("refundId",id);form.set("action",action);for(const [k,v]of Object.entries(extra))form.set(k,v);
     return route.POST(new Request("http://localhost",{method:"POST",body:form}));}};
 }
-test("cashier cannot approve/reject and verification needs explicit acknowledgement and notes",async()=>{
+test("cashier cannot approve, reject or verify; manager verification needs acknowledgement and notes",async()=>{
   const h=refund();assert.equal((await h.post("approved")).status,403);assert.equal((await h.post("rejected",{reason:"Not eligible"})).status,403);
-  assert.equal((await h.post("refunded")).status,400);assert.equal(h.calls.length,0);
-  assert.equal((await h.post("refunded",{verified:"true",reason:"Matched GCash records"})).status,200);
-  assert.equal(h.calls[0].args.p_verified,true);assert.equal(h.calls[0].args.p_action,"refunded");
+  assert.equal((await h.post("refunded",{verified:"true",reason:"Matched GCash records"})).status,403);assert.equal(h.calls.length,0);
+  const manager=refund({role:"staff"});
+  assert.equal((await manager.post("refunded")).status,400);
+  assert.equal((await manager.post("refunded",{verified:"true",reason:"Matched GCash records"})).status,200);
+  assert.equal(manager.calls[0].args.p_verified,true);assert.equal(manager.calls[0].args.p_action,"refunded");
+});
+
+test("removed cashier review and manager payout actions cannot reach the RPC or upload evidence",async()=>{
+  for (const role of ["staff","cashier"]) {
+    const h=refund({role});assert.equal((await h.post("reviewed",{verified:"true",reason:"Old review request"})).status,400);
+    assert.equal(h.calls.length,0);
+  }
+  const manager=refund({role:"staff"});
+  assert.equal((await manager.post("payout_submitted",{reference:"1234567890123",proof:new File(["%PDF-1.7"],"proof.pdf",{type:"application/pdf"})})).status,403);
+  assert.equal(manager.calls.length,0);assert.equal(manager.uploads.length,0);
 });
 
 test("refund approval moves to managers and administrators cannot process any refund action", async () => {

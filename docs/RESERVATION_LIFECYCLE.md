@@ -12,11 +12,13 @@ The existing `pending` database value represents **PENDING_PAYMENT**. This retai
 | --- | --- | --- |
 | `pending` | `payment_submitted`, `expired`, `cancelled`, `confirmed` (staff manual payment) | Awaiting proof for 30 minutes. |
 | `payment_submitted` | `confirmed`, `rejected`, `cancelled` | Proof is awaiting admin/cashier review. |
-| `confirmed` | `completed`, `cancelled`, `reschedule_requested` | A payment has been verified. A rejected balance payment leaves this state unchanged. |
+| `confirmed` | `completed`, `cancelled`, `reschedule_requested`, `no_show` | A payment has been verified. A rejected balance payment leaves this state unchanged. Only an authorized manager can record a no-show after the scheduled end. |
 | `reschedule_requested` | `confirmed`, `cancelled` (legacy unpaid requests may return to `pending` or `payment_submitted`) | Legacy requests only: original date remains occupied during staff review. New guest reschedules stay confirmed and apply immediately. |
-| `expired`, `rejected`, `cancelled`, `completed` | None | No further payment approval or new booking state transition. |
+| `expired`, `rejected`, `cancelled`, `completed`, `no_show` | None | No further payment approval or new booking state transition. |
 
 The SQL state guard is the final authority. `expired`, `rejected`, and `cancelled` do not count as active. The customer reschedule route now requires a confirmed reservation.
+
+`no_show` is also closed and excluded from active availability and arrivals. It requires a confirmed reservation with no actual attendance and a scheduled end strictly in the past. Managers record a reason and explicit non-arrival acknowledgement; cashiers and administrators cannot perform this action. Billing history is preserved and no cancellation refund is created automatically. Apply [reservation-no-show-migration.sql](reservation-no-show-migration.sql) after its prerequisites; see [No-show workflow](NO_SHOW.md).
 Submitting a valid payment proof before the 30-minute deadline moves the hold to `payment_submitted`; staff can review the actual payment afterward. A rejected initial payment releases the date.
 
 ## Guest booking start times

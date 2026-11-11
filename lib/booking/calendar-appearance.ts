@@ -4,6 +4,7 @@ export const CALENDAR_COLORS = {
   confirmed: { label: "Confirmed", color: "#1d4ed8" },
   reschedule_requested: { label: "Reschedule requested", color: "#7e22ce" },
   completed: { label: "Completed", color: "#15803d" },
+  no_show: { label: "No show", color: "#92400e" },
   cancelled: { label: "Cancelled", color: "#475569" },
   rejected: { label: "Rejected", color: "#854d0e" },
   ocular: { label: "Ocular visit", color: "#0e7490" },

@@ -125,6 +125,10 @@ To check out, open the checked-in reservation, settle the full current bill and 
 
 Managers with reservation-edit permission can select the **Add maintenance block** wrench icon in the Reservations header on either desktop or mobile. This opens a modal for the name, guest announcement and date range. Conflicting reservations are rejected with an error inside the modal. Successful blocks appear in the calendar and notify registered guests.
 
+### Mark an ended reservation No show
+
+**Manager no-show action:** For a confirmed reservation with no recorded arrival, wait until the scheduled end has passed. Open the calendar details, enter the **No-show reason**, acknowledge non-arrival and choose **Mark as No show**. Only managers with Edit reservations permission can do this. Pending payments, reschedules and open refunds must be resolved first. No show closes the booking and preserves billing history without automatically issuing a refund. The status and recorded reason appear in staff details and Records; guests see the closed status in Manage Booking.
+
 ## 5. Enter a phone, Messenger or walk-in reservation
 
 **Required permission:** Add reservation.
@@ -289,7 +293,7 @@ Authorized operational staff need the **Record payments** permission and Transac
 2. Choose **Guest request** when staff is acting on the guest's request. Only an authorized manager may select **Resort-attributable reason**.
 3. Enter a documented cancellation reason and inspect the verified payments, prior refunds, initial deposit basis, deduction and refundable amount.
 4. A guest cancellation retains the initial 20% deposit: no refund for deposit-only bookings, the remaining 80% for fully paid bookings, and the verified amount above the deposit for partial payments. A resort-attributable cancellation refunds all remaining verified payments.
-5. Acknowledge the preview and confirm. No verified payment or no eligible amount produces **Cancelled - No Refund**. Eligible amounts create **Pending refund review** automatically, without a guest request.
+5. Acknowledge the preview and confirm. No verified payment or no eligible amount produces **Cancelled - No Refund**. Eligible amounts create **Awaiting manager approval** automatically, without a guest request.
 6. Read the success/alert message. Guest/finance in-app alerts are recorded with the cancellation. Guest email is attempted, including staff-entered guests with email addresses.
 
 Pending payment proofs must be reviewed first. Staff handling a guest request can help outside the self-service notice window, while the deposit rule remains unchanged. The reservation stays **Cancelled** throughout refund processing. Do not collect the historical cancelled booking balance.
@@ -298,22 +302,22 @@ Pending payment proofs must be reviewed first. Staff handling a guest request ca
 
 1. Open **Transactions > Refund Requests** and select **View / process**.
 2. Check the verified payment records, references/proofs, previous refunds, policy snapshot and computed deduction. The amount is fixed; staff cannot type a replacement amount.
-3. The cashier enters review notes, checks the payment-record acknowledgement and selects **Submit payment review**.
-4. The request becomes **Awaiting manager approval**. An authorized manager selects **Approve refund**, or supplies a reason and selects **Reject with reason**.
-5. For an unprocessed legacy cancellation, an authorized manager first documents guest/resort responsibility and chooses **Recalculate legacy cancellation refund**. Any previous approval is reset for a fresh cashier review and recorded in the audit log. Completed refunds are preserved.
+3. The request goes directly to **Awaiting manager approval**. No cashier review is required.
+4. An authorized manager selects **Approve refund**, or supplies a reason and selects **Reject with reason**. Existing previously reviewed requests can be approved in the same way.
+5. For an unprocessed legacy cancellation, an authorized manager first documents guest/resort responsibility and chooses **Recalculate legacy cancellation refund**. Any previous approval is reset for a new manager decision and recorded in the audit log. Completed refunds are preserved.
 
-Review, payout and payout verification are separate configurable permissions. Approval/rejection requires the Manager role and the refund approval permission. Module access alone grants no financial action rights.
+Approval, payout and payout verification are separate configurable permissions. Approval/rejection and transfer verification require the Manager role and their corresponding permissions. Recording a payout requires the Cashier role and payout permission. Module access alone grants no financial action rights.
 
 ### Record and verify the payout
 
-1. Open the **Approved - awaiting transfer** request and recheck the approved amount and guest payout details.
+1. As an authorized cashier, open the **Approved - awaiting cashier transfer** request and recheck the approved amount and guest payout details.
 2. Send the money manually through GCash or another active approved payment method in Business Catalog. The website does not release money.
 3. Select the payout method, enter the real transfer reference and upload image/PDF evidence up to 8 MB.
-4. Select **Submit transfer for verification**. The status becomes **Transfer submitted - awaiting verification**; uploading proof does not mark the refund completed or reduce net paid totals.
-5. An authorized verifier opens the proof, matches amount, recipient and reference against provider transaction records, adds notes and checks the verification acknowledgement. The payout must be verified by another authorized staff member.
+4. Select **Submit transfer for verification**. The status becomes **Transfer submitted - awaiting manager verification**; uploading proof does not mark the refund completed or reduce net paid totals.
+5. An authorized manager opens the proof, matches amount, recipient and reference against provider transaction records, adds notes and checks the verification acknowledgement. Cashiers cannot verify transfers. Managers cannot verify a payout they submitted themselves on an earlier workflow.
 6. Select **Verify transfer and complete refund**. Only this step sets **Refunded** and deducts the payout from net paid billing. Proof, reference, notes and explicit verification remain mandatory. Admins can view refund requests but cannot process them.
 
-Every stage creates guest/finance in-app alerts and audit entries. Guest email is attempted; an email failure does not undo a saved action. References cannot be reused, one open request allocates funds per reservation, and stale/changed funds stop processing. Cancellation converts an existing excess request and resets review. An existing transfer awaiting verification must be verified before cancellation.
+Every stage creates guest/finance in-app alerts and audit entries. Guest email is attempted; an email failure does not undo a saved action. References cannot be reused, one open request allocates funds per reservation, and stale/changed funds stop processing. Cancellation converts an existing excess request and resets the manager decision. An existing transfer awaiting verification must be verified before cancellation.
 
 **Expected result:** Payments and issued receipts remain historical records. The verified refund updates net paid financial totals and refreshes the ledger. Cancelled balances are not shown as outstanding debt.
 
@@ -506,7 +510,7 @@ Use **Resort information** for the resort name, address, phone/email and social 
 1. Open **Configuration → Reservation settings**.
 2. In **Cancellation and refund policy**, review the current version.
 3. Edit the guest cancellation notice hours, cancellation text and refund text.
-4. Eligible cancellation refunds are always created automatically; the previous enable/disable preference no longer suppresses them. Review the enforced guest/resort deduction rules. Administrators decide approval after payment review.
+4. Eligible cancellation refunds are always created automatically; the previous enable/disable preference no longer suppresses them. Review the enforced guest/resort deduction rules. Managers decide approval directly, cashiers transfer approved amounts, and managers verify the transfers.
 5. Select **Publish new version** and check the confirmation.
 6. Use **Previous versions** to inspect retained policies.
 
@@ -558,7 +562,7 @@ Only an administrator can change guest access. Deactivation blocks website sign-
 
 1. Open **Role Permission Matrix** on Users.
 2. Select the required Manager or Cashier permissions.
-3. Grant module access and the specific action permissions needed for the work. For example, refund review and refund payout are separate.
+3. Grant module access and the specific action permissions needed for the work. Refund approval and verification are manager-only; refund payout recording is cashier-only. No separate cashier review is needed.
 4. Select **Save permissions** once to save Manager and Cashier changes together.
 5. Ask the staff member to refresh/reopen the relevant module and confirm the permitted actions.
 
