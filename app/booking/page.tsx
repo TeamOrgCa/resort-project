@@ -1,5 +1,6 @@
 "use client";
 
+import BookingGuide from "@/components/booking/BookingGuide";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -361,6 +362,7 @@ export default function Booking() {
   if (visitScheduled) {
     return (
       <div className="min-h-screen bg-base flex items-center justify-center px-4">
+        <BookingGuide page="visit-scheduled" />
         <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl p-5 sm:p-12 text-center">
           <div className="w-20 h-20 bg-accent/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <svg className="w-12 h-12 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -370,7 +372,7 @@ export default function Booking() {
           <h1 className="text-4xl font-bold text-neutral mb-4">Visit Scheduled!</h1>
           <p className="text-xl text-neutral/70 mb-8">We look forward to showing you around</p>
 
-          <div className="booking-summary bg-base p-4 sm:p-8 rounded-2xl mb-8">
+          <div data-booking-guide="visit-confirmation" className="booking-summary bg-base p-4 sm:p-8 rounded-2xl mb-8">
             <h2 className="text-2xl font-bold text-neutral mb-6">Visit Details</h2>
             <div className="space-y-4 text-left">
               <div className="flex justify-between">
@@ -470,6 +472,7 @@ export default function Booking() {
   return (
     <div className="min-h-screen bg-base">
       <Navigation />
+      <BookingGuide page={bookingType === "stay" ? "dates" : "ocular"} disabled={ocularSubmitting} />
 
       {/* Hero Section */}
       <section className="relative h-80 flex items-center justify-center overflow-hidden mt-20">
@@ -492,7 +495,7 @@ export default function Booking() {
       </section>
 
       {/* Booking Type Selector */}
-      <section className="py-8 px-4 bg-white border-b border-neutral/10">
+      <section data-booking-guide="booking-type" className="py-8 px-4 bg-white border-b border-neutral/10">
         <div className="max-w-6xl mx-auto">
           <div className="flex justify-center gap-4">
             <button
@@ -546,7 +549,7 @@ export default function Booking() {
           )}
 
           {bookingType === "stay" && (
-            <div className="bg-primary/5 p-6 rounded-2xl mb-8">
+            <div data-booking-guide="booking-mode" className="bg-primary/5 p-6 rounded-2xl mb-8">
               <h3 className="font-bold text-neutral mb-4">Select Booking Mode</h3>
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                 {(() => {
@@ -713,7 +716,7 @@ export default function Booking() {
                   ))}
                 </div>
 
-                <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                <div data-booking-guide="dates-calendar" className="grid grid-cols-7 gap-1 sm:gap-2">
                   {Array.from({ length: firstDay }).map((_, index) => (
                     <div key={`empty-${index}`} className="aspect-square"></div>
                   ))}
@@ -812,7 +815,7 @@ export default function Booking() {
 
                 {/* Time Slots for Ocular Visit */}
                 {bookingType === "ocular" && selectedDate && (
-                  <div className="mt-8 pt-8 border-t border-neutral/10">
+                  <div data-booking-guide="ocular-times" className="mt-8 pt-8 border-t border-neutral/10">
                     <h3 className="text-xl font-semibold text-neutral mb-4">Available Times</h3>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       {availableTimes.map((time) => (
@@ -850,7 +853,7 @@ export default function Booking() {
 
             {/* Booking Summary / Visit Details */}
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
+              <div data-booking-guide="date-summary" className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-6">
                   {bookingType === "stay" ? "Booking Summary" : "Visit Details"}
                 </h3>
@@ -908,6 +911,7 @@ export default function Booking() {
 
                     <button
                       type="button"
+                      data-booking-guide="dates-continue"
                       onClick={handleContinueToReservation}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                       disabled={!packageSchedule || Boolean(packageRatesError) || !selectedStayDate || Boolean(validSummaryWindow && !isBookingStartAllowed(validSummaryWindow.startDatetime, now))}
@@ -946,6 +950,7 @@ export default function Booking() {
 
                     <button
                       type="submit"
+                      data-booking-guide="ocular-submit"
                       disabled={!selectedDate || !selectedTime || !selectedOcularTimeAllowed || ocularSubmitting}
                       className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold hover:bg-accent/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >

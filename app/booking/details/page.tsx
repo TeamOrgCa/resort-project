@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { Suspense, useRef, useState } from "react";
+import BookingProgress from "@/components/booking/BookingProgress";
+import BookingGuide from "@/components/booking/BookingGuide";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
@@ -148,34 +150,11 @@ function BookingDetailsContent() {
   };
 
   return (
-    <div className="min-h-screen bg-base">
+    <div className="booking-flow min-h-screen bg-base">
       <Navigation />
+      <BookingGuide page="review" saved={isAlreadySaved} disabled={isSavingBooking} />
 
-      <div className="mt-20 bg-white border-b border-neutral/10">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">1</div>
-              <span className="text-sm font-medium text-neutral">Select Dates</span>
-            </div>
-            <div className="w-12 h-0.5 bg-primary" />
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">2</div>
-              <span className="text-sm font-medium text-neutral">Guest Details</span>
-            </div>
-            <div className="w-12 h-0.5 bg-primary" />
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary text-base flex items-center justify-center font-semibold">3</div>
-              <span className="text-sm font-medium text-primary">Review & Save</span>
-            </div>
-            <div className="w-12 h-0.5 bg-neutral/20" />
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-neutral/20 text-neutral/50 flex items-center justify-center font-semibold">4</div>
-              <span className="text-sm font-medium text-neutral/50">Payment</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <BookingProgress currentStep={3} />
 
       <section className="py-12 px-4">
         <div className="max-w-6xl mx-auto">
@@ -206,7 +185,7 @@ function BookingDetailsContent() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-neutral/10 p-4">
+                  <div data-booking-guide="review-details" className="rounded-xl border border-neutral/10 p-4">
                     <h3 className="text-lg font-semibold text-neutral mb-3">Guest Information</h3>
                     <div className="grid sm:grid-cols-2 gap-2 text-sm text-neutral/80">
                       <p>Name: <span className="font-semibold text-neutral">{bookingDraft.firstName} {bookingDraft.lastName}</span></p>
@@ -216,7 +195,7 @@ function BookingDetailsContent() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-neutral/10 p-4">
+                  <div data-booking-guide="review-schedule" className="rounded-xl border border-neutral/10 p-4">
                     <h3 className="text-lg font-semibold text-neutral mb-3">Booking Details</h3>
                     <div className="grid sm:grid-cols-2 gap-2 text-sm text-neutral/80">
                       <p>
@@ -249,7 +228,7 @@ function BookingDetailsContent() {
                     )}
                   </div>
 
-                  <div className="rounded-xl border border-neutral/10 p-4">
+                  <div data-booking-guide="review-bill" className="rounded-xl border border-neutral/10 p-4">
                     <h3 className="text-lg font-semibold text-neutral mb-3">Billing Breakdown</h3>
                     <div className="space-y-2 text-sm text-neutral/80">
                       <div className="flex justify-between"><span>{costSummary.packageLabel}</span><span className="font-semibold text-neutral">₱{costSummary.packageCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
@@ -262,17 +241,17 @@ function BookingDetailsContent() {
                   </div>
                 </div>
 
-                {!isAlreadySaved && <div className="mt-8"><PolicyAgreement accepted={acceptedPolicies} onChange={setAcceptedPolicies} onPolicyVersion={setBookingPolicyVersion} /></div>}
+                {!isAlreadySaved && <div data-booking-guide="review-policies" className="mt-8"><PolicyAgreement accepted={acceptedPolicies} onChange={setAcceptedPolicies} onPolicyVersion={setBookingPolicyVersion} /></div>}
 
                 {saveError && <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{saveError}</div>}
                 {isAlreadySaved && (
-                  <div role="status" className="mt-6 rounded-xl border border-secondary/30 bg-secondary/10 p-4 text-sm text-neutral">
+                  <div data-booking-guide="review-saved" role="status" className="mt-6 rounded-xl border border-secondary/30 bg-secondary/10 p-4 text-sm text-neutral">
                     <p className="font-semibold">{saveSuccess ?? "Your booking is saved. Continue to payment to secure your reservation."}</p>
                     <p className="mt-2">Booking reference: <span className="ui-nowrap font-semibold text-primary">{bookingDraft.reservationReference || "-"}</span></p>
                     {paymentDeadlineAt && <p>Submit payment by {new Date(paymentDeadlineAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} (Manila time).</p>}
                   </div>
                 )}
-                <div aria-label="Booking actions" className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div data-booking-guide="review-actions" aria-label="Booking actions" className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Link href={isAlreadySaved ? "/" : "/booking/form"} aria-disabled={isSavingBooking} tabIndex={isSavingBooking ? -1 : undefined}
                     onClick={event => { if (saving.current) event.preventDefault(); }}
                     className="flex min-h-12 items-center justify-center rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary aria-disabled:cursor-not-allowed aria-disabled:opacity-50">

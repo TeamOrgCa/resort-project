@@ -1,0 +1,67 @@
+.booking-guide-launcher {
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 45;
+  max-width: calc(100vw - 2rem);
+}
+.booking-guide-button {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 48px;
+  border: 1px solid rgb(255 255 255 / .4);
+  border-radius: 999px;
+  padding: .75rem 1rem;
+  background: var(--primary);
+  color: white;
+  font: inherit;
+  font-size: .875rem;
+  font-weight: 600;
+  box-shadow: 0 4px 18px rgb(59 42 30 / .2);
+}
+.booking-guide-button:hover { background: color-mix(in srgb, var(--primary) 90%, black); }
+.booking-guide-button:disabled { opacity: .6; }
+.booking-guide-button:focus-visible,
+.booking-guide-popover button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.booking-guide-error {
+  max-width: 18rem;
+  margin-bottom: .5rem;
+  border: 1px solid rgb(59 42 30 / .15);
+  border-radius: 1rem;
+  background: white;
+  padding: .75rem;
+  color: var(--neutral);
+  font-size: .875rem;
+}
+[data-booking-guide] { scroll-margin-top: 7rem; scroll-margin-bottom: 6rem; }
+.driver-popover.booking-guide-popover {
+  width: 340px;
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  border: 1px solid rgb(59 42 30 / .12);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  color: var(--neutral);
+  font-family: var(--font-montserrat), sans-serif;
+  box-shadow: 0 12px 40px rgb(35 26 20 / .2);
+}
+.booking-guide-popover .driver-popover-title { padding-right: 2rem; font-size: 1.0625rem; line-height: 1.4; }
+.booking-guide-popover .driver-popover-description { margin-top: .75rem; color: var(--neutral); font-size: .875rem; line-height: 1.6; }
+.booking-guide-popover .driver-popover-arrow { display: none; }
+.booking-guide-popover .driver-popover-close-btn { top: .5rem; right: .5rem; width: 44px; height: 44px; border-radius: 50%; color: var(--neutral); font-size: 1.5rem; }
+.booking-guide-popover .driver-popover-footer { gap: .5rem; margin-top: 1rem; }
+.booking-guide-popover .driver-popover-progress-text { flex-shrink: 0; color: var(--neutral); font-size: .75rem; }
+.booking-guide-popover .driver-popover-footer-btn { min-height: 44px; padding: .625rem .75rem; border-radius: .75rem; font-family: inherit; font-size: .8125rem; font-weight: 600; text-align: center; }
+.booking-guide-popover .driver-popover-next-btn { border-color: var(--primary); background: var(--primary); color: white; }
+.booking-guide-popover .driver-popover-next-btn:hover,
+.booking-guide-popover .driver-popover-next-btn:focus { background: color-mix(in srgb, var(--primary) 90%, black); }
+@media (max-width: 639px) {
+  .booking-guide-button { min-width: 48px; gap: .375rem; padding: .625rem .75rem; font-size: .75rem; }
+  .driver-popover.booking-guide-popover { padding: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .booking-guide-popover, .booking-guide-popover * { animation: none !important; transition: none !important; }
+}
