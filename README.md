@@ -2,6 +2,8 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## User Manuals
 
+Download or print the [21-page user manual PDF](docs/USER_MANUAL.pdf), with separate guides for guest, cashier, manager and administrator accounts.
+
 See [the user manual overview](docs/USER_MANUAL.md) for the [client guide](docs/CLIENT_USER_MANUAL.md), [admin and staff guide](docs/ADMIN_USER_MANUAL.md), and [printable complete manual](docs/USER_MANUAL.html).
 
 ## Getting Started

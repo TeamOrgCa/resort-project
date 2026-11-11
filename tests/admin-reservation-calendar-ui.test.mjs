@@ -15,7 +15,7 @@ const base = { guest_id: "guest", start_datetime: day + "T00:00:00+08:00", end_d
 const button = (c,label) => [...c.querySelectorAll("button")].find(el => (el.getAttribute("aria-label") ?? el.textContent.trim()) === label);
 const agenda = () => document.querySelector('[aria-label="Mobile calendar entries"]');
 const click = async el => { assert.ok(el); assert.equal(el.disabled,false); await act(async () => el.click()); };
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
@@ -26,6 +26,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     staff_users: { role, is_active: true }, role_permissions: { permissions }, ocular_visits: [], walk_in_guests: [],
     units: [{unit_id:"unit",name:"Resort",capacity:30}], services: [],
   };
+  if (ended) { data.reservations[0].start_datetime = new Date(Date.now() - 3600000).toISOString(); data.reservations[0].end_datetime = new Date(Date.now() - 1000).toISOString(); }
   if (arrived) data.reservations[0].checked_in_at = new Date().toISOString();
   if (fullyPaid) { data.payments = []; data.reservation_reschedules = []; data.transactions[0].balance = 0; }
   if (includeOcular) data.ocular_visits = [{ visit_id:"ocular",reference_number:"MV-OCULAR",guest_id:"guest",scheduled_date:day,status:ocularStatus }];
@@ -56,6 +57,11 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
       const body = JSON.parse(options.body); calls.push({url,body});
       data.ocular_visits[0] = {...data.ocular_visits[0],status:url.endsWith("cancel")?"cancelled":url.endsWith("complete")?"completed":"confirmed",review_reason:body.reviewReason,cancellation_reason:body.cancellationReason};
       return Response.json({success:true,message:"Ocular decision saved.",visit:data.ocular_visits[0]});
+    }
+    if (url.endsWith("/no-show")) {
+      const body=JSON.parse(options.body);calls.push({url,body});
+      data.reservations[0]={...data.reservations[0],status:"no_show",no_show_at:new Date().toISOString(),no_show_reason:body.reason};
+      return Response.json({success:true,reservation:data.reservations[0],message:"Reservation marked No show."});
     }
     if (url.endsWith("/check-out")) {
       calls.push({url,body:JSON.parse(options.body)});data.reservations[0].status="completed";data.reservations[0].checked_out_at=new Date().toISOString();
@@ -389,4 +395,22 @@ test("manager can type continuously into the real manual reservation form withou
       }
     }
   } finally {await h.close();}
+});
+
+
+test("a manager can mark an ended reservation No show from calendar details and sees the closed record immediately", async()=>{
+  const h=await mount({fullyPaid:true,ended:true});
+  try {
+    const event=[...agenda().querySelectorAll("button")].find(node=>node.textContent.includes("MV-CONFIRMED"));
+    await click(event);const dialog=document.querySelector('[role="dialog"]');
+    const form=dialog.querySelector('[aria-label="Record a no-show"]');assert.ok(form);
+    const field=form.querySelector("textarea");
+    await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value").set.call(field,"Guest did not arrive before the stay ended");field.dispatchEvent(new window.Event("input",{bubbles:true}));});
+    assert.equal(button(form,"Mark as No show").disabled,true);
+    await click(form.querySelector('input[type="checkbox"]'));await click(button(form,"Mark as No show"));
+    assert.deepEqual(h.calls,[{url:"/api/admin/reservations/no-show",body:{reservationId:id,reason:"Guest did not arrive before the stay ended",noShowConfirmed:true}}]);
+    assert.match(dialog.textContent,/This reservation is closed/);assert.match(dialog.textContent,/Guest did not arrive before the stay ended/);
+    assert.equal(button(dialog,"Cancel reservation / review refund"),undefined);assert.equal(dialog.querySelector('[aria-label="Record a no-show"]'),null);
+    assert.match(agenda().textContent,/No Show/);
+  }finally{await h.close();}
 });

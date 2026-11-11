@@ -110,7 +110,7 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
           <dt>{preview.retainedDeposit === undefined ? "Retained deposit / deduction" : "Total non-refundable deduction"}</dt><dd className="text-right">{money(preview.deduction)}</dd>
           <dt className="font-semibold">Refundable amount</dt><dd className="text-right font-semibold text-primary">{money(preview.refundableAmount)}</dd></dl>
         <p className="mt-3 font-medium">{preview.refundableAmount > 0 ? "Cancelled - Pending Refund: a request will be created automatically." : "Cancelled - No Refund: no request will be generated."}</p>
-        {preview.refundableAmount > 0 && <p className="mt-2 text-neutral/65">Payment review, manager approval, manual transfer and verification are required.</p>}
+        {preview.refundableAmount > 0 && <p className="mt-2 text-neutral/65">A manager approves or rejects the refund. A cashier transfers approved funds, then a manager verifies the transfer.</p>}
         {!preview.allowed && <p role="alert" className="mt-3 text-red-700">{preview.blockedReason}</p>}
       </div>}
       {preview?.allowed && <label className="mt-4 flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={confirmed} onChange={e => setConfirmed(e.target.checked)} className="mt-1" />I reviewed the deduction and refundable amount and want to cancel this reservation.</label>}

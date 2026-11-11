@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import ManualBookingDialog from "@/components/admin/ManualBookingDialog";
 import ReservationEditor from "@/components/admin/ReservationEditor";
+import ReservationNoShow from "@/components/admin/ReservationNoShow";
 import CancellationDialog from "@/components/CancellationDialog";
 import OcularVisitReview from "@/components/admin/OcularVisitReview";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
@@ -43,6 +44,8 @@ type Reservation = {
   created_at: string;
   checked_in_at: string | null;
   checked_out_at?: string | null;
+  no_show_at?: string | null;
+  no_show_reason?: string | null;
 };
 
 type OcularVisit = {
@@ -179,7 +182,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         const gridEnd = dateKey(addDays(startOfMonthGrid(month), 42));
         const availabilityEnd = dateKey(addDays(startOfMonthGrid(month), 43));
         const [{ data: reservationData, error: reservationError }, { data: ocularData, error: ocularError }, blocksResponse] = await Promise.all([
-          supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at, checked_in_at, checked_out_at").neq("status", "expired").lt("start_datetime", `${availabilityEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(1000),
+          supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at, checked_in_at, checked_out_at, no_show_at, no_show_reason").neq("status", "expired").lt("start_datetime", `${availabilityEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(1000),
           supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, status, review_reason, cancellation_reason").gte("scheduled_date", gridStart).lt("scheduled_date", gridEnd).order("scheduled_date", { ascending: true }).limit(300),
           fetch(`/api/admin/maintenance-blocks?start=${gridStart}&end=${availabilityEnd}`, { cache: "no-store" }),
         ]);
@@ -427,7 +430,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   }, [calendarDays, maintenanceBlocks, now, reservations, packageSchedule]);
   const monthLabel = formatManilaDate(month, { month: "long", year: "numeric" });
   const today = manilaDateKey(new Date(now));
-  const upcomingCount = new Set(calendarEvents.filter(event => event.reservationId && event.date >= today && !["cancelled", "rejected", "completed"].includes(event.status ?? "")).map(event => event.reservationId)).size;
+  const upcomingCount = new Set(calendarEvents.filter(event => event.reservationId && event.date >= today && !["cancelled", "rejected", "completed", "no_show"].includes(event.status ?? "")).map(event => event.reservationId)).size;
   const attentionCount = new Set(calendarEvents.filter(event => event.flags?.length).map(event => event.reservationId)).size;
   const selectedReservation = reservations.find(row => row.reservation_id === selectedEvent?.reservationId);
   const selectedOcular = ocularVisits.find(visit => visit.visit_id === selectedEvent?.id);
@@ -560,7 +563,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
           {calendarDays.map((day) => {
             const dayKey = dateKey(day);
             const dayEvents = filteredEventsByDay[dayKey] ?? [];
-            const dayReservation = dayEvents.find((event) => event.reservationId && !["cancelled", "rejected"].includes(event.status ?? ""))
+            const dayReservation = dayEvents.find((event) => event.reservationId && !["cancelled", "rejected", "no_show"].includes(event.status ?? ""))
               ?? dayEvents.find((event) => event.reservationId);
             const isCurrentMonth = day.getUTCMonth() === month.getUTCMonth();
             const isToday = dayKey === today;
@@ -657,6 +660,12 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             <button type="button" disabled={!departureConfirmed || checkoutBlocked || checkInBusy} onClick={() => void recordDeparture()} className="admin-button-primary mt-3">{checkInBusy ? "Recording checkout..." : "Check out and complete stay"}</button>
           </div>}
           {checkInError && <p role="alert" className="mt-3 text-red-800">{checkInError}</p>}
+          <ReservationNoShow key={selectedReservation.reservation_id} reservation={selectedReservation} canManage={isManager && canCheckIn} now={now}
+            disabled={checkInBusy || editorBusy || paymentBusy} onBusyChange={setCheckInBusy} onConflict={() => setRefreshKey(key => key + 1)}
+            onRecorded={(reservation, message) => {
+              setReservations(rows => rows.map(row => row.reservation_id === reservation.reservation_id ? { ...row, ...reservation } : row));
+              setPaymentRevision(value => value + 1); setRefreshKey(key => key + 1); setCancellationMessage(message);
+            }} />
         </div>}
         <div className="mb-4 flex flex-wrap gap-2 text-sm">
           {canTransactions && selectedFlags.includes("payment") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=payments">Review submitted payments</Link>}
@@ -666,7 +675,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         </div>
         {canReviewPayments && <ReservationPaymentReview key={selectedEvent.reservationId} reservationId={selectedEvent.reservationId} reference={selectedReservation?.reference_number ?? selectedEvent.reference ?? "Reservation"} onBusyChange={setPaymentBusy} onReviewed={() => { setPaymentRevision(value => value + 1); setRefreshKey(key => key + 1); }} />}
         <ReservationEditor key={`${selectedEvent.reservationId}:${paymentRevision}`} reservationId={selectedEvent.reservationId} onBusyChange={setEditorBusy} onSaved={() => setRefreshKey(key => key + 1)} />
-        {canCancel && selectedReservation && !selectedReservation.checked_in_at && !["cancelled", "completed", "expired", "rejected"].includes(selectedReservation.status) && <button type="button" onClick={() => { setCancelId(selectedEvent.reservationId!); setSelectedEvent(null); }} className="mt-5 min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700">Cancel reservation / review refund</button>}
+        {canCancel && selectedReservation && !selectedReservation.checked_in_at && !["cancelled", "completed", "expired", "rejected", "no_show"].includes(selectedReservation.status) && <button type="button" onClick={() => { setCancelId(selectedEvent.reservationId!); setSelectedEvent(null); }} className="mt-5 min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700">Cancel reservation / review refund</button>}
       </> : <div className="space-y-3 text-sm"><p>{selectedEvent.label}</p><p>Date: {selectedEvent.date}</p><p>Status: {titleCase(selectedOcular?.status ?? selectedEvent.status ?? "scheduled")}</p><p>{selectedEvent.reference}</p>{blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{blockError}</p>}{selectedOcular && <OcularVisitReview key={selectedOcular.visit_id} visit={selectedOcular} canReview={canReviewOcular} canCancel={isManager && canReviewOcular} onBusyChange={setOcularBusy} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularVisits(rows => rows.map(row => row.visit_id === visit.visit_id ? { ...row, ...visit } : row)); setRefreshKey(value => value + 1); }} />}{canManageMaintenance && selectedEvent.kind === "maintenance" && <button type="button" disabled={blockBusy} onClick={() => void releaseBlock(selectedEvent.id.split(":")[0])} className="min-h-11 rounded-xl border px-3 py-2">Release block</button>}</div>}
     </RecordDialog>}
     {cancelId && <CancellationDialog staff canCancelForResort={isManager && canCancel} reservationId={cancelId} onClose={() => setCancelId(null)} onCancelled={result => {

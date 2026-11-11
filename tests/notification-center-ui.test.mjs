@@ -14,10 +14,19 @@ const alerts = () => document.querySelector('[aria-label="New notifications"]');
 const button = (container, text) => [...container.querySelectorAll("button")].find(button => button.textContent.trim() === text);
 async function click(control) { assert.ok(control); assert.equal(control.disabled, false); await act(async () => control.click()); }
 
-async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true, preferences = {}, deferRead = null, staffRole = "admin" } = {}) {
+function compactViewport(initial = true) {
+  const original = window.matchMedia;
+  const listeners = new Set();
+  const media = { matches: initial, addEventListener: (_event, listener) => listeners.add(listener), removeEventListener: (_event, listener) => listeners.delete(listener) };
+  window.matchMedia = () => media;
+  return { change: matches => act(async () => { media.matches = matches; listeners.forEach(listener => listener()); }),
+    restore: () => { if (original) window.matchMedia = original; else delete window.matchMedia; }, listeners };
+}
+
+async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true, preferences = {}, deferRead = null, staffRole = "admin", pathname = "/" } = {}) {
   if (clearStorage) sessionStorage.clear();
   const state = { rows, readError: false, writeError: false, defer: deferRead, preferenceError: false, deferPreference: null, deferUser: null, rawRows: false };
-  const calls = { reads: [], writes: [], preferenceWrites: [], unsubscribed: 0, removed: [], intervals: [], cleared: [] };
+  const calls = { reads: [], writes: [], preferenceWrites: [], authReads: 0, subscriptions: 0, unsubscribed: 0, removed: [], intervals: [], cleared: [] };
   let activeUser = userId;
   const user = id => id ? { id, email: `${id}@example.com`, user_metadata: { notification_popups_enabled: preferences[id] } } : null;
   let authChanged;
@@ -27,6 +36,7 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
   const channels = [];
   const client = {
     auth: { getUser: async () => {
+        calls.authReads++;
         const result = { data: { user: user(activeUser) } };
         return state.deferUser ? state.deferUser(result) : result;
       },
@@ -35,7 +45,7 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
         const save = () => { if (state.preferenceError) return { error: Error("Offline") }; preferences[account] = payload.data.notification_popups_enabled; return { data: { user: user(account) }, error: null }; };
         return state.deferPreference ? state.deferPreference(save) : save();
       },
-      onAuthStateChange(callback) { authChanged = callback; return { data: { subscription: { unsubscribe() { calls.unsubscribed++; } } } }; } },
+      onAuthStateChange(callback) { calls.subscriptions++; authChanged = callback; return { data: { subscription: { unsubscribe() { calls.unsubscribed++; } } } }; } },
     from(table) {
       const filters = []; let update;
       const q = { select: () => q, eq: (key, value) => { filters.push([key, value]); return q; }, in: (key, value) => { filters.push([key, value]); return q; },
@@ -58,7 +68,7 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
     channel(name) { const channel = { name, on(_event, filter, callback) { channel.filter = filter; channel.callback = callback; return channel; }, subscribe() { return channel; } }; channels.push(channel); return channel; },
     removeChannel: async channel => { calls.removed.push(channel.name); },
   };
-  const cache = new Map(), mocks = { "@/lib/supabase/client": { createClient: () => client } };
+  const cache = new Map(), mocks = { "@/lib/supabase/client": { createClient: () => client }, "next/navigation": { usePathname: () => pathname } };
   const { default: Center, useNotificationCenter } = loadTsModule("components/notifications/NotificationCenter.tsx", mocks, cache);
   function Probe() {
     const center = useNotificationCenter();
@@ -69,10 +79,12 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
   if (menus === "guest") { const Menu = loadTsModule("components/UserMenu.tsx", mocks, cache).default; menu = el("div", null, el(Menu), el(Menu)); }
   if (menus === "admin") { const Menu = loadTsModule("components/admin/AdminNotifications.tsx", mocks, cache).default; menu = el(Menu, { role: staffRole }); }
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
-  await act(async () => root.render(el(Center, null, el(Probe), menu)));
+  const render = () => root.render(el(Center, null, el(Probe), menu));
+  await act(async () => render());
   return { container, state, calls, channels,
+    navigate: next => act(async () => { pathname = next; render(); }),
     emit: () => act(async () => channels.at(-1)?.callback()),
-    auth: id => act(async () => { activeUser = id; authChanged("SIGNED_IN", id ? { user: user(id) } : null); }),
+    auth: id => act(async () => { activeUser = id; authChanged?.("SIGNED_IN", id ? { user: user(id) } : null); }),
     serverAuth: id => { activeUser = id; },
     sessionEvent: detail => act(async () => window.dispatchEvent(new window.CustomEvent("marville:session-change", { detail }))),
     focus: () => act(async () => window.dispatchEvent(new window.Event("focus"))),
@@ -80,6 +92,73 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
     close: async () => { await act(async () => root.unmount()); container.remove(); window.setInterval = originalSetInterval; window.clearInterval = originalClearInterval; },
   };
 }
+
+test("authentication screens never load account notifications even when another tab has a session", async () => {
+  for (const pathname of ["/staff/login", "/admin/login", "/admin/login/", "/auth/login", "/auth/register", "/auth/forgot", "/auth/reset", "/auth/confirm/complete", "/staff/change-password", "/staff/no-access", null]) {
+    const h = await mount({ pathname, menus: "guest" });
+    try {
+      await h.auth("guest");
+      await h.sessionEvent("changed");
+      await act(async () => window.dispatchEvent(new window.StorageEvent("storage", { key: "marville:session-changed", newValue: "another-tab-signed-in" })));
+      await h.focus(); await h.poll();
+      assert.equal(alerts(), null, String(pathname));
+      assert.equal(h.container.querySelector("[data-feed]").textContent, "");
+      assert.equal(h.container.querySelector('[aria-label="Open user menu"]'), null);
+      assert.equal(h.calls.authReads, 0);
+      assert.equal(h.calls.subscriptions, 0);
+      assert.equal(h.calls.reads.length, 0);
+      assert.equal(h.channels.length, 0);
+      await click(button(h.container, "Read feed"));
+      assert.equal(h.calls.writes.length, 0);
+    } finally { await h.close(); }
+  }
+});
+
+test("navigating to login clears popups, retires the feed and ignores late responses without dismissing saved notifications", async () => {
+  for (const pathname of ["/staff/login", "/auth/login"]) {
+    const h = await mount(); let release;
+    try {
+      assert.ok(alerts());
+      h.state.defer = result => new Promise(resolve => { release = () => resolve(result); });
+      await h.focus();
+      const oldChannel = h.channels[0];
+      await h.navigate(pathname);
+      assert.equal(alerts(), null);
+      assert.equal(h.calls.unsubscribed, 1);
+      assert.equal(h.calls.removed.length, 1);
+      assert.equal(h.calls.cleared.length, 2);
+      const reads = h.calls.reads.length;
+      await act(async () => { release(); oldChannel.callback(); });
+      await h.auth("guest"); await h.focus(); await h.poll();
+      assert.equal(alerts(), null);
+      assert.equal(h.calls.reads.length, reads);
+      assert.equal(h.container.querySelector("[data-feed]").textContent, "");
+      assert.equal(sessionStorage.length, 0);
+      h.state.defer = null;
+      h.state.rows.push(row("new-while-on-login"));
+      await h.navigate("/manage");
+      assert.match(alerts().textContent, /Booking update first/);
+      assert.match(alerts().textContent, /Booking update new-while-on-login/);
+      assert.equal(h.calls.writes.length, 0);
+    } finally { await h.close(); }
+  }
+});
+
+test("leaving login verifies the current shared session instead of restoring the previous account's feed", async () => {
+  const h = await mount();
+  try {
+    await h.navigate("/staff/login");
+    h.state.rows = [row("other-account", { recipient_id: "other" })];
+    h.serverAuth("other");
+    await h.navigate("/admin/reservations");
+    assert.match(alerts().textContent, /Booking update other-account/);
+    assert.doesNotMatch(alerts().textContent, /Booking update first/);
+    await h.navigate("/auth/login"); h.serverAuth(null);
+    await h.navigate("/");
+    assert.equal(alerts(), null);
+    assert.equal(h.container.querySelector("[data-feed]").textContent, "");
+  } finally { await h.close(); }
+});
 
 test("unread notifications appear automatically, dismiss individually/all, and remain saved without reappearing on reload", async () => {
   const rows = [row("1"), row("2"), row("3"), row("4"), row("read", { is_read: true })];
@@ -136,6 +215,59 @@ test("popups expire independently after five seconds without refreshes resetting
   const reloaded = await mount({ rows, clearStorage: false });
   try { assert.equal(alerts(), null); }
   finally { await reloaded.close(); }
+});
+
+test("mobile guest and staff alerts show one compact banner while full notifications remain available", async () => {
+  const viewport = compactViewport();
+  try {
+    for (const role of ["guest", "admin", "staff", "cashier"]) {
+      const message = "Full notification details remain in the tray. ".repeat(30);
+      const h = await mount({ menus: role === "guest" ? "guest" : "admin", staffRole: role === "guest" ? "admin" : role,
+        rows: [row("one", { message }), row("two"), row("three"), row("four")] });
+      try {
+        assert.equal(alerts().querySelectorAll("article").length, 1, role);
+        assert.match(alerts().textContent, /\+3 more/);
+        assert.equal(alerts().textContent.includes(message), false);
+        assert.equal(alerts().querySelector("a").getAttribute("href"), "/manage");
+        await click(alerts().querySelector('[aria-label="Dismiss notification: Booking update one"]'));
+        assert.match(alerts().textContent, /Booking update two/); assert.match(alerts().textContent, /\+2 more/);
+        const open = h.container.querySelector(role === "guest" ? '[aria-label="Open user menu"]' : '[aria-label="Open admin notifications"]');
+        await click(open); assert.equal(alerts(), null);
+        assert.ok(document.body.textContent.includes(message), "the tray retains the full text even after popup dismissal");
+        if (role === "guest") await click(document.querySelector('[aria-label="Close user menu"]'));
+        else await click(h.container.querySelector('[aria-label="Close notifications"]'));
+        await click(button(alerts(), "Dismiss all")); assert.equal(alerts(), null);
+        assert.equal(h.calls.writes.length, 0); assert.match(h.container.querySelector("[data-feed]").textContent, /one:false/);
+      } finally { await h.close(); }
+    }
+    assert.equal(viewport.listeners.size, 0);
+  } finally { viewport.restore(); }
+});
+
+test("resizing switches between the desktop stack and compact banner without discarding queued notifications", async () => {
+  const viewport = compactViewport(false), h = await mount({ rows: [row("one"), row("two"), row("three"), row("four")] });
+  try {
+    assert.equal(alerts().querySelectorAll("article").length, 3);
+    await viewport.change(true);
+    assert.equal(alerts().querySelectorAll("article").length, 1); assert.match(alerts().textContent, /\+3 more/);
+    await viewport.change(false);
+    assert.equal(alerts().querySelectorAll("article").length, 3); assert.match(alerts().textContent, /1 more waiting/);
+    assert.equal(h.calls.writes.length, 0);
+  } finally { await h.close(); viewport.restore(); }
+});
+
+test("compact alerts start expiry timers only for the visible notification", async () => {
+  const viewport = compactViewport(), timers = new Map(); let nextId = 0;
+  const originalSetTimeout = window.setTimeout, originalClearTimeout = window.clearTimeout;
+  window.setTimeout = (callback, delay) => { const id = ++nextId; timers.set(id, { callback, delay }); return id; };
+  window.clearTimeout = id => timers.delete(id);
+  const h = await mount({ rows: [row("one"), row("two"), row("three")] });
+  try {
+    assert.equal(timers.size, 1); const [id, timer] = [...timers][0]; assert.equal(timer.delay, 5000);
+    await act(async () => { timers.delete(id); timer.callback(); });
+    assert.equal(timers.size, 1); assert.match(alerts().textContent, /Booking update two/);
+    assert.equal(h.calls.writes.length, 0);
+  } finally { await h.close(); viewport.restore(); window.setTimeout = originalSetTimeout; window.clearTimeout = originalClearTimeout; }
 });
 
 test("realtime, polling and return-to-page refreshes show new notifications without duplicates", async () => {

@@ -7,9 +7,9 @@ export type CancellationPreview = {
   outcome: "pending_refund" | "no_refund"; rule: string; quote: string;
 };
 export const refundStatusLabels: Record<string, string> = {
-  pending: "Pending refund review", reviewed: "Awaiting manager approval", approved: "Approved - awaiting transfer",
-  payout_submitted: "Transfer submitted - awaiting verification", refunded: "Refund completed", rejected: "Refund rejected",
+  pending: "Awaiting manager approval", reviewed: "Awaiting manager approval", approved: "Approved - awaiting cashier transfer",
+  payout_submitted: "Transfer submitted - awaiting manager verification", refunded: "Refund completed", rejected: "Refund rejected",
 };
 export const cancellationMessage = (preview: CancellationPreview) => preview.refundableAmount > 0
-  ? `Reservation cancelled. Your PHP ${Number(preview.refundableAmount).toFixed(2)} refund request was created automatically and is pending review. No money has been released.`
+  ? `Reservation cancelled. Your PHP ${Number(preview.refundableAmount).toFixed(2)} refund request was created automatically and is awaiting manager approval. No money has been released.`
   : "Cancelled - No Refund. There are no refundable verified payments under this cancellation policy.";

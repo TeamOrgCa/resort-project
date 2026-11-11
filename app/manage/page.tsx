@@ -139,8 +139,10 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 2,
   }).format(value);
 
+const isNoShow = (status: string) => status.toLowerCase().replaceAll(" ", "_") === "no_show";
+
 const isClosedReservation = (status: string) =>
-  ["cancelled", "completed", "expired", "rejected"].includes(status.toLowerCase());
+  ["cancelled", "completed", "expired", "rejected", "no_show"].includes(status.toLowerCase().replaceAll(" ", "_"));
 
 const formatDate = (value: string) => {
   const date = new Date(value);
@@ -834,7 +836,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     <div><p className="mb-1 text-xs text-neutral/55">Check-in</p><p className="text-sm font-medium text-neutral">{formatDateTime(record.startDatetime)}</p></div>
                     <div><p className="mb-1 text-xs text-neutral/55">Check-out</p><p className="text-sm font-medium text-neutral">{formatDateTime(record.endDatetime)}</p></div>
                     <div><p className="mb-1 text-xs text-neutral/55">Reservation total</p><p className="text-sm font-semibold text-neutral">{formatCurrency(record.totalAmount)}</p><p className="mt-1 text-xs text-neutral/55">Net paid {formatCurrency(record.paidAmount)}</p></div>
-                    <div><p className="mb-1 text-xs text-neutral/55">{record.status.toLowerCase() === "cancelled" ? "Payment collection" : "Remaining balance"}</p>
+                    <div><p className="mb-1 text-xs text-neutral/55">{record.status.toLowerCase() === "cancelled" ? "Payment collection" : (isNoShow(record.status) ? "Recorded balance" : "Remaining balance")}</p>
                       <p className="text-sm font-semibold text-primary">{record.status.toLowerCase() === "cancelled" ? "Closed" : formatCurrency(record.remainingBalance)}</p>
                       {record.cancellationOutcome === "pending_refund" && <button type="button" onClick={() => showRefunds(record.reference)} className="mt-1 text-xs text-primary underline">View refund updates</button>}
                       {record.status.toLowerCase() === "pending" && record.paymentDeadlineAt && <p className="mt-1 text-xs text-amber-800">Payment due {formatDateTime(record.paymentDeadlineAt)}</p>}
@@ -870,6 +872,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           {recordMode === "view" && selectedBooking && <div className="space-y-5">
             {serviceEditMessage && <p role="status" className="rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{serviceEditMessage}</p>}
             {rescheduleMessage && <p role="status" className="rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{rescheduleMessage}</p>}
+            {isNoShow(selectedBooking.status) && <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">This reservation was marked No show because no arrival was recorded. It is closed for booking changes and new payments. Existing billing and payment records are retained. Contact the resort if this is incorrect.</p>}
             {selectedBooking.cancellationOutcome === "no_refund" && <p className="rounded-xl bg-base p-4 text-sm text-neutral/70">This reservation is cancelled. No refundable payment remains under the cancellation policy.</p>}
             {selectedBooking.cancellationOutcome === "pending_refund" && <p className="rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">This reservation is cancelled. Your refund request was created automatically. Follow its progress in the Refunds tab.</p>}
             <div className="flex flex-wrap items-center justify-between gap-3"><span className={`rounded-full px-3 py-1 text-sm font-medium ${statusStyle(selectedBooking.status)}`}>{bookingStatus(selectedBooking)}</span><span className="flex items-center gap-2 text-sm text-neutral/65"><ManageIcon name="guests" />{selectedBooking.guests} guests</span></div>
@@ -885,7 +888,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             <div className="grid gap-3 rounded-2xl border border-neutral/10 p-5 text-sm sm:grid-cols-3">
               <div><p className="text-neutral/55">Reservation total</p><p className="mt-1 text-lg font-semibold">{formatCurrency(selectedBooking.totalAmount)}</p></div>
               <div><p className="text-neutral/55">Net verified paid</p><p className="mt-1 text-lg font-semibold">{formatCurrency(selectedBooking.paidAmount)}</p></div>
-              <div><p className="text-neutral/55">{selectedBooking.status.toLowerCase() === "cancelled" ? "Payment collection" : "Remaining balance"}</p><p className="mt-1 text-lg font-semibold text-primary">{selectedBooking.status.toLowerCase() === "cancelled" ? "Closed" : formatCurrency(selectedBooking.remainingBalance)}</p></div>
+              <div><p className="text-neutral/55">{selectedBooking.status.toLowerCase() === "cancelled" ? "Payment collection" : isNoShow(selectedBooking.status) ? "Recorded balance" : "Remaining balance"}</p><p className="mt-1 text-lg font-semibold text-primary">{selectedBooking.status.toLowerCase() === "cancelled" ? "Closed" : formatCurrency(selectedBooking.remainingBalance)}</p></div>
             </div>
             <div><h3 className="mb-3 font-semibold">Booked services</h3>
               {(reservationServicesById[selectedBooking.id] ?? []).length === 0 ? <p className="text-sm text-neutral/60">No services selected.</p>

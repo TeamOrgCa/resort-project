@@ -3,6 +3,7 @@ export type ReservationRecord = {
   start_datetime: string; end_datetime: string; booking_mode: string | null; booking_type: string | null;
   adult_count: number; child_count: number; status: string; special_requests: string | null;
   created_at: string; checked_in_at: string | null; checked_out_at: string | null;
+  no_show_at?: string | null; no_show_reason?: string | null;
 };
 export type ReservationRecordDetail = {
   reservation: ReservationRecord;

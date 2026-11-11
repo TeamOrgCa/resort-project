@@ -15,7 +15,7 @@ export function reservationAttention(reservation: { status: string; start_dateti
   if (signals.payment || reservation.status === "payment_submitted") flags.push("payment");
   if (signals.reschedule || reservation.status === "reschedule_requested") flags.push("reschedule");
   if (signals.refund) flags.push("refund");
-  if (!["cancelled", "rejected", "expired", "completed"].includes(reservation.status) && Number(signals.balance) > 0) flags.push("balance");
+  if (!["cancelled", "rejected", "expired", "completed", "no_show"].includes(reservation.status) && Number(signals.balance) > 0) flags.push("balance");
   if (["confirmed", "reschedule_requested"].includes(reservation.status) && !reservation.checked_in_at && manilaDateKey(reservation.start_datetime) === manilaDateKey(new Date(now))) flags.push("arrival");
   return flags;
 }

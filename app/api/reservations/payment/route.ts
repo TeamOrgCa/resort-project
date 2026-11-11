@@ -33,7 +33,7 @@ interface ReservationRow {
   reservation_id: string;
   guest_id: string;
   reference_number: string;
-  status: "pending" | "payment_submitted" | "confirmed" | "expired" | "rejected" | "cancelled" | "completed";
+  status: "pending" | "payment_submitted" | "confirmed" | "expired" | "rejected" | "cancelled" | "completed" | "no_show";
   payment_deadline_at: string | null;
 }
 
@@ -229,7 +229,7 @@ export async function POST(request: Request) {
       }
     }
 
-    if (reservation.status === "cancelled" || reservation.status === "completed") {
+    if (["cancelled", "completed", "no_show"].includes(reservation.status)) {
       return NextResponse.json(
         {
           success: false,

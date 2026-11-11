@@ -71,7 +71,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <section id="client" class="manual-section" aria-label="Client user manual"><h1 id="client-marville-resort-complex-client-user-manual">MarVille Resort Complex — Client User Manual</h1>
 <p><strong>Audience:</strong> Guests using the resort website.<br><strong>Updated:</strong> 16 October 2026. <strong>Companion guide:</strong> <a href="#admin">Admin User Manual</a>.<br><strong>Manual overview and printing:</strong> <a href="#manual-overview">User Manuals</a>.</p>
 <p>This guide explains how to create an account, book a stay, submit payment, manage a booking, schedule a resort viewing and leave a review. Screen labels shown in <strong>bold</strong> match the current website. Use the website address provided by the resort; page paths below are added to that address.</p>
-<p>Input errors are highlighted and automatically scrolled into view, including inside booking dialogs. GCash receipt problems appear as separate bullet points. Emoji input is blocked in text fields.</p>
+<p>Input errors are highlighted and automatically scrolled into view, including inside booking dialogs. Registration errors appear in a toast at the top; the affected field is focused and scrolled into view so you can correct it immediately. GCash receipt problems appear as separate bullet points. Emoji input is blocked in text fields.</p>
 <h2 id="client-contents">Contents</h2>
 <ul>
 <li><a href="#client-1-getting-started">1. Getting started</a>
@@ -88,7 +88,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li><a href="#client-7-edit-guest-counts-and-services">7. Edit guest counts and services</a>
 </li>
-<li><a href="#client-8-request-a-different-booking-date">8. Request a different booking date</a>
+<li><a href="#client-8-reschedule-a-booking-automatically">8. Reschedule a booking automatically</a>
 </li>
 <li><a href="#client-9-cancel-a-booking">9. Cancel a booking</a>
 </li>
@@ -324,7 +324,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </ol>
 <p><strong>Expected result:</strong> Guest counts and services are saved together with the recalculated bill. Booked package prices and existing service prices are preserved; new services use the current catalog price. Existing payments and issued receipts remain unchanged. The package, accommodation, dates and contact details are not changed by this editor.</p>
 <p>Closed/expired reservations and bookings with pending payment, reschedule or refund reviews cannot be edited through this screen. After check-in, contact staff for count changes or service reductions. After full payment, existing services cannot be reduced by the guest, though additional services can still be added. If the bill changes before saving, reload and review it again.</p>
-<h2 id="client-8-request-a-different-booking-date">8. Request a different booking date</h2>
+<h2 id="client-8-reschedule-a-booking-automatically">8. Reschedule a booking automatically</h2>
 <ol>
 <li>Find a <strong>Confirmed</strong> reservation in <strong>Manage Booking</strong>.
 </li>
@@ -332,14 +332,14 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>Use <strong>Previous month</strong> or <strong>Next month</strong> in the custom calendar, select a new check-in date (you can choose while availability loads; submission waits for the check), and review the retained package time/duration. Past/current dates, booked time slots, maintenance dates and dates too early for the original start time are disabled. Availability is checked again when you submit.
 </li>
-<li>Submit the request and read the notice showing the additional charge if approved.
+<li>Enter <strong>Reason for rescheduling</strong> (5-2,000 characters) and review the notice fee, any higher-date-rate adjustment, new total and remaining balance.
 </li>
-<li>Wait for staff review and check the result in Manage Booking.
+<li>Select <strong>Confirm Reschedule</strong>. An available date is approved automatically without staff review.
 </li>
-<li>If approved, check the new schedule and use <strong>Pay Balance</strong> for additional charges when required.
+<li>Check the updated schedule and bill, then use <strong>Pay Balance</strong> for any outstanding charges.
 </li>
 </ol>
-<p><strong>Expected result:</strong> A pending request does not immediately move the reservation. The original dates remain reserved while staff reviews it. Approval can add a notice fee and a higher-date-rate adjustment; moving to a cheaper date does not automatically refund the difference.</p>
+<p><strong>Expected result:</strong> The reservation stays confirmed on the new date. The notice fee and any higher-date-rate adjustment are added immediately to the bill and current invoice. Existing payments and receipts are preserved; moving to a cheaper date does not automatically reduce the bill. Short-notice, same-day and past-original-date changes use the same automatic flow before check-in. Resolve open financial reviews and any legacy pending reschedule first.</p>
 <p>Rescheduling requires a confirmed payment, an eligible available date and the applicable booking rules. The new start must remain at least 30 minutes away. Contact staff if <strong>Reschedule</strong> is disabled or your requested change is outside the available options.</p>
 <p>The usual notice is <strong>14 Philippine calendar days</strong> for March-May and September-December, or <strong>7 days</strong> for other months. You can still submit a request with shorter notice, on the original swimming date or after it, as long as the booking remains confirmed and you have not checked in. The dialog shows a short-notice message and the applicable fee. Staff must approve the request before your schedule or bill changes. Your package, original time and duration stay fixed.</p>
 <p>Notice fees are <strong>PHP 50 for 6+ days</strong>, <strong>PHP 100 for 3-5 days</strong>, <strong>PHP 300 for 1-2 days</strong>, and <strong>PHP 500 on or after the original date</strong>. Fees use the date you submitted the request in Philippine time, rather than the later approval date. On-time requests carry PHP 50 plus any higher-date-rate adjustment when approved. Your existing payments remain on the bill.</p>
@@ -349,15 +349,15 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>The dialog first offers <strong>Reschedule instead</strong>. Choose it to open the custom reschedule calendar, or select <strong>Continue to cancellation</strong> to review verified payments, previous refunds, initial deposit basis, retained deposit and refundable amount. Reschedule restrictions remain in force; the dialog explains when staff assistance is required.
 </li>
-<li>Check the acknowledgement and select <strong>Confirm cancellation</strong>. If the bill or payments changed, reload the preview and review it again.
+<li>Enter <strong>Reason for cancellation</strong> (5-2,000 characters), check the acknowledgement and select <strong>Confirm cancellation</strong>. If the bill or payments changed, reload the preview and review it again.
 </li>
 <li>Read the success alert and updated booking status. Eligible cancellations create a refund request automatically; you do not submit another request.
 </li>
-<li>Open the <strong>Refunds</strong> tab for payment review, administrator approval, manual transfer and staff verification.
+<li>Open the <strong>Refunds</strong> tab for manager approval, cashier transfer and manager verification.
 </li>
 </ol>
 <p>Guest cancellation retains the initial 20% deposit. A downpayment-only booking has no refund; a fully paid booking receives the remaining 80%. Partial payments above the required deposit can be refunded after deducting that deposit and prior completed refunds. No payment means no request. A documented cancellation attributable to the resort refunds all remaining verified payments, including the deposit.</p>
-<p><strong>Expected result:</strong> The reservation becomes <strong>Cancelled</strong> and releases its dates. It is shown as <strong>Cancelled - No Refund</strong> when nothing is refundable; refund processing otherwise proceeds separately. No money is transferred automatically. Refunds are sent manually through GCash or another approved method and become <strong>Refunded</strong> only after authorized staff verify the transfer.</p>
+<p><strong>Expected result:</strong> The reservation becomes <strong>Cancelled</strong> and releases its dates. It is shown as <strong>Cancelled - No Refund</strong> when nothing is refundable; refund processing otherwise proceeds separately. No money is transferred automatically. Refunds are sent manually through GCash or another approved method and become <strong>Refunded</strong> only after an authorized manager verifies the transfer.</p>
 <p>Guest cancellation retains the booked notice period. Pending payment proofs must be reviewed before cancellation. Closed/completed bookings cannot be cancelled again. Contact staff if self-service is unavailable. Read in-app alerts and email updates; email delivery issues do not undo a saved cancellation.</p>
 <h2 id="client-10-request-an-excess-payment-refund">10. Request an excess-payment refund</h2>
 <ol>
@@ -369,7 +369,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>Select <strong>Request excess refund</strong> once.
 </li>
-<li>Monitor the request: <strong>Pending</strong> means awaiting review; <strong>Approved</strong> means awaiting GCash payout; <strong>Transfer submitted</strong> means evidence is awaiting staff verification; <strong>Refunded</strong> means the transfer was verified.
+<li>Monitor the request: <strong>Pending</strong> means awaiting manager approval; <strong>Approved</strong> means awaiting cashier payout; <strong>Transfer submitted</strong> means evidence is awaiting manager verification; <strong>Refunded</strong> means the transfer was verified.
 </li>
 <li>Read any review note and retain the GCash payout reference when shown.
 </li>
@@ -408,7 +408,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p><strong>Current screen note:</strong> The separate <code>/ocular</code> page is an older demonstration screen that displays a local success message without saving a visit. Use <strong>Book Now → Ocular Visit</strong> and verify the saved record in Manage Booking, including if a link takes you to the older page.</p>
 <h2 id="client-12-write-a-review-with-a-photo">12. Write a review with a photo</h2>
 <ol>
-<li>Sign in to your registered guest account and open <strong>Reviews</strong> after resort staff checks you out and marks your stay <strong>Completed</strong>. A booking or elapsed stay date alone does not qualify.
+<li>Sign in to your active registered guest account and open <strong>Reviews</strong>. A booking or completed stay is not required.
 </li>
 <li>Select <strong>Write a Review</strong>.
 </li>
@@ -420,12 +420,13 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>Check the photo preview; replace it or use <strong>Remove photo</strong> if needed.
 </li>
-<li>Optionally choose one of your completed stays from the dropdown and select the recommendation checkbox.
+<li>Optionally link one of your own reservations from the dropdown and select the recommendation checkbox.
 </li>
 <li>Submit and wait for the success message.
 </li>
 </ol>
 <p><strong>Expected result:</strong> Your review is saved. The current system automatically publishes newly submitted reviews; public photos are shown for approved reviews. Use <strong>View full photo</strong> on a review to open its image.</p>
+<p>An active registered guest may write a review without a booking or completed stay. Linking one of your own reservations is optional.</p>
 <p>You may submit <strong>multiple reviews per guest account</strong>, with a <strong>10-minute wait between submissions</strong> and a <strong>maximum of 3 reviews per rolling 24 hours</strong>. Repeating the same review text within 24 hours is blocked, even if you change its title. Each linked reservation can still have only one review. If a limit is reached, a popup explains when to retry and keeps your text/photo selected. There is no guest review-editing screen. Contact the resort if your submitted review needs correction. Avoid including private account or payment information in public text or photos.</p>
 <p>Authorized staff can archive feedback. Archived reviews and their photos are hidden from the public list, while the resort retains the record for documentation.</p>
 <h2 id="client-13-understand-booking-and-refund-statuses">13. Understand booking and refund statuses</h2>
@@ -443,12 +444,11 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p>A rejected later balance payment does not itself cancel an already confirmed reservation.</p>
 <h3 id="client-refund-status">Refund status</h3>
 <div class="table-wrap"><table><thead><tr><th scope="col">Status</th><th scope="col">Meaning</th></tr></thead><tbody>
-<tr><td>Pending refund review</td><td>Cashier is checking verified payment records</td></tr>
-<tr><td>Awaiting administrator approval</td><td>Payment records reviewed; waiting for the administrator&#x27;s decision</td></tr>
-<tr><td>Approved - awaiting transfer</td><td>Accepted; staff must transfer the money manually</td></tr>
-<tr><td>Transfer submitted - awaiting verification</td><td>Payout evidence was uploaded; the refund is not yet completed</td></tr>
+<tr><td>Awaiting manager approval</td><td>The manager checks the calculated amount and approves or rejects the request; no initial cashier review is required</td></tr>
+<tr><td>Approved - awaiting cashier transfer</td><td>Accepted; an authorized cashier must transfer the money manually</td></tr>
+<tr><td>Transfer submitted - awaiting manager verification</td><td>Payout evidence was uploaded; the manager must verify the transfer before completion</td></tr>
 <tr><td>Rejected</td><td>Not approved; read the review reason</td></tr>
-<tr><td>Refunded</td><td>Authorized staff verified the transfer and net financial records were updated</td></tr>
+<tr><td>Refund completed</td><td>An authorized manager verified the transfer and net financial records were updated</td></tr>
 </tbody></table></div>
 <h2 id="client-14-troubleshooting-and-support">14. Troubleshooting and support</h2>
 <div class="table-wrap"><table><thead><tr><th scope="col">Problem</th><th scope="col">What to do</th></tr></thead><tbody>
@@ -471,7 +471,8 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p>For support, use the resort&#x27;s current phone, email or social contact details on <strong>About</strong>. Give your booking reference, affected screen, exact message and approximate Philippine date/time. Include a screenshot of the error when useful. Send payment details privately to staff, and never share passwords or verification codes.</p>
 <p>The chatbot can explain resort information and the general booking flow. A chat reply does not save a booking, approve a payment, change dates or issue a refund; verify those actions on the relevant screen.</p>
 <h3 id="client-after-arrival">After arrival</h3>
-<p>Once staff records check-in, cancellation and rescheduling are no longer available in Manage Booking. Settle any remaining balance and additional charges before checkout. Staff completes the reservation when checkout is recorded; only then can you submit a review. The existing review cooldown, duplicate-content checks and daily limits still apply.</p></section>
+<p>Once staff records check-in, cancellation and rescheduling are no longer available in Manage Booking. Settle any remaining balance and additional charges before checkout. Staff completes the reservation when checkout is recorded; only then can you submit a review. The existing review cooldown, duplicate-content checks and daily limits still apply.</p>
+<p>New consistent GCash receipts are automatically approved after server OCR validation. The payment screen shows Payment Approved and the reservation is confirmed immediately. Existing pending payments retain their staff review workflow. A verified excess payment is tracked separately; use Request excess refund in Manage Booking to create its refund request. Refund requests are not created or paid automatically for overpayments.</p></section>
 <section id="admin" class="manual-section" aria-label="Admin and staff user manual"><h1 id="admin-marville-resort-complex-admin-and-staff-user-manual">MarVille Resort Complex — Admin and Staff User Manual</h1>
 <p><strong>Audience:</strong> Administrators, managers and cashiers using the staff portal.<br><strong>Updated:</strong> 13 October 2026.<br><strong>Companion guide:</strong> <a href="#client">Client User Manual</a>.<br><strong>Manual overview and printing:</strong> <a href="#manual-overview">User Manuals</a>.</p>
 <p>This guide explains daily booking, billing and management tasks. Use the resort website address supplied by the owner; add the page paths below to that address. Buttons and modules depend on your account&#x27;s permissions. Follow success/error messages before considering an action complete.</p>
@@ -532,17 +533,18 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>If prompted, open your staff email, enter the <strong>Verification Code</strong> and select <strong>Verify Code</strong>.
 </li>
-<li>If prompted to change a temporary password, enter and confirm a personal password and submit. The staff password form requires at least eight characters.
+<li>After successful authentication, a green <strong>Welcome, staff name!</strong> toast appears at the top and the portal opens automatically. The toast dismisses after five seconds, or use its close button. If prompted to change a temporary password, enter and confirm a personal password and submit. The staff password form requires at least eight characters.
 </li>
 <li>Open the required module from the sidebar.
 </li>
 </ol>
 <p><strong>Expected result:</strong> You enter the portal with the modules allowed for your role. Use <strong>Forgot your password?</strong> for email recovery, or ask an administrator to reset your password if you cannot recover access.</p>
 <p>One session is active per account. Signing in on another device ends the previous session. Use individual staff accounts so actions are attributed to the correct person, and sign out at the end of your shift.</p>
+<p>Record tables use page controls with a visible record count. Search and filter changes return to the first page. Where a row offers multiple actions, select its three-dot <strong>Options</strong> button; single actions remain visible. The menu supports arrow keys and Escape. CSV exports include all matching rows across pages.</p>
 <h2 id="admin-2-understand-roles-and-navigation">2. Understand roles and navigation</h2>
-<p>On mobile, use the <strong>hamburger icon</strong> in the sticky top bar to open navigation. The top bar remains visible as you scroll. In the Reservations header, the calendar-plus, wrench and refresh icons mean <strong>New reservation</strong>, <strong>Add maintenance block</strong> (admin only) and <strong>Refresh calendar</strong>. Hover over an icon for its tooltip.</p>
+<p>On mobile, use the <strong>hamburger icon</strong> in the sticky top bar to open navigation. The top bar remains visible as you scroll. In the Reservations header, the calendar-plus, wrench and refresh icons mean <strong>New reservation</strong>, <strong>Add maintenance block</strong> (authorized managers) and <strong>Refresh calendar</strong>. Hover over an icon for its tooltip.</p>
 <div class="table-wrap"><table><thead><tr><th scope="col">Role</th><th scope="col">Access</th></tr></thead><tbody>
-<tr><td>Admin</td><td>Full portal access, including Users, Configuration and Business Catalog</td></tr>
+<tr><td>Admin</td><td>Full Users, Configuration and Business Catalog access; view and filter other modules; export/print Reports and Analytics; export Audit CSV</td></tr>
 <tr><td>Manager</td><td>Operational modules and actions granted in the Role Permission Matrix</td></tr>
 <tr><td>Cashier</td><td>Transaction modules and actions granted in the Role Permission Matrix</td></tr>
 </tbody></table></div>
@@ -611,7 +613,9 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p>When guests actually arrive, open their confirmed reservation for today, check <strong>I confirm the guest has arrived at the resort</strong>, then select <strong>Mark guest checked in</strong>. Requires Edit reservations permission. This records the staff member and server time in the audit log without changing reservation or payment status. The arrival flag clears; an unpaid-balance flag remains until payment settles. Use the review links in the dialog to open the corresponding module if your role has access. A date selected in the calendar is not proof that a bill is paid; check the verified payments and transaction balance.</p>
 <p>After check-in, cancellation and rescheduling are locked for both guests and staff. Extra services and billing may still be updated during the stay. Resolve pending reschedule requests before recording arrival.</p>
 <p>To check out, open the checked-in reservation, settle the full current bill and resolve pending payment reviews. Tick <strong>I confirm the guest is checking out</strong>, then select <strong>Check out and complete stay</strong>. The server recalculates the bill against actual verified payments less completed refunds, records the departure time and staff member, and marks the reservation <strong>Completed</strong>. An outstanding balance prevents checkout. The guest receives a completion notification and becomes eligible to review the resort. Check-in and checkout require Edit reservations permission.</p>
-<p>Administrators can select the <strong>Add maintenance block</strong> wrench icon in the Reservations header on either desktop or mobile. This opens a modal for the name, guest announcement and date range. Conflicting reservations are rejected with an error inside the modal. Successful blocks appear in the calendar and notify registered guests.</p>
+<p>Managers with reservation-edit permission can select the <strong>Add maintenance block</strong> wrench icon in the Reservations header on either desktop or mobile. This opens a modal for the name, guest announcement and date range. Conflicting reservations are rejected with an error inside the modal. Successful blocks appear in the calendar and notify registered guests.</p>
+<h3 id="admin-mark-an-ended-reservation-no-show">Mark an ended reservation No show</h3>
+<p><strong>Manager no-show action:</strong> For a confirmed reservation with no recorded arrival, wait until the scheduled end has passed. Open the calendar details, enter the <strong>No-show reason</strong>, acknowledge non-arrival and choose <strong>Mark as No show</strong>. Only managers with Edit reservations permission can do this. Pending payments, reschedules and open refunds must be resolved first. No show closes the booking and preserves billing history without automatically issuing a refund. The status and recorded reason appear in staff details and Records; guests see the closed status in Manage Booking.</p>
 <h2 id="admin-5-enter-a-phone-messenger-or-walk-in-reservation">5. Enter a phone, Messenger or walk-in reservation</h2>
 <p><strong>Required permission:</strong> Add reservation.</p>
 <ol>
@@ -676,6 +680,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <p>Existing reservations use their booked package-rate schedule for package differences. Existing services retain their booked prices; newly added services use their available catalog prices. A later Catalog price change does not reprice all existing bookings. Changing accommodation still follows package-based billing; inspect the preview rather than assuming a unit rate replaces the package bill.</p>
 <p>Reservation editing does not automatically pay a refund or send a new billing email. Handle an exposed overpayment in <strong>Refund Requests</strong>, and check the revised invoice separately.</p>
 <h2 id="admin-7-review-a-reschedule-request">7. Review a reschedule request</h2>
+<p>New guest reschedules are automatically approved when the new date is available. Dates, fees, invoices and audit history update together; no staff action is needed. Apply <code>docs/guest-auto-reschedule-migration.sql</code> before deploying. The review steps below apply only to pending requests created before this change.</p>
 <p><strong>Required permissions:</strong> Records access and reschedule approval.</p>
 <ol>
 <li>Open <strong>Records → Reschedule Requests</strong>.
@@ -694,7 +699,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p><strong>Expected result:</strong> Approval updates the schedule and adds the notice fee plus any higher-date-rate adjustment to billing. A rejection leaves the original reservation schedule in place. The original booking remains occupied while the request is pending.</p>
-<p>Guests may submit short-notice, same-day or past-date requests while their reservation is confirmed and they have not checked in. Review these in the same approval queue; staff approval records the exception and applies the quoted fee. Fees are based on the request&#x27;s submission date in Philippine time, not the later approval date. The audit record includes the notice policy, original/requested dates, guest and approving staff member. Apply <code>docs/guest-reschedule-requests-migration.sql</code> after the reschedule-policy and stay-completion migrations to enable this workflow.</p>
+<p>Legacy requests retain their original quoted notice fee and staff approval workflow. New guest changes, including short-notice or past-original-date changes before check-in, apply immediately with the fee for the Philippine calendar day on which they are saved. Automatic approvals record the guest and an automatic-approval audit marker; they do not assign a staff approver.</p>
 <p>Approval can fail if another booking/maintenance block conflicts or the requested start is too near/past. A lower-date rate does not automatically create a refund. Explain any additional balance to the guest; they can pay through Manage Booking when eligible.</p>
 <h2 id="admin-8-approve-an-ocular-visit">8. Approve an ocular visit</h2>
 <p><strong>Required permissions:</strong> Records access and ocular approval.</p>
@@ -789,19 +794,19 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </ol>
 <p><strong>Expected result:</strong> The payment, balance, receipt and audit record are saved together. An initial payment on a pending reservation must cover the required 20% downpayment. A full settlement sets the outstanding balance to zero, including additional services already added to the bill. Cash is verified by the authorized staff member receiving it; no GCash screenshot or separate online-payment approval is needed.</p>
 <p>The cash reference is generated automatically. If a save fails, retry in the same dialog with the same reference; a saved payment will not be recorded twice. If the balance changed, close the dialog, refresh the ledger and check the payment records before starting another entry. Pending payment/reschedule reviews and open refunds must be resolved first. Cancelled or completed reservations cannot receive new cash entries.</p>
-<p>Administrators have cash-entry access. Other staff need the <strong>Record payments</strong> permission and Transactions access. Keep <strong>Cash</strong> active under <strong>Business Catalog &gt; Payment methods</strong>; cash does not need a payment account or QR code.</p>
+<p>Authorized operational staff need the <strong>Record payments</strong> permission and Transactions access. Admins have view-only access. Keep <strong>Cash</strong> active under <strong>Business Catalog &gt; Payment methods</strong>; cash does not need a payment account or QR code.</p>
 <h2 id="admin-13-review-and-pay-a-refund">13. Review and pay a refund</h2>
 <h3 id="admin-cancel-a-reservation-and-preview-its-refund">Cancel a reservation and preview its refund</h3>
 <ol>
 <li>In <strong>Reservations</strong>, select the reservation from the calendar and choose <strong>Cancel reservation / review refund</strong>.
 </li>
-<li>Choose <strong>Guest request</strong> when staff is acting on the guest&#x27;s request. Only an administrator may select <strong>Resort-attributable reason</strong>.
+<li>Choose <strong>Guest request</strong> when staff is acting on the guest&#x27;s request. Only an authorized manager may select <strong>Resort-attributable reason</strong>.
 </li>
 <li>Enter a documented cancellation reason and inspect the verified payments, prior refunds, initial deposit basis, deduction and refundable amount.
 </li>
 <li>A guest cancellation retains the initial 20% deposit: no refund for deposit-only bookings, the remaining 80% for fully paid bookings, and the verified amount above the deposit for partial payments. A resort-attributable cancellation refunds all remaining verified payments.
 </li>
-<li>Acknowledge the preview and confirm. No verified payment or no eligible amount produces <strong>Cancelled - No Refund</strong>. Eligible amounts create <strong>Pending refund review</strong> automatically, without a guest request.
+<li>Acknowledge the preview and confirm. No verified payment or no eligible amount produces <strong>Cancelled - No Refund</strong>. Eligible amounts create <strong>Awaiting manager approval</strong> automatically, without a guest request.
 </li>
 <li>Read the success/alert message. Guest/finance in-app alerts are recorded with the cancellation. Guest email is attempted, including staff-entered guests with email addresses.
 </li>
@@ -813,30 +818,30 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>Check the verified payment records, references/proofs, previous refunds, policy snapshot and computed deduction. The amount is fixed; staff cannot type a replacement amount.
 </li>
-<li>The cashier enters review notes, checks the payment-record acknowledgement and selects <strong>Submit payment review</strong>.
+<li>The request goes directly to <strong>Awaiting manager approval</strong>. No cashier review is required.
 </li>
-<li>The request becomes <strong>Awaiting administrator approval</strong>. An active administrator selects <strong>Approve refund</strong>, or supplies a reason and selects <strong>Reject with reason</strong>.
+<li>An authorized manager selects <strong>Approve refund</strong>, or supplies a reason and selects <strong>Reject with reason</strong>. Existing previously reviewed requests can be approved in the same way.
 </li>
-<li>For an unprocessed legacy cancellation, an administrator first documents guest/resort responsibility and chooses <strong>Recalculate legacy cancellation refund</strong>. Any previous approval is reset for a fresh cashier review and recorded in the audit log. Completed refunds are preserved.
+<li>For an unprocessed legacy cancellation, an authorized manager first documents guest/resort responsibility and chooses <strong>Recalculate legacy cancellation refund</strong>. Any previous approval is reset for a new manager decision and recorded in the audit log. Completed refunds are preserved.
 </li>
 </ol>
-<p>Review, payout and payout verification are separate configurable permissions. Approval/rejection is administrator-only. Module access alone grants no financial action rights.</p>
+<p>Approval, payout and payout verification are separate configurable permissions. Approval/rejection and transfer verification require the Manager role and their corresponding permissions. Recording a payout requires the Cashier role and payout permission. Module access alone grants no financial action rights.</p>
 <h3 id="admin-record-and-verify-the-payout">Record and verify the payout</h3>
 <ol>
-<li>Open the <strong>Approved - awaiting transfer</strong> request and recheck the approved amount and guest payout details.
+<li>As an authorized cashier, open the <strong>Approved - awaiting cashier transfer</strong> request and recheck the approved amount and guest payout details.
 </li>
 <li>Send the money manually through GCash or another active approved payment method in Business Catalog. The website does not release money.
 </li>
 <li>Select the payout method, enter the real transfer reference and upload image/PDF evidence up to 8 MB.
 </li>
-<li>Select <strong>Submit transfer for verification</strong>. The status becomes <strong>Transfer submitted - awaiting verification</strong>; uploading proof does not mark the refund completed or reduce net paid totals.
+<li>Select <strong>Submit transfer for verification</strong>. The status becomes <strong>Transfer submitted - awaiting manager verification</strong>; uploading proof does not mark the refund completed or reduce net paid totals.
 </li>
-<li>An authorized verifier opens the proof, matches amount, recipient and reference against provider transaction records, adds notes and checks the verification acknowledgement. An active administrator can perform this step for their own payout; other staff need a different verifier.
+<li>An authorized manager opens the proof, matches amount, recipient and reference against provider transaction records, adds notes and checks the verification acknowledgement. Cashiers cannot verify transfers. Managers cannot verify a payout they submitted themselves on an earlier workflow.
 </li>
-<li>Select <strong>Verify transfer and complete refund</strong>. Only this step sets <strong>Refunded</strong> and deducts the payout from net paid billing. An active administrator may review, approve, submit and verify using their own account; proof, reference, notes and explicit verification remain mandatory.
+<li>Select <strong>Verify transfer and complete refund</strong>. Only this step sets <strong>Refunded</strong> and deducts the payout from net paid billing. Proof, reference, notes and explicit verification remain mandatory. Admins can view refund requests but cannot process them.
 </li>
 </ol>
-<p>Every stage creates guest/finance in-app alerts and audit entries. Guest email is attempted; an email failure does not undo a saved action. References cannot be reused, one open request allocates funds per reservation, and stale/changed funds stop processing. Cancellation converts an existing excess request and resets review. An existing transfer awaiting verification must be verified before cancellation.</p>
+<p>Every stage creates guest/finance in-app alerts and audit entries. Guest email is attempted; an email failure does not undo a saved action. References cannot be reused, one open request allocates funds per reservation, and stale/changed funds stop processing. Cancellation converts an existing excess request and resets the manager decision. An existing transfer awaiting verification must be verified before cancellation.</p>
 <p><strong>Expected result:</strong> Payments and issued receipts remain historical records. The verified refund updates net paid financial totals and refreshes the ledger. Cancelled balances are not shown as outstanding debt.</p>
 <h2 id="admin-14-view-invoices-and-print-receipts">14. View invoices and print receipts</h2>
 <h3 id="admin-invoices">Invoices</h3>
@@ -873,6 +878,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 <tr><td>Staff Report</td><td>Reports</td><td>Logged actions and identified staff activity during the selected dates</td></tr>
 <tr><td>Guest Report</td><td>Reports → Guest Report</td><td>Reservations created, guest contacts, group sizes, sources and booking history</td></tr>
 </tbody></table></div>
+<p>In <strong>Staff Report</strong>, use the <strong>Staff member</strong> dropdown to show one staff member. It includes all staff represented in the selected dates, across all table pages. Search and this filter work together; <strong>Clear table filters</strong> restores all staff. For roles permitted to export or print, the same selection applies to those rows. Summary cards and charts cover the full date range.</p>
 <p>There is no separate Financial Report tab in Reports. Guest reporting belongs to Reports and requires Reports permission.</p>
 <h3 id="admin-select-dates-and-read-the-summary">Select dates and read the summary</h3>
 <ol>
@@ -1074,7 +1080,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>Edit the guest cancellation notice hours, cancellation text and refund text.
 </li>
-<li>Eligible cancellation refunds are always created automatically; the previous enable/disable preference no longer suppresses them. Review the enforced guest/resort deduction rules. Administrators decide approval after payment review.
+<li>Eligible cancellation refunds are always created automatically; the previous enable/disable preference no longer suppresses them. Review the enforced guest/resort deduction rules. Managers decide approval directly, cashiers transfer approved amounts, and managers verify the transfers.
 </li>
 <li>Select <strong>Publish new version</strong> and check the confirmation.
 </li>
@@ -1142,7 +1148,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 <li>Select the required Manager or Cashier permissions.
 </li>
-<li>Grant module access and the specific action permissions needed for the work. For example, refund review and refund payout are separate.
+<li>Grant module access and the specific action permissions needed for the work. Refund approval and verification are manager-only; refund payout recording is cashier-only. No separate cashier review is needed.
 </li>
 <li>Select <strong>Save permissions</strong> once to save Manager and Cashier changes together.
 </li>
@@ -1164,7 +1170,7 @@ th, td { padding: 6px 8px; } footer { padding: 8mm 0 0; }
 </li>
 </ol>
 <p><strong>Expected result:</strong> You can review recorded guest, staff and system actions, including relevant reservation changes and access attempts. Audit records document actions; they are not payment receipts.</p>
-<p>The visible <strong>Export Log</strong> control currently has no connected download action. Do not rely on it for an export; see the limitations below.</p>
+<p>Use <strong>Export Log</strong> to download the matching audit records as CSV. Administrators may export audit records; search and date filters apply to the download.</p>
 <h2 id="admin-22-troubleshooting-and-current-screen-limitations">22. Troubleshooting and current screen limitations</h2>
 <h3 id="admin-troubleshooting">Troubleshooting</h3>
 <div class="table-wrap"><table><thead><tr><th scope="col">Problem</th><th scope="col">What to do</th></tr></thead><tbody>

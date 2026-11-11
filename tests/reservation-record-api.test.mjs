@@ -5,7 +5,7 @@ import { loadTsModule } from "./helpers/load-ts-module.mjs";
 const id = "11111111-1111-4111-8111-111111111111";
 const walkIn = "22222222-2222-4222-8222-222222222222";
 const registered = "33333333-3333-4333-8333-333333333333";
-function harness({ signedIn = true, permitted = true, online = false, missing = false, failure = null, noBill = false } = {}) {
+function harness({ signedIn = true, permitted = true, online = false, missing = false, failure = null, noBill = false, noShow = false } = {}) {
   const reads = [], permissionChecks = []; let clients = 0;
   const rows = {
     reservations: { reservation_id: id, reference_number: "MV-RECORD", guest_id: online ? registered : null,
@@ -17,6 +17,7 @@ function harness({ signedIn = true, permitted = true, online = false, missing = 
     reservation_services: [{ quantity: 2, price_at_time: 300, services: [{ name: "Mattress rental" }] }],
     transactions: { total_amount: "8900.00", paid_amount: "8900.00", balance: "0.00", status: "paid" },
   };
+  if (noShow) Object.assign(rows.reservations, { status: "no_show", no_show_at: "2026-11-12T01:00:00+08:00", no_show_reason: "Guest did not arrive" });
   const client = { from(table) {
     const read = { table, filters: [], fields: null }; reads.push(read);
     const result = () => ({ data: missing && table === "reservations" || noBill && table === "transactions" ? null : rows[table], error: failure === table ? { message: "Read failed" } : null });
@@ -68,4 +69,11 @@ test("missing reservations and failed guest/billing reads do not produce mislead
     const response = await harness({ failure }).get(); assert.equal(response.status, 503);
     assert.equal((await response.json()).detail, undefined);
   }
+});
+
+
+test("reservation Records returns the no-show marker and reason to authorized record viewers",async()=>{
+  const h=harness({noShow:true}),response=await h.get();assert.equal(response.status,200);
+  const {detail}=await response.json();assert.equal(detail.reservation.status,"no_show");assert.equal(detail.reservation.no_show_reason,"Guest did not arrive");
+  assert.match(h.reads.find(read=>read.table==="reservations").fields,/no_show_at,no_show_reason/);
 });

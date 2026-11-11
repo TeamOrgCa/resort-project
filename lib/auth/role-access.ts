@@ -1,7 +1,7 @@
 import type { AdminNavItem } from "@/components/admin/types";
 import type { StaffRole } from "./staff-auth";
 
-export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_review", "refund_approval", "refund_payout", "refund_verify", "records", "reports", "analytics", "feedback_archive", "audit", "configuration", "catalog", "users"] as const;
+export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_approval", "refund_payout", "refund_verify", "records", "reports", "analytics", "feedback_archive", "audit", "configuration", "catalog", "users"] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_LABELS: Record<Permission, string> = {
   dashboard: "Dashboard", reservations: "View reservations", create_reservation: "Add reservation",
@@ -9,18 +9,24 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   cancel_reservation: "Cancel reservation", reschedule_approval: "Approve or reject reschedules",
   ocular_approval: "Manage ocular visits and record attendance", transactions: "View transactions",
   payment_approval: "Approve or reject payments", payment_entry: "Record payments",
-  refund_review: "Review refund payment records", refund_approval: "Approve or reject refunds (manager only)", refund_payout: "Record refund payout", refund_verify: "Verify refund payout",
+  refund_approval: "Approve or reject refunds (manager only)", refund_payout: "Record refund payout (cashier only)", refund_verify: "Verify refund payout (manager only)",
   records: "View records", reports: "View and export reports", analytics: "View analytics",
   feedback_archive: "Archive and restore guest feedback (also requires Analytics)",
   audit: "View audit log", configuration: "Resort configuration", catalog: "Manage catalog",
   users: "Manage staff and guest accounts (admin only)",
 };
 
+export function isPermissionAssignable(role: StaffRole, permission: Permission): boolean {
+  if (role === "admin") return false;
+  if (["users", "configuration", "catalog"].includes(permission)) return false;
+  if (["refund_approval", "refund_verify"].includes(permission) && role !== "staff") return false;
+  if (permission === "refund_payout" && role !== "cashier") return false;
+  return PERMISSIONS.includes(permission);
+}
+
 export function hasPermission(role: StaffRole, granted: readonly string[], permission: Permission): boolean {
   if (role === "admin") return ADMIN_PERMISSIONS.includes(permission);
-  if (["users", "configuration", "catalog"].includes(permission)) return false;
-  if (permission === "refund_approval" && role !== "staff") return false;
-  return granted.includes(permission);
+  return isPermissionAssignable(role, permission) && granted.includes(permission);
 }
 
 export const ADMIN_PERMISSIONS: readonly Permission[] = ["dashboard", "reservations", "transactions", "records", "reports", "analytics", "audit", "users", "configuration", "catalog"];
@@ -51,6 +57,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/records/")) return "records";
   if (path === "/api/admin/reservations/check-in") return "edit_reservation";
   if (path === "/api/admin/reservations/check-out") return "edit_reservation";
+  if (path === "/api/admin/reservations/no-show") return "edit_reservation";
   if (path.startsWith("/api/admin/reservations/cancel")) return "cancel_reservation";
   if (/^\/api\/admin\/reservations\/[\da-f-]+$/i.test(path)) return method === "GET" ? "reservations" : "edit_reservation";
   if (path.startsWith("/api/admin/reschedule-requests")) return "reschedule_approval";

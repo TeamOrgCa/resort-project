@@ -11,6 +11,11 @@ test("admin permissions allow browsing and the three management modules regardle
   assert.equal(access.getDefaultRouteForRole("admin", []), "/admin/users");
   assert.equal(access.hasPermission("staff", ["refund_approval"], "refund_approval"), true);
   assert.equal(access.hasPermission("cashier", ["refund_approval"], "refund_approval"), false);
+  assert.equal(access.hasPermission("cashier", ["refund_verify"], "refund_verify"), false);
+  assert.equal(access.hasPermission("staff", ["refund_payout"], "refund_payout"), false);
+  assert.equal(access.hasPermission("cashier", ["refund_payout"], "refund_payout"), true);
+  assert.equal(access.hasPermission("staff", ["refund_verify"], "refund_verify"), true);
+  assert.equal(access.PERMISSIONS.includes("refund_review"), false);
   for (const role of ["staff", "cashier"]) {
     for (const permission of ["users", "configuration", "catalog"]) assert.equal(access.hasPermission(role, access.PERMISSIONS, permission), false);
   }

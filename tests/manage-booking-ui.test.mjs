@@ -353,7 +353,7 @@ test("View refunds opens the Refunds tab filtered to the selected reservation", 
     assert.equal(scrolls[0].block, "start");
     assert.equal(button(h.container, "Refunds").getAttribute("aria-pressed"), "true");
     const refunds = h.container.querySelector('[aria-label="Refund requests"]');
-    assert.match(refunds.textContent, /awaiting payment-record review/); assert.equal(refunds.textContent.includes("MV-CLOSED"), false);
+    assert.match(refunds.textContent, /awaiting manager approval/); assert.equal(refunds.textContent.includes("MV-CLOSED"), false);
     await value(h.container.querySelector('[type="search"]'), ""); assert.match(refunds.textContent, /MV-CLOSED/);
     await value(h.container.querySelector('[type="search"]'), "missing"); assert.match(refunds.textContent, /No matching refunds/);
   }
@@ -571,4 +571,16 @@ test("rescheduling requires a reason, preserves it when dates change or saving f
     assert.equal(reason.value, "  Work commitments changed  ");
     assert.match(dialog().textContent, /Please retry later/);
   } finally { await h.close(); }
+});
+
+
+test("a no-show is a closed guest record with its status, historical bill and no edit, cancellation or payment actions",async()=>{
+  const original=rows[2];rows[2]={...original,status:"no_show",cancellation_snapshot:null};
+  const h=await mount();
+  try {
+    await action("MV-CLOSED","View");assert.match(dialog().textContent,/No Show/);
+    assert.match(dialog().textContent,/closed for booking changes and new payments/);assert.match(dialog().textContent,/Recorded balance/);
+    for(const label of ["Edit booking","Reschedule","Cancel reservation","Continue to Payment"])assert.equal(button(dialog(),label),undefined,label);
+    assert.equal(h.pushes.length,0);
+  }finally{await h.close();rows[2]=original;}
 });

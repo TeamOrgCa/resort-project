@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import NotificationAlerts from "./NotificationAlerts";
 import type { User } from "@supabase/supabase-js";
 import { SESSION_CHANGE_EVENT, SESSION_CHANGE_STORAGE_KEY } from "@/lib/auth/session-events";
+import { usePathname } from "next/navigation";
 
 export type NotificationItem = {
   recipient_id: string;
@@ -23,6 +24,12 @@ type Center = {
 };
 const Context = createContext<Center | null>(null);
 export const useNotificationCenter = () => useContext(Context);
+const inactiveCenter: Center = {
+  user: null, notifications: [], loading: false, error: null,
+  refresh: () => {}, markAllRead: async () => {}, markRead: async () => {}, markingRead: false,
+  pauseAlerts: () => () => {}, popupsEnabled: true, setPopupsEnabled: async () => {},
+  savingPreference: false, preferenceError: null,
+};
 const storageKey = (key: string) => `marville:notification-popups:${key}`;
 const accountFromUser = (user: User | null) => user ? { id: user.id, user, popupsEnabled: user.user_metadata?.notification_popups_enabled !== false } : null;
 function dismissedInSession(key: string): string[] {
@@ -33,6 +40,15 @@ function dismissedInSession(key: string): string[] {
 }
 
 export default function NotificationCenter({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  // Tabs share auth cookies. A session in another tab must not populate a login
+  // or recovery screen. Unmount the active feed to retire requests and timers.
+  const authenticationPage = !pathname || /^\/(auth|staff)(\/|$)/.test(pathname) || /^\/admin\/login(\/|$)/.test(pathname);
+  if (authenticationPage) return <Context.Provider value={inactiveCenter}>{children}</Context.Provider>;
+  return <ActiveNotificationCenter>{children}</ActiveNotificationCenter>;
+}
+
+function ActiveNotificationCenter({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
   const [account, setAccount] = useState<ReturnType<typeof accountFromUser>>(null);
   const [savingPreference, setSavingPreference] = useState(false);

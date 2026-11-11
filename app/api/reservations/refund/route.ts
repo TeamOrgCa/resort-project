@@ -31,9 +31,9 @@ export async function POST(request: Request) {
   }
   try {
     const notice = await createNotifications({ actorId: user.id, guestId: user.id, staffRoles: ["admin", "staff"],
-      title: "Excess payment refund requested", message: "An excess-payment refund request is awaiting staff review.",
+      title: "Excess payment refund requested", message: "An excess-payment refund request is awaiting manager approval.",
       entityType: "refund_request", entityId: refundId, guestActionUrl: "/manage", staffActionUrl: "/admin/transactions" });
     if (notice.error) console.warn("[refund] Notification failed", notice.error);
   } catch (error) { console.warn("[refund] Notification failed", error); }
-  return NextResponse.json({ success: true, refundId, message: "Your excess refund request is pending staff review." }, { status: 201 });
+  return NextResponse.json({ success: true, refundId, message: "Your excess refund request is awaiting manager approval." }, { status: 201 });
 }

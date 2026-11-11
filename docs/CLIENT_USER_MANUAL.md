@@ -18,7 +18,7 @@ Input errors are highlighted and automatically scrolled into view, including ins
 - [5. Pay through GCash](#5-pay-through-gcash)
 - [6. View your booking and pay the balance](#6-view-your-booking-and-pay-the-balance)
 - [7. Edit guest counts and services](#7-edit-guest-counts-and-services)
-- [8. Request a different booking date](#8-request-a-different-booking-date)
+- [8. Reschedule a booking automatically](#8-reschedule-a-booking-automatically)
 - [9. Cancel a booking](#9-cancel-a-booking)
 - [10. Request an excess-payment refund](#10-request-an-excess-payment-refund)
 - [11. Schedule and manage an ocular visit](#11-schedule-and-manage-an-ocular-visit)
@@ -236,11 +236,11 @@ Notice fees are **PHP 50 for 6+ days**, **PHP 100 for 3-5 days**, **PHP 300 for 
 2. The dialog first offers **Reschedule instead**. Choose it to open the custom reschedule calendar, or select **Continue to cancellation** to review verified payments, previous refunds, initial deposit basis, retained deposit and refundable amount. Reschedule restrictions remain in force; the dialog explains when staff assistance is required.
 3. Enter **Reason for cancellation** (5-2,000 characters), check the acknowledgement and select **Confirm cancellation**. If the bill or payments changed, reload the preview and review it again.
 4. Read the success alert and updated booking status. Eligible cancellations create a refund request automatically; you do not submit another request.
-5. Open the **Refunds** tab for payment review, manager approval, manual transfer and staff verification.
+5. Open the **Refunds** tab for manager approval, cashier transfer and manager verification.
 
 Guest cancellation retains the initial 20% deposit. A downpayment-only booking has no refund; a fully paid booking receives the remaining 80%. Partial payments above the required deposit can be refunded after deducting that deposit and prior completed refunds. No payment means no request. A documented cancellation attributable to the resort refunds all remaining verified payments, including the deposit.
 
-**Expected result:** The reservation becomes **Cancelled** and releases its dates. It is shown as **Cancelled - No Refund** when nothing is refundable; refund processing otherwise proceeds separately. No money is transferred automatically. Refunds are sent manually through GCash or another approved method and become **Refunded** only after authorized staff verify the transfer.
+**Expected result:** The reservation becomes **Cancelled** and releases its dates. It is shown as **Cancelled - No Refund** when nothing is refundable; refund processing otherwise proceeds separately. No money is transferred automatically. Refunds are sent manually through GCash or another approved method and become **Refunded** only after an authorized manager verifies the transfer.
 
 Guest cancellation retains the booked notice period. Pending payment proofs must be reviewed before cancellation. Closed/completed bookings cannot be cancelled again. Contact staff if self-service is unavailable. Read in-app alerts and email updates; email delivery issues do not undo a saved cancellation.
 
@@ -250,7 +250,7 @@ Guest cancellation retains the booked notice period. Pending payment proofs must
 2. Open **Manage Booking** and select the **Refunds** tab. You can also select **View refunds** in a booking's details dialog to open the tab filtered to that booking reference. Clear the reference search to see all requests.
 3. Check the eligible booking reference and displayed excess amount.
 4. Select **Request excess refund** once.
-5. Monitor the request: **Pending** means awaiting review; **Approved** means awaiting GCash payout; **Transfer submitted** means evidence is awaiting staff verification; **Refunded** means the transfer was verified.
+5. Monitor the request: **Pending** means awaiting manager approval; **Approved** means awaiting cashier payout; **Transfer submitted** means evidence is awaiting manager verification; **Refunded** means the transfer was verified.
 6. Read any review note and retain the GCash payout reference when shown.
 
 **Expected result:** The resort reviews the calculated excess. This request does not cancel your booking. The system calculates eligibility from the current bill, verified payments and completed refunds; you do not type a refund amount.
@@ -321,12 +321,11 @@ A rejected later balance payment does not itself cancel an already confirmed res
 
 | Status | Meaning |
 | --- | --- |
-| Pending refund review | Cashier is checking verified payment records |
-| Awaiting manager approval | Payment records reviewed; waiting for the manager's decision |
-| Approved - awaiting transfer | Accepted; staff must transfer the money manually |
-| Transfer submitted - awaiting verification | Payout evidence was uploaded; the refund is not yet completed |
+| Awaiting manager approval | The manager checks the calculated amount and approves or rejects the request; no initial cashier review is required |
+| Approved - awaiting cashier transfer | Accepted; an authorized cashier must transfer the money manually |
+| Transfer submitted - awaiting manager verification | Payout evidence was uploaded; the manager must verify the transfer before completion |
 | Rejected | Not approved; read the review reason |
-| Refunded | Authorized staff verified the transfer and net financial records were updated |
+| Refund completed | An authorized manager verified the transfer and net financial records were updated |
 
 ## 14. Troubleshooting and support
 
