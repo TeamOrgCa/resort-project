@@ -27,6 +27,7 @@ test("analytics uses verification dates, legacy fallback and selected calendar d
   assert.equal(reports.revenue.rows[0].projectedBookings, "1"); assert.match(reports.revenue.rows[0].periodLabel, /Oct 4, 2026/);
   assert.match(reports.revenue.note, /3 calendar days/); assert.match(reports.revenue.note, /no statistical confidence/);
   assert.equal(reports.booking.split.find(p => p.label === "Unspecified").value, 1);
+  assert.deepEqual(reports.booking.split.map(p => p.label), ["Online booking", "Offline booking", "Unspecified"]);
   assert.equal(reports.performance.metrics[0].value, 1); assert.equal(reports.performance.metrics[1].value, 3);
   assert.equal(reports.performance.split.reduce((sum, p) => sum + p.value, 0), 3);
 });

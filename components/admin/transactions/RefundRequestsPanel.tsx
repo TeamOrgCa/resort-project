@@ -6,6 +6,7 @@ import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
 import { createClient } from "@/lib/supabase/client";
 import { refundStatusLabels, type CancellationPreview } from "@/lib/booking/cancellation";
+import { withinDateRange, type DateRange } from "@/lib/admin/date-range";
 
 type Refund = { refund_id: string; reservation_id: string; amount: number; request_kind: string; policy_snapshot: string;
   policy_version: number | null; calculation_snapshot: CancellationPreview | null; workflow_version: number; status: string; requested_at: string;
@@ -19,9 +20,11 @@ const money = (n: number) => new Intl.NumberFormat("en-PH", { style: "currency",
 const at = (value: string) => new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila" });
 const button = "admin-button-secondary";
 
-export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => void }) {
+export default function RefundRequestsPanel({ onUpdated, dateRange, paginationResetKey = "" }: { onUpdated?: () => void; dateRange?: DateRange; paginationResetKey?: string }) {
   const [refunds, setRefunds] = useState<Refund[]>([]), [payments, setPayments] = useState<Payment[]>([]), [bills, setBills] = useState<Bill[]>([]);
   const [page, setPage] = useState(0), [paymentPage, setPaymentPage] = useState(0);
+  const [previousResetKey, setPreviousResetKey] = useState(paginationResetKey);
+  if (previousResetKey !== paginationResetKey) { setPreviousResetKey(paginationResetKey); setPage(0); }
   const [refs, setRefs] = useState<Record<string, string>>({});
   const [guestNames, setGuestNames] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
@@ -69,7 +72,7 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
     setProofLink(data.signedUrl); window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
   const selectedPayments = payments.filter(p => p.reservation_id === selected?.reservation_id);
-  const matchingRefunds = refunds.filter(f => (filter === "all" || f.status === filter || (filter === "pending" && f.status === "reviewed"))
+  const matchingRefunds = refunds.filter(f => withinDateRange(f.requested_at, dateRange) && (filter === "all" || f.status === filter || (filter === "pending" && f.status === "reviewed"))
     && `${guestNames[f.reservation_id] ?? ""} ${refs[f.reservation_id] ?? f.reservation_id}`.toLowerCase().includes(search.trim().toLowerCase()));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(matchingRefunds.length / 25) - 1));
   const currentPaymentPage = Math.min(paymentPage, Math.max(0, Math.ceil(selectedPayments.length / 10) - 1));
@@ -87,7 +90,7 @@ export default function RefundRequestsPanel({ onUpdated }: { onUpdated?: () => v
         <td data-label="Guest name" className="table-cell-text px-4 py-4"><span className="cell-text">{guestNames[f.reservation_id] ?? "Guest unavailable"}</span></td>
         <td data-label="Refund amount" className="table-cell-number px-4 py-4 font-medium">{money(f.amount)}</td><td data-label="Processing status" className="px-4 py-4"><AdminStatusBadge status={refundStatusLabels[f.status] ?? f.status} /></td><td data-label="Requested (PH)" className="px-4 py-4">{at(f.requested_at)}</td>
         <td data-label="Action" className="admin-table-actions px-4 py-4"><button className="admin-button-secondary" disabled={busy} onClick={() => { setSelectedId(f.refund_id); setPaymentPage(0); setReason(""); setReference(""); setProof(null); setVerified(false); setProofLink(null); setError(null); }}>{permissions.canApprove || permissions.canPay || permissions.canVerify ? "View / process" : "View"}</button></td></tr>)}</tbody></table>
-      {!loading && matchingRefunds.length === 0 && <p className="p-5 text-sm text-neutral/65">{search.trim() ? "No requests match your search and status." : "No requests match this status."}</p>}</div>
+      {!loading && matchingRefunds.length === 0 && <p className="p-5 text-sm text-neutral/65">No requests match the date range, search and status filters.</p>}</div>
     <TablePagination total={matchingRefunds.length} page={currentPage} pageSize={25} onPageChange={setPage} disabled={loading || busy} label="Refund requests pagination" />
     {selected && <CatalogDialog title="Refund details" description={`Refund for ${refs[selected.reservation_id] ?? selected.reservation_id}`} busy={busy} onClose={() => { if (!busy) setSelectedId(null); }}><div className="space-y-4">
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}

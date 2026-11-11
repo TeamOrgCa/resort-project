@@ -36,6 +36,10 @@ test("admins edit and publish FAQ questions and approved answers in Configuratio
 
 test("chat shows admin FAQ buttons and sends human-help reasons before rendering a clickable Facebook link", async () => {
   const original = globalThis.fetch, requests = [];
+  const originalViewport = window.visualViewport;
+  const viewport = new window.EventTarget();
+  viewport.height = 844; viewport.offsetTop = 0;
+  Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
   globalThis.fetch = async (_url, options) => { requests.push(JSON.parse(options.body)); return Response.json({ reply: "An administrator has been notified.", supportLink: { label: "Chat with MarVille Resort on Facebook", url: "https://m.me/marvilleresort" } }); };
   const Component = loadTsModule("components/ChatBotMars.tsx", {
     "@/components/content/SiteContent": { useSiteContent: () => ({ "chatbot.faqs": { "Custom resort question?": "Approved resort answer." } }) },
@@ -46,17 +50,39 @@ test("chat shows admin FAQ buttons and sends human-help reasons before rendering
   try {
     await act(async () => root.render(createElement(Component)));
     await click(container.querySelector('[aria-label="Open ChatBot Mars"]'));
+    await act(async () => { viewport.height = 340; viewport.offsetTop = 120; viewport.dispatchEvent(new window.Event("resize")); });
+    const frame = container.querySelector('section[aria-label="ChatBot Mars conversation"]').parentElement;
+    assert.equal(frame.style.height, "340px");
+    assert.equal(frame.style.top, "120px");
+    await act(async () => { viewport.height = 844; viewport.offsetTop = 0; viewport.dispatchEvent(new window.Event("scroll")); });
+    assert.equal(frame.style.height, "844px");
+    assert.equal(frame.style.top, "0px");
     assert.ok(button(container, "Custom resort question?"));
+    assert.equal(container.querySelector("details"), null);
+    assert.equal(container.querySelector('a[href="/booking"], a[href="/manage"]'), null);
+    assert.equal(container.querySelector('[aria-label="Open ChatBot Mars"]'), null);
+    const shortcuts = container.querySelector('[aria-label="FAQ shortcuts"]');
+    assert.ok(shortcuts.contains(button(container, "Custom resort question?")));
+    await click(button(container, "Show me services"));
+    assert.equal(requests[0].message, "Show me services");
+    const message = container.querySelector('[id="chatbot-message"]');
+    assert.equal(message.labels[0].textContent.trim(), "Ask ChatBot Mars");
+    await value(message, "services");
+    await click(button(container, "Send"));
+    assert.equal(requests[1].message, "services");
     await click(button(container, "Talk to a resort employee"));
     const form = button(container, "Request human support").closest("form");
+    assert.ok(container.querySelector('[role="log"]').contains(form));
     assert.equal(button(container, "Request human support").disabled, true);
     await value(form.querySelector("textarea"), "Please explain my booking charges");
     await value(form.querySelector("input"), "SR-OWNBOOK1");
     await click(button(container, "Request human support"));
-    assert.match(requests[0].message, /human support.*booking charges.*SR-OWNBOOK1/);
+    assert.match(requests[2].message, /human support.*booking charges.*SR-OWNBOOK1/);
     const link = container.querySelector('a[href="https://m.me/marvilleresort"]');
     assert.ok(link); assert.equal(link.target, "_blank"); assert.match(link.rel, /noopener/);
-  } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = original; }
+    await click(container.querySelector('[aria-label="Close ChatBot Mars"]'));
+    assert.ok(container.querySelector('[aria-label="Open ChatBot Mars"]'));
+  } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = original; Object.defineProperty(window, "visualViewport", { configurable: true, value: originalViewport }); }
 });
 
 test("settings API rejects malformed FAQ content and non-Facebook redirects and requires admin access", async () => {

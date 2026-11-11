@@ -128,7 +128,7 @@ export default function AdminDashboard() {
             <div className="flex gap-1 border-b border-neutral/10 bg-base/50 p-3" role="group" aria-label="Booking breakdown">
               {(["status", "source"] as const).map(tab => <button key={tab} type="button" aria-pressed={breakdown === tab} onClick={() => setBreakdown(tab)} className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium ${breakdown === tab ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:bg-white/60"}`}>{tab === "status" ? "Booking status" : "Booking source"}</button>)}
             </div>
-            <ReportChart key={breakdown} title={breakdown === "status" ? "Status of new bookings" : "Where bookings came from"} initialType="pie" points={breakdown === "status" ? dashboard.bookingStatuses : dashboard.bookingSources} description={breakdown === "status" ? "Current recorded status of reservations created in the last 7 days, including cancelled or expired bookings." : "Reservations created in the last 7 days. Staff entry includes phone, Messenger and walk-in bookings."} />
+            <ReportChart key={breakdown} title={breakdown === "status" ? "Status of new bookings" : "Where bookings came from"} initialType="pie" points={breakdown === "status" ? dashboard.bookingStatuses : dashboard.bookingSources} description={breakdown === "status" ? "Current recorded status of reservations created in the last 7 days, including cancelled or expired bookings." : "Reservations created in the last 7 days. Offline bookings include phone, Messenger and walk-in bookings."} />
           </div>
         </div>
       </section>
@@ -138,7 +138,7 @@ export default function AdminDashboard() {
           <div className="flex flex-wrap gap-1 rounded-xl bg-neutral/5 p-1" role="group" aria-label="Arrival period">{ranges.map(range => <button key={range} type="button" onClick={() => setArrivalRange(range)} aria-pressed={arrivalRange === range} className={`rounded-xl px-3 py-2 text-xs font-semibold ${arrivalRange === range ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:bg-white/60"}`}>{range}</button>)}</div>
         </div>
         <AdminTablePreview key={arrivalRange} title={arrivalRange === "Scheduled now" ? "Bookings scheduled now" : `Arrivals · ${arrivalRange.toLowerCase()}`} columns={columns} rows={rows} defaultSort={{ key: "checkIn", direction: "asc" }} pageSize={10} showResetFilters searchPlaceholder="Search guest or reservation reference…"
-          filters={[{ key: "status", label: "Status", options: [...new Set(rows.map(r => r.status))].sort() }, { key: "source", label: "Booked through", options: ["Online", "Staff entry", "Unspecified"] }]}
+          filters={[{ key: "status", label: "Status", options: [...new Set(rows.map(r => r.status))].sort() }, { key: "source", label: "Booked through", options: ["Online booking", "Offline booking", "Unspecified"] }]}
           actions={["Export CSV", "Refresh"]} isActionDisabled={(action, filtered) => loading || (action === "Export CSV" && (!filtered.length || Boolean(error)))}
           onAction={(action, filtered) => { if (action === "Refresh") refresh(); else downloadReportCsv(columns, filtered, `dashboard-arrivals-${arrivalRange.toLowerCase().replaceAll(" ", "-")}-${dashboard.today}.csv`); }}
           rowActions={can("reservations") ? ["View"] : []} isRowActionDisabled={() => loading}

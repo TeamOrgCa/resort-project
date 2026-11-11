@@ -49,11 +49,11 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
   const forecastEnd = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(window.end.getTime() + (horizon - 1) * 86_400_000));
   return {
     booking: {
-      ...metadata, trend: bookingTrend, split: [{ label: "Online", value: online }, { label: "Staff entry", value: staff }, { label: "Unspecified", value: reservations.length - online - staff }],
+      ...metadata, trend: bookingTrend, split: [{ label: "Online booking", value: online }, { label: "Offline booking", value: staff }, { label: "Unspecified", value: reservations.length - online - staff }],
       trendTitle: "Reservations created over time", splitTitle: "Booking sources", tableTitle: "Reservations by date",
-      metrics: [metric("Reservations created", reservations.length, "All reservation statuses, counted by booking creation date."), metric("Online bookings", online, "Reservations created through the website."), metric("Staff-entered bookings", staff, "Includes walk-ins, phone and Messenger bookings entered by staff.")],
+      metrics: [metric("Reservations created", reservations.length, "All reservation statuses, counted by booking creation date."), metric("Online bookings", online, "Reservations created through the website."), metric("Offline bookings", staff, "Includes walk-ins, phone and Messenger bookings entered by staff.")],
       rows: bookingTrend.map((item, index) => ({ id: `booking-${index}`, periodLabel: item.label, periodStart: window.boundaries[index].toISOString(), bookings: String(item.value) })),
-      note: "These counts show when bookings were created, including cancelled bookings. They do not measure arrivals, occupancy or the number of guests. Staff entry includes reservations taken outside the website; missing booking sources are shown as Unspecified.",
+      note: "These counts show when bookings were created, including cancelled bookings. They do not measure arrivals, occupancy or the number of guests. Offline bookings include reservations taken outside the website; missing booking sources are shown as Unspecified.",
     },
     revenue: {
       ...metadata, trend: revenueTrend, split: Array.from(paymentTypes, ([label, value]) => ({ label, value })),

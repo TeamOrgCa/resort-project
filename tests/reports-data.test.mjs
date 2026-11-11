@@ -61,7 +61,7 @@ test("guest report includes online and walk-in contact details and uses reservat
   const h = harness({ reservations: [booking("old", { created_at: "2026-09-01T01:00:00Z" }), booking("repeat"), booking("second"), booking("manual", { guest_id: null, walk_in_guest_id: "walk", booking_type: "walk_in", adult_count: 4, child_count: 2 }), booking("missing", { guest_id: "deleted", status: "cancelled" })], guests: [{ id: "guest", first_name: "Registered", last_name: "Guest", phone_number: "09170000000", email: "guest@example.com" }], walk_in_guests: [{ walk_in_guest_id: "walk", first_name: "Walk-in", last_name: "Guest", phone_number: "09171111111", email: "walk@example.com" }] });
   const { report } = await (await h.get("Guest Report")).json();
   assert.equal(report.rows.length, 4); assert.equal(report.metrics[0].value, 4); assert.equal(report.metrics[1].value, 15); assert.equal(report.metrics[3].value, 1);
-  const manual = report.rows.find(r => r.id === "manual"); assert.equal(manual.guest, "Walk-in Guest"); assert.equal(manual.phone, "09171111111"); assert.equal(manual.source, "Staff entry"); assert.equal(manual.history, "First-time booker");
+  const manual = report.rows.find(r => r.id === "manual"); assert.equal(manual.guest, "Walk-in Guest"); assert.equal(manual.phone, "09171111111"); assert.equal(manual.source, "Offline booking"); assert.equal(manual.history, "First-time booker");
   assert.equal(report.rows.find(r => r.id === "repeat").history, "Returning booker"); assert.equal(report.rows.find(r => r.id === "missing").guest, "Profile unavailable");
   assert.equal(report.split.reduce((sum, item) => sum + item.value, 0), 4);
   const unknown = harness({ reservations: [booking("legacy", { booking_type: null })] });

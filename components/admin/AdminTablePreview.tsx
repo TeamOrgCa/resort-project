@@ -27,6 +27,7 @@ interface AdminTablePreviewProps {
   onAction?: (action: string, rows: AdminTableRow[]) => void | Promise<void>;
   isActionDisabled?: (action: string, rows: AdminTableRow[]) => boolean;
   pageSize?: number;
+  paginationResetKey?: string;
   showResetFilters?: boolean;
   rowActions?: string[];
   getRowActionLabel?: (action: string, row: AdminTableRow) => string;
@@ -79,6 +80,7 @@ export default function AdminTablePreview({
   onAction,
   isActionDisabled,
   pageSize = 25,
+  paginationResetKey = "",
   showResetFilters = false,
   rowActions: providedRowActions = [],
   getRowActionLabel,
@@ -100,6 +102,8 @@ export default function AdminTablePreview({
   const [sortState, setSortState] = useState<AdminTableSort | null>(defaultSort ?? null);
   const [internalSelectedRowIds, setInternalSelectedRowIds] = useState<string[]>([]);
   const [page, setPage] = useState(0);
+  const [previousResetKey, setPreviousResetKey] = useState(paginationResetKey);
+  if (previousResetKey !== paginationResetKey) { setPreviousResetKey(paginationResetKey); setPage(0); }
 
   const resolvedSelectedRowIds = selectedRowIds ?? internalSelectedRowIds;
 
