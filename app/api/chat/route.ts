@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { loadPackageRates } from "@/lib/server/package-rates";
 import { configuredFaqs, exactFaqAnswer, wantsHumanSupport } from "@/lib/chatbot/config";
 import { loadChatbotSettings, requestHumanSupport } from "@/lib/server/chatbot-support";
+import { additionalServiceListReply, resortServicesReply, wantsAdditionalServices, wantsServiceList } from "@/lib/chatbot/services";
 import {
   getClientKey,
   getBookingGuidance,
@@ -68,6 +69,12 @@ export async function POST(req: NextRequest) {
     if (approvedAnswer) return NextResponse.json({ reply: approvedAnswer });
     const scopeResponse = getSafetyResponse(message, history.length > 0);
     if (scopeResponse) return NextResponse.json({ reply: scopeResponse });
+    if (wantsServiceList(message)) {
+      if (!wantsAdditionalServices(message)) return NextResponse.json({ reply: resortServicesReply() });
+      const services = await supabase.from("services").select("name,price").eq("is_active", true).order("name")
+        .then(result => result.error ? null : result.data, () => null);
+      return NextResponse.json({ reply: additionalServiceListReply(services) });
+    }
     const schedule = await loadPackageRates(supabase).catch(() => null);
     // General FAQ answers come from saved admin content. Keep deterministic
     // guidance only for live availability, package quotes and booking steps.

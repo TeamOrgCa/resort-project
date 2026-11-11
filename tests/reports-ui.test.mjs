@@ -11,8 +11,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 
-const makeReport = (tab, count = 40) => ({ startDate: "2026-10-01", endDate: "2026-10-03", generatedAt: "2026-10-03T01:00:00Z", note: "Summary covers this date range.", metrics: [{ label: "Reservations created", value: count, help: "All statuses", format: "count" }], trend: [{ label: "Oct 1, 2026", value: count }], split: [{ label: "Online", value: count }], rows: Array.from({ length: count }, (_, i) => tab === "Guest Report"
-  ? { id: `r-${i}`, reference: `MV-${i}`, guest: `Guest ${i}`, phone: "09171234567", email: `guest${i}@example.com`, source: i % 2 ? "Staff entry" : "Online", status: "Confirmed", guests: String(i + 1), startAt: "Nov 1, 2026", startSort: "2026-11-01T00:00:00Z", createdAt: `Oct ${i % 3 + 1}, 2026`, createdSort: `2026-10-0${i % 3 + 1}T01:00:00Z`, history: "First-time booker" }
+const makeReport = (tab, count = 40) => ({ startDate: "2026-10-01", endDate: "2026-10-03", generatedAt: "2026-10-03T01:00:00Z", note: "Summary covers this date range.", metrics: [{ label: "Reservations created", value: count, help: "All statuses", format: "count" }], trend: [{ label: "Oct 1, 2026", value: count }], split: [{ label: "Online booking", value: count }], rows: Array.from({ length: count }, (_, i) => tab === "Guest Report"
+  ? { id: `r-${i}`, reference: `MV-${i}`, guest: `Guest ${i}`, phone: "09171234567", email: `guest${i}@example.com`, source: i % 2 ? "Offline booking" : "Online booking", status: "Confirmed", guests: String(i + 1), startAt: "Nov 1, 2026", startSort: "2026-11-01T00:00:00Z", createdAt: `Oct ${i % 3 + 1}, 2026`, createdSort: `2026-10-0${i % 3 + 1}T01:00:00Z`, history: "First-time booker" }
   : tab === "Staff Report" ? { id: `s-${i}`, staff: `Staff ${i}`, actions: String(i + 1), latestAction: "Updated reservation", lastActive: "Oct 1, 2026", lastActiveSort: "2026-10-01T01:00:00Z" }
     : { id: `p-${i}`, label: `Oct ${i + 1}, 2026`, periodStart: `2026-10-${String(i + 1).padStart(2, "0")}T00:00:00Z`, revenue: `₱${i + 1}.00`, payments: "1", bookings: "1" }) });
 
@@ -64,7 +64,7 @@ test("guest search, source filters, reset, numeric sorting and all pagination bu
     assert.equal(h.container.querySelectorAll("tbody tr").length, 1); assert.match(h.container.querySelector("tbody").textContent, /Guest 17/);
     await click(button(h.container, "Clear table filters"));
     const source = [...h.container.querySelectorAll("label")].find(l => l.textContent.startsWith("Booked through"))?.querySelector("select");
-    await value(source, "Staff entry"); assert.match(h.container.textContent, /20 matching records/);
+    await value(source, "Offline booking"); assert.match(h.container.textContent, /20 matching records/);
     await click(button(h.container, "Clear table filters"));
     const sizeHeader = [...h.container.querySelectorAll("th button")].find(b => b.textContent.startsWith("Group size"));
     await click(sizeHeader); assert.match(h.container.querySelector("tbody tr").textContent, /Guest 0/);

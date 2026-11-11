@@ -14,7 +14,8 @@ import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { isStaffBookingWindowAllowed, STAFF_BOOKING_WINDOW_MESSAGE } from "@/lib/booking/start-time";
-import { manilaDateKey } from "@/lib/booking/manila-date";
+import { formatManilaDateTime, manilaDateKey } from "@/lib/booking/manila-date";
+import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
@@ -48,6 +49,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
   const availability = useBookingAvailability([calendarMonth, form.bookingDate.slice(0, 7)], isOpen);
   const [isSaving, setIsSaving] = useState(false);
   const saving = useRef(false);
+  const { confirm, confirmation: actionConfirmation } = useActionConfirmation();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const { root: formRoot, requestClose, reset: resetForm, captureInitial, captureChange, captureClick, confirmation } = useReservationFormGuard(isOpen, isSaving);
@@ -148,6 +150,10 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
     if (!firstName || !lastName) { setError(PERSON_NAME_ERROR); return; }
     const phoneNumber = normalizePhilippineMobile(walkIn.phoneNumber);
     if (!phoneNumber) { setError(PH_MOBILE_ERROR); return; }
+    if (!await confirm({ title: "Create manual reservation?", confirmText: "Confirm reservation", message:
+      `Create a reservation for ${firstName} ${lastName}?\n\n${formatManilaDateTime(previewWindow.startDatetime)} to ${formatManilaDateTime(previewWindow.endDatetime)} (Philippine time)\nPackage: ${form.bookingMode === "whole_day" ? "Whole day" : form.bookingMode === "night" ? "Overnight" : "Day"}\nGuests: ${adults} adult(s), ${children} child(ren)\nAccommodation: ${units.find(unit => unit.unit_id === form.unitId)?.name ?? "Selected unit"}\nTotal: ${money(preview?.total ?? 0)}\n\nThis records the reservation. Payments are recorded separately.` })) return;
+    if (saving.current) return;
+    if (!isStaffBookingWindowAllowed(previewWindow.startDatetime, previewWindow.endDatetime)) { setError(STAFF_BOOKING_WINDOW_MESSAGE); return; }
     saving.current = true; setIsSaving(true);
     try {
       const response = await fetch("/api/admin/reservations/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
@@ -242,6 +248,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
       </form>
     </div>
     {confirmation}
+    {actionConfirmation}
   </div>;
 }
 

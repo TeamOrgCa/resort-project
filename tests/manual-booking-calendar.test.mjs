@@ -12,6 +12,11 @@ const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 
 async function click(element) { assert.ok(element); assert.equal(element.disabled, false); await act(async () => element.click()); }
+async function confirmReservationIfOpen() {
+  const dialog = document.querySelector('[role="alertdialog"]');
+  const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Confirm reservation");
+  if (confirm) await click(confirm);
+}
 async function select(container, label, next) {
   const element = [...container.querySelectorAll("label")].find(item => item.textContent.startsWith(label))?.querySelector("select");
   assert.ok(element, label);
@@ -50,6 +55,29 @@ const dateForWeekday = (month, weekday) => {
   return month + "-" + String(day).padStart(2, "0");
 };
 
+test("manual creation waits for confirmation and cancelling keeps the guest and selected date", async () => {
+  const h = await mount();
+  try {
+    const c = h.container;
+    await click(c.querySelector('[aria-label="Next month"]'));
+    await click(c.querySelector("[data-date]")); await fillGuest(c);
+    const selected = c.querySelector('[data-date][aria-pressed="true"]').dataset.date;
+    const submit = () => act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await submit();
+    assert.equal(h.requests.length, 0);
+    const dialog = document.querySelector('[role="alertdialog"]');
+    assert.match(dialog.textContent, /Walk.*Guest|Guest.*Total/s);
+    assert.match(dialog.textContent, /Philippine time/);
+    assert.equal(document.activeElement.textContent, "Keep editing");
+    await click([...dialog.querySelectorAll("button")].find(button => button.textContent === "Keep editing"));
+    assert.equal(h.requests.length, 0);
+    assert.equal(c.querySelector('[data-date][aria-pressed="true"]').dataset.date, selected);
+    assert.equal(c.querySelector('input[type="email"]').value, "walkin@example.com");
+    await submit(); await confirmReservationIfOpen();
+    assert.equal(h.requests.length, 1);
+  } finally { await h.close(); }
+});
+
 test("manual reservations use a custom calendar, update weekday/weekend pricing and submit fixed Philippine package times", async () => {
   const h = await mount();
   try {
@@ -68,6 +96,7 @@ test("manual reservations use a custom calendar, update weekday/weekend pricing 
     assert.equal(h.requests.length, 0, "calendar controls must not submit the form");
     await fillGuest(c); await select(c, "Booking package", "whole_day"); await select(c, "Whole-day variant", "night_to_day");
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await confirmReservationIfOpen();
     assert.equal(h.requests.length, 1); const request = h.requests[0];
     assert.equal(request.url, "/api/admin/reservations/create"); assert.equal(request.body.packageRateVersion, 9);
     assert.equal(request.body.startDatetime, friday + "T10:00:00.000Z"); assert.equal(request.body.wholeDayVariant, "night_to_day");
@@ -85,6 +114,7 @@ test("calendar controls stay disabled while creating and a failed save preserves
     const selected = c.querySelector('[data-date][aria-pressed="true"]').dataset.date;
     await fillGuest(c);
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await confirmReservationIfOpen();
     assert.equal(c.querySelector('[aria-label="Next month"]').disabled, true);
     assert.equal(c.querySelector('[data-date="' + selected + '"]').disabled, true);
     await act(async () => resolveSave(Response.json({ success: false, message: "Selected package is already booked. Choose another date." }, { status: 409 })));
@@ -137,6 +167,7 @@ test("refreshing availability invalidates a selected package and prevents even a
     booked=true;await act(async()=>window.dispatchEvent(new window.Event("focus")));
     assert.equal(submitButton(c).disabled,true);assert.match(c.textContent,/Already reserved for this package/);
     await act(async()=>c.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+    await confirmReservationIfOpen();
     assert.equal(h.requests.length,0);
   }finally{await h.close();}
 });
@@ -155,6 +186,7 @@ test("services and quantities recalculate the bill and downpayment and are inclu
     await input(c.querySelector('[aria-label="Quantity for Karaoke"]'),"1.5");assert.equal(submitButton(c).disabled,true);
     await input(c.querySelector('[aria-label="Quantity for Karaoke"]'),"2");assert.equal(submitButton(c).disabled,false);
     await act(async()=>c.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+    await confirmReservationIfOpen();
     assert.deepEqual(h.requests[0].body.selectedServices,[{serviceId:"karaoke",quantity:2},{serviceId:"chairs",quantity:3}]);
   }finally{await h.close();}
 });
@@ -215,6 +247,7 @@ test("manual entry blocks invalid phone numbers and saves valid contacts with th
     for (const value of ["0917abc4567", "+649171234567", "+63 917 123 4567"]) {
       await input(phone, value);
       await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+      await confirmReservationIfOpen();
       if (value === "+63 917 123 4567") {
         assert.equal(h.requests.length, 1);
         assert.equal(h.requests[0].body.walkInGuest.phoneNumber, "+639171234567");
@@ -239,6 +272,7 @@ test("manual booking labels and submitted windows follow edited catalog time slo
     await click(c.querySelector('button[data-date]:not([disabled])'));
     await fillGuest(c);
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await confirmReservationIfOpen();
     assert.equal(h.requests.length, 1);
     assert.match(h.requests[0].body.startDatetime, /T01:30:00.000Z$/);
     assert.match(h.requests[0].body.endDatetime, /T09:00:00.000Z$/);
@@ -265,6 +299,7 @@ test("an independently edited whole-day slot remains selectable when day and nig
     assert.match(day.textContent, /Whole day only/);
     await click(day); await fillGuest(c);
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await confirmReservationIfOpen();
     assert.equal(h.requests[0].body.bookingMode, "whole_day");
     assert.equal(h.requests[0].body.wholeDayVariant, "day_to_night");
     assert.equal(h.requests[0].body.startDatetime, date + "T06:00:00.000Z");
@@ -285,6 +320,7 @@ test("staff cannot select an ongoing package and can still submit a future night
     assert.doesNotMatch(c.textContent, /Choose a start time at least 30 minutes/);
     await select(c, "Booking package", "night"); await fillGuest(c);
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await confirmReservationIfOpen();
     assert.equal(h.requests.length, 1);
     assert.equal(h.requests[0].body.startDatetime, today + "T10:00:00.000Z");
     assert.equal(h.requests[0].body.endDatetime, new Date(Date.parse(today + "T22:00:00Z")).toISOString());
@@ -303,6 +339,7 @@ test("staff cannot select or submit today's fully ended package", async () => {
     assert.equal(dayOption.disabled, true);
     await fillGuest(c);
     await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await confirmReservationIfOpen();
     assert.equal(h.requests.length, 0);
     assert.match(c.textContent, /scheduled start time is still in the future/);
   } finally { if (h) await h.close(); Date.now = originalNow; }
@@ -323,6 +360,7 @@ test("manual reservations allow blank email and month navigation stays clean whi
     await fillGuest(c);
     await input(c.querySelector('input[type="email"]'),"");
     await act(async()=>c.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+    await confirmReservationIfOpen();
     assert.equal(h.requests.length,1); assert.equal(h.requests[0].body.walkInGuest.email,"");
     assert.equal(h.created(),1);
   } finally {await h.close();}

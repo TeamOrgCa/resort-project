@@ -19,7 +19,7 @@ const labels: Record<string, string> = {
 };
 const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 const dateTime = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" });
-const source = (value: string | null) => value === "online" ? "Online" : value === "walk_in" ? "Staff entry" : "Unspecified";
+const source = (value: string | null) => value === "online" ? "Online booking" : value === "walk_in" ? "Offline booking" : "Unspecified";
 const rounded = (value: number) => Math.round(value * 100) / 100;
 
 /** No illustration values or response-size caps. Calendar boundaries use Philippine time. */

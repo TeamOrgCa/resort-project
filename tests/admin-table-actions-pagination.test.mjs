@@ -85,8 +85,8 @@ test("refund requests and their payment records have separate pagination and res
     const pager = container.querySelector('[aria-label="Refund requests pagination"]');
     assert.equal(container.querySelectorAll("tbody tr").length, 25); await click(button(pager, "Next")); assert.equal(container.querySelectorAll("tbody tr").length, 2);
     const filter = container.querySelector("select");
-    await act(async () => { filter.value = "reviewed"; filter.dispatchEvent(new window.Event("change", { bubbles: true })); });
-    assert.match(pager.textContent, /Page 1 of 1/); await click(button(container, "View"));
+    await act(async () => { filter.value = "pending"; filter.dispatchEvent(new window.Event("change", { bubbles: true })); });
+    assert.match(pager.textContent, /Page 1 of 2/); await click(button(container, "View"));
     const dialog = document.querySelector('[role="dialog"]'); assert.equal(dialog.querySelectorAll("tbody tr").length, 10);
     await click(button(dialog.querySelector('[aria-label="Refund payment records pagination"]'), "Next"));
     assert.equal(dialog.querySelectorAll("tbody tr").length, 2); assert.match(dialog.textContent, /PAYMENT-11/);

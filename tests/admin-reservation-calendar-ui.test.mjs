@@ -15,6 +15,11 @@ const base = { guest_id: "guest", start_datetime: day + "T00:00:00+08:00", end_d
 const button = (c,label) => [...c.querySelectorAll("button")].find(el => (el.getAttribute("aria-label") ?? el.textContent.trim()) === label);
 const agenda = () => document.querySelector('[aria-label="Mobile calendar entries"]');
 const click = async el => { assert.ok(el); assert.equal(el.disabled,false); await act(async () => el.click()); };
+async function confirmMaintenanceIfOpen() {
+  const dialog = document.querySelector('[role="alertdialog"]');
+  const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Confirm maintenance block");
+  if (confirm) await click(confirm);
+}
 async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
@@ -129,6 +134,7 @@ test("calendar colors and viewed dots persist per staff account and reset colors
     const settings = button(h.c, "Calendar color settings"); settings.focus();
     await click(settings);
     assert.match(document.querySelector('[role="dialog"]').textContent, /Calendar colors/);
+    assert.ok(document.querySelector('[aria-label="Confirmed color"]').classList.contains("calendar-color-picker"));
     await input(document.querySelector('[aria-label="Confirmed color"]'), "#ffffff");
     assert.equal(event().style.backgroundColor, "rgb(255, 255, 255)");
     assert.equal(event().style.color, "rgb(17, 17, 17)");
@@ -243,6 +249,12 @@ test("server-verified manager access shows the maintenance action without anothe
     const dialog=document.querySelector('[role="dialog"]');assert.match(dialog.textContent,/Add maintenance block/);
     const inputs=dialog.querySelectorAll("input");await input(inputs[0],"Pool maintenance");await input(inputs[1],"Pool repairs");await input(inputs[2],day);await input(inputs[3],tomorrow);
     await act(async()=>dialog.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+    assert.equal(h.calls.length, 0);
+    assert.match(document.querySelector('[role="alertdialog"]').textContent, /Pool maintenance.*Philippine time.*prevents new reservations/s);
+    await click(button(document.querySelector('[role="alertdialog"]'), "Keep editing"));
+    assert.equal(h.calls.length, 0); assert.equal(inputs[0].value, "Pool maintenance");
+    await act(async()=>dialog.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+    await confirmMaintenanceIfOpen();
     assert.equal(document.querySelector('[role="dialog"]'),null);
     assert.deepEqual(h.calls,[{url:"/api/admin/maintenance-blocks",body:{name:"Pool maintenance",reason:"Pool repairs",startDate:day,endDate:tomorrow,startTime:"08:00",endTime:"17:00",allDay:false}}]);
     assert.match(agenda().textContent,/Pool maintenance/);assert.match(h.c.textContent,/Maintenance period blocked successfully/);
@@ -256,6 +268,7 @@ test("maintenance conflicts remain visible in the modal and staff cannot see an 
     await click(button(h.c,"Add maintenance block"));const dialog=document.querySelector('[role="dialog"]');const inputs=dialog.querySelectorAll("input");
     for (const [index,next] of ["Pool maintenance","Pool repairs",day,tomorrow].entries()) await input(inputs[index],next);
     await act(async()=>dialog.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+    await confirmMaintenanceIfOpen();
     assert.match(dialog.querySelector('[role="alert"]').textContent,/active reservation/);assert.ok(button(dialog,"Create maintenance block"));assert.equal(inputs[0].value,"Pool maintenance");assert.equal(inputs[1].value,"Pool repairs");
   }finally{await h.close();}
   const staff=await mount({initialAccess:{role:"staff",permissions:["reservations"]}});

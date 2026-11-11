@@ -27,6 +27,14 @@
   --foreground: #3B2A1E;
 }
 
+/* Native color inputs need swatch styling in both Chromium/WebKit and Firefox. */
+.calendar-color-picker { appearance: none; -webkit-appearance: none; width: 44px; height: 44px; min-width: 44px; flex-shrink: 0; padding: 3px; overflow: hidden; border: 1px solid var(--neutral); border-radius: 50%; background: white; cursor: pointer; }
+.calendar-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
+.calendar-color-picker::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.calendar-color-picker::-moz-color-swatch { border: 0; border-radius: 50%; }
+.calendar-color-picker:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.calendar-color-picker:disabled { cursor: not-allowed; opacity: .5; }
+
 @theme inline {
   --color-primary: var(--primary);
   --color-secondary: var(--secondary);

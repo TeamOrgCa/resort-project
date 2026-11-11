@@ -5,6 +5,7 @@ import type { AdminTableColumn, AdminTableFilter, AdminTableRow, AdminTableSort 
 
 interface TransactionsTablePanelProps {
   title: string;
+  paginationResetKey?: string;
   columns: AdminTableColumn[];
   rows: AdminTableRow[];
   defaultSort?: AdminTableSort;
@@ -20,6 +21,7 @@ interface TransactionsTablePanelProps {
 
 export default function TransactionsTablePanel({
   title,
+  paginationResetKey,
   columns,
   rows,
   defaultSort,
@@ -35,6 +37,7 @@ export default function TransactionsTablePanel({
   return (
     <AdminTablePreview
       title={title}
+      paginationResetKey={paginationResetKey}
       columns={columns}
       rows={rows}
       defaultSort={defaultSort}

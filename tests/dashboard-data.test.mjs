@@ -45,6 +45,7 @@ test("booking charts include all recorded statuses, accurate sources, and real w
     reservation("outside", { created_at: "2026-10-06T15:59:59Z", guest_id: "missing" })], walk_in_guests: [{ walk_in_guest_id: "w1", first_name: "Ben", last_name: "Cruz" }] });
   const snapshot = await h.generateDashboard(now);
   assert.equal(snapshot.bookingsCreated, 3); assert.deepEqual(snapshot.bookingSources.map(p => p.value), [1, 1, 1]);
+  assert.deepEqual(new Set(snapshot.bookingSources.map(p => p.label)), new Set(["Online booking", "Offline booking", "Unspecified"]));
   assert.equal(snapshot.bookingStatuses.find(p => p.label === "Cancelled").value, 1); assert.equal(snapshot.bookingStatuses.reduce((s, p) => s + p.value, 0), 3);
   assert.equal(snapshot.reservations.find(r => r.id === "walk-in").guest, "Ben Cruz"); assert.equal(snapshot.reservations.find(r => r.id === "outside").guest, "Guest name unavailable");
 });

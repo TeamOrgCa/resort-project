@@ -26,6 +26,7 @@ import { isWindowAvailable } from "@/lib/booking/availability";
 import { createClient } from "@/lib/supabase/client";
 import { CALENDAR_COLORS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
 import { useCalendarAppearance } from "@/components/admin/use-calendar-appearance";
+import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 
 type Reservation = {
   reservation_id: string;
@@ -146,6 +147,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [blockAllDay, setBlockAllDay] = useState(false);
   const [createdBlockId, setCreatedBlockId] = useState<string | null>(null);
   const [blockBusy, setBlockBusy] = useState(false);
+  const blockSubmitting = useRef(false);
+  const { confirm, confirmation: actionConfirmation } = useActionConfirmation();
   const [blockMessage, setBlockMessage] = useState<string | null>(null);
   const [blockError, setBlockError] = useState<string | null>(null);
   const [guests, setGuests] = useState<Record<string, Guest>>({});
@@ -275,7 +278,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   }, [initialAccess]);
 
   const saveBlock = async () => {
-    if (blockBusy || !canManageMaintenance) return;
+    if (blockSubmitting.current || !canManageMaintenance) return;
+    if (!blockName.trim() || !blockReason.trim() || !blockStart || !blockEnd || blockEnd < blockStart || (!blockAllDay && `${blockEnd}T${blockEndTime}` <= `${blockStart}T${blockStartTime}`)) {
+      setBlockError("Enter a name, reason and valid maintenance period. The end must be after the start."); return;
+    }
+    if (!await confirm({ title: "Create maintenance block?", confirmText: "Confirm maintenance block", message:
+      `${blockName.trim()}\n${blockAllDay ? `${blockStart} to ${blockEnd}, entire day(s), inclusive` : `${blockStart} ${blockStartTime} to ${blockEnd} ${blockEndTime}`} (Philippine time)\nReason: ${blockReason.trim()}\n\nThis prevents new reservations and ocular visits during the selected period. Existing conflicting bookings or visits will prevent creation.` })) return;
+    if (blockSubmitting.current) return;
+    blockSubmitting.current = true;
     setBlockBusy(true); setBlockMessage(null); setBlockError(null);
     try {
       const response = await fetch("/api/admin/maintenance-blocks", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -291,7 +301,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       setMonth(manilaCalendarDate(blockStart)); setSelectedDay(blockStart);
       setRefreshKey(key => key + 1);
     } catch (error) { setBlockError(error instanceof Error ? error.message : "Unable to create block."); }
-    finally { setBlockBusy(false); }
+    finally { blockSubmitting.current = false; setBlockBusy(false); }
   };
 
   const releaseBlock = async (blockId: string) => {
@@ -541,7 +551,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     </section>
     {showColorSettings && <CatalogDialog title="Calendar colors" description="Choose your status colors. Items needing attention always use red. Your choices are saved automatically for your account in this browser." busy={false} onClose={() => setShowColorSettings(false)}>
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{(Object.keys(CALENDAR_COLORS) as CalendarColorKey[]).map(key => <label key={key} className="flex items-center gap-2 text-xs">
-        <input type="color" aria-label={`${CALENDAR_COLORS[key].label} color`} disabled={!appearance.ready} value={appearance.colors[key]} onChange={event => appearance.setColor(key, event.target.value)} className="h-11 w-11 cursor-pointer rounded border" />{CALENDAR_COLORS[key].label}
+        <input type="color" aria-label={`${CALENDAR_COLORS[key].label} color`} disabled={!appearance.ready} value={appearance.colors[key]} onChange={event => appearance.setColor(key, event.target.value)} className="calendar-color-picker" />{CALENDAR_COLORS[key].label}
       </label>)}</div>
       <button type="button" onClick={appearance.resetColors} disabled={!appearance.ready} className="mt-3 min-h-11 rounded-lg border px-3 text-xs font-semibold">Reset default colors</button>
     </CatalogDialog>}
@@ -688,5 +698,6 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       setMonth(manilaCalendarDate(booking.date)); setSelectedDay(booking.date);
       setRefreshKey(key => key + 1); setCancellationMessage("Manual reservation created. New bookings have a glowing dot until you view them.");
     }} />
+    {actionConfirmation}
   </div>;
 }

@@ -16,6 +16,7 @@ import GuestAccountsPanel from "@/components/admin/users/GuestAccountsPanel";
 import type { StaffUserFormValues, StaffUserTableRow } from "@/components/admin/users/types";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
+import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 
 const userTabs = ["Staff Accounts", "Guest Accounts", "Role Permission Matrix"] as const;
 
@@ -35,6 +36,7 @@ type ToastState = {
 } | null;
 
 export default function AdminUsersPage() {
+  const { confirm, confirmation } = useActionConfirmation();
   const [activeTab, setActiveTab] = useState<(typeof userTabs)[number]>("Staff Accounts");
   const [rows, setRows] = useState<StaffUserRecord[]>([]);
   const [currentStaffUserId, setCurrentStaffUserId] = useState<string>("");
@@ -126,6 +128,7 @@ export default function AdminUsersPage() {
   };
 
   const handleCreateStaff = async (values: StaffUserFormValues) => {
+    if (!await confirm({ title: "Create staff account?", confirmText: "Confirm create account", message: `Create an ${values.isActive ? "active" : "inactive"} account for ${values.fullName} (${values.email})?\nRole: ${values.role === "staff" ? "Manager" : values.role === "admin" ? "Admin" : "Cashier"}.\n\nThe account will use the permissions assigned to this role.` })) return;
     setCreateError("");
     setIsCreating(true);
 
@@ -157,6 +160,7 @@ export default function AdminUsersPage() {
     if (!selectedStaff) {
       return;
     }
+    if (!await confirm({ title: "Save staff account changes?", confirmText: "Confirm account changes", message: `Update ${selectedStaff.email}?\nName: ${values.fullName}\nRole: ${values.role === "staff" ? "Manager" : values.role === "admin" ? "Admin" : "Cashier"}\nStatus: ${values.isActive ? "Active" : "Deactivated"}\n\nRole and status changes affect this account's access.` })) return;
 
     setEditError("");
     setIsEditing(true);
@@ -190,6 +194,7 @@ export default function AdminUsersPage() {
     if (!selectedStaff) {
       return;
     }
+    if (!await confirm({ title: "Reset staff password?", confirmText: "Confirm password reset", message: `Replace the password for ${selectedStaff.email} with the new temporary password? Their current password will stop working.` })) return;
 
     setPasswordError("");
     setIsResettingPassword(true);
@@ -245,6 +250,7 @@ export default function AdminUsersPage() {
         showToast("error", "Admin accounts cannot be disabled.");
         return;
       }
+      if (!await confirm({ title: staffRecord.is_active ? "Deactivate staff account?" : "Reactivate staff account?", confirmText: staffRecord.is_active ? "Confirm deactivation" : "Confirm reactivation", cancelText: "Cancel", message: `${staffRecord.full_name} (${staffRecord.email})\n\n${staffRecord.is_active ? "This staff member will lose access to the staff portal." : "This staff member will regain access with their assigned role permissions."}` })) return;
       setEditError("");
       setSelectedStaff(staffRecord);
       setIsEditing(true);
@@ -279,6 +285,7 @@ export default function AdminUsersPage() {
 
   return (
     <div>
+      {confirmation}
       <AdminSectionHeader
         title="User Management and Access Control"
         subtitle="Manage staff and guest access, assign staff roles, and enforce access-level boundaries."

@@ -13,7 +13,7 @@ const requestCounts = new Map<string, { count: number; windowStartedAt: number }
 
 const promptInjectionPattern = /ignore\s+(all|any|the|previous)|system\s+prompt|developer\s+message|jailbreak|reveal\s+(your|the)\s+(instructions|prompt)|pretend\s+to\s+be|bypass\s+(your|the)\s+(rules|safety)/i;
 const sensitiveRequestPattern = /password|api\s*key|secret|token|private\s+data|credit\s*card|bank\s+account|payment\s+credential|login\s+credential/i;
-const resortTopicPattern = /marville|resort|booking|reservation|room|pool|swim|swimming|rate|price|cost|fee|payment|gcash|ocular|cottage|videoke|grill|parking|food|dining|catering|address|location|waze|phone|contact|instagram|facebook|tiktok|check\s*-?in|check\s*-?out|day|night|overnight|whole\s*day|amenit|cancel|reschedul|refund|corkage|mattress|extension|hours?|open|available|weekend|weekday|holiday|deposit|down\s*payment|pax|guest/i;
+const resortTopicPattern = /marville|resort|\bservices?\b|booking|reservation|room|pool|swim|swimming|rate|price|cost|fee|payment|gcash|ocular|cottage|videoke|grill|parking|food|dining|catering|address|location|waze|phone|contact|instagram|facebook|tiktok|check\s*-?in|check\s*-?out|day|night|overnight|whole\s*day|amenit|cancel|reschedul|refund|corkage|mattress|extension|hours?|open|available|weekend|weekday|holiday|deposit|down\s*payment|pax|guest/i;
 const greetingPattern = /^(hi|hello|hey|good\s+(morning|afternoon|evening)|thanks|thank\s+you|help)\b/i;
 
 export const resortContext = (() => {

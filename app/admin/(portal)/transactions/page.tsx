@@ -41,6 +41,8 @@ import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
 import { loadReservationGuestNames } from "@/lib/booking/reservation-guest-names";
+import { manilaDateKey } from "@/lib/booking/manila-date";
+import { resolveDateRange, withinDateRange, type DatePreset } from "@/lib/admin/date-range";
 
 interface PaymentSnapshotRow {
   payment_id: string;
@@ -174,6 +176,12 @@ export default function AdminTransactionsPage() {
     invoices: "Generated Invoices", receipts: "Issued Receipts",
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [datePreset, setDatePreset] = useState<DatePreset>("overall");
+  const [filterDay, setFilterDay] = useState(() => manilaDateKey(new Date()));
+  const [customStart, setCustomStart] = useState(() => manilaDateKey(new Date()));
+  const [customEnd, setCustomEnd] = useState(() => manilaDateKey(new Date()));
+  const dateRange = useMemo(() => resolveDateRange(datePreset, customStart, customEnd, `${filterDay}T12:00:00+08:00`), [datePreset, customStart, customEnd, filterDay]);
+  const dateFilterKey = `${datePreset}:${dateRange.start}:${dateRange.end}:${dateRange.error}`;
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
@@ -184,7 +192,6 @@ export default function AdminTransactionsPage() {
   const [bookingTypesById, setBookingTypesById] = useState<Record<string, string>>({});
   const [paymentReferencesById, setPaymentReferencesById] = useState<Record<string, string>>({});
   const [paymentReservationById, setPaymentReservationById] = useState<Record<string, string>>({});
-  const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
   const [payments, setPayments] = useState<PaymentSnapshotRow[]>([]);
   const [canReviewPayments, setCanReviewPayments] = useState(false);
   const [canRecordPayments, setCanRecordPayments] = useState(false);
@@ -213,9 +220,11 @@ export default function AdminTransactionsPage() {
   const [invoiceDetails, setInvoiceDetails] = useState<InvoiceViewDetails | null>(null);
 
   useEffect(() => {
-    const refreshOnFocus = () => setRefreshRevision((revision) => revision + 1);
+    const updateDay = () => setFilterDay(manilaDateKey(new Date()));
+    const timer = window.setInterval(updateDay, 60_000);
+    const refreshOnFocus = () => { updateDay(); setRefreshRevision((revision) => revision + 1); };
     window.addEventListener("focus", refreshOnFocus);
-    return () => window.removeEventListener("focus", refreshOnFocus);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshOnFocus); };
   }, []);
 
   useEffect(() => {
@@ -313,7 +322,6 @@ export default function AdminTransactionsPage() {
         setPaymentReferencesById(nextPaymentReferencesById);
         setPaymentReservationById(nextPaymentReservationById);
         setPayments(paymentRows);
-        setPendingPaymentCount(paymentRows.filter((payment) => payment.status === "pending").length);
       } catch {
         if (!isMounted) return;
         setFetchError("Failed to load transaction records.");
@@ -331,9 +339,14 @@ export default function AdminTransactionsPage() {
     };
   }, [refreshRevision]);
 
+  const matchingTransactions = useMemo(() => transactions.filter(item => withinDateRange(item.updated_at, dateRange)), [transactions, dateRange]);
+  const matchingInvoices = useMemo(() => invoices.filter(item => withinDateRange(item.created_at, dateRange)), [invoices, dateRange]);
+  const matchingReceipts = useMemo(() => receipts.filter(item => withinDateRange(item.issued_at, dateRange)), [receipts, dateRange]);
+  const matchingPayments = useMemo(() => payments.filter(item => withinDateRange(item.paid_at, dateRange)), [payments, dateRange]);
+
   const transactionRows: AdminTableRow[] = useMemo(
     () =>
-      transactions.map((transaction) => {
+      matchingTransactions.map((transaction) => {
         const totalAmount = Number(transaction.total_amount ?? 0);
         const paidAmount = Number(transaction.paid_amount ?? 0);
         const balanceAmount = Number(transaction.balance ?? 0);
@@ -351,12 +364,12 @@ export default function AdminTransactionsPage() {
           updatedAt: formatDateTime(transaction.updated_at),
         };
       }),
-    [bookingTypesById, reservationReferencesById, guestNamesByReservationId, transactions]
+    [bookingTypesById, reservationReferencesById, guestNamesByReservationId, matchingTransactions]
   );
 
   const invoiceRows: AdminTableRow[] = useMemo(
     () =>
-      invoices.map((invoice) => ({
+      matchingInvoices.map((invoice) => ({
         id: invoice.invoice_id,
         invoiceId: invoice.invoice_id.slice(0, 8).toUpperCase(),
         guest: guestNamesByReservationId[invoice.reservation_id] ?? "Guest unavailable",
@@ -364,12 +377,12 @@ export default function AdminTransactionsPage() {
         total: formatCurrency(Number(invoice.total_amount ?? 0)),
         createdAt: formatDateTime(invoice.created_at),
       })),
-    [invoices, reservationReferencesById, guestNamesByReservationId]
+    [matchingInvoices, reservationReferencesById, guestNamesByReservationId]
   );
 
   const receiptRows: AdminTableRow[] = useMemo(
     () =>
-      receipts.map((receipt) => ({
+      matchingReceipts.map((receipt) => ({
         id: receipt.receipt_id,
         receiptNumber: receipt.receipt_number,
         guest: receipt.billed_to_name?.trim() || guestNamesByReservationId[paymentReservationById[receipt.payment_id] ?? ""] || "Guest unavailable",
@@ -378,12 +391,12 @@ export default function AdminTransactionsPage() {
         issuedAt: formatDateTime(receipt.issued_at),
         status: receipt.is_active === false ? "Archived" : receipt.archived_at ? "Archived" : "Active",
       })),
-    [paymentReferencesById, paymentReservationById, receipts, reservationReferencesById, guestNamesByReservationId]
+    [paymentReferencesById, paymentReservationById, matchingReceipts, reservationReferencesById, guestNamesByReservationId]
   );
 
   const paymentVerificationRows: AdminTableRow[] = useMemo(
     () =>
-      payments.map((payment) => ({
+      matchingPayments.map((payment) => ({
         id: payment.payment_id,
         reservationId: payment.reservation_id,
         reference: reservationReferencesById[payment.reservation_id] ?? "-",
@@ -396,28 +409,28 @@ export default function AdminTransactionsPage() {
         paidAt: payment.paid_at ? formatDateTime(payment.paid_at) : "-",
         proofPath: payment.proof_path,
       })),
-    [payments, reservationReferencesById, guestNamesByReservationId]
+    [matchingPayments, reservationReferencesById, guestNamesByReservationId]
   );
 
   const totalDue = useMemo(
-    () => transactions.reduce((sum, item) => sum + Number(item.total_amount ?? 0), 0),
-    [transactions]
+    () => matchingTransactions.reduce((sum, item) => sum + Number(item.total_amount ?? 0), 0),
+    [matchingTransactions]
   );
 
   const collected = useMemo(
-    () => transactions.reduce((sum, item) => sum + Number(item.paid_amount ?? 0), 0),
-    [transactions]
+    () => matchingTransactions.reduce((sum, item) => sum + Number(item.paid_amount ?? 0), 0),
+    [matchingTransactions]
   );
 
   const outstanding = useMemo(
-    () => transactions.reduce((sum, item) => sum + Number(item.balance ?? 0), 0),
-    [transactions]
+    () => matchingTransactions.reduce((sum, item) => sum + Number(item.balance ?? 0), 0),
+    [matchingTransactions]
   );
   const overpaid = useMemo(
-    () => transactions.reduce((sum, item) => sum + Number(item.overpaid_amount ?? 0), 0),
-    [transactions]
+    () => matchingTransactions.reduce((sum, item) => sum + Number(item.overpaid_amount ?? 0), 0),
+    [matchingTransactions]
   );
-  const pendingVerifications = pendingPaymentCount;
+  const pendingVerifications = matchingPayments.filter(payment => payment.status === "pending").length;
 
   const liveTransactionMetrics = useMemo(
     () => [
@@ -425,7 +438,7 @@ export default function AdminTransactionsPage() {
       { label: "Collected", value: formatCurrency(collected), trend: `${totalDue > 0 ? ((collected / totalDue) * 100).toFixed(1) : 0}% collected` },
       { label: "Outstanding", value: formatCurrency(outstanding), trend: "Requires follow-up" },
       { label: "Overpaid", value: formatCurrency(overpaid), trend: "Above billed totals" },
-      { label: "Pending Verifications", value: String(pendingVerifications), trend: "All unresolved payment proofs" },
+      { label: "Pending Verifications", value: String(pendingVerifications), trend: "Unresolved proofs in the selected payment date range" },
     ],
     [collected, outstanding, overpaid, pendingVerifications, totalDue]
   );
@@ -541,7 +554,6 @@ export default function AdminTransactionsPage() {
     setPayments((current) => current.map((payment) => payment.payment_id === paymentId
       ? { ...payment, status: data.status } : payment));
     setReviewPayment((current) => current?.payment_id === paymentId ? { ...current, status: data.status } : current);
-    setPendingPaymentCount((current) => Math.max(current - 1, 0));
     setReviewDecision(null);
     setScreenshotReviewed(false);
     return true;
@@ -579,7 +591,6 @@ export default function AdminTransactionsPage() {
 
       setPayments((current) => current.map((payment) => payment.payment_id === paymentId
         ? { ...payment, status: decision === "approve" ? "verified" : "rejected" } : payment));
-      setPendingPaymentCount((current) => Math.max(current - 1, 0));
       proofRequestId.current += 1;
       setReviewPayment(null);
       setReviewDecision(null);
@@ -866,15 +877,33 @@ export default function AdminTransactionsPage() {
       <section className="admin-panel mt-6">
         <AdminTabs tabs={transactionTabs} value={activeTab} onChange={setActiveTab} label="Transaction sections" />
 
-        {activeTab !== "Refund Requests" && <p className="mb-4 text-xs leading-relaxed text-neutral/65">Transaction and receipt tables include all records with pagination. CSV exports include every row matching the table search and filters.</p>}
+        {activeTab !== "Refund Requests" && <p className="mb-4 text-xs leading-relaxed text-neutral/65">Tables include records in the selected date range with pagination. CSV exports include every row matching the date range, table search and filters.</p>}
         {activeTab === "Generated Invoices" && <p className="mb-4 text-sm text-neutral/70">Invoices are generated automatically from reservation billing. Refresh to load the latest documents, or select View to inspect an invoice.</p>}
         {activeTab === "Issued Receipts" && <p className="mb-4 text-sm text-neutral/70">Receipts are issued automatically for verified payments. Select Print to print a receipt or save it as a PDF.</p>}
+
+        <section aria-label="Transaction date filters" className="mb-5 border-b border-neutral/10 pb-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="min-w-0 flex-1 text-sm font-medium sm:max-w-xs">Date range
+              <select value={datePreset} onChange={event => setDatePreset(event.target.value as DatePreset)} className="admin-field mt-1 w-full">
+                <option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="overall">Overall</option><option value="custom">Custom date</option>
+              </select>
+            </label>
+            {datePreset === "custom" && <>
+              <label className="min-w-0 flex-1 text-sm font-medium sm:max-w-52">Start date<input type="date" value={customStart} onChange={event => setCustomStart(event.target.value)} aria-invalid={Boolean(dateRange.error)} className="admin-field mt-1 w-full" /></label>
+              <label className="min-w-0 flex-1 text-sm font-medium sm:max-w-52">End date<input type="date" min={customStart} value={customEnd} onChange={event => setCustomEnd(event.target.value)} aria-invalid={Boolean(dateRange.error)} className="admin-field mt-1 w-full" /></label>
+            </>}
+          </div>
+          {dateRange.error && <p role="alert" className="mt-3 text-sm text-red-700">{dateRange.error}</p>}
+          <p className="mt-3 text-xs leading-relaxed text-neutral/65">Philippine time. Weeks run Monday–Sunday; custom dates include both days. Filtering by {activeTab === "Transaction Ledger" ? "ledger update date" : activeTab === "Generated Invoices" ? "invoice creation date" : activeTab === "Issued Receipts" ? "receipt issue date" : activeTab === "Refund Requests" ? "refund request date" : "payment date"}.</p>
+          <p className="mt-1 text-xs leading-relaxed text-neutral/65">Bill totals show the current amounts and balances of ledger entries updated in this range. Pending verifications use payment dates.</p>
+        </section>
 
         {activeTab === "Transaction Ledger" && (
           <TransactionsTablePanel
             title={isLoading ? "Transaction Ledger (Loading...)" : "Transaction Ledger"}
             columns={transactionColumns}
             rows={transactionRows}
+            paginationResetKey={dateFilterKey}
             defaultSort={{ key: "updatedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid", "Cancelled"] }]}
             actions={canRecordPayments ? ["Refresh ledger", "Record cash", "Export Ledger"] : ["Refresh ledger", "Export Ledger"]}
@@ -903,6 +932,7 @@ export default function AdminTransactionsPage() {
             title={isLoading ? "Generated Invoices (Loading...)" : "Generated Invoices"}
             columns={invoiceColumns}
             rows={invoiceRows}
+            paginationResetKey={dateFilterKey}
             defaultSort={{ key: "createdAt", direction: "desc" }}
             actions={["Refresh invoices", "Export invoices CSV"]}
             rowActions={["View"]}
@@ -925,6 +955,7 @@ export default function AdminTransactionsPage() {
               title={isLoading ? "Payment Verification Queue (Loading...)" : "Payment Verification Queue"}
               columns={paymentVerificationColumns}
               rows={paymentVerificationRows}
+              paginationResetKey={dateFilterKey}
               defaultSort={{ key: "paidAt", direction: "desc" }}
               filters={[
                 { key: "status", label: "Status", options: ["Pending", "Verified", "Rejected"] },
@@ -943,6 +974,7 @@ export default function AdminTransactionsPage() {
             title={isLoading ? "Issued Receipts (Loading...)" : "Issued Receipts"}
             columns={receiptColumns}
             rows={receiptRows}
+            paginationResetKey={dateFilterKey}
             defaultSort={{ key: "issuedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Active", "Archived"] }]}
             actions={["Refresh receipts", "Export receipts CSV"]}
@@ -956,7 +988,7 @@ export default function AdminTransactionsPage() {
             onRowAction={handleReceiptRowAction}
           />
         )}
-        {activeTab === "Refund Requests" && <RefundRequestsPanel onUpdated={() => setRefreshRevision(n => n + 1)} />}
+        {activeTab === "Refund Requests" && <RefundRequestsPanel dateRange={dateRange} paginationResetKey={dateFilterKey} onUpdated={() => setRefreshRevision(n => n + 1)} />}
       </section>
 
       <InvoiceDetailsModal

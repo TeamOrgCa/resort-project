@@ -20,6 +20,13 @@ test("the permission matrix saves Manager and Cashier changes using one save act
     assert.equal([...container.querySelectorAll("button")].filter(button => button.textContent === "Save permissions").length, 1);
     for (const role of ["Manager", "Cashier"]) await act(async () => [...container.querySelectorAll("input")].find(input => input.getAttribute("aria-label").startsWith(role) && !input.disabled && !input.checked).click());
     await act(async () => [...container.querySelectorAll("button")].find(button => button.textContent === "Save permissions").click());
+    assert.equal(writes.length, 0);
+    const dialog = document.querySelector('[role="alertdialog"]');
+    assert.match(dialog.textContent, /Manager:.*Allow:.*Cashier:.*Allow:/s);
+    await act(async () => [...dialog.querySelectorAll("button")].find(button => button.textContent === "Keep editing").click());
+    assert.equal(writes.length, 0);
+    await act(async () => [...container.querySelectorAll("button")].find(button => button.textContent === "Save permissions").click());
+    await act(async () => [...document.querySelector('[role="alertdialog"]').querySelectorAll("button")].find(button => button.textContent === "Confirm save permissions").click());
     assert.equal(writes.length, 1); assert.equal(writes[0].roles.length, 2);
     assert.ok(writes[0].roles.every(role => role.permissions.length === 2));
     assert.match(container.querySelector('[role="status"]').textContent, /permissions saved/);

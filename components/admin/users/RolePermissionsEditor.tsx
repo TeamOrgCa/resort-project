@@ -3,10 +3,13 @@
 import TablePagination from "@/components/admin/TablePagination";
 import { useEffect, useRef, useState } from "react";
 import { PERMISSIONS, PERMISSION_LABELS, hasPermission, isPermissionAssignable, type Permission } from "@/lib/auth/role-access";
+import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 
 type EditableRole = "staff" | "cashier";
 export default function RolePermissionsEditor() {
   const [grants, setGrants] = useState<Record<EditableRole, string[]>>({ staff: [], cashier: [] });
+  const [savedGrants, setSavedGrants] = useState<Record<EditableRole, string[]>>({ staff: [], cashier: [] });
+  const { confirm, confirmation } = useActionConfirmation();
   const [page, setPage] = useState(0);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -19,8 +22,9 @@ export default function RolePermissionsEditor() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message ?? "Unable to load permissions.");
       setLoaded(true);
-      setGrants(Object.fromEntries((["staff", "cashier"] as const).map(role => [role, PERMISSIONS.filter(permission =>
-        hasPermission(role, data.roles.find((row: { role: string }) => row.role === role)?.permissions ?? [], permission))])) as Record<EditableRole, string[]>);
+      const loadedGrants = Object.fromEntries((["staff", "cashier"] as const).map(role => [role, PERMISSIONS.filter(permission =>
+        hasPermission(role, data.roles.find((row: { role: string }) => row.role === role)?.permissions ?? [], permission))])) as Record<EditableRole, string[]>;
+      setGrants(loadedGrants); setSavedGrants(loadedGrants);
     }).catch((cause) => setError(cause.message)).finally(() => setLoading(false));
   }, []);
   const toggle = (role: EditableRole, permission: Permission) => {
@@ -29,6 +33,13 @@ export default function RolePermissionsEditor() {
   };
   const save = async () => {
     if (submitting.current || !loaded) return;
+    const changes = (["staff", "cashier"] as const).map(role => {
+      const added = grants[role].filter(value => !savedGrants[role].includes(value));
+      const removed = savedGrants[role].filter(value => !grants[role].includes(value));
+      return `${role === "staff" ? "Manager" : "Cashier"}:\n${added.length ? `Allow: ${added.map(value => PERMISSION_LABELS[value as Permission]).join(", ")}\n` : ""}${removed.length ? `Remove: ${removed.map(value => PERMISSION_LABELS[value as Permission]).join(", ")}` : ""}${!added.length && !removed.length ? "No changes" : ""}`;
+    }).join("\n\n");
+    if (!await confirm({ title: "Save role permissions?", confirmText: "Confirm save permissions", message: `${changes}\n\nThese permissions apply to every Manager and Cashier account. Save this access configuration?` })) return;
+    if (submitting.current) return;
     submitting.current = true;
     setSaving(true); setError(""); setMessage("");
     try {
@@ -36,11 +47,13 @@ export default function RolePermissionsEditor() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message ?? "Unable to save permissions.");
       setMessage("Role permissions saved.");
+      setSavedGrants(grants);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save permissions."); }
     finally { submitting.current = false; setSaving(false); }
   };
   if (loading) return <p>Loading permissions...</p>;
   return <div className="space-y-5">
+    {confirmation}
     <p className="text-sm leading-relaxed text-neutral/65">Choose which modules and actions each role can access, then save your changes. Administrators have full access to Users, Configuration and Business Catalog. They can view other modules, export and print Reports and Analytics, and export Audit logs. Managers approve refunds and verify transfers; cashiers record approved payouts.</p>
     {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
     {message && <p role="status" className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">{message}</p>}

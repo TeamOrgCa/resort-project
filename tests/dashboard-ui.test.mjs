@@ -22,12 +22,60 @@ async function value(element, nextValue) {
 }
 
 function snapshot(count = 25) {
-  const row = (i, extras = {}) => ({ id: `22222222-2222-4222-8222-${String(i).padStart(12, "0")}`, reference: `MV-${i}`, guest: `Guest ${i}`, checkIn: "Oct 13, 2026, 11:00 AM", checkOut: "Oct 13, 2026, 5:00 PM", startSort: "2026-10-13T03:00:00Z", endSort: "2026-10-13T09:00:00Z", arrivalDate: "2026-10-13", status: "Confirmed", statusCode: "confirmed", source: i % 2 ? "Staff entry" : "Online", guests: String(i + 1), package: "Day", ...extras });
+  const row = (i, extras = {}) => ({ id: `22222222-2222-4222-8222-${String(i).padStart(12, "0")}`, reference: `MV-${i}`, guest: `Guest ${i}`, checkIn: "Oct 13, 2026, 11:00 AM", checkOut: "Oct 13, 2026, 5:00 PM", startSort: "2026-10-13T03:00:00Z", endSort: "2026-10-13T09:00:00Z", arrivalDate: "2026-10-13", status: "Confirmed", statusCode: "confirmed", source: i % 2 ? "Offline booking" : "Online booking", guests: String(i + 1), package: "Day", ...extras });
   return { generatedAt: "2026-10-13T01:00:00Z", today: "2026-10-13", startDate: "2026-10-07", endDate: "2026-10-13", arrivalEndDate: "2026-11-11", permissions: ["dashboard", "reservations", "create_reservation", "transactions", "records", "reports", "analytics"], arrivalsToday: count, scheduledNow: 1, collectionsToday: 1500, verifiedToday: 2, bookingsCreated: 30,
-    collections: [{ label: "Oct 12", value: 300 }, { label: "Oct 13", value: 1500 }], bookingStatuses: [{ label: "Confirmed", value: 24 }, { label: "Cancelled", value: 6 }], bookingSources: [{ label: "Online", value: 20 }, { label: "Staff entry", value: 10 }], queues: { payments: 2, reschedules: 1, ocular: 0, refundReview: 3, refundPayout: 1 },
+    collections: [{ label: "Oct 12", value: 300 }, { label: "Oct 13", value: 1500 }], bookingStatuses: [{ label: "Confirmed", value: 24 }, { label: "Cancelled", value: 6 }], bookingSources: [{ label: "Online booking", value: 20 }, { label: "Offline booking", value: 10 }], queues: { payments: 2, reschedules: 1, ocular: 0, refundReview: 3, refundPayout: 1 },
     reservations: count ? [...Array.from({ length: count }, (_, i) => row(i)), row(80, { guest: "Current stay", startSort: "2026-10-12T12:00:00Z", endSort: "2026-10-13T10:00:00Z", arrivalDate: "2026-10-12" }), row(90, { guest: "Later arrival", startSort: "2026-10-22T00:00:00Z", endSort: "2026-10-22T10:00:00Z", arrivalDate: "2026-10-22" })] : [],
   };
 }
+
+test("transaction date presets filter every tab and exports, reject invalid custom dates and reset pagination without clearing search", async () => {
+  const { manilaDateKey } = loadTsModule("lib/booking/manila-date.ts");
+  const today = manilaDateKey(new Date()), old = manilaDateKey(new Date(Date.now() - 40 * 86400000));
+  const recent = `${today}T12:00:00+08:00`, previous = `${old}T12:00:00+08:00`;
+  const exported = [];
+  const reservations = Array.from({ length: 60 }, (_, index) => ({ reservation_id: `r${index}`, reference_number: `${index < 30 ? "CURRENT" : "OLD"}-${index}`, booking_type: "online", status: "confirmed" }));
+  const db = dashboardDatabase({
+    staff_users: [{ id: "staff", role: "staff", is_active: true }], role_permissions: [{ role: "staff", permissions: ["transactions"] }], reservations,
+    transactions: reservations.map((r, i) => ({ transaction_id: `t${i}`, reservation_id: r.reservation_id, total_amount: 100, paid_amount: 20, balance: 80, status: "partial", created_at: previous, updated_at: i < 30 ? recent : previous })),
+    invoices: reservations.map((r, i) => ({ invoice_id: `i${i}`, reservation_id: r.reservation_id, total_amount: 100, created_at: i < 30 ? recent : previous })),
+    payments: reservations.map((r, i) => ({ payment_id: `p${i}`, reservation_id: r.reservation_id, reference_number: `PAYMENT-${i}`, amount: 20, status: "pending", paid_at: i < 30 ? recent : previous, ocr_status: "consistent" })),
+    receipts: reservations.map((r, i) => ({ receipt_id: `c${i}`, payment_id: `p${i}`, receipt_number: `RECEIPT-${i}`, issued_at: i < 30 ? recent : previous })),
+  });
+  const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: {
+    "@/lib/supabase/client": { createClient: () => db.client },
+    "@/lib/reports/export": { downloadReportCsv: (_columns, rows) => exported.push(rows) },
+  }, fetcher: () => Response.json({ refunds: reservations.map((r, i) => ({ refund_id: `f${i}`, reservation_id: r.reservation_id, amount: 20, status: "pending", requested_at: i < 30 ? recent : previous })), reservations }) });
+  try {
+    const c = h.container, filters = c.querySelector('[aria-label="Transaction date filters"]');
+    assert.ok(filters.parentElement.classList.contains("admin-panel"));
+    assert.ok(filters.compareDocumentPosition(c.querySelector("table")) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+    const preset = filters.querySelector("select");
+    assert.equal(preset.value, "overall");
+    await click(button(c, "Last")); assert.match(c.textContent, /Page 3 of 3/);
+    for (const period of ["today", "week", "month"]) {
+      await value(preset, period); assert.match(c.textContent, /Page 1 of 2/);
+      await click(button(c, "Export Ledger")); assert.equal(exported.at(-1).length, 30);
+      assert.ok(exported.at(-1).every(row => row.reference.startsWith("CURRENT")));
+    }
+    const search = c.querySelector('input[aria-label="Search records..."]');
+    await value(search, "CURRENT-29");
+    await value(preset, "overall"); assert.equal(search.value, "CURRENT-29"); assert.equal(c.querySelectorAll("tbody tr").length, 1);
+    await value(search, ""); await value(preset, "custom");
+    const [start, end] = filters.querySelectorAll('input[type="date"]');
+    await value(start, today); await value(end, old);
+    assert.match(filters.textContent, /end date must be on or after/); assert.match(c.querySelector("tbody").textContent, /No records match the selected filters/);
+    assert.equal(button(c, "Export Ledger").disabled, true);
+    await value(end, today); assert.equal(c.querySelectorAll("tbody tr").length, 25);
+    for (const [tab, action] of [["Generated Invoices", "Export invoices CSV"], ["Issued Receipts", "Export receipts CSV"]]) {
+      await click(button(c, tab)); assert.match(c.textContent, /30 matching records/);
+      await click(button(c, action)); assert.equal(exported.at(-1).length, 30);
+    }
+    await click(button(c, "Payment Verification Queue")); assert.match(c.textContent, /30 matching records/);
+    await click(button(c, "Refund Requests")); assert.match(c.textContent, /30 matching records/);
+    await value(preset, "overall"); assert.match(c.textContent, /60 matching records/);
+  } finally { await h.close(); }
+});
 
 async function mount({ filename = "components/admin/AdminDashboard.tsx", fetcher, params = "", extraMocks = {} } = {}) {
   window.history.replaceState({}, "", `/admin${params}`);
@@ -61,7 +109,7 @@ test("dashboard search, filters, numeric sorting, paging, CSV and reservation Vi
     await click(button(h.container, "View")); assert.match(h.pushes[0], /reservation=22222222-2222-4222-8222-000000000017&date=2026-10-13/);
     await click(button(h.container, "Clear table filters"));
     const source = [...h.container.querySelectorAll("label")].find(l => l.textContent.startsWith("Booked through"))?.querySelector("select");
-    await value(source, "Staff entry"); assert.match(h.container.textContent, /12 matching records/);
+    await value(source, "Offline booking"); assert.match(h.container.textContent, /12 matching records/);
     await click(button(h.container, "Clear table filters"));
     const sort = () => [...h.container.querySelectorAll("th button")].find(b => b.textContent.startsWith("Group size"));
     await click(sort()); assert.match(h.container.querySelector("tbody tr").textContent, /Guest 0/); await click(sort()); assert.match(h.container.querySelector("tbody tr").textContent, /Guest 24/);
@@ -187,7 +235,7 @@ test("transaction links open payment/refund tabs and pending payments outside th
   try {
     assert.match(h.container.textContent, /MV-OLD/); assert.match(h.container.textContent, /1234567890123/);
     await click(button(h.container, "Transaction Ledger")); assert.match(h.container.querySelector("tbody").textContent, /MV-RECENT/);
-    await h.navigate("?tab=refunds"); assert.match(h.container.textContent, /No requests match this status/); assert.ok(h.requests.some(r => r.url === "/api/admin/refunds"));
+    await h.navigate("?tab=refunds"); assert.match(h.container.textContent, /No requests match the date range, search and status filters/); assert.ok(h.requests.some(r => r.url === "/api/admin/refunds"));
     await click(button(h.container, "Payment Verification Queue")); assert.match(h.container.querySelector("tbody").textContent, /MV-OLD/);
   } finally { await h.close(); }
 });
