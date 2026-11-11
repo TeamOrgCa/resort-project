@@ -2,6 +2,7 @@ import { SiteText, SiteImage } from "@/components/content/SiteContent";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import PageReveal from "@/components/ui/PageReveal";
 import ChatBotMars from "@/components/ChatBotMars";
 import HeroCarousel from "@/components/HeroCarousel";
 
@@ -16,13 +17,14 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-base">
       <Navigation />
+      <PageReveal>
 
       {/* Hero Section */}
       <HeroCarousel />
 
       {/* About Section */}
       <section id="about" className="py-24 px-4 bg-base">
-        <div className="max-w-7xl mx-auto">
+        <div data-reveal className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-2 gap-12 items-center">
             <div>
               <h2 className="text-3xl sm:text-5xl font-bold text-neutral mb-6"><SiteText contentKey="content.home.your_paradise_awaits" /></h2>
@@ -44,7 +46,7 @@ export default function Home() {
               </div>
             </div>
             <div className="relative rounded-3xl h-96 overflow-hidden shadow-2xl">
-              <SiteImage
+              <SiteImage skeleton
                 contentKey="content.home.about_image"
                 alt="Resort View" 
                 fill 
@@ -57,7 +59,7 @@ export default function Home() {
 
       {/* Amenities Section */}
       <section id="amenities" className="py-24 px-4 bg-neutral/5">
-        <div className="max-w-7xl mx-auto">
+        <div data-reveal className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl sm:text-5xl font-bold text-neutral mb-4"><SiteText contentKey="content.home.world_class_amenities" /></h2>
             <p className="text-xl text-neutral/70"><SiteText contentKey="content.home.everything_you_need_for_an_unforgettable_stay" /></p>
@@ -128,7 +130,7 @@ export default function Home() {
 
       {/* Experiences Section */}
       <section id="experiences" className="py-24 px-4 bg-base">
-        <div className="max-w-7xl mx-auto">
+        <div data-reveal className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl sm:text-5xl font-bold text-neutral mb-4"><SiteText contentKey="content.home.unforgettable_experiences" /></h2>
             <p className="text-xl text-neutral/70"><SiteText contentKey="content.home.create_moments_that_last_forever" /></p>
@@ -136,7 +138,7 @@ export default function Home() {
           <div className="grid md:grid-cols-2 gap-6">
             {experiences.map(experience => (
               <article key={experience.image} className="relative h-80 overflow-hidden rounded-3xl">
-                <SiteImage contentKey={experience.image} alt={experience.alt} fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
+                <SiteImage skeleton contentKey={experience.image} alt={experience.alt} fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
                 <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/20 to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
                   <h3 className="mb-2 text-2xl font-bold text-white sm:text-3xl"><SiteText contentKey={experience.title} /></h3>
@@ -150,7 +152,7 @@ export default function Home() {
 
       {/* CTA Section */}
       <section className="py-24 px-4 bg-linear-to-r from-primary to-primary/80">
-        <div className="max-w-4xl mx-auto text-center">
+        <div data-reveal className="max-w-4xl mx-auto text-center">
           <h2 className="text-3xl sm:text-5xl font-bold text-base mb-6"><SiteText contentKey="content.home.ready_for_your_escape" /></h2>
           <p className="text-xl text-base/90 mb-10"><SiteText contentKey="content.home.book_your_dream_vacation_today_and_experience" /></p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -163,6 +165,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      </PageReveal>
 
       <ChatBotMars />
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { AdminReportSkeleton } from "@/components/admin/AdminSkeletons";
+
 import AdminTabs from "@/components/admin/AdminTabs";
 
 import { useCallback, useEffect, useState } from "react";
@@ -82,7 +84,7 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
 
     {fetchError && <div role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{fetchError} Use Refresh report to retry.</div>}
     {actionError && <p role="alert" className="mt-4 text-sm text-red-700">{actionError}</p>}
-    {isLoading && <p role="status" className="py-12 text-center text-sm text-neutral/65">Loading {activeTab.toLowerCase()}…</p>}
+    {isLoading && <AdminReportSkeleton label={`Loading ${activeTab.toLowerCase()}…`} metrics={activeTab === "Sales Report" ? 4 : 3} />}
 
     {report && <>
       <div className="mt-6 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral/70">

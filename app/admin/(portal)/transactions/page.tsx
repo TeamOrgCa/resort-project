@@ -900,7 +900,7 @@ export default function AdminTransactionsPage() {
 
         {activeTab === "Transaction Ledger" && (
           <TransactionsTablePanel
-            title={isLoading ? "Transaction Ledger (Loading...)" : "Transaction Ledger"}
+            title="Transaction Ledger"
             columns={transactionColumns}
             rows={transactionRows}
             paginationResetKey={dateFilterKey}
@@ -929,7 +929,7 @@ export default function AdminTransactionsPage() {
 
         {activeTab === "Generated Invoices" && (
           <TransactionsTablePanel
-            title={isLoading ? "Generated Invoices (Loading...)" : "Generated Invoices"}
+            title="Generated Invoices"
             columns={invoiceColumns}
             rows={invoiceRows}
             paginationResetKey={dateFilterKey}
@@ -952,7 +952,7 @@ export default function AdminTransactionsPage() {
               OCR sends clear matching GCash receipts to quick reconciliation and flags unclear or conflicting receipts for investigation. Confirm the transaction in the merchant record before approval.
             </p>
             <TransactionsTablePanel
-              title={isLoading ? "Payment Verification Queue (Loading...)" : "Payment Verification Queue"}
+              title="Payment Verification Queue"
               columns={paymentVerificationColumns}
               rows={paymentVerificationRows}
               paginationResetKey={dateFilterKey}
@@ -971,7 +971,7 @@ export default function AdminTransactionsPage() {
 
         {activeTab === "Issued Receipts" && (
           <TransactionsTablePanel
-            title={isLoading ? "Issued Receipts (Loading...)" : "Issued Receipts"}
+            title="Issued Receipts"
             columns={receiptColumns}
             rows={receiptRows}
             paginationResetKey={dateFilterKey}

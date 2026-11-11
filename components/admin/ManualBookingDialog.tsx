@@ -1,5 +1,8 @@
 "use client";
 
+import Skeleton, { SkeletonGroup } from "@/components/ui/Skeleton";
+import { AdminCardsSkeleton } from "@/components/admin/AdminSkeletons";
+
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePortalTarget } from "@/lib/use-portal-target";
@@ -215,14 +218,14 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
                 { value: "night_to_day", label: `B - ${formatPackageTimeSlot((packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES).whole_day.night_to_day)}`, disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "night_to_day")) },
               ]} />}
               {availability.ready && selectedIssue && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{selectedIssue} Choose another date or an available package.</p>}
-              <SelectField label="Unit" value={form.unitId} onChange={value => updateForm("unitId", value)} options={units.map(unit => ({ value: unit.unit_id, label: `${unit.name} - ${unit.capacity} pax` }))} />
+              {optionsLoading ? <SkeletonGroup label="Loading units..."><Skeleton className="mb-2 h-4 w-16" /><Skeleton className="h-11 w-full" /></SkeletonGroup> : <SelectField label="Unit" value={form.unitId} onChange={value => updateForm("unitId", value)} options={units.map(unit => ({ value: unit.unit_id, label: `${unit.name} - ${unit.capacity} pax` }))} />}
               <div className="grid grid-cols-2 gap-3"><Input label="Adults" type="number" value={form.adultCount} onChange={value => updateForm("adultCount", value)} /><Input label="Children" type="number" value={form.childCount} onChange={value => updateForm("childCount", value)} /></div>
             </div>
           </div>
           <section aria-labelledby="manual-services-title" className="rounded-xl border border-neutral/10 p-4">
             <h3 id="manual-services-title" className="font-semibold text-neutral">Additional services</h3>
             <p className="mt-1 text-sm text-neutral/60">Optional. Select services and enter the quantities needed.</p>
-            {optionsLoading ? <p className="mt-3 text-sm text-neutral/60">Loading services...</p> : !optionsError && services.length === 0 ? <p className="mt-3 text-sm text-neutral/60">No active services are available.</p> : null}
+            {optionsLoading ? <AdminCardsSkeleton label="Loading services..." count={2} /> : !optionsError && services.length === 0 ? <p className="mt-3 text-sm text-neutral/60">No active services are available.</p> : null}
             <div className="mt-3 space-y-3">{services.map(service => {
               const quantity = serviceQuantities[service.service_id], selected = quantity !== undefined;
               return <div key={service.service_id} className="rounded-xl border border-neutral/10 p-3">

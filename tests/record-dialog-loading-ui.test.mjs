@@ -73,6 +73,9 @@ test("server-rendered dialog hydrates without mismatches, manages focus and show
       await act(async () => root.render(element({ onClose })));
       assert.doesNotMatch(dialog.textContent, /Processing your request/);
       await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      // Booking dialogs require their explicit Close action, including when idle.
+      assert.equal(closed, 0);
+      await act(async () => dialog.querySelector('[aria-label="Close booking dialog"]').click());
       assert.equal(closed, 1);
     } finally { await act(async () => root.unmount()); }
     assert.equal(document.activeElement, opener); assert.equal(document.body.style.overflow, "");
@@ -87,16 +90,18 @@ test("calendar shows a clear pending state until its request finishes", async ()
     globalThis.fetch = () => new Promise(resolve => { release = () => resolve(Response.json({ blocks: [] })); });
     const query = { select: () => query, neq: () => query, lt: () => query, gt: () => query, gte: () => query, order: () => query, limit: () => query,
       then: (resolve, reject) => Promise.resolve({ data: [], error: null }).then(resolve, reject) };
-    const Calendar = calendar({ from: () => query });
+    const Calendar = calendar({ from: () => query, auth: { getUser: async () => ({ data: { user: null } }) } });
     const host = document.getElementById("host"), root = createRoot(host);
     try {
       await act(async () => root.render(createElement(Calendar, { initialAccess: { role: "admin", permissions: [] }, initialDate: "2026-10-17" })));
       assert.match(host.textContent, /Loading reservation calendar/);
       assert.match(host.textContent, /Checking availability/);
       assert.doesNotMatch(host.textContent, /Fully booked/);
+      assert.ok(host.querySelectorAll(".animate-pulse").length > 0);
       assert.equal(host.querySelector('[aria-label="Refresh calendar"]').disabled, true);
       await act(async () => release());
       assert.doesNotMatch(host.textContent, /Loading reservation calendar|Checking availability/);
+      assert.equal(host.querySelectorAll(".animate-pulse").length, 0);
       assert.equal(host.querySelector('[aria-label="Refresh calendar"]').disabled, false);
     } finally { await act(async () => root.unmount()); globalThis.fetch = savedFetch; }
   });

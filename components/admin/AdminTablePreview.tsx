@@ -6,6 +6,7 @@ import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
 import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
 import AdminActionsMenu from "@/components/admin/AdminActionsMenu";
 import TablePagination from "@/components/admin/TablePagination";
+import { AdminTableSkeletonRows } from "@/components/admin/AdminSkeletons";
 import type {
   AdminTableColumn,
   AdminTableFilter,
@@ -17,6 +18,7 @@ interface AdminTablePreviewProps {
   title: string;
   columns: AdminTableColumn[];
   rows: AdminTableRow[];
+  isLoading?: boolean;
   enableSearch?: boolean;
   searchPlaceholder?: string;
   filters?: AdminTableFilter[];
@@ -70,6 +72,7 @@ export default function AdminTablePreview({
   title,
   columns,
   rows,
+  isLoading = false,
   enableSearch = true,
   searchPlaceholder = "Search records...",
   filters = [],
@@ -207,7 +210,7 @@ export default function AdminTablePreview({
   };
 
   return (
-    <section className="min-w-0 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm sm:p-6">
+    <section aria-busy={isLoading} className="min-w-0 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm sm:p-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <h3 className="text-lg font-semibold text-neutral">{title}</h3>
 
@@ -218,7 +221,7 @@ export default function AdminTablePreview({
                 key={action}
                 type="button"
                 onClick={() => onAction?.(action, sortedRows)}
-                disabled={isActionDisabled?.(action, sortedRows)}
+                disabled={isLoading || isActionDisabled?.(action, sortedRows)}
                 className={/^(add|new|create|record cash)\b/i.test(action) ? "admin-button-primary" : "admin-button-secondary"}
               >
                 {action}
@@ -271,6 +274,7 @@ export default function AdminTablePreview({
       )}
 
       {sortable && <p className="mb-3 text-xs text-neutral/60 lg:hidden">Scroll horizontally to view all columns. Tap a column heading to sort.</p>}
+      {isLoading && <p role="status" aria-live="polite" data-no-auto-scroll className="sr-only">Loading {title.toLowerCase()}...</p>}
       <div className="admin-table-scroll overflow-x-auto rounded-xl border border-neutral/10" tabIndex={0} aria-label={`${title} records`}>
         <table className="record-table admin-responsive-table w-full min-w-180 text-left text-sm">
           <thead className="border-b border-neutral/10 bg-base/60 text-neutral/60">
@@ -282,7 +286,7 @@ export default function AdminTablePreview({
                   <button
                     type="button"
                     onClick={() => handleSort(column.key)}
-                    disabled={!sortable}
+                    disabled={isLoading || !sortable}
                     className={`inline-flex items-center gap-1 whitespace-nowrap ${sortable ? "hover:text-neutral" : "cursor-default"}`}
                   >
                     {column.label}
@@ -298,8 +302,8 @@ export default function AdminTablePreview({
               {rowActions.length > 0 && <th className="px-4 py-3 font-medium">Actions</th>}
             </tr>
           </thead>
-          <tbody>
-            {displayedRows.map((row) => (
+          <tbody aria-hidden={isLoading || undefined}>
+            {isLoading ? <AdminTableSkeletonRows labels={[...(selectableRows ? ["Select"] : []), ...columns.map(column => column.label), ...(rowActions.length ? ["Actions"] : [])]} rows={Math.min(size, 5)} /> : displayedRows.map((row) => (
               <tr key={row.id} tabIndex={0} aria-selected={selectableRows ? resolvedSelectedRowIds.includes(row.id) : undefined}
                 onClick={event => { if (!interactive(event.target)) openRow(row); }}
                 onKeyDown={event => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault(); openRow(row); } }}
@@ -347,7 +351,7 @@ export default function AdminTablePreview({
               </tr>
             ))}
 
-            {sortedRows.length === 0 && (
+            {!isLoading && sortedRows.length === 0 && (
               <tr>
                 <td
                   colSpan={columns.length + (rowActions.length > 0 ? 1 : 0) + (selectableRows ? 1 : 0)}
@@ -364,7 +368,7 @@ export default function AdminTablePreview({
         <dl className="grid gap-4 sm:grid-cols-2">{columns.map(column => <div key={column.key}><dt className="text-sm text-neutral/60">{column.label}</dt><dd className="mt-1 break-words font-medium">{detailRow[column.key] ?? "-"}</dd></div>)}</dl>
         {rowActions.length > 0 && <div className="mt-6 flex flex-wrap gap-3">{rowActions.map(action => <button key={action} type="button" className="admin-button-secondary" disabled={isRowActionDisabled?.(action, detailRow)} onClick={() => { setDetailRow(null); void onRowAction?.(action, detailRow); }}>{getRowActionLabel?.(action, detailRow) ?? action}</button>)}</div>}
       </RecordDialog>}
-      <TablePagination total={sortedRows.length} page={currentPage} pageSize={size} onPageChange={setPage} label={`${title} pagination`} />
+      {!isLoading && <TablePagination total={sortedRows.length} page={currentPage} pageSize={size} onPageChange={setPage} label={`${title} pagination`} />}
     </section>
   );
 }

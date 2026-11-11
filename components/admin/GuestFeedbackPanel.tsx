@@ -1,5 +1,7 @@
 "use client";
 
+import { AdminCardsSkeleton } from "@/components/admin/AdminSkeletons";
+
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
@@ -55,7 +57,7 @@ export default function GuestFeedbackPanel({ query, revision, onChanged }: { que
       <label className="text-sm">Feedback status<select value={status} onChange={e => { setStatus(e.target.value); setPage(0); }} className="mt-1 block min-h-11 rounded-xl border border-neutral/20 bg-white px-3 text-black"><option value="active">Active</option><option value="archived">Archived</option><option value="all">All feedback</option></select></label></div>
     {message && <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{message}</p>}
     {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}<button type="button" onClick={() => setReload(value => value + 1)} className="ml-2 min-h-11 underline">Retry reviews</button></p>}
-    {loading && <p role="status" className="py-5 text-sm">Loading guest reviews...</p>}
+    {loading && <AdminCardsSkeleton label="Loading guest reviews..." />}
     {data && <>
       {!data.canArchive && <p className="text-xs text-neutral/65">Your role can view feedback. Archiving and restoring reviews requires an authorized operational role.</p>}
       <p className="text-xs text-neutral/65">{data.total.toLocaleString("en-PH")} matching reviews. {data.total > 0 && `Page ${page + 1} of ${pages}.`}</p>

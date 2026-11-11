@@ -141,7 +141,8 @@ export default function AdminAuditPage() {
       ) : null}
 
       <AdminTablePreview
-        title={isLoading ? "Recent Activity (Loading...)" : "Recent Activity"}
+        title="Recent Activity"
+        isLoading={isLoading}
         columns={auditColumns}
         rows={rows}
         defaultSort={{ key: "timestamp", direction: "desc" }}

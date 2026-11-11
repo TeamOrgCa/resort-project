@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import LoadingState from "@/components/ui/LoadingState";
+import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import type { ReservationRecordDetail } from "@/lib/booking/reservation-record";
 
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }) : "Not recorded";
@@ -24,7 +24,7 @@ export default function ReservationRecordDetails({ reservationId }: { reservatio
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [reservationId, reload]);
-  if (loading) return <LoadingState title="Loading reservation record..." description="Fetching guest, schedule and billing details." />;
+  if (loading) return <AdminFormSkeleton label="Loading reservation record..." fields={6} />;
   if (error || !detail) return <div><p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error ?? "Record unavailable."}</p>
     <button type="button" onClick={() => { setLoading(true); setDetail(null); setError(null); setReload(value => value + 1); }} className="mt-3 min-h-11 rounded-xl border px-4 py-2 text-sm">Retry details</button></div>;
   const r = detail.reservation;

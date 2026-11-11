@@ -312,6 +312,7 @@ export default function AdminUsersPage() {
         {activeTab === "Staff Accounts" && (
           <AdminTablePreview
             title="Staff Accounts"
+            isLoading={isLoading}
             columns={usersColumns}
             rows={tableRows}
             defaultSort={{ key: "createdAt", direction: "desc" }}
@@ -368,9 +369,6 @@ export default function AdminUsersPage() {
         onSubmit={handleResetPassword}
       />
 
-      {isLoading && activeTab === "Staff Accounts" ? (
-        <div className="mt-4 text-sm text-neutral/70">Loading staff accounts...</div>
-      ) : null}
     </div>
   );
 }

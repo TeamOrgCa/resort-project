@@ -1,6 +1,7 @@
 "use client";
 
 import TablePagination from "@/components/admin/TablePagination";
+import { AdminTableSkeleton } from "@/components/admin/AdminSkeletons";
 import { useEffect, useRef, useState } from "react";
 import { PERMISSIONS, PERMISSION_LABELS, hasPermission, isPermissionAssignable, type Permission } from "@/lib/auth/role-access";
 import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
@@ -51,7 +52,7 @@ export default function RolePermissionsEditor() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save permissions."); }
     finally { submitting.current = false; setSaving(false); }
   };
-  if (loading) return <p>Loading permissions...</p>;
+  if (loading) return <AdminTableSkeleton label="Loading permissions..." columns={["Permission", "Manager", "Cashier", "Admin"]} rows={8} />;
   return <div className="space-y-5">
     {confirmation}
     <p className="text-sm leading-relaxed text-neutral/65">Choose which modules and actions each role can access, then save your changes. Administrators have full access to Users, Configuration and Business Catalog. They can view other modules, export and print Reports and Analytics, and export Audit logs. Managers approve refunds and verify transfers; cashiers record approved payouts.</p>
