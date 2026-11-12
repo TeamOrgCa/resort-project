@@ -282,7 +282,7 @@ test("staff can settle a reservation balance in cash, acknowledge receipt and se
  }});
  try{
    await click(h.container.querySelector('button[aria-haspopup="menu"]'));
-   await click(button(document.body,"Settle in cash"));const modal=h.container.querySelector('[role="dialog"]');
+   await click(button(document.body,"Record payment"));const modal=h.container.querySelector('[role="dialog"]');
    assert.match(modal.textContent,/Cash \(staff only\)/);assert.equal(modal.querySelector('input[type="number"]').value,"2400.00");
    assert.equal(button(modal,"Record payment and issue receipt").disabled,true);
    await click(modal.querySelector('input[type="checkbox"]'));await click(button(modal,"Record payment and issue receipt"));assert.match(modal.textContent,/same cash reference/);
@@ -292,8 +292,43 @@ test("staff can settle a reservation balance in cash, acknowledge receipt and se
    if(billingError)assert.match(h.container.querySelector('[role="status"]').textContent,/Email notice: Billing emails are disabled/);
    else assert.match(h.container.querySelector('[role="status"]').textContent,/Receipt email: sent. Invoice email: sent/);
    await click(h.container.querySelector('button[aria-haspopup="menu"]'));
-   assert.equal(button(document.body,"Settle in cash").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
+   assert.equal(button(document.body,"Record payment").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
  }finally{await h.close();} }
+});
+
+test("cashier selects active catalog methods, supplies transfer evidence and retries without uploading or crediting twice",async()=>{
+ const user='11111111-1111-4111-8111-111111111111',gcash='22222222-2222-4222-8222-222222222222';
+ const posted=[],uploads=[];let saved=false,first=true;
+ const methods=[{payment_method_id:gcash,name:'GCash',type:'ewallet',is_active:true},{payment_method_id:'inactive',name:'Disabled bank',type:'bank',is_active:false}];
+ const client={auth:{getUser:async()=>({data:{user:{id:user}}})},storage:{from:bucket=>({upload:async(path,file)=>{uploads.push({bucket,path,file});return{error:null};}})},from:table=>{
+  const result=()=>({error:null,data:table==='staff_users'?{role:'cashier',is_active:true}:table==='role_permissions'?{permissions:['transactions','payment_entry']}:
+   table==='payment_methods'?methods:table==='transactions'?[{transaction_id:'txn',reservation_id:'booking',total_amount:3000,paid_amount:saved?3000:600,balance:saved?0:2400,status:saved?'paid':'partial',updated_at:'2026-11-12T01:00:00Z'}]:
+   table==='reservations'?[{reservation_id:'booking',reference_number:'MV-TRANSFER',status:'confirmed',booking_type:'online'}]:[]});
+  const q={select:()=>q,eq:()=>q,in:()=>q,order:()=>q,range:async(from,to)=>{const r=result();return{...r,data:r.data.slice(from,to+1)};},maybeSingle:async()=>result(),then:(yes,no)=>Promise.resolve(result()).then(yes,no)};return q;
+ }};
+ const h=await mount({filename:'app/admin/(portal)/transactions/page.tsx',extraMocks:{'@/lib/supabase/client':{createClient:()=>client}},fetcher:(url,options)=>{
+  assert.equal(url,'/api/admin/payments/manual-entry');posted.push(JSON.parse(options.body));
+  if(first){first=false;return Response.json({success:false,message:'Retry with the same transaction reference'},{status:503});}
+  saved=true;return Response.json({success:true,receipt:{receipt_number:'RCPT-GCASH'},remainingBalance:0,billingEmails:{receiptSent:true,invoiceSent:true}});
+ }});
+ try{
+  await click(h.container.querySelector('button[aria-haspopup="menu"]'));await click(button(document.body,'Record payment'));
+  const modal=h.container.querySelector('[role="dialog"]');
+  const field=label=>[...modal.querySelectorAll('label')].find(el=>el.textContent.startsWith(label))?.querySelector('select,input');
+  assert.match(field('Payment method').textContent,/GCash/);assert.doesNotMatch(field('Payment method').textContent,/Disabled bank/);
+  await value(field('Payment method'),gcash);assert.ok(field('Proof of payment'));
+  assert.equal(button(modal,'Record payment and issue receipt').disabled,true);
+  await value(field('Transaction reference'),'1234567890123');await value(field('Sender account name'),'Maria Cruz');await value(field('Sender account number'),'09171234567');
+  const file=new window.File(['image'],'proof.png',{type:'image/png'}),input=field('Proof of payment');
+  await act(async()=>{Object.defineProperty(input,'files',{configurable:true,value:[file]});input.dispatchEvent(new window.Event('change',{bubbles:true}));});
+  await click(modal.querySelector('input[type="checkbox"]'));
+  const submit=async()=>{assert.equal(button(modal,'Record payment and issue receipt').disabled,false);await act(async()=>modal.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));};
+  await submit();assert.match(modal.textContent,/same transaction reference/);await submit();
+  assert.equal(uploads.length,1);assert.equal(uploads[0].bucket,'payment-proofs');assert.ok(uploads[0].path.startsWith(`${user}/staff/`));
+  assert.equal(posted.length,2);assert.equal(posted[0].proofPath,posted[1].proofPath);assert.equal(posted[0].paymentReference,posted[1].paymentReference);
+  assert.equal(posted[1].paymentMethodId,gcash);assert.equal(posted[1].paymentMethod,'non_cash');assert.equal(posted[1].fundsReceived,true);
+  assert.equal(posted[1].accountName,'Maria Cruz');assert.match(h.container.querySelector('[role="status"]').textContent,/RCPT-GCASH/);
+ }finally{await h.close();}
 });
 
 test("all report types including Guest Report use the Reports endpoint",async()=>{

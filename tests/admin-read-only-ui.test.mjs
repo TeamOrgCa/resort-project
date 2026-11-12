@@ -52,7 +52,7 @@ test("the permission matrix shows admin view-only access and reserves refund app
     await act(async () => root.render(createElement(Editor)));
     const rows = [...container.querySelectorAll("tbody tr")];
     const row = label => rows.find(r => r.querySelector("th").textContent === label);
-    assert.equal(row("View reservations").lastElementChild.textContent, "View / manage maintenance");
+    assert.equal(row("View reservations").lastElementChild.textContent, "View only");
     assert.equal(row("Manage catalog").lastElementChild.textContent, "Full access");
     assert.equal(row("Approve or reject refunds (manager only)").lastElementChild.textContent, "Unavailable");
     const inputs = row("Approve or reject refunds (manager only)").querySelectorAll("input");

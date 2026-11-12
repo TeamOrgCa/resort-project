@@ -1,20 +1,22 @@
 import { NextResponse } from "next/server";
-import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
+import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { staffHasPermission } from "@/lib/server/role-permissions";
 import { createNotifications } from "@/lib/notifications";
 import { emailBillingDocuments, type BillingEmailResult } from "@/lib/server/billing-email";
 import { sendReservationConfirmedEmail } from "@/lib/email";
 import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
-import { generateReceiptNumber } from "@/lib/booking/receipt-number";
+import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
 import { normalizeSenderName, SENDER_NAME_ERROR } from "@/lib/validation/sender-name";
 
-type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash";
+type ManualPaymentMethod = "bank_transfer" | "e_wallet" | "cash" | "non_cash";
 
 interface ManualPaymentPayload {
   reservationId: string;
   amount: number;
   paymentMethod: ManualPaymentMethod;
   paymentReference: string;
+  paymentMethodId?: string;
+  fundsReceived?: boolean;
   accountName?: string;
   accountNumber?: string;
   proofPath?: string;
@@ -32,26 +34,6 @@ interface ReservationRow {
   status: "pending" | "confirmed" | "cancelled" | "completed";
 }
 
-interface TransactionRow {
-  balance: number | null;
-  overpaid_amount?: number | null;
-  total_amount?: number;
-  paid_amount?: number | null;
-  status?: "unpaid" | "partial" | "paid";
-}
-
-interface CreatedPaymentRow {
-  payment_id: string;
-  reservation_id: string;
-  amount: number;
-  payment_method_id: string | null;
-  payment_type: "downpayment" | "full" | "additional";
-  status: "pending" | "verified";
-  paid_at: string | null;
-  reference_number: string;
-  proof_path: string;
-}
-
 const parsePayload = (value: unknown): ManualPaymentPayload | null => {
   if (typeof value !== "object" || value === null) {
     return null;
@@ -65,7 +47,7 @@ const parsePayload = (value: unknown): ManualPaymentPayload | null => {
     !Number.isFinite(payload.amount) || payload.amount <= 0 ||
     typeof payload.paymentReference !== "string" ||
     !payload.paymentReference.trim() ||
-    (payload.paymentMethod !== "bank_transfer" && payload.paymentMethod !== "e_wallet" && payload.paymentMethod !== "cash")
+    (payload.paymentMethod !== "bank_transfer" && payload.paymentMethod !== "e_wallet" && payload.paymentMethod !== "cash" && payload.paymentMethod !== "non_cash")
   ) {
     return null;
   }
@@ -80,6 +62,8 @@ const parsePayload = (value: unknown): ManualPaymentPayload | null => {
     proofPath: typeof payload.proofPath === "string" ? payload.proofPath.trim() : undefined,
     expectedBalance: typeof payload.expectedBalance === "number" ? payload.expectedBalance : undefined,
     cashReceived: payload.cashReceived === true,
+    fundsReceived: payload.fundsReceived === true,
+    paymentMethodId: typeof payload.paymentMethodId === "string" ? payload.paymentMethodId.trim() : undefined,
   };
 };
 
@@ -218,308 +202,78 @@ export async function POST(request: Request) {
     if (!senderName) return NextResponse.json({ success: false, message: SENDER_NAME_ERROR }, { status: 400 });
     payload.accountName = senderName;
 
-    const { data: paymentMethod, error: paymentMethodError } = await staffContext.supabase
-      .from("payment_methods")
-      .select("payment_method_id, name, type, is_active")
-      .or(`type.eq.${payload.paymentMethod},name.ilike.${payload.paymentMethod}`)
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle<{ payment_method_id: string; name: string; type: string; is_active: boolean }>();
-
-    if (paymentMethodError || !paymentMethod) {
-      return NextResponse.json(
-        { success: false, message: "No active payment method is configured for this entry." },
-        { status: 400 }
-      );
+    if (!["staff", "cashier"].includes(staffContext.staffUser.role)) {
+      return NextResponse.json({ success: false, message: "Authorized staff payment entry is required." }, { status: 403 });
     }
 
-    const { data: reservation, error: reservationError } = await staffContext.supabase
-      .from("reservations")
-      .select("reservation_id, guest_id, walk_in_guest_id, reference_number, start_datetime, end_datetime, status")
-      .eq("reservation_id", payload.reservationId)
-      .maybeSingle<ReservationRow>();
-
-    if (reservationError || !reservation) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Reservation not found.",
-        },
-        { status: 404 }
-      );
+    if (!isValidPaymentAmount(payload.amount) || !isValidPaymentAmount(payload.expectedBalance ?? 0) || !payload.fundsReceived) {
+      return NextResponse.json({ success: false, message: "Enter a valid amount and confirm the actual funds were received." }, { status: 400 });
     }
-
-    if (reservation.status !== "pending" && reservation.status !== "confirmed") {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "This reservation cannot accept a new payment.",
-        },
-        { status: 400 }
-      );
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.paymentMethodId ?? "")) {
+      return NextResponse.json({ success: false, message: "Select an active payment method from the catalog." }, { status: 400 });
     }
-
-    const { data: transaction, error: transactionError } = await staffContext.supabase
-      .from("transactions")
-      .select("balance")
-      .eq("reservation_id", reservation.reservation_id)
-      .maybeSingle<TransactionRow>();
-
-    if (transactionError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unable to validate remaining balance.",
-        },
-        { status: 500 }
-      );
+    if (!/^[A-Za-z0-9][A-Za-z0-9 -]{5,99}$/.test(payload.paymentReference) || !/^[0-9]{6,20}$/.test(payload.accountNumber ?? "")) {
+      return NextResponse.json({ success: false, message: "Enter the real transaction reference (6-100 letters/digits) and sender account number (6-20 digits)." }, { status: 400 });
     }
-
-    const remainingBalance = Number(transaction?.balance ?? 0);
-
-    if (remainingBalance <= 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Reservation has no remaining balance.",
-        },
-        { status: 400 }
-      );
+    if (!payload.proofPath?.startsWith(`${staffContext.staffUser.id}/staff/`) || payload.proofPath.includes("..")) {
+      return NextResponse.json({ success: false, message: "Upload payment proof using your current staff account." }, { status: 400 });
     }
-
-    if (Math.round(payload.amount * 100) > Math.round(remainingBalance * 100)) {
-      return NextResponse.json({ success: false, message: "Payment exceeds the current reservation balance." }, { status: 400 });
+    const { data: proof, error: proofError } = await staffContext.supabase.storage.from(PAYMENT_PROOF_BUCKET).download(payload.proofPath);
+    if (proofError || !proof || proof.size < 1 || proof.size > MAX_PAYMENT_PROOF_BYTES) {
+      return NextResponse.json({ success: false, message: "Upload valid payment proof up to 8 MB." }, { status: 400 });
     }
-
-    const { data: insertedPayment, error: insertError } = await staffContext.supabase
-      .from("payments")
-      .insert({
-        reservation_id: reservation.reservation_id,
-        amount: payload.amount,
-        payment_method_id: paymentMethod.payment_method_id,
-        payment_type: "additional",
-        status: "pending",
-        reference_number: payload.paymentReference,
-        account_name: payload.accountName,
-        account_number: payload.accountNumber,
-        proof_path: payload.proofPath,
-      })
-      .select(
-        "payment_id, reservation_id, amount, payment_method_id, payment_type, status, paid_at, reference_number, proof_path"
-      )
-      .single<CreatedPaymentRow>();
-
-    if (insertError || !insertedPayment) {
-      if (insertError?.code === "23505") {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Generated payment reference already exists. Please try again.",
-          },
-          { status: 409 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to create payment entry.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const { error: verifyPaymentError } = await staffContext.supabase
-      .from("payments")
-      .update({ status: "verified" })
-      .eq("payment_id", insertedPayment.payment_id)
-      .eq("status", "pending");
-
-    if (verifyPaymentError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Payment entry created but verification failed.",
-        },
-        { status: 500 }
-      );
-    }
-
-    // The payment review trigger confirms an initial reservation atomically.
-
-    // Invoice creation is handled by database triggers.
-
-    const { data: existingReceipt, error: receiptLookupError } = await staffContext.supabase
-      .from("receipts")
-      .select("receipt_id")
-      .eq("payment_id", insertedPayment.payment_id)
-      .maybeSingle();
-
-    if (receiptLookupError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to validate generated receipt.",
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!existingReceipt) {
-      const { error: createReceiptError } = await staffContext.supabase.from("receipts").insert({
-        payment_id: insertedPayment.payment_id,
-        receipt_number: generateReceiptNumber(insertedPayment.payment_id),
-      });
-
-      if (createReceiptError && createReceiptError.code !== "23505") {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Failed to create receipt.",
-          },
-          { status: 500 }
-        );
-      }
-    }
-
-    const { data: createdPayment, error: paymentReloadError } = await staffContext.supabase
-      .from("payments")
-      .select(
-              "payment_id, reservation_id, amount, payment_method_id, payment_type, status, paid_at, reference_number, proof_path"
-      )
-      .eq("payment_id", insertedPayment.payment_id)
-      .maybeSingle<CreatedPaymentRow>();
-
-    if (paymentReloadError || !createdPayment) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Payment created but failed to fetch updated payment status.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const { data: transactionSummary, error: transactionSummaryError } = await staffContext.supabase
-      .from("transactions")
-      .select("total_amount")
-      .eq("reservation_id", reservation.reservation_id)
-      .maybeSingle<TransactionRow>();
-
-    if (transactionSummaryError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to read transaction summary.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const { data: verifiedPayments, error: verifiedPaymentsError } = await staffContext.supabase
-      .from("payments")
-      .select("amount")
-      .eq("reservation_id", reservation.reservation_id)
-      .eq("status", "verified");
-
-    if (verifiedPaymentsError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to aggregate verified payments.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const paidAmount = ((verifiedPayments as Array<{ amount: number }> | null) ?? []).reduce(
-      (sum, payment) => sum + Number(payment.amount ?? 0),
-      0
-    );
-
-    const totalAmount = Number(transactionSummary?.total_amount ?? 0);
-    const transactionStatus: "unpaid" | "partial" | "paid" =
-      paidAmount <= 0 ? "unpaid" : paidAmount >= totalAmount ? "paid" : "partial";
-
-    const { error: syncError } = await staffContext.supabase.from("transactions").upsert(
-      {
-        reservation_id: reservation.reservation_id,
-        total_amount: totalAmount,
-        paid_amount: paidAmount,
-        status: transactionStatus,
-      },
-      {
-        onConflict: "reservation_id",
-      }
-    );
-
-    if (syncError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to synchronize transaction totals.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const { data: updatedTransaction, error: updatedTransactionError } = await staffContext.supabase
-      .from("transactions")
-      .select("balance, overpaid_amount")
-      .eq("reservation_id", reservation.reservation_id)
-      .maybeSingle<TransactionRow>();
-
-    if (updatedTransactionError) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Failed to read updated transaction balance.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const auditSuccess = await createAuditLog(staffContext, {
-      action: "Created manual payment entry",
-      entityType: "payment",
-      entityId: createdPayment.payment_id,
-      details: { reservationId: reservation.reservation_id, amount: payload.amount,
-        paymentMethod: payload.paymentMethod, paymentReference: payload.paymentReference,
-        remainingBalance: Number(updatedTransaction?.balance ?? 0) },
+    const bytes = Buffer.from(await proof.arrayBuffer());
+    const signatures: Record<string, boolean> = {
+      "application/pdf": bytes.subarray(0, 5).toString() === "%PDF-",
+      "image/jpeg": bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255,
+      "image/png": bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+      "image/webp": bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP",
+    };
+    if (!signatures[proof.type]) return NextResponse.json({ success: false, message: "Proof must be a valid JPEG, PNG, WebP or PDF file." }, { status: 400 });
+    const { data, error } = await staffContext.supabase.rpc("record_staff_payment", {
+      p_reservation: payload.reservationId, p_amount: payload.amount, p_reference: payload.paymentReference,
+      p_expected_balance: payload.expectedBalance, p_method: payload.paymentMethodId, p_received: payload.fundsReceived,
+      p_account_name: payload.accountName, p_account_number: payload.accountNumber, p_proof: payload.proofPath,
     });
-
-    if (!auditSuccess) console.warn("Manual payment entry audit log was not recorded.");
-
-    let billingEmails = { receiptSent: false, invoiceSent: false };
-    try {
-      billingEmails = await emailBillingDocuments(staffContext.supabase, reservation, createdPayment.payment_id, Number(createdPayment.amount));
-    } catch (error) {
-      console.error("Unable to email billing documents after manual payment.", error);
+    if (error || !data) {
+      const code = error?.code ?? "NO_RESULT";
+      console.error("Staff payment entry failed", { code, message: error?.message, reservationId: payload.reservationId });
+      const status = code === "42501" ? 403 : code === "P0002" ? 404 : ["40001", "23505"].includes(code) ? 409 : ["22023", "23514"].includes(code) ? 400 : 503;
+      const message = status < 500 ? error?.message ?? "Payment could not be recorded."
+        : "Payment recording could not be confirmed. Check the ledger and retry with the same transaction reference; contact the administrator if this continues.";
+      return NextResponse.json({ success: false, errorCode: code, message }, { status });
     }
-
-    if (reservation.guest_id) {
-      const { error: notificationError } = await createNotifications({
-        actorId: staffContext.staffUser.id,
-        guestId: reservation.guest_id,
-        title: "Payment recorded",
-        message: "A payment was recorded for your reservation.",
-        entityType: "payment",
-        entityId: createdPayment.payment_id,
-        guestActionUrl: "/manage",
-      });
-      if (notificationError) console.warn("Failed to notify guest of manual payment:", notificationError);
+    let billingEmails: BillingEmailResult = { receiptSent: false, invoiceSent: false };
+    let emailSent = false;
+    if (!data.alreadyRecorded) {
+      try { billingEmails = await emailBillingDocuments(staffContext.supabase, data.reservation, data.payment.payment_id, Number(data.payment.amount)); }
+      catch (cause) { console.warn("Payment recorded; billing email delivery failed.", cause); billingEmails.error = "Billing email delivery failed; the payment was saved."; }
+      if (data.reservationConfirmed) {
+        try {
+          const reservation = data.reservation as ReservationRow;
+          const guestQuery = reservation.guest_id
+            ? staffContext.supabase.from("guests").select("email,first_name,last_name").eq("id", reservation.guest_id)
+            : reservation.walk_in_guest_id ? staffContext.supabase.from("walk_in_guests").select("email,first_name,last_name").eq("walk_in_guest_id", reservation.walk_in_guest_id) : null;
+          if (guestQuery) {
+            const { data: guest } = await guestQuery.maybeSingle();
+            if (guest?.email) emailSent = await sendReservationConfirmedEmail({ guestEmail: guest.email,
+              guestName: `${guest.first_name ?? ""} ${guest.last_name ?? ""}`.trim() || "Guest",
+              reservationReference: reservation.reference_number, checkInDate: reservation.start_datetime, checkOutDate: reservation.end_datetime });
+          }
+        } catch (cause) { console.warn("Payment recorded; booking confirmation delivery failed.", cause); }
+      }
+      if (data.reservation.guest_id) {
+        try { await createNotifications({ actorId: staffContext.staffUser.id, guestId: data.reservation.guest_id,
+          title: "Payment recorded", message: `The resort recorded your payment. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
+          entityType: "payment", entityId: data.payment.payment_id, guestActionUrl: "/manage" }); }
+        catch (cause) { console.warn("Payment recorded; notification delivery failed.", cause); }
+      }
     }
-    return NextResponse.json(
-      {
-        success: true,
-        payment: createdPayment,
-        reservationId: reservation.reservation_id,
-        remainingBalance: Number(updatedTransaction?.balance ?? 0),
-        overpaidAmount: Number(updatedTransaction?.overpaid_amount ?? 0),
-        billingEmails,
-      },
-      { status: 201 }
-    );
+    return NextResponse.json({ success: true, payment: data.payment, receipt: data.receipt,
+      reservationId: payload.reservationId, remainingBalance: Number(data.remainingBalance), overpaidAmount: Number(data.overpaidAmount ?? 0),
+      alreadyRecorded: data.alreadyRecorded, billingEmails, emailSent,
+      message: data.alreadyRecorded ? "This payment was already recorded. No duplicate payment was created." : "Payment recorded and receipt issued.",
+    }, { status: data.alreadyRecorded ? 200 : 201 });
   } catch {
     return NextResponse.json(
       {

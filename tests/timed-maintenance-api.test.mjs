@@ -2,18 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
-function maintenance(role = "admin") {
+function maintenance(role = "staff", permitted = true) {
   const calls = [];
   const supabase = { rpc: async (name, args) => { calls.push({ name, args }); return { data: "block", error: null }; } };
   const route = loadTsModule("app/api/admin/maintenance-blocks/route.ts", {
     "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ staffUser: { id: "staff", role }, supabase }) },
-    "@/lib/server/role-permissions": { staffHasPermission: async () => true },
+    "@/lib/server/role-permissions": { staffHasPermission: async () => permitted },
   });
-  return { calls, post: body => route.POST(new Request("http://localhost/api/admin/maintenance-blocks", { method: "POST", body: JSON.stringify(body) })) };
+  return { calls, post: body => route.POST(new Request("http://localhost/api/admin/maintenance-blocks", { method: "POST", body: JSON.stringify(body) })), patch: body => route.PATCH(new Request("http://localhost/api/admin/maintenance-blocks", { method: "PATCH", body: JSON.stringify(body) })) };
 }
 const body = { name: "Pool", reason: "Internal repair details", startDate: "2035-01-05", endDate: "2035-01-05", startTime: "09:00", endTime: "11:00" };
-test("maintenance API accepts admin/manager PHT time windows, expands whole days and rejects invalid times or cashier writes", async () => {
-  for (const role of ["admin", "staff"]) {
+test("maintenance API accepts authorized manager PHT windows, expands whole days and rejects invalid times", async () => {
+  for (const role of ["staff"]) {
     const h = maintenance(role); assert.equal((await h.post(body)).status, 201);
     assert.equal(h.calls[0].name, "create_timed_maintenance_block");
     assert.equal(h.calls[0].args.p_start, "2035-01-05T09:00:00+08:00");
@@ -26,7 +26,18 @@ test("maintenance API accepts admin/manager PHT time windows, expands whole days
     assert.equal((await h.post({ ...body, startDate: "2035-02-30" })).status, 400);
     assert.equal(h.calls.length, 2);
   }
-  assert.equal((await maintenance("cashier").post(body)).status, 403);
+});
+
+test("only managers with reservation-edit permission can create or release maintenance blocks", async () => {
+  for (const [role, permitted] of [["admin", true], ["cashier", true], ["staff", false]]) {
+    const h = maintenance(role, permitted);
+    assert.equal((await h.post(body)).status, 403);
+    assert.equal((await h.patch({ blockId: "block" })).status, 403);
+    assert.equal(h.calls.length, 0);
+  }
+  const manager = maintenance();
+  assert.equal((await manager.patch({ blockId: "block" })).status, 200);
+  assert.equal(manager.calls[0].name, "release_maintenance_block");
 });
 
 test("public ocular availability respects capacity and exact maintenance windows without returning guest identities or internal reasons", async () => {
