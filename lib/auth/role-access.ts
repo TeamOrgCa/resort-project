@@ -33,7 +33,7 @@ export const ADMIN_PERMISSIONS: readonly Permission[] = ["dashboard", "reservati
 
 export function isAdminReadOnlyRequest(role: StaffRole, path: string, method: string): boolean {
   if (role !== "admin" || ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return false;
-  const fullAccessPaths = ["/api/admin/maintenance-blocks", "/api/admin/users", "/api/admin/permissions", "/api/admin/settings", "/api/admin/booking-policy", "/api/admin/catalog", "/api/admin/payment-accounts", "/api/admin/auth"];
+  const fullAccessPaths = ["/api/admin/users", "/api/admin/permissions", "/api/admin/settings", "/api/admin/booking-policy", "/api/admin/catalog", "/api/admin/payment-accounts", "/api/admin/auth"];
   return !fullAccessPaths.some(prefix => path === prefix || path.startsWith(`${prefix}/`));
 }
 

@@ -12,7 +12,9 @@ function fn(path,name){const text=readFileSync(path,"utf8"),start=text.indexOf("
 before(async()=>{
  db=new PGlite();
  await db.exec(`
- create role anon;create role authenticated;create schema auth;
+ create role anon;create role authenticated;create schema auth;create schema storage;
+ create table storage.objects(bucket_id text,name text);
+ create function auth.role() returns text language sql as $$select 'authenticated'::text$$;
  create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
  create function auth.jwt() returns jsonb language sql as $$select jsonb_build_object('session_id',nullif(current_setting('request.jwt.claim.session_id',true),''))$$;
  create table public.staff_users(id uuid primary key,role text,is_active boolean,active_session_id uuid);
@@ -24,7 +26,7 @@ before(async()=>{
  balance numeric generated always as(greatest(total_amount-paid_amount,0))stored,overpaid_amount numeric generated always as(greatest(paid_amount-total_amount,0))stored);
  create table public.payment_methods(payment_method_id uuid primary key default gen_random_uuid(),name text,type text,is_active boolean,created_at timestamptz default now());
  create table public.payments(payment_id uuid primary key default gen_random_uuid(),reservation_id uuid,amount numeric,payment_method_id uuid,payment_type text,status text,
- reference_number text unique,account_name text,account_number text,proof_path text,ocr_status text,paid_at timestamptz,verified_by uuid,verified_at timestamptz,rejected_by uuid,rejected_at timestamptz);
+ reference_number text unique,account_name text,account_number text,proof_path text,ocr_status text,paid_at timestamptz,verified_by uuid,verified_at timestamptz,rejected_by uuid,rejected_at timestamptz,auto_approved boolean default false,rejection_reason text);
  create table public.receipts(receipt_id uuid primary key default gen_random_uuid(),payment_id uuid unique,receipt_number text unique,amount_paid numeric,transaction_total_at_time numeric,balance_after_payment numeric,billed_to_name text,issued_at timestamptz default now());
  create table public.refund_requests(reservation_id uuid,amount numeric,status text);
  create table public.reservation_reschedules(reservation_id uuid,status text);
@@ -140,4 +142,88 @@ test("the new permission/rejection migration preserves authorized cash settlemen
  await db.exec(readFileSync("docs/payment-review-and-notifications-migration.sql","utf8"));
  await actor(staff);const result=await record();assert.equal(result.remainingBalance,0);assert.equal(result.receipt.billed_to_name,"Guest Tester");assert.equal(result.payment.verified_by,staff);
  assert.equal((await record()).alreadyRecorded,true);assert.equal((await one("select count(*)::int n from public.receipts")).n,1);
+});
+
+const bank="77777777-7777-4777-8777-777777777777",cashier="88888888-8888-4888-8888-888888888888";
+const staffProof=`${cashier}/staff/transfer.png`;
+async function nonCashSetup(){
+ await db.exec(`create table if not exists public.notifications(recipient_role text,recipient_id uuid,actor_id uuid,title text,message text,action_url text,entity_type text,entity_id uuid);
+ insert into public.payment_methods(payment_method_id,name,type,is_active) values('${bank}','BDO transfer','bank',true) on conflict(payment_method_id) do update set is_active=true;
+ insert into public.staff_users values('${cashier}','cashier',true,'${session}') on conflict(id) do update set is_active=true,active_session_id='${session}';
+ insert into public.role_permissions values('cashier',array['payment_entry']) on conflict(role) do update set permissions=array['payment_entry'];
+ truncate storage.objects;insert into storage.objects values('payment-proofs','${staffProof}');`);
+ await db.exec(readFileSync('docs/payment-review-and-notifications-migration.sql','utf8'));
+ await db.exec(fn('docs/ocr-auto-approve-payments-migration.sql','guard_payment_review'));
+ await db.exec(readFileSync('docs/staff-payment-methods-migration.sql','utf8'));
+ await actor(cashier);
+}
+const recordOther=(overrides={})=>{
+ const p={amount:2400,expected:2400,reference:'BANK-TEST123456',method:bank,received:true,name:'Maria Cruz',account:'09171234567',proof:staffProof,...overrides};
+ return one('select public.record_staff_payment($1,$2,$3,$4,$5,$6,$7,$8,$9) data',[reservation,p.amount,p.reference,p.expected,p.method,p.received,p.name,p.account,p.proof]).then(r=>r.data);
+};
+
+test('cashier records the exact GCash and bank catalog methods with partial/full receipts and invoice updates',async()=>{
+ await nonCashSetup();
+ const first=await recordOther({amount:1000,method:gcash,reference:'GCASH-TEST1234'});
+ assert.equal(first.payment.payment_method_id,gcash);assert.equal(first.payment.status,'verified');assert.equal(first.payment.auto_approved,false);
+ assert.equal(first.payment.verified_by,cashier);assert.equal(first.remainingBalance,1400);assert.equal(first.receipt.billed_to_name,'Guest Tester');
+ const second=await recordOther({amount:1400,expected:1400});
+ assert.equal(second.payment.payment_method_id,bank);assert.equal(second.remainingBalance,0);assert.equal(second.receipt.amount_paid,1400);
+ assert.equal((await one('select status from invoices')).status,'paid');
+ assert.equal((await one("select count(*)::int n from audit_logs where action='Recorded staff payment'")).n,2);
+});
+
+test('non-cash entries preserve completed refunds in the balance and historical receipt snapshots',async()=>{
+ await nonCashSetup();await db.query("insert into refund_requests values($1,100,'refunded')",[reservation]);
+ const r=await recordOther({amount:1000,expected:2500});
+ assert.equal(r.remainingBalance,1500);assert.equal(r.receipt.balance_after_payment,1500);
+});
+
+test('retries of a normalized provider reference cannot credit a second payment or change its method/amount',async()=>{
+ await nonCashSetup();const first=await recordOther({reference:'BANK-TEST 123456'});
+ const again=await recordOther({reference:'banktest123456'});assert.equal(again.alreadyRecorded,true);
+ assert.equal(again.payment.payment_id,first.payment.payment_id);assert.equal((await one('select count(*)::int n from receipts')).n,1);
+ await assert.rejects(recordOther({amount:2000}),e=>e.code==='23505');
+ await assert.rejects(recordOther({method:gcash}),e=>e.code==='23505');
+ await db.query('update payment_methods set is_active=false where payment_method_id=$1',[bank]);
+ assert.equal((await recordOther()).alreadyRecorded,true);
+});
+
+test('entry-only access does not grant approval of other pending guest payments',async()=>{
+ await nonCashSetup();assert.equal((await one('select can_review_payment($1) ok',[gcash])).ok,false);
+ await recordOther({amount:1000});
+ assert.equal((await one('select can_review_payment($1) ok',[gcash])).ok,false);
+ assert.equal((await one("select current_setting('app.staff_recorded_payment',true) marker")).marker,'');
+ const {payment_id:id}=await one("insert into payments(reservation_id,amount,payment_method_id,status,reference_number) values($1,1400,$2,'pending','999999888888') returning payment_id",[reservation,gcash]);
+ await assert.rejects(db.query("update payments set status='verified' where payment_id=$1",[id]),e=>e.code==='42501');
+});
+
+test('other-method recording rejects admin, guest, stale sessions and missing entry grants',async()=>{
+ await nonCashSetup();for(const id of[admin,guest,null]){await actor(id);await assert.rejects(recordOther(),e=>e.code==='42501');}
+ await actor(cashier,'99999999-9999-4999-8999-999999999999');await assert.rejects(recordOther(),e=>e.code==='42501');
+ await actor(cashier);await db.exec("update role_permissions set permissions='{}' where role='cashier'");await assert.rejects(recordOther(),e=>e.code==='42501');
+ assert.equal((await one('select count(*)::int n from receipts')).n,0);
+});
+
+test('non-cash entries require received-funds acknowledgement, own proof, active methods and a current eligible balance',async()=>{
+ await nonCashSetup();
+ for(const payload of[{received:false},{amount:0},{amount:1.001},{amount:2500},{expected:2300},{reference:'bad!ref'},{account:'123'},{proof:`${guest}/proof.png`}])
+  await assert.rejects(recordOther(payload),e=>['22023','40001','42501'].includes(e.code));
+ await db.query('update payment_methods set is_active=false where payment_method_id=$1',[bank]);await assert.rejects(recordOther(),e=>e.code==='22023');
+ await db.query('update payment_methods set is_active=true where payment_method_id=$1',[bank]);
+ await db.query("insert into refund_requests values($1,100,'approved')",[reservation]);await assert.rejects(recordOther(),e=>e.code==='40001');
+ await db.exec("truncate refund_requests;update reservations set status='completed'");await assert.rejects(recordOther(),e=>e.code==='40001');
+ assert.equal((await one('select count(*)::int n from payments')).n,1);
+});
+
+test('new non-cash downpayments confirm bookings and rollback entirely if receipt creation fails',async()=>{
+ await nonCashSetup();await db.exec("truncate payments;update reservations set status='pending'");
+ await assert.rejects(recordOther({amount:100,expected:3000}),e=>e.code==='22023');
+ await db.exec('alter table payments disable trigger trigger_create_receipt');
+ try{await assert.rejects(recordOther({amount:600,expected:3000}),e=>e.code==='55000');}
+ finally{await db.exec('alter table payments enable trigger trigger_create_receipt');}
+ assert.equal((await one('select count(*)::int n from payments')).n,0);assert.equal((await one('select status from reservations')).status,'pending');
+ const r=await recordOther({amount:600,expected:3000});assert.equal(r.reservationConfirmed,true);assert.equal(r.reservation.status,'confirmed');assert.equal(r.remainingBalance,2400);
+ await db.exec(readFileSync('docs/staff-payment-methods-migration.sql','utf8'));
+ assert.equal((await one('select count(*)::int n from receipts')).n,1);
 });

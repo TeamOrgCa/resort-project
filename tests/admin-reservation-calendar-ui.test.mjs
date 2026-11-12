@@ -230,11 +230,16 @@ test("search and filters scroll to the full calendar, briefly pulse matching eve
   } finally { await h.close(); window.HTMLElement.prototype.scrollIntoView = original; }
 });
 
-test("admins can manage maintenance while other operational actions stay unavailable", async () => {
-  const h = await mount({ role: "admin", initialAccess: { role: "admin", permissions: ["reservations", "create_reservation", "edit_reservation", "cancel_reservation", "payment_approval", "ocular_approval"] } });
+test("admins cannot manage maintenance or other operational actions even with forged grants", async () => {
+  const h = await mount({ role: "admin", mixedEntries: true, initialAccess: { role: "admin", permissions: ["reservations", "create_reservation", "edit_reservation", "cancel_reservation", "payment_approval", "ocular_approval"] } });
   try {
     assert.equal(Boolean(button(h.c, "New reservation")), false);
-    assert.equal(Boolean(button(h.c, "Add maintenance block")), true);
+    assert.equal(Boolean(button(h.c, "Add maintenance block")), false);
+    await filter(h.c, "maintenance", '[aria-label="Filter calendar by type or status"]');
+    await click([...agenda().querySelectorAll("button")][0]);
+    assert.equal(Boolean(button(document.body, "Release block")), false);
+    await click(button(document.body, "Close booking dialog"));
+    await filter(h.c, "all", '[aria-label="Filter calendar by type or status"]');
     await filter(h.c, "arrival");
     assert.match(agenda().textContent, /MV-CONFIRMED/);
     await click([...agenda().querySelectorAll("button")].find(b => b.textContent.includes("MV-CONFIRMED")));
@@ -315,7 +320,7 @@ test("server-verified manager access shows the maintenance action without anothe
     assert.ok(agenda().querySelector('[data-calendar-event^="block:"].calendar-match-pulse'));
   }finally{await h.close();}
 });
-test("maintenance conflicts remain visible in the modal and staff cannot see an admin-only action",async()=>{
+test("maintenance conflicts remain visible and managers without the edit grant cannot manage blocks",async()=>{
   const h=await mount({initialAccess:{role:"staff",permissions:["reservations","edit_reservation"]},blockFailure:true});
   try {
     await click(button(h.c,"Add maintenance block"));const dialog=document.querySelector('[role="dialog"]');const inputs=dialog.querySelectorAll("input");
