@@ -92,7 +92,7 @@ export default function RecordPaymentDialog({ initialReservationId, bills, refer
           <option value="cash">Cash (staff only)</option>
           {nonCashMethods.map(method => <option key={method.payment_method_id} value={method.payment_method_id}>{method.name}</option>)}
         </select></label>
-        <p className="text-xs text-neutral/65">Other methods follow the active Business Catalog. Guest online payments continue to use GCash.</p>
+        <p className="text-xs text-neutral/65">Other methods follow the active Business Catalog. Guest online payments support active non-cash methods; other methods require manual approval.</p>
         <label className="block text-sm font-medium text-black">Amount applied to this bill<input type="number" min="0.01" max={balance} step="0.01" required value={amount} onChange={event => { setAmount(event.target.value); setReceived(false); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white p-3 text-base text-black" /></label>
         <p className="text-xs text-neutral/65">The balance is filled in for full settlement. Enter a smaller amount for a partial payment. Give cash change separately.</p>
         <label className="block text-sm font-medium text-black">{cash ? "Cash reference" : "Transaction reference"}<input required readOnly={cash} minLength={cash ? undefined : 6} maxLength={100} value={cash ? cashReference : reference} onChange={event => { setReference(event.target.value); setReceived(false); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white p-3 text-base text-black" /></label>

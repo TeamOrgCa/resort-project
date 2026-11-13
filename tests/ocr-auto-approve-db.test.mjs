@@ -6,6 +6,7 @@ let db;
 const guest="11111111-1111-4111-8111-111111111111", other="33333333-3333-4333-8333-333333333333";
 const admin="44444444-4444-4444-8444-444444444444", cashier="55555555-5555-4555-8555-555555555555";
 const reservation="22222222-2222-4222-8222-222222222222", method="66666666-6666-4666-8666-666666666666";
+const bank="99999999-9999-4999-8999-999999999999", bankAccount="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", cashMethod="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const one=async(sql,args=[]) => (await db.query(sql,args)).rows[0];
 const actor=(id=null,role="service_role")=>db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('fixture.role',$2,false)",[id??"",role]);
 const migration=readFileSync("docs/ocr-auto-approve-payments-migration.sql","utf8");
@@ -73,10 +74,17 @@ before(async()=>{db=new PGlite();await db.exec(`
  await db.exec(manualMigration);await db.exec(manualMigration);
  const betaMigration=readFileSync("docs/ocr-beta-receipt-reuse-migration.sql","utf8");
  await db.exec(betaMigration);await db.exec(betaMigration);
+ await db.exec(`create table payment_accounts(account_id uuid primary key,payment_method_id uuid references payment_methods,account_name text,account_number text,qr_image text,is_active boolean);
+   insert into payment_methods values ('${bank}','Bank transfer','bank',true),('${cashMethod}','Cash','other',true);
+   insert into payment_accounts values ('${bankAccount}','${bank}','Resort Bank Account','000123456789',null,true);`);
+ const guestMethods=readFileSync("docs/guest-payment-methods-migration.sql","utf8");
+ await db.exec(guestMethods);await db.exec(guestMethods);
+
 });
 after(async()=>db?.close());
 beforeEach(async()=>{
  await db.exec("reset role;truncate public.reservations,public.audit_logs cascade;update guests set is_active=true");await actor();
+ await db.exec("update payment_methods set is_active=true;update payment_accounts set is_active=true");
  await db.query("insert into reservations(reservation_id,guest_id,reference_number,status,payment_deadline_at) values($1,$2,'MV-OCR','pending',now()+interval '30 minutes')",[reservation,guest]);
  await db.query("insert into transactions(reservation_id,total_amount) values($1,3000)",[reservation]);
 });
@@ -158,6 +166,57 @@ test("manual submission preserves ownership, deadline, amount and RPC access che
 });
 
 const submitBeta=(overrides={})=>one("select public.submit_beta_gcash_payment($1::jsonb) result",[JSON.stringify(payload({guest_id:guest,receipt_paid_at:'2020-01-01T09:00:00+08:00',...overrides}))]).then(row=>row.result);
+
+const submitOther=(overrides={})=>one("select public.submit_manual_guest_payment($1::jsonb) result",[JSON.stringify(payload({guest_id:guest,payment_method_id:bank,receiving_account_id:bankAccount,reference_number:'BANK-001234 AB',account_number:'guest@example.com',ocr_status:'not_applicable',...overrides}))]).then(row=>row.result);
+
+test("other methods remain pending with no credit or receipt even when approval evidence is forged",async()=>{
+ const result=await submitOther({status:'verified',auto_approved:true,ocr_checked_at:new Date().toISOString()});
+ assert.equal(result.status,'pending');assert.equal(result.auto_approved,false);assert.equal(result.paid_amount,0);assert.equal(result.remaining_balance,3000);
+ const row=await one("select * from payments");assert.equal(row.receiving_account_id,bankAccount);assert.equal(row.reference_number,'BANK001234AB');
+ assert.equal(row.receipt_paid_at,null);assert.equal(row.ocr_checked_at,null);assert.equal(row.ocr_status,'not_applicable');
+ assert.equal((await one("select status from reservations")).status,'payment_submitted');assert.equal((await one("select count(*)::int n from receipts")).n,0);
+ assert.equal((await one("select details from audit_logs")).details.automatic_approval,false);
+ await assert.rejects(submitOther(),code('40001'));
+});
+
+test("manual submission requires service authorization, active ownership and a matching receiving account",async()=>{
+ await actor(guest,'authenticated');await assert.rejects(submitOther(),code('42501'));await actor();
+ assert.equal((await one("select has_function_privilege('authenticated','public.submit_manual_guest_payment(jsonb)','execute') allowed")).allowed,false);
+ for(const change of [{guest_id:other},{proof_path:other+'/proof.png'},{proof_path:guest+'/missing.png'}])await assert.rejects(submitOther(change),code('42501'));
+ for(const change of [{receiving_account_id:null},{payment_method_id:method},{payment_method_id:cashMethod},{ocr_status:'consistent'},{reference_number:'bad!reference'}])await assert.rejects(submitOther(change),code('22023'));
+ await db.exec("update payment_accounts set is_active=false");await assert.rejects(submitOther(),code('22023'));
+ await db.exec("update payment_accounts set is_active=true;update payment_methods set is_active=false where type='bank'");await assert.rejects(submitOther(),code('22023'));
+ assert.equal((await one("select count(*)::int n from payments")).n,0);
+});
+
+test("manual submission rechecks bill minimums, deadlines, inactive guests and open reviews atomically",async()=>{
+ await assert.rejects(submitOther({amount:599.99}),code('40001'));
+ await db.exec("update guests set is_active=false");await assert.rejects(submitOther(),code('42501'));await db.exec("update guests set is_active=true");
+ await db.query("insert into reservation_reschedules values($1,'pending')",[reservation]);await assert.rejects(submitOther(),code('40001'));await db.exec("delete from reservation_reschedules");
+ await db.exec("update reservations set payment_deadline_at=now()-interval '1 minute'");await assert.rejects(submitOther(),code('P0001'));
+ assert.equal((await one("select count(*)::int n from payments")).n,0);
+});
+
+test("only an authorized cashier review credits a non-GCash balance payment",async()=>{
+ await submit();
+ const result=await submitOther({payment_type:'full',amount:2400});assert.equal(result.reservation_status,'confirmed');assert.equal(result.paid_amount,600);assert.equal(result.remaining_balance,2400);
+ await actor(guest,'authenticated');await assert.rejects(db.query("update payments set status='verified' where payment_id=$1",[result.payment_id]),code('42501'));
+ await actor(cashier,'authenticated');await db.query("update staff_users set active_session_id='77777777-7777-4777-8777-777777777777' where id=$1",[cashier]);
+ await db.query("update payments set status='verified' where payment_id=$1",[result.payment_id]);
+ const totals=await one("select * from transactions");assert.equal(Number(totals.paid_amount),3000);assert.equal(Number(totals.balance),0);
+ assert.equal((await one("select count(*)::int n from receipts")).n,2);
+ const payment=await one("select * from payments where payment_id=$1",[result.payment_id]);assert.equal(payment.verified_by,cashier);assert.equal(payment.auto_approved,false);
+});
+
+test("normalized references cannot be credited twice across different bookings",async()=>{
+ await submitOther();
+ const second='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+ await db.query("insert into reservations(reservation_id,guest_id,status,payment_deadline_at) values($1,$2,'pending',now()+interval '30 minutes')",[second,guest]);
+ await db.query("insert into transactions(reservation_id,total_amount) values($1,3000)",[second]);
+ await assert.rejects(submitOther({reservation_id:second,reference_number:'bank001234ab'}),code('23505'));
+ assert.equal((await one("select status from reservations where reservation_id=$1",[second])).status,'pending');
+ assert.equal((await one("select count(*)::int n from payments")).n,1);
+});
 test("beta workflow reuses an old receipt across reservations without weakening normal unique references",async()=>{
  const first=await submitBeta();assert.equal(first.is_beta_test,true);assert.equal(first.status,'verified');
  const secondReservation='88888888-8888-4888-8888-888888888888';

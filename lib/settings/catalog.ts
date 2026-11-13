@@ -18,9 +18,6 @@ export const settingDefinitions: SettingDefinition[] = [
   { key: "ocular.slot_duration_minutes", category: "ocular", label: "Slot duration (minutes)", description: "Default duration used to generate ocular slots.", input: "number", defaultValue: 60 },
   { key: "payments.accepted_methods", category: "payments", label: "Accepted payment methods", description: "Methods displayed at checkout.", input: "json", defaultValue: ["GCash", "Bank Transfer"] },
   { key: "payments.receipt_settings", category: "payments", label: "Receipt settings", description: "Choose whether to email receipts and set their prefix.", input: "json", defaultValue: { emailEnabled: true, prefix: "RCPT" } },
-  { key: "notifications.email_templates", category: "notifications", label: "Email templates", description: "Template names and messages.", input: "json", defaultValue: {} },
-  { key: "notifications.sms_templates", category: "notifications", label: "SMS templates", description: "Template names and messages.", input: "json", defaultValue: {} },
-  { key: "notifications.admin_alert_preferences", category: "notifications", label: "Admin alert preferences", description: "Choose alert channels.", input: "json", defaultValue: { email: true, inApp: true, sms: false } },
 ];
 
 export const settingCategories = [
@@ -30,5 +27,4 @@ export const settingCategories = [
   { key: "reservation", label: "Reservation settings" },
   { key: "ocular", label: "Ocular visit settings" },
   { key: "payments", label: "Payment settings" },
-  { key: "notifications", label: "Notification settings" },
 ] as const;

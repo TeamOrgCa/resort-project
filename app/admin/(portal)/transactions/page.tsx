@@ -57,6 +57,8 @@ interface PaymentSnapshotRow {
   status: "pending" | "verified" | "rejected";
   ocr_status: "not_applicable" | "consistent" | "mismatch" | "unreadable";
   ocr_notes: string | null;
+  payment_methods?: { name: string } | { name: string }[] | null;
+  receiving_account?: { account_name: string; account_number: string | null } | { account_name: string; account_number: string | null }[] | null;
 }
 
 const paymentReviewLane = (status: PaymentSnapshotRow["ocr_status"]) => {
@@ -251,7 +253,7 @@ export default function AdminTransactionsPage() {
           .order("updated_at", { ascending: false }).order("transaction_id").range(from, to));
         // Include pending payments even when no transaction has been generated yet.
         const pendingPayments = await fetchAllPages<PaymentSnapshotRow>((from, to) => supabase.from("payments")
-          .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes")
+          .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes, payment_methods(name), receiving_account:payment_accounts!receiving_account_id(account_name,account_number)")
           .eq("status", "pending").order("created_at").order("payment_id").range(from, to));
         const reservationIds = [...new Set([...transactionList.map(row => row.reservation_id), ...pendingPayments.map(row => row.reservation_id)])];
         const ledgerReservationIds = [...new Set(transactionList.map(row => row.reservation_id))];
@@ -265,7 +267,7 @@ export default function AdminTransactionsPage() {
               .select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", ids)
               .order("invoice_id").range(from, to)).then(data => ({ data, error: null })),
             fetchByIds<PaymentSnapshotRow>(ledgerReservationIds, (ids, from, to) => supabase.from("payments")
-              .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes")
+              .select("payment_id, reservation_id, reference_number, amount, payment_type, account_name, account_number, paid_at, receipt_paid_at, proof_path, status, ocr_status, ocr_notes, payment_methods(name), receiving_account:payment_accounts!receiving_account_id(account_name,account_number)")
               .in("reservation_id", ids).order("payment_id").range(from, to)).then(data => ({ data, error: null })),
             fetchAllPages<ReceiptRow>((from, to) => supabase.from("receipts")
               .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name")
@@ -544,8 +546,8 @@ export default function AdminTransactionsPage() {
     if (reviewDecision === "reject" && (!rejectionReason || rejectionReason.trim().length < 5 || rejectionReason.trim().length > 2000)) {
       setReviewActionError("Enter a rejection reason of 5 to 2,000 characters."); return;
     }
-    if (reviewDecision === "approve" && reviewPayment.receipt_paid_at && !screenshotReviewed) {
-      setReviewActionError("Check that the proof is a clear original GCash screenshot before approving.");
+    if (reviewDecision === "approve" && !screenshotReviewed) {
+      setReviewActionError("Verify the received funds, amount, recipient and reference before approving.");
       return;
     }
     const paymentId = reviewPayment.payment_id;

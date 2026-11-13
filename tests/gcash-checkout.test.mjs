@@ -6,14 +6,15 @@ const guest = "11111111-1111-4111-8111-111111111111";
 const account = "22222222-2222-4222-8222-222222222222";
 const body = { bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
   payment: { paymentMethodId: "gcash", receivingAccountId: account, type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guest}/proof.png` } };
-function harness({ beta = false, status = "consistent", method = "GCash", insertError = null, notificationFails = false } = {}) {
-  const writes = [], inspected = [], accountFilters = [], emails = [];
+function harness({ beta = false, status = "consistent", method = "GCash", insertError = null, notificationFails = false, proofValid = true, accountMissing = false, methodActive = true } = {}) {
+  const writes = [], inspected = [], manualProofs = [], accountFilters = [], emails = [];
+  const manual = method !== "GCash" && method !== "Cash";
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: guest } }, error: null }) },
     from: table => {
       let operation = "select";
-      const result = () => ({ error: null, data: table === "payment_methods" ? { name: method, type: "ewallet", is_active: true }
-        : table === "payment_accounts" ? { account_name: "Displayed Resort Account", account_number: "09171231234" }
+      const result = () => ({ error: null, data: table === "payment_methods" ? { name: method, type: "ewallet", is_active: methodActive }
+        : table === "payment_accounts" ? accountMissing ? null : { account_id: account, account_name: "Displayed Resort Account", account_number: "09171231234" }
         : table === "units" ? { unit_id: "unit", base_price: 1, is_active: true, archived_at: null }
         : table === "reservations" && operation === "insert" ? { reservation_id: "reservation", reference_number: "MV-TEST", status: "pending", payment_deadline_at: new Date(Date.now() + 100000).toISOString() } : null });
       const query = { select: () => query, eq: (field, value) => { if (table === "payment_accounts") accountFilters.push({ field, value }); return query; }, not: () => query, order: () => query, limit: () => query,
@@ -28,20 +29,21 @@ function harness({ beta = false, status = "consistent", method = "GCash", insert
   const { POST } = loadTsModule("app/api/reservations/checkout/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, { p_payment: payload }) => {
-      assert.equal(name, status === "skipped" ? "submit_unscreened_gcash_payment" : beta ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment"); writes.push({ table: "payments", operation: "insert", payload });
-      return { error: insertError, data: insertError ? null : { payment_id: "payment", is_beta_test: beta, status: status === "skipped" ? "pending" : "verified", ocr_status: status === "skipped" ? "not_applicable" : payload.ocr_status, auto_approved: status !== "skipped", reservation_status: status === "skipped" ? "payment_submitted" : "confirmed" } };
+      assert.equal(name, manual ? "submit_manual_guest_payment" : status === "skipped" ? "submit_unscreened_gcash_payment" : beta ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment"); writes.push({ table: "payments", operation: "insert", payload });
+      return { error: insertError, data: insertError ? null : { payment_id: "payment", is_beta_test: beta, status: (manual || status === "skipped") ? "pending" : "verified", ocr_status: (manual || status === "skipped") ? "not_applicable" : payload.ocr_status, auto_approved: !manual && status !== "skipped", reservation_status: (manual || status === "skipped") ? "payment_submitted" : "confirmed" } };
     } }) },
     "@/lib/server/ocr-payment-emails": { sendOcrPaymentEmails: async (...args) => { emails.push(args); } },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict: false, error: null }) },
     "@/lib/server/package-rates": { loadQuotedPackageRates: async () => ({ version: 1, rates: {} }), PackageRatesError: class extends Error {} },
     "@/lib/booking/pricing": { computeBookingPricing: () => ({ total: 5000 }) },
+    "@/lib/server/manual-payment-proof": { inspectManualPaymentProof: async (...args) => { manualProofs.push(args); return proofValid; } },
     "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return { status, betaTest: beta, notes: "Checked", amount: input.amount, reference: input.reference, paidAt: status === "skipped" ? undefined : "2026-10-13T01:00:00Z" }; } },
     "@/lib/notifications": { createNotifications: async () => { if (notificationFails) throw new Error("Unavailable"); return { error: null }; }, NOTIFICATION_AUDIENCES: { checkout: [] } },
   });
-  return { writes, inspected, accountFilters, emails, post: data => POST(new Request("http://localhost", { method: "POST", body: JSON.stringify(data) })) };
+  return { writes, inspected, manualProofs, accountFilters, emails, post: data => POST(new Request("http://localhost", { method: "POST", body: JSON.stringify(data) })) };
 }
-test("legacy checkout enforces GCash and blocks all failed field checks before creating a booking", async () => {
-  for (const [options, expected] of [[{ status: "mismatch" }, 422], [{ status: "unreadable" }, 422], [{ status: "not_applicable" }, 422], [{ status: "screening_unavailable" }, 503], [{ method: "Bank" }, 400]]) {
+test("checkout blocks cash and all failed field checks before creating a booking", async () => {
+  for (const [options, expected] of [[{ status: "mismatch" }, 422], [{ status: "unreadable" }, 422], [{ status: "not_applicable" }, 422], [{ status: "screening_unavailable" }, 503], [{ method: "Cash" }, 400]]) {
     const h = harness(options); assert.equal((await h.post(body)).status, expected); assert.equal(h.writes.length, 0);
   }
   const low = harness(); assert.equal((await low.post({ ...body, payment: { ...body.payment, amount: 999.99 } })).status, 400); assert.equal(low.writes.length, 0);
@@ -111,4 +113,26 @@ test("checkout sends confirmation and billing email workflows for normal and bet
   const pending = harness({ status: "skipped" });
   assert.equal((await pending.post(body)).status, 201);
   assert.deepEqual(pending.emails, []);
+});
+
+test("checkout submits other active methods for manual review without OCR, automatic approval or approval emails", async () => {
+  for (const method of ["Bank transfer", "Maya", "Other provider"]) {
+    const h = harness({ method });
+    const response = await h.post({ ...body, payment: { ...body.payment, referenceNumber: "BANK-001234 AB", autoApproved: true, ocr_status: "consistent", betaTest: true } });
+    assert.equal(response.status, 201); const json = await response.json();
+    assert.equal(json.payment.status, "pending"); assert.equal(json.payment.autoApproved, false);
+    assert.equal(json.reservation.status, "payment_submitted"); assert.equal(h.inspected.length, 0); assert.equal(h.manualProofs.length, 1); assert.deepEqual(h.emails, []);
+    const row = h.writes.find(write => write.table === "payments").payload;
+    assert.equal(row.reference_number, "BANK001234AB"); assert.equal(row.ocr_status, "not_applicable");
+    assert.equal(row.ocr_checked_at, null); assert.equal(row.receipt_paid_at, null); assert.equal(row.receiving_account_id, account);
+  }
+});
+
+test("other-method checkout still requires an active method, matched account, valid reference and owned image", async () => {
+  for (const [options, status] of [[{ method: "Cash" }, 400], [{ method: "Bank", methodActive: false }, 400], [{ method: "Bank", proofValid: false }, 400], [{ method: "Bank", accountMissing: true }, 503]]) {
+    const h = harness(options); assert.equal((await h.post(body)).status, status); assert.equal(h.writes.length, 0);
+  }
+  for (const change of [{ receivingAccountId: undefined }, { referenceNumber: "abc" }, { referenceNumber: "<script>alert(1)</script>" }, { amount: 999.99 }, { accountNumber: "x" }]) {
+    const h = harness({ method: "Bank" }); assert.equal((await h.post({ ...body, payment: { ...body.payment, ...change } })).status, 400); assert.equal(h.writes.length, 0);
+  }
 });

@@ -114,6 +114,40 @@ test("booking actions open a focused dialog without inline details and restore t
   } finally { await h.close(); }
 });
 
+test("booking and ocular cards provide direct keyboard-focusable View controls while options stay separate", async () => {
+  const h = await mount();
+  try {
+    const cardView = h.container.querySelector('button[aria-label="View booking MV-CONFIRMED"]');
+    assert.ok(cardView); assert.equal(cardView.getAttribute("aria-haspopup"), "dialog");
+    cardView.focus(); await click(cardView); assert.match(dialog().textContent, /Booking details/);
+    await click(button(dialog(), "Close")); assert.equal(document.activeElement, cardView);
+    await click(options("MV-CONFIRMED")); assert.equal(dialog(), null); assert.ok(document.querySelector('[role="menu"]'));
+    await key(document.activeElement, "Escape");
+    await click([...h.container.querySelectorAll('[aria-label="Record type"] button')].find(el => el.textContent.includes("Ocular visits")));
+    const visitView = h.container.querySelector('button[aria-label="View ocular visit OC-VISIT"]');
+    visitView.focus(); await click(visitView); assert.match(dialog().textContent, /Ocular visit details/);
+    await click(button(dialog(), "Close")); assert.equal(document.activeElement, visitView);
+  } finally { await h.close(); }
+});
+
+test("guests search bookings and ocular visits by date, combine it with references, and clear filters", async () => {
+  const h = await mount();
+  try {
+    const cards = () => h.container.querySelectorAll('article[aria-label^="Booking "]');
+    await value(h.container.querySelector('[aria-label="Search booking date"]'), day(20)); assert.equal(cards().length, 3);
+    await value(h.container.querySelector('[type="search"]'), "MV-CONFIRMED"); assert.equal(cards().length, 1);
+    await value(h.container.querySelector('[aria-label="Search booking date"]'), day(21)); assert.equal(cards().length, 0); assert.match(h.container.textContent, /No matching records/);
+    await click(button(h.container, "Clear search")); assert.equal(cards().length, 3);
+    await value(h.container.querySelector('[type="search"]'), day(20)); assert.equal(cards().length, 3);
+    await value(h.container.querySelector('[type="search"]'), day(21)); assert.equal(cards().length, 0);
+    await click([...h.container.querySelectorAll('[aria-label="Record type"] button')].find(el => el.textContent.includes("Ocular visits")));
+    assert.equal(h.container.querySelector('[type="search"]').value, "");
+    await value(h.container.querySelector('[aria-label="Search visit date"]'), day(12)); assert.ok(h.container.querySelector('article[aria-label="Ocular visit OC-VISIT"]'));
+    await value(h.container.querySelector('[aria-label="Search visit date"]'), day(13)); assert.match(h.container.textContent, /No matching records/);
+    await click(button(h.container, "Refunds")); assert.equal(h.container.querySelector('input[type="date"]'), null);
+  } finally { await h.close(); }
+});
+
 test("service errors and recalculated amounts remain visible in the selected dialog, which cannot close during save", async () => {
   const calls = []; let rejectSave = true, resolveSave;
   const h = await mount(async (url, options) => {

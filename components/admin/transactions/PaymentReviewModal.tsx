@@ -16,6 +16,8 @@ export type PaymentReviewRecord = {
   status: "pending" | "verified" | "rejected";
   ocr_status: "not_applicable" | "consistent" | "mismatch" | "unreadable";
   ocr_notes: string | null;
+  payment_methods?: { name: string } | { name: string }[] | null;
+  receiving_account?: { account_name: string; account_number: string | null } | { account_name: string; account_number: string | null }[] | null;
 };
 
 type Decision = "approve" | "reject" | null;
@@ -49,7 +51,9 @@ export default function PaymentReviewModal({
   const [rejectionReason, setRejectionReason] = useState("");
   const validRejectionReason = rejectionReason.trim().length >= 5 && rejectionReason.trim().length <= 2000;
   const imageReady = Boolean(proofUrl && loadedUrl === proofUrl && failedUrl !== proofUrl);
-  const approvalReady = imageReady && !isProofLoading && (!payment.receipt_paid_at || screenshotReviewed);
+  const approvalReady = imageReady && !isProofLoading && screenshotReviewed;
+  const method = Array.isArray(payment.payment_methods) ? payment.payment_methods[0] : payment.payment_methods;
+  const receivingAccount = Array.isArray(payment.receiving_account) ? payment.receiving_account[0] : payment.receiving_account;
   useEffect(() => {
     if (embedded) return;
     const handleEscape = (event: KeyboardEvent) => {
@@ -94,12 +98,14 @@ export default function PaymentReviewModal({
               {[
                 ["Reservation", reservationReference],
                 ["Payment reference", payment.reference_number],
+                ["Payment method", method?.name ?? "Not recorded"],
+                ["Resort receiving account", receivingAccount ? `${receivingAccount.account_name} - ${receivingAccount.account_number ?? "QR payment"}` : "See the proof and resort account records"],
                 ["Amount", new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(payment.amount))],
                 ["Payment type", titleCase(payment.payment_type)],
                 ["Sender name", payment.account_name || "-"],
                 ["Sender account", payment.account_number || "-"],
                 ["Submitted", payment.paid_at ? new Date(payment.paid_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "-"],
-                ["GCash receipt time (Philippines)", payment.receipt_paid_at ? new Date(payment.receipt_paid_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Not captured (legacy/manual payment)"],
+                [payment.receipt_paid_at ? "GCash receipt time (Philippines)" : "Receipt time (Philippines)", payment.receipt_paid_at ? new Date(payment.receipt_paid_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Read and verify the date on the proof"],
                 ["Status", titleCase(payment.status)],
                 ["OCR screen", titleCase(payment.ocr_status)],
                 ["OCR notes", payment.ocr_notes || "None"],
@@ -110,10 +116,10 @@ export default function PaymentReviewModal({
 
             {payment.status === "pending" && canReview && (
               <div className="border-t border-neutral/10 pt-4">
-                {payment.receipt_paid_at && (
+                {(
                   <label className="mb-4 flex items-start gap-3 rounded-xl bg-base p-3 text-sm text-neutral">
                     <input type="checkbox" checked={screenshotReviewed} onChange={(event) => onScreenshotReviewed(event.target.checked)} disabled={isSubmitting || !imageReady} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
-                    <span>I checked this is a clear original GCash screenshot. Reject photos of another screen, scans, blurred images and edited receipts.</span>
+                    <span>{payment.receipt_paid_at ? "I checked this is a clear original GCash screenshot and verified the received funds, amount, recipient and reference. Reject photos of another screen, scans, blurred images and edited receipts." : "I matched the proof's amount, recipient and transaction reference against actual received funds in the resort's account."}</span>
                   </label>
                 )}
                 {decision ? (

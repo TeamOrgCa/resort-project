@@ -20,7 +20,7 @@ async function confirmMaintenanceIfOpen() {
   const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Confirm maintenance block");
   if (confirm) await click(confirm);
 }
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, paidReview = false } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
@@ -34,6 +34,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
   if (ended) { data.reservations[0].start_datetime = new Date(Date.now() - 3600000).toISOString(); data.reservations[0].end_datetime = new Date(Date.now() - 1000).toISOString(); }
   if (arrived) data.reservations[0].checked_in_at = new Date().toISOString();
   if (fullyPaid) { data.payments = []; data.reservation_reschedules = []; data.transactions[0].balance = 0; }
+  if (paidReview) data.transactions[1].paid_amount = 600;
   if (includeOcular) data.ocular_visits = [{ visit_id:"ocular",reference_number:"MV-OCULAR",guest_id:"guest",scheduled_date:day,status:ocularStatus }];
   if (mixedEntries) {
     for (const [key, status, attendance] of [
@@ -108,11 +109,11 @@ test("calendar reads all workflow signals, distinguishes bookings and confirms a
   const h = await mount();
   try {
     for(const table of ["payments","reservation_reschedules","refund_requests","transactions"]) assert.ok(h.tables.includes(table));
-    assert.match(agenda().textContent,/Booking request.*MV-PENDING/); assert.match(agenda().textContent,/Confirmed reservation.*MV-CONFIRMED/);
-    assert.match(agenda().textContent,/Refund pending/); assert.match(agenda().textContent,/Today: not checked in/);
+    assert.match(agenda().textContent,/Booking \| MV-PENDING/); assert.match(agenda().textContent,/Reservation \| MV-CONFIRMED/);
+    assert.match(agenda().textContent,/Refund pending/); assert.doesNotMatch(agenda().textContent,/Today: not checked in|Unpaid balance/);
     await filter(h.c,"refund"); assert.match(agenda().textContent,/MV-CANCELLED/); assert.doesNotMatch(agenda().textContent,/MV-CONFIRMED|MV-PENDING/);
-    await filter(h.c,"arrival"); assert.match(agenda().textContent,/MV-CONFIRMED/); assert.doesNotMatch(agenda().textContent,/MV-CANCELLED|MV-PENDING/);
-    await click(button(h.c,"Agenda")); assert.match(agenda().textContent,/MV-CONFIRMED/);
+    await filter(h.c,"cancelled"); assert.match(agenda().textContent,/MV-CANCELLED/); assert.doesNotMatch(agenda().textContent,/MV-CONFIRMED|MV-PENDING/);
+    await click(button(h.c,"Agenda")); assert.match(agenda().textContent,/MV-CANCELLED/);
     await click(button(h.c,"Next month") ?? h.c.querySelector('[aria-label="Next month"]'));
     assert.match(agenda().textContent,/No entries match/);
   } finally { await h.close(); }
@@ -131,6 +132,7 @@ test("type and status filters work in both calendars, combine with search and at
     const cases = [
       ["reservations", [id, "pending", "cancelled", "awaiting", "checked-in", "completed", "no-show", "rejected", "rescheduled"]],
       ["booking", ["pending", "awaiting"]], ["ocular", ["ocular", "ocular-cancelled", "ocular-completed"]], ["maintenance", ["maintenance"]],
+      ["reservation", [id, "checked-in", "completed", "rescheduled"]],
       ["pending", ["awaiting"]], ["payment_submitted", ["pending"]], ["confirmed", [id, "checked-in", "ocular"]],
       ["checked_in", ["checked-in"]], ["completed", ["completed", "ocular-completed"]],
       ["cancelled", ["cancelled", "ocular-cancelled"]], ["no_show", ["no-show"]], ["rejected", ["rejected"]], ["reschedule_requested", ["rescheduled"]],
@@ -162,8 +164,8 @@ test("type and status filters work in both calendars, combine with search and at
   } finally { await h.close(); }
 });
 
-test("calendar uses red attention backgrounds without exclamation badges and distinct default status colors", async () => {
-  const h = await mount();
+test("calendar legend has exactly five categories and only no-shows, cancellations and refunds use attention red", async () => {
+  const h = await mount({ includeOcular: true, mixedEntries: true });
   try {
     const events = h.c.querySelectorAll('[data-needs-attention="true"]');
     assert.ok(events.length > 0);
@@ -174,7 +176,26 @@ test("calendar uses red attention backgrounds without exclamation badges and dis
     const legend = h.c.querySelector('[aria-label="Calendar legend"]');
     const colors = [...legend.querySelectorAll('span[style]')].map(dot => dot.style.backgroundColor);
     assert.equal(new Set(colors).size, colors.length);
-    assert.match(legend.textContent, /Confirmed.*Completed.*Cancelled/);
+    assert.deepEqual([...legend.children].map(el => el.textContent), ["Booking", "Reservation", "Ocular visit", "Maintenance", "Needs attention"]);
+    const eventsById = new Map([...agenda().querySelectorAll('[data-calendar-event]')].map(el => [el.dataset.calendarEvent.split(":")[0], el]));
+    for (const entry of [id, "pending", "awaiting", "checked-in", "completed", "rescheduled", "rejected", "ocular", "maintenance"]) assert.equal(eventsById.get(entry).dataset.needsAttention, "false", entry);
+    for (const entry of ["cancelled", "no-show", "ocular-cancelled"]) assert.equal(eventsById.get(entry).style.backgroundColor, "rgb(185, 28, 28)", entry);
+    assert.equal(eventsById.get("pending").style.backgroundColor, eventsById.get("awaiting").style.backgroundColor);
+    assert.equal(eventsById.get(id).style.backgroundColor, eventsById.get("completed").style.backgroundColor);
+    await filter(h.c, "no_show"); assert.match(agenda().textContent, /MV-NO-SHOW/); assert.doesNotMatch(agenda().textContent, /MV-CONFIRMED|MV-CANCELLED/);
+  } finally { await h.close(); }
+});
+
+test("an existing verified down payment keeps the reservation color while a later payment is under review", async () => {
+  const h = await mount({ paidReview: true });
+  try {
+    const entry = [...agenda().querySelectorAll('[data-calendar-event]')].find(el => el.textContent.includes("MV-PENDING"));
+    assert.match(entry.textContent, /Reservation \| MV-PENDING/); assert.equal(entry.style.backgroundColor, "rgb(29, 78, 216)");
+    assert.equal(entry.dataset.needsAttention, "false");
+    await filter(h.c, "booking", '[aria-label="Filter calendar by type or status"]'); assert.doesNotMatch(agenda().textContent, /MV-PENDING/);
+    await filter(h.c, "reservation", '[aria-label="Filter calendar by type or status"]'); assert.match(agenda().textContent, /MV-PENDING/);
+    await click([...agenda().querySelectorAll("button")].find(el => el.textContent.includes("MV-PENDING")));
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Reservation details/);
   } finally { await h.close(); }
 });
 
@@ -183,12 +204,12 @@ test("calendar colors and viewed dots persist per staff account and reset colors
   const event = () => [...agenda().querySelectorAll('[data-calendar-event]')].find(el => el.textContent.includes("MV-CONFIRMED"));
   try {
     assert.ok(event().querySelector('[aria-label="New booking — not yet viewed"]'));
-    assert.equal(h.c.querySelector('[aria-label="Confirmed color"]'), null);
+    assert.equal(h.c.querySelector('[aria-label="Reservation color"]'), null);
     const settings = button(h.c, "Calendar color settings"); settings.focus();
     await click(settings);
     assert.match(document.querySelector('[role="dialog"]').textContent, /Calendar colors/);
-    assert.ok(document.querySelector('[aria-label="Confirmed color"]').classList.contains("calendar-color-picker"));
-    await input(document.querySelector('[aria-label="Confirmed color"]'), "#ffffff");
+    assert.ok(document.querySelector('[aria-label="Reservation color"]').classList.contains("calendar-color-picker"));
+    await input(document.querySelector('[aria-label="Reservation color"]'), "#ffffff");
     assert.equal(event().style.backgroundColor, "rgb(255, 255, 255)");
     assert.equal(event().style.color, "rgb(17, 17, 17)");
     await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
@@ -240,24 +261,24 @@ test("admins cannot manage maintenance or other operational actions even with fo
     assert.equal(Boolean(button(document.body, "Release block")), false);
     await click(button(document.body, "Close booking dialog"));
     await filter(h.c, "all", '[aria-label="Filter calendar by type or status"]');
-    await filter(h.c, "arrival");
+    await filter(h.c, "all");
     assert.match(agenda().textContent, /MV-CONFIRMED/);
     await click([...agenda().querySelectorAll("button")].find(b => b.textContent.includes("MV-CONFIRMED")));
     for (const label of ["Record guest arrival", "Cancel reservation", "Approve payment", "Reject payment"]) assert.equal(Boolean(button(document.body, label)), false, label);
     assert.equal(h.calls.length, 0);
   } finally { await h.close(); }
 });
-test("recorded guest arrival needs acknowledgement, submits once, refreshes its flag and links to the review modules",async()=>{
+test("recorded guest arrival needs acknowledgement, submits once and keeps payment review links outside attention flags",async()=>{
   const h=await mount();
   try {
     await click([...agenda().querySelectorAll("button")].find(el=>el.textContent.includes("MV-CONFIRMED")));
-    const dialog=document.querySelector('[role="dialog"]');assert.ok(dialog);assert.match(dialog.textContent,/Needs attention/);
+    const dialog=document.querySelector('[role="dialog"]');assert.ok(dialog);assert.doesNotMatch(dialog.textContent,/Needs attention/);
     assert.equal(button(dialog,"Mark guest checked in").disabled,true);
     for (const path of ["/admin/transactions?tab=payments","/admin/records?tab=reschedules","/admin/transactions?tab=ledger"]) assert.ok(dialog.querySelector('a[href="'+path+'"]'));
     await click(dialog.querySelector('input[type="checkbox"]'));await click(button(dialog,"Mark guest checked in"));
     assert.deepEqual(h.calls,[{url:"/api/admin/reservations/check-in",body:{reservationId:id,arrivalConfirmed:true}}]);
     assert.match(dialog.textContent,/Checked in:/);assert.doesNotMatch(dialog.textContent,/Today: not checked in/);
-    assert.match(dialog.textContent,/Unpaid balance/);assert.equal(button(dialog,"Mark guest checked in"),undefined);
+    assert.ok(dialog.querySelector('a[href="/admin/transactions?tab=ledger"]'));assert.equal(button(dialog,"Mark guest checked in"),undefined);
   }finally{await h.close();}
 });
 test("staff with view permission can inspect flags but cannot create, check in or follow restricted module links",async()=>{
@@ -266,7 +287,7 @@ test("staff with view permission can inspect flags but cannot create, check in o
     assert.equal(button(h.c,"New reservation"),undefined);
     await click([...agenda().querySelectorAll("button")].find(el=>el.textContent.includes("MV-CONFIRMED")));
     const dialog=document.querySelector('[role="dialog"]');assert.equal(button(dialog,"Mark guest checked in"),undefined);
-    assert.equal(dialog.querySelectorAll("a").length,0);assert.match(dialog.textContent,/Today: not checked in/);
+    assert.equal(dialog.querySelectorAll("a").length,0);assert.doesNotMatch(dialog.textContent,/Needs attention/);
   }finally{await h.close();}
 });
 test("failed financial flag reads show an error and retry rather than claiming there is nothing to review",async()=>{

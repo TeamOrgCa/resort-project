@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { isGcashMethod } from "@/lib/booking/gcash-receipt";
 import { catalogResources, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource } from "@/lib/catalog/catalog";
 import CatalogDialog from "./CatalogDialog";
 import ContentImageEditor from "@/components/admin/ContentImageEditor";
@@ -27,6 +28,8 @@ export default function CatalogEditorDialog({ resource, record, references, refe
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const needsReferences = resource === "unit_rates" || resource === "payment_accounts";
+  const selectedMethod = references.paymentMethods.find(method => method.payment_method_id === draft.payment_method_id);
+  const qrRequired = !selectedMethod || isGcashMethod({ name: selectedMethod.name, type: selectedMethod.type ?? "" });
   const setField = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
 
   return <CatalogDialog title={`${record ? "Edit" : "Add"} ${definition.singular}`} description={record ? "Update this record, then save your changes." : "Fill in the details below. Fields marked * are required."} busy={blocked} onClose={onClose}>
@@ -65,9 +68,9 @@ export default function CatalogEditorDialog({ resource, record, references, refe
           </div>;
         })}
         {resource === "payment_accounts" && <div className="sm:col-span-2 rounded-xl border border-dashed border-neutral/20 bg-base/50 p-4">
-          <label htmlFor="catalog-qr" className="text-sm font-medium text-neutral">Payment QR image <span className="text-primary" aria-label="required">*</span></label>
-          <p className="mt-1 text-xs text-neutral/60">{record?.qr_image ? "A QR image is already attached. Choose a file to replace it." : "Required. Upload the QR guests will scan to pay. PNG, JPEG, or WebP up to 5 MB."}</p>
-          <input id="catalog-qr" type="file" required={!record?.qr_image} accept="image/png,image/jpeg,image/webp" onChange={(event) => {
+          <label htmlFor="catalog-qr" className="text-sm font-medium text-neutral">Payment QR image {qrRequired && <span className="text-primary" aria-label="required">*</span>}</label>
+          <p className="mt-1 text-xs text-neutral/60">{record?.qr_image ? "A QR image is already attached. Choose a file to replace it." : qrRequired ? "Required for GCash. Upload the QR guests will scan to pay. PNG, JPEG, or WebP up to 5 MB." : "Optional when a receiving account number is provided. PNG, JPEG, or WebP up to 5 MB."}</p>
+          <input id="catalog-qr" type="file" required={qrRequired && !record?.qr_image} accept="image/png,image/jpeg,image/webp" onChange={(event) => {
             const file = event.target.files?.[0] ?? null;
             if (file && (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024 || !file.size)) { setFileError("Choose a PNG, JPEG, or WebP image up to 5 MB."); setQrFile(null); return; }
             setFileError(null); setQrFile(file);

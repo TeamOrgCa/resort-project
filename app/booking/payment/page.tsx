@@ -10,6 +10,7 @@ import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount, resolvePaymentType, amountMeetsMinimum } from "@/lib/booking/payment-policy";
+import { isCashMethod, normalizeManualPaymentReference, isValidManualAccountIdentifier } from "@/lib/booking/payment-method";
 import { isGcashMethod, normalizeGcashReference } from "@/lib/booking/gcash-receipt";
 import { buildBookingCostSummary } from "@/lib/booking/summary";
 import { MAX_PAYMENT_PROOF_BYTES, PAYMENT_PROOF_BUCKET } from "@/lib/booking/payment-proof";
@@ -54,10 +55,10 @@ export default function Payment() {
 
 function PaymentContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
-  const [paymentMethod, setPaymentMethod] = useState<"bank" | "ewallet">("ewallet");
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([]);
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState("");
+  const [selectedPaymentAccountId, setSelectedPaymentAccountId] = useState("");
   const [paymentCatalogLoading, setPaymentCatalogLoading] = useState(true);
   const [paymentCatalogError, setPaymentCatalogError] = useState<string | null>(null);
   const [catalogVersion, setCatalogVersion] = useState(0);
@@ -66,6 +67,7 @@ function PaymentContent() {
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentAutoApproved, setPaymentAutoApproved] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitting = useRef(false);
   const [submitError, setSubmitErrorValue] = useState<string | null>(null);
   const [submitIssues, setSubmitIssues] = useState<string[]>([]);
   const setSubmitError = (message: string | null) => { setSubmitErrorValue(message); setSubmitIssues([]); };
@@ -89,7 +91,6 @@ function PaymentContent() {
     previousPaidAmount: number;
     payOption: "downpayment" | "full";
   } | null>(null);
-  const bankFileInputRef = useRef<HTMLInputElement | null>(null);
   const ewalletFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -105,18 +106,17 @@ function PaymentContent() {
         };
         if (!response.ok || !result.success) throw new Error("Catalog unavailable");
         if (!isMounted) return;
-        const accounts = (result.catalog?.paymentAccounts ?? []).filter((account) => account.qr_image);
-        const methods = (result.catalog?.paymentMethods ?? []).filter((method) => isGcashMethod(method) && accounts.some((account) => account.payment_method_id === method.payment_method_id));
+        const accounts = (result.catalog?.paymentAccounts ?? []).filter(account => account.is_active !== false && (account.qr_image || account.account_number));
+        const methods = (result.catalog?.paymentMethods ?? []).filter((method) => !isCashMethod(method) && method.is_active !== false && accounts.some(account => account.payment_method_id === method.payment_method_id && (!isGcashMethod(method) || account.qr_image)));
         setPaymentMethods(methods);
         setPaymentAccounts(accounts);
-        if (!methods.length) setPaymentCatalogError("No GCash QR codes are available. Please contact the resort or try loading again.");
+        if (!methods.length) setPaymentCatalogError("No online payment accounts are available. Please contact the resort or try loading again.");
         const firstMethod = methods.find((method) => method.payment_method_id === selectedMethodRef.current) ?? methods[0];
         if (firstMethod) {
           setSelectedPaymentMethodId(firstMethod.payment_method_id);
-          setPaymentMethod("ewallet");
         } else setSelectedPaymentMethodId("");
       } catch {
-        if (isMounted) { setPaymentMethods([]); setPaymentAccounts([]); setSelectedPaymentMethodId(""); setPaymentCatalogError("Unable to load payment QR codes. Please try again."); }
+        if (isMounted) { setPaymentMethods([]); setPaymentAccounts([]); setSelectedPaymentMethodId(""); setPaymentCatalogError("Unable to load payment methods. Please try again."); }
       } finally {
         if (isMounted) setPaymentCatalogLoading(false);
       }
@@ -130,14 +130,7 @@ function PaymentContent() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const [bankDetails, setBankDetails] = useState({
-    accountName: "",
-    referenceNumber: "",
-    uploadProof: null as File | null,
-  });
-
   const [ewalletDetails, setEwalletDetails] = useState({
-    provider: "gcash",
     accountName: "",
     accountNumber: "",
     referenceNumber: "",
@@ -158,19 +151,7 @@ function PaymentContent() {
     setEwalletDetails(current => ({ ...current, referenceNumber: digits }));
   };
 
-  const [bankProofPreviewUrl, setBankProofPreviewUrl] = useState<string | null>(null);
   const [ewalletProofPreviewUrl, setEwalletProofPreviewUrl] = useState<string | null>(null);
-
-  const handleBankProofChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] || null;
-
-    if (bankProofPreviewUrl) {
-      URL.revokeObjectURL(bankProofPreviewUrl);
-    }
-
-    setBankDetails((prev) => ({ ...prev, uploadProof: file }));
-    setBankProofPreviewUrl(file ? URL.createObjectURL(file) : null);
-  };
 
   const handleEwalletProofChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
@@ -183,17 +164,6 @@ function PaymentContent() {
     setEwalletProofPreviewUrl(file ? URL.createObjectURL(file) : null);
   };
 
-  const removeBankProof = () => {
-    if (bankProofPreviewUrl) {
-      URL.revokeObjectURL(bankProofPreviewUrl);
-    }
-    setBankProofPreviewUrl(null);
-    setBankDetails((prev) => ({ ...prev, uploadProof: null }));
-    if (bankFileInputRef.current) {
-      bankFileInputRef.current.value = "";
-    }
-  };
-
   const removeEwalletProof = () => {
     if (ewalletProofPreviewUrl) {
       URL.revokeObjectURL(ewalletProofPreviewUrl);
@@ -204,14 +174,6 @@ function PaymentContent() {
       ewalletFileInputRef.current.value = "";
     }
   };
-
-  useEffect(() => {
-    return () => {
-      if (bankProofPreviewUrl) {
-        URL.revokeObjectURL(bankProofPreviewUrl);
-      }
-    };
-  }, [bankProofPreviewUrl]);
 
   useEffect(() => {
     return () => {
@@ -316,7 +278,16 @@ function PaymentContent() {
   const downPayment = downPaymentAmount(totalAmount);
   const selectedServices = bookingDraft.services || [];
   const selectedPaymentMethod = paymentMethods.find((method) => method.payment_method_id === selectedPaymentMethodId);
-  const selectedPaymentAccount = paymentAccounts.find((account) => account.payment_method_id === selectedPaymentMethodId);
+  const gcash = Boolean(selectedPaymentMethod && isGcashMethod(selectedPaymentMethod));
+  const methodAccounts = paymentAccounts.filter(account => account.payment_method_id === selectedPaymentMethodId && (!gcash || account.qr_image));
+  const selectedPaymentAccount = methodAccounts.find(account => account.account_id === selectedPaymentAccountId) ?? methodAccounts[0];
+  const chooseMethod = (id: string) => {
+    if (id === selectedPaymentMethodId || submitting.current) return;
+    setSelectedPaymentMethodId(id); setSelectedPaymentAccountId(""); setReferenceInputError(null); setSubmitError(null);
+    setEwalletDetails({ accountName: "", accountNumber: "", referenceNumber: "", uploadProof: null });
+    setEwalletProofPreviewUrl(null);
+    if (ewalletFileInputRef.current) ewalletFileInputRef.current.value = "";
+  };
   const downpaymentPercentage = DOWN_PAYMENT_PERCENT;
 
   const backToFormHref = isBalancePayment ? "/manage" : "/booking/details";
@@ -347,10 +318,11 @@ function PaymentContent() {
 
   const handlePaymentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submitting.current) return;
     setSubmitError(null);
-    const senderName = normalizeSenderName(paymentMethod === "bank" ? bankDetails.accountName : ewalletDetails.accountName);
+    const senderName = normalizeSenderName(ewalletDetails.accountName);
     if (!senderName) { setSubmitError(SENDER_NAME_ERROR); return; }
-    if (referenceInputError) {
+    if (gcash && referenceInputError) {
       setSubmitError(referenceInputError);
       return;
     }
@@ -358,8 +330,8 @@ function PaymentContent() {
       setSubmitError(`Amount sent must be at least PHP ${payableNow.toFixed(2)} and have no more than two decimal places.`);
       return;
     }
-    if (!normalizeGcashReference(ewalletDetails.referenceNumber)) {
-      setSubmitError("Enter the complete numeric GCash reference number (8–20 digits).");
+    if (gcash ? !normalizeGcashReference(ewalletDetails.referenceNumber) : !normalizeManualPaymentReference(ewalletDetails.referenceNumber)) {
+      setSubmitError(gcash ? "Enter the complete numeric GCash reference number (8-20 digits)." : "Enter the complete transaction reference (6-100 letters/digits, spaces or hyphens).");
       return;
     }
 
@@ -383,17 +355,17 @@ function PaymentContent() {
       return;
     }
 
-    if (paymentCatalogLoading || !selectedPaymentMethodId || !selectedPaymentMethod || !selectedPaymentAccount?.qr_image) {
+    if (paymentCatalogLoading || !selectedPaymentMethodId || !selectedPaymentMethod || !selectedPaymentAccount) {
       setSubmitError("Please select an available payment method.");
       return;
     }
 
-    if (paymentMethod === "ewallet" && !isValidAccountNumber(ewalletDetails.accountNumber)) {
-      setSubmitError("Enter an account number with 6–20 digits only.");
+    if (gcash ? !isValidAccountNumber(ewalletDetails.accountNumber) : !isValidManualAccountIdentifier(ewalletDetails.accountNumber)) {
+      setSubmitError(gcash ? "Enter an account number with 6-20 digits only." : "Enter the sender account, mobile number or email (3-120 characters).");
       return;
     }
 
-    const selectedProof = paymentMethod === "bank" ? bankDetails.uploadProof : ewalletDetails.uploadProof;
+    const selectedProof = ewalletDetails.uploadProof;
 
     if (!selectedProof) {
       setSubmitError("Please upload payment proof before submitting.");
@@ -410,6 +382,7 @@ function PaymentContent() {
       return;
     }
 
+    submitting.current = true;
     setIsSubmitting(true);
 
     try {
@@ -452,15 +425,9 @@ function PaymentContent() {
             receivingAccountId: selectedPaymentAccount.account_id,
             type: effectivePayOption,
             amount: actualPaymentAmount,
-            referenceNumber:
-              paymentMethod === "bank"
-                ? bankDetails.referenceNumber
-                : ewalletDetails.referenceNumber,
+            referenceNumber: ewalletDetails.referenceNumber,
             accountName: senderName,
-            accountNumber:
-              paymentMethod === "bank"
-                ? null
-                : ewalletDetails.accountNumber,
+            accountNumber: ewalletDetails.accountNumber,
             proofPath: uploadPath,
           },
         }),
@@ -513,6 +480,7 @@ function PaymentContent() {
     } catch {
       setSubmitError("Unable to process payment right now. Please try again.");
     } finally {
+      submitting.current = false;
       setIsSubmitting(false);
     }
   };
@@ -528,7 +496,7 @@ function PaymentContent() {
             </svg>
           </div>
           <h1 className="mb-4 text-2xl font-bold text-neutral sm:text-4xl">{paymentAutoApproved ? "Payment Approved!" : "Payment Submitted!"}</h1>
-          <p className="mb-8 text-base text-neutral/70 sm:text-xl">{paymentAutoApproved ? "Your receipt passed OCR validation and your reservation is confirmed." : "Your reservation is pending payment review"}</p>
+          <p className="mb-8 text-base text-neutral/70 sm:text-xl">{paymentAutoApproved ? "Your receipt passed verification and your reservation is confirmed." : "Your payment is awaiting cashier review."}</p>
           {successExcess > 0 && <p className="mb-6 rounded-lg bg-secondary/10 px-4 py-3 text-sm text-neutral">
             Excess payment: ₱{successExcess.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. After staff verifies this payment, request the excess refund in Manage Booking.
           </p>}
@@ -598,13 +566,13 @@ function PaymentContent() {
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                {paymentAutoApproved ? "Your receipt passed OCR checks and was automatically approved" : "Your proof of payment has been submitted for staff verification"}
+                {paymentAutoApproved ? "Your receipt passed verification and was automatically approved" : "Your proof of payment has been submitted for staff verification"}
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                {paymentAutoApproved ? "Your reservation is confirmed" : "Reservation status will remain pending until approved by staff"}
+                {paymentAutoApproved ? "Your reservation is confirmed" : "This payment does not change your paid balance until staff approves it"}
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -669,14 +637,15 @@ function PaymentContent() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     {paymentMethods.map((method) => {
                       const isSelected = method.payment_method_id === selectedPaymentMethodId;
-                      return <button key={method.payment_method_id} type="button" onClick={() => { setSelectedPaymentMethodId(method.payment_method_id); setPaymentMethod("ewallet"); }} className={`p-6 rounded-xl border-2 text-left transition-all ${isSelected ? "border-primary bg-primary/5" : "border-neutral/20 hover:border-primary/50"}`}><p className="font-semibold text-neutral">{method.name}</p><p className="text-sm text-neutral/70">GCash</p></button>;
+                      return <button key={method.payment_method_id} type="button" disabled={isSubmitting} aria-pressed={isSelected} onClick={() => chooseMethod(method.payment_method_id)} className={`p-6 rounded-xl border-2 text-left transition-all ${isSelected ? "border-primary bg-primary/5" : "border-neutral/20 hover:border-primary/50"}`}><p className="font-semibold text-neutral">{method.name}</p><p className="text-sm text-neutral/70">{isGcashMethod(method) ? "Receipt verification" : "Cashier verification"}</p></button>;
                     })}
                   </div>
                   {paymentCatalogLoading ? <p className="mt-3 text-sm text-neutral/60">Loading payment methods...</p> : null}
-                  {paymentCatalogError ? <p role="alert" className="mt-3 text-sm text-red-700">{paymentCatalogError} <button type="button" disabled={paymentCatalogLoading} onClick={() => setCatalogVersion((current) => current + 1)} className="font-semibold underline disabled:opacity-50">Reload payment options</button></p> : null}
+                  {paymentCatalogError ? <p role="alert" className="mt-3 text-sm text-red-700">{paymentCatalogError} <button type="button" disabled={paymentCatalogLoading || isSubmitting} onClick={() => setCatalogVersion((current) => current + 1)} className="font-semibold underline disabled:opacity-50">Reload payment options</button></p> : null}
                 </div>
 
                 <form onSubmit={handlePaymentSubmit}>
+                  <fieldset disabled={isSubmitting} className="min-w-0">
                   {hasPendingPayment && (
                     <div className="mb-6 rounded-lg border border-highlight/40 bg-highlight/10 px-4 py-3 text-sm text-neutral">
                       You have a payment pending approval. Please wait for it to be reviewed before submitting another payment.
@@ -762,111 +731,24 @@ function PaymentContent() {
                     <input id="amount-sent" type="number" inputMode="decimal" step="0.01" min={payableNow} max="99999999.99"
                       value={amountSent ?? String(payableNow)} onChange={(event) => setAmountSent(event.target.value)} required
                       className="w-full rounded-lg border border-neutral/20 px-4 py-3 focus:border-primary focus:outline-none" aria-describedby="amount-sent-help" />
-                    <p id="amount-sent-help" className="mt-2 text-sm text-neutral/70">Enter the exact amount on your GCash receipt. Minimum: ₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. A larger payment reduces your balance.</p>
+                    <p id="amount-sent-help" className="mt-2 text-sm text-neutral/70">Enter the exact amount on your payment receipt. Minimum: ₱{payableNow.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. A larger payment reduces your balance.</p>
                     {excessAfterThisPayment > 0 && <p className="mt-2 text-sm text-neutral">Excess: ₱{excessAfterThisPayment.toLocaleString("en-PH", { minimumFractionDigits: 2 })}. You can request an excess refund in Manage Booking after approval.</p>}
                   </div>
 
                   {submitError && <PaymentErrorAlert message={submitError} issues={submitIssues} />}
 
-                  {paymentMethod === "bank" && (
+                  {selectedPaymentMethod && (
                     <div className="mb-8">
-                      <h3 className="text-xl font-semibold text-neutral mb-4">Bank Transfer Details</h3>
+                      <h3 className="text-xl font-semibold text-neutral mb-4">{selectedPaymentMethod.name} payment</h3>
 
-                      <div className="bg-neutral/5 p-3 sm:p-6 rounded-xl mb-6">
-                        <h4 className="font-semibold text-neutral mb-3">Transfer to:</h4>
-                        <div className="space-y-2 text-sm">
-                          <p><span className="text-neutral/70">Method:</span> <span className="font-semibold">{selectedPaymentMethod?.name ?? "-"}</span></p>
-                          <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">{selectedPaymentAccount?.account_name ?? "-"}</span></p>
-                          <p><span className="text-neutral/70">Account Number:</span> <span className="font-semibold">{selectedPaymentAccount?.account_number ?? "-"}</span></p>
-                          {selectedPaymentAccount?.instructions ? <p className="text-neutral/70">{selectedPaymentAccount.instructions}</p> : null}
-                          {selectedPaymentAccount?.qr_image ? <PaymentQr key={`${catalogVersion}:${selectedPaymentAccount.qr_image}`} src={selectedPaymentAccount.qr_image} name={selectedPaymentMethod?.name ?? "Payment"} onRetry={() => setCatalogVersion((current) => current + 1)} /> : null}
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div>
-                          <label htmlFor="bank-sender-name" className="block text-sm font-medium text-neutral/70 mb-2">Sender Name *</label>
-                          <input
-                            id="bank-sender-name"
-                            aria-describedby="bank-sender-name-hint"
-                            type="text"
-                            maxLength={100}
-                            value={bankDetails.accountName}
-                            onChange={(e) => setBankDetails({ ...bankDetails, accountName: sanitizeSenderName(e.target.value) })}
-                            className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                            required
-                          />
-                          <p id="bank-sender-name-hint" className="mt-1 text-xs text-neutral/60">Use letters and name punctuation. No numbers or emojis.</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Reference Number *</label>
-                          <input
-                            type="text"
-                            value={bankDetails.referenceNumber}
-                            onChange={(e) => setBankDetails({ ...bankDetails, referenceNumber: e.target.value })}
-                            className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                            required
-                          />
-                        </div>
-                        <div data-booking-guide="payment-proof" className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
-                          <label htmlFor="bank-payment-proof" className="mb-2 flex items-center gap-2 text-base font-semibold text-neutral">
-                            <svg aria-hidden="true" className="h-6 w-6 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4" /></svg>
-                            Upload Proof of Payment *
-                          </label>
-                          <p id="bank-proof-help" className="mb-3 text-sm text-neutral/70">Choose your original receipt screenshot. PNG, JPG or WebP, up to {MAX_PAYMENT_PROOF_BYTES / 1024 / 1024} MB.</p>
-                          <input
-                            id="bank-payment-proof"
-                            ref={bankFileInputRef}
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp"
-                            onChange={handleBankProofChange}
-                            aria-describedby="bank-proof-help"
-                            className={proofInputClass}
-                            required
-                          />
-                          {bankDetails.uploadProof && (
-                            <div className="mt-3 rounded-lg border border-neutral/20 p-3">
-                              <p className="mb-2 break-words text-xs text-neutral/70">Selected file: {bankDetails.uploadProof.name}</p>
-                              {bankDetails.uploadProof.type.startsWith("image/") && bankProofPreviewUrl ? (
-                                <Image
-                                  src={bankProofPreviewUrl}
-                                  alt="Bank proof preview"
-                                  width={800}
-                                  height={400}
-                                  unoptimized
-                                  className="h-72 w-full rounded-md object-contain bg-neutral/5"
-                                />
-                              ) : (
-                                <p className="text-sm text-neutral/80">Preview unavailable for this file type. File is ready for upload.</p>
-                              )}
-                              <button
-                                type="button"
-                                onClick={removeBankProof}
-                                className="mt-3 rounded-md border border-neutral/20 px-3 py-1 text-xs font-semibold text-neutral hover:bg-neutral/5"
-                              >
-                                Remove file
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {paymentMethod === "ewallet" && (
-                    <div className="mb-8">
-                      <h3 className="text-xl font-semibold text-neutral mb-4">GCash Payment</h3>
-
+                      <p className="mb-4 rounded-xl bg-primary/5 p-3 text-sm text-neutral/75">{gcash ? "Matching receipts may be confirmed automatically after verification." : "This payment requires cashier approval. Your payment remains pending until the received funds are verified."}</p>
                       <div className="space-y-4 mb-6">
                         <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Select Provider *</label>
+                          <label htmlFor="payment-method" className="block text-sm font-medium text-neutral/70 mb-2">Payment method *</label>
                           <select
+                            id="payment-method"
                             value={selectedPaymentMethodId}
-                            onChange={(e) => {
-                              const method = paymentMethods.find((item) => item.payment_method_id === e.target.value);
-                              setSelectedPaymentMethodId(e.target.value);
-                              setEwalletDetails((current) => ({ ...current, provider: method?.name ?? "" }));
-                            }}
+                            onChange={event => chooseMethod(event.target.value)}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                           >
                             {paymentMethods.map((method) => <option key={method.payment_method_id} value={method.payment_method_id}>{method.name}</option>)}
@@ -876,6 +758,7 @@ function PaymentContent() {
 
                       <div data-booking-guide="payment-account" className="bg-neutral/5 p-3 sm:p-6 rounded-xl mb-6">
                         <h4 className="font-semibold text-neutral mb-3">Send payment to:</h4>
+                        {methodAccounts.length > 1 && <label className="mb-4 block text-sm font-medium">Receiving account<select aria-label="Receiving account" value={selectedPaymentAccount?.account_id ?? ""} onChange={event => setSelectedPaymentAccountId(event.target.value)} className="mt-2 w-full rounded-lg border border-neutral/20 bg-white p-3">{methodAccounts.map(account => <option key={account.account_id} value={account.account_id}>{account.account_name} - {account.account_number ?? "QR payment"}</option>)}</select></label>}
                         <div className="space-y-2 text-sm">
                           <p><span className="text-neutral/70">Account Name:</span> <span className="font-semibold">{selectedPaymentAccount?.account_name ?? "-"}</span></p>
                           <p><span className="text-neutral/70">Number:</span> <span className="font-semibold">{selectedPaymentAccount?.account_number ?? "-"}</span></p>
@@ -900,15 +783,16 @@ function PaymentContent() {
                           <p id="gcash-sender-name-hint" className="mt-1 text-xs text-neutral/60">Use letters and name punctuation. No numbers or emojis.</p>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-neutral/70 mb-2">Your Account Number *</label>
+                          <label htmlFor="payment-sender-account" className="block text-sm font-medium text-neutral/70 mb-2">{gcash ? "Your Account Number *" : "Sender account / mobile number / email *"}</label>
                           <input
+                            id="payment-sender-account"
                             type="text"
                             value={ewalletDetails.accountNumber}
-                            inputMode="numeric"
-                            pattern="[0-9]{6,20}"
-                            minLength={6}
-                            maxLength={20}
-                            onChange={(e) => setEwalletDetails({ ...ewalletDetails, accountNumber: sanitizeAccountNumber(e.target.value) })}
+                            inputMode={gcash ? "numeric" : "text"}
+                            pattern={gcash ? "[0-9]{6,20}" : undefined}
+                            minLength={gcash ? 6 : 3}
+                            maxLength={gcash ? 20 : 120}
+                            onChange={(e) => setEwalletDetails({ ...ewalletDetails, accountNumber: gcash ? sanitizeAccountNumber(e.target.value) : e.target.value })}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
                           />
@@ -919,26 +803,26 @@ function PaymentContent() {
                             id="gcash-reference-number"
                             type="text"
                             value={ewalletDetails.referenceNumber}
-                            inputMode="numeric"
-                            pattern="[0-9]{8,20}"
-                            minLength={8}
-                            maxLength={40}
-                            title="Enter the complete numeric GCash reference number (8–20 digits)."
+                            inputMode={gcash ? "numeric" : "text"}
+                            pattern={gcash ? "[0-9]{8,20}" : undefined}
+                            minLength={gcash ? 8 : 6}
+                            maxLength={gcash ? 40 : 100}
+                            title={gcash ? "Enter the complete numeric GCash reference number (8-20 digits)." : "Enter the provider transaction reference."}
                             aria-invalid={Boolean(referenceInputError) || undefined}
                             aria-describedby={`gcash-reference-help${referenceInputError ? " gcash-reference-error" : ""}`}
-                            onChange={(e) => handleGcashReferenceChange(e.target.value)}
+                            onChange={event => gcash ? handleGcashReferenceChange(event.target.value) : setEwalletDetails(current => ({ ...current, referenceNumber: event.target.value }))}
                             className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                             required
                           />
-                          <p id="gcash-reference-help" className="mt-1 text-xs text-neutral/60">8–20 digits only. Leading zeroes are kept; pasted spaces and hyphens are removed.</p>
+                          <p id="gcash-reference-help" className="mt-1 text-xs text-neutral/60">{gcash ? "8-20 digits only. Leading zeroes are kept; pasted spaces and hyphens are removed." : "6-100 letters/digits, spaces or hyphens. Copy the actual transaction reference."}</p>
                           {referenceInputError && <p id="gcash-reference-error" role="alert" className="mt-1 text-sm text-red-700">{referenceInputError}</p>}
                         </div>
                         <div data-booking-guide="payment-proof" className="rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 sm:p-5">
                           <label htmlFor="gcash-payment-proof" className="mb-2 flex items-center gap-2 text-base font-semibold text-neutral">
                             <svg aria-hidden="true" className="h-6 w-6 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4" /></svg>
-                            Upload original GCash screenshot *
+                            {gcash ? "Upload original GCash screenshot *" : "Upload proof of payment *"}
                           </label>
-                          <p id="gcash-proof-help" className="mb-3 text-sm text-neutral/70">Choose the original screenshot directly from your gallery. PNG, JPG or WebP, up to {MAX_PAYMENT_PROOF_BYTES / 1024 / 1024} MB. Keep the amount, recipient, reference number and today&apos;s Philippine date/time fully visible and readable. Photos of another phone, scans, blurred images and edited receipts are not accepted.</p>
+                          <p id="gcash-proof-help" className="mb-3 text-sm text-neutral/70">PNG, JPG or WebP, up to {MAX_PAYMENT_PROOF_BYTES / 1024 / 1024} MB. {gcash ? "Choose the original GCash screenshot with the amount, recipient, reference and today's Philippine date/time fully readable. Photos of another screen, scans, blurred images and edited receipts are not accepted." : "Upload a clear receipt showing the amount, recipient, reference and payment date. A cashier will verify it against the resort's receiving account."}</p>
                           <input
                             id="gcash-payment-proof"
                             ref={ewalletFileInputRef}
@@ -991,12 +875,13 @@ function PaymentContent() {
                     <button
                       type="submit"
                       data-booking-guide="payment-submit"
-                      disabled={isSubmitting || isCheckingPendingPayment || isCheckingVerifiedDownpayment || hasPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentAccount?.qr_image}
+                      disabled={isSubmitting || isCheckingPendingPayment || isCheckingVerifiedDownpayment || hasPendingPayment || !acceptedTerms || !reservationId || paymentCatalogLoading || !selectedPaymentAccount}
                       className="flex-1 bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {isSubmitting ? "Processing..." : "Confirm Payment"}
                     </button>
                   </div>
+                  </fieldset>
                 </form>
               </div>
             </div>

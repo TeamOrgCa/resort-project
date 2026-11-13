@@ -35,9 +35,10 @@ test("an explicit screenshot check reaches the guarded approval update and prese
   assert.deepEqual(h.updates, [{ status: "verified" }]);
 });
 
-test("legacy and manual payments keep their existing approval workflow", async () => {
-  const h = harness({ receiptTime: null }); const response = await h.post({});
-  assert.equal(response.status, 409);
+test("manual payments require explicit received-funds verification before approval", async () => {
+  const h = harness({ receiptTime: null });
+  assert.equal((await h.post({})).status, 400); assert.equal(h.updates.length, 0);
+  assert.equal((await h.post({ screenshotReviewed: true })).status, 409);
   assert.equal(h.updates.length, 1);
 });
 

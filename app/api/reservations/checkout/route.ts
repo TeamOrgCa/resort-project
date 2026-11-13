@@ -12,6 +12,8 @@ import { DOWN_PAYMENT_PERCENT, downPaymentAmount, amountMeetsMinimum, isValidPay
 import { isGcashMethod, isVerifiedGcashReceipt, normalizeGcashReference } from "@/lib/booking/gcash-receipt";
 import { isValidAccountNumber } from "@/lib/helper/validation";
 import { inspectPaymentProof } from "@/lib/server/gcash-ocr";
+import { inspectManualPaymentProof } from "@/lib/server/manual-payment-proof";
+import { isCashMethod, normalizeManualPaymentReference, isValidManualAccountIdentifier } from "@/lib/booking/payment-method";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { normalizeSenderName, SENDER_NAME_ERROR } from "@/lib/validation/sender-name";
@@ -278,9 +280,13 @@ export async function POST(request: Request) {
     if (paymentMethodError || !paymentMethod?.is_active) {
       return NextResponse.json({ success: false, message: "Selected payment method is unavailable." }, { status: 400 });
     }
-    if (!isGcashMethod(paymentMethod)) return NextResponse.json({ success: false, message: "Guest payments must use GCash." }, { status: 400 });
-    const reference = normalizeGcashReference(payload.payment.referenceNumber);
-    if (!reference || !isValidAccountNumber(payload.payment.accountNumber ?? "")) return NextResponse.json({ success: false, message: "Enter a complete numeric GCash reference (8–20 digits) and valid account number." }, { status: 400 });
+    if (isCashMethod(paymentMethod)) return NextResponse.json({ success: false, message: "Cash payments must be recorded at the resort by authorized staff." }, { status: 400 });
+    const gcash = isGcashMethod(paymentMethod);
+    if (!gcash && !payload.payment.receivingAccountId) return NextResponse.json({ success: false, message: "Select the resort receiving account for this payment method." }, { status: 400 });
+    const reference = gcash ? normalizeGcashReference(payload.payment.referenceNumber) : normalizeManualPaymentReference(payload.payment.referenceNumber);
+    if (!reference) return NextResponse.json({ success: false, message: gcash ? "Enter the complete numeric GCash reference number (8-20 digits)." : "Enter the complete transaction reference (6-100 letters/digits, spaces or hyphens)." }, { status: 400 });
+    if (gcash ? !isValidAccountNumber(payload.payment.accountNumber ?? "") : !isValidManualAccountIdentifier(payload.payment.accountNumber ?? "")) return NextResponse.json({ success: false, message: gcash ? "Account number must contain 6-20 digits." : "Enter the sender account, mobile number or email (3-120 characters)." }, { status: 400 });
+
 
     const { conflict: overlapReservation, error: overlapError } = await checkReservationOverlap(
       payload.startDatetime,
@@ -411,18 +417,22 @@ export async function POST(request: Request) {
     }
 
     let accountQuery = supabase.from("payment_accounts")
-      .select("account_name, account_number")
+      .select("account_id, account_name, account_number, qr_image")
       .eq("payment_method_id", payload.payment.paymentMethodId)
       .eq("is_active", true)
-      .not("qr_image", "is", null)
       .order("account_name").order("account_id");
+    if (gcash) accountQuery = accountQuery.not("qr_image", "is", null);
     if (payload.payment.receivingAccountId) accountQuery = accountQuery.eq("account_id", payload.payment.receivingAccountId);
     const { data: receivingAccount, error: receivingAccountError } = await accountQuery
       .limit(1)
-      .maybeSingle<{ account_name: string; account_number: string | null }>();
-    if (receivingAccountError || !receivingAccount) return NextResponse.json({ success: false, message: "The resort's GCash receiving account is unavailable. Please try again later." }, { status: 503 });
+      .maybeSingle<{ account_id: string; account_name: string; account_number: string | null; qr_image: string | null }>();
+    if (receivingAccountError || !receivingAccount || (!gcash && !receivingAccount.account_number && !receivingAccount.qr_image)) return NextResponse.json({ success: false, message: "The resort's receiving account for this method is unavailable. Please try again later." }, { status: 503 });
     // Enable/disable OCR with ENABLE_RECEIPT_OCR in lib/server/gcash-ocr.ts.
-    const ocr = await inspectPaymentProof(supabase, {
+    const ocr = !gcash
+      ? await inspectManualPaymentProof(supabase, user.id, payload.payment.proofPath)
+        ? { status: "manual" as const, amount: payload.payment.amount, reference, paidAt: undefined, notes: "Manual verification required. Match the proof against actual received funds." }
+        : null
+      : await inspectPaymentProof(supabase, {
       userId: user.id,
       proofPath: payload.payment.proofPath,
       methodName: paymentMethod.name,
@@ -442,7 +452,7 @@ export async function POST(request: Request) {
     if (ocr.status === "screening_unavailable") {
       return NextResponse.json({ success: false, code: "PROOF_SCREENING_UNAVAILABLE", message: ocr.notes }, { status: 503 });
     }
-    if (ocr.status !== "skipped" && !isVerifiedGcashReceipt(ocr)) return NextResponse.json({ success: false, code: "RECEIPT_VALIDATION_FAILED", issues: receiptValidationIssues(ocr.notes), message: `Payment was not submitted: ${ocr.notes}. Upload a clear, complete receipt showing today's Philippine date and time.` }, { status: 422 });
+    if (ocr.status !== "skipped" && ocr.status !== "manual" && !isVerifiedGcashReceipt(ocr)) return NextResponse.json({ success: false, code: "RECEIPT_VALIDATION_FAILED", issues: receiptValidationIssues(ocr.notes), message: `Payment was not submitted: ${ocr.notes}. Upload a clear, complete receipt showing today's Philippine date and time.` }, { status: 422 });
 
     await saveGuestBookingPhone(supabase, user.id, payload.phoneNumber);
     const reservationReference = await generateReferenceNumber(supabase);
@@ -595,13 +605,15 @@ export async function POST(request: Request) {
       }
     }
 
-    const betaTest = "betaTest" in ocr && ocr.betaTest === true;
+    const manualReview = !gcash || ocr.status === "skipped";
+    const betaTest = gcash && "betaTest" in ocr && ocr.betaTest === true;
     const { data: payment, error: paymentError } = await createAdminClient()
-      .rpc(ocr.status === "skipped" ? "submit_unscreened_gcash_payment" : betaTest ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment", { p_payment: {
+      .rpc(!gcash ? "submit_manual_guest_payment" : ocr.status === "skipped" ? "submit_unscreened_gcash_payment" : betaTest ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment", { p_payment: {
         guest_id: user.id,
         reservation_id: reservation.reservation_id,
         amount: ocr.amount,
         payment_method_id: payload.payment.paymentMethodId,
+        receiving_account_id: receivingAccount.account_id,
         payment_type: payload.payment.type,
         status: "pending",
         reference_number: ocr.reference,
@@ -609,20 +621,20 @@ export async function POST(request: Request) {
         account_name: payload.payment.accountName,
         account_number: payload.payment.accountNumber,
         proof_path: payload.payment.proofPath,
-        ocr_status: ocr.status,
+        ocr_status: !gcash ? "not_applicable" : ocr.status,
         ocr_notes: ocr.notes,
-        ocr_checked_at: ocr.status === "skipped" ? null : manilaTimestamp(),
+        ocr_checked_at: manualReview ? null : manilaTimestamp(),
       } });
 
     if (paymentError || !payment) {
       await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
       reservationId = null;
-      if (paymentError?.code === "PGRST202" || paymentError?.code === "42883") return NextResponse.json({ success: false, code: "PAYMENT_SCHEMA_MIGRATION_REQUIRED", message: "Apply the OCR payment migrations (including the beta receipt reuse migration when enabled) before submitting payments." }, { status: 503 });
+      if (paymentError?.code === "PGRST202" || paymentError?.code === "42883") return NextResponse.json({ success: false, code: "PAYMENT_SCHEMA_MIGRATION_REQUIRED", message: "Apply docs/guest-payment-methods-migration.sql and the required OCR migrations before submitting payments." }, { status: 503 });
       if (paymentError?.code === "P0001" && /deadline|expired/i.test(paymentError.message)) {
         return NextResponse.json({ success: false, code: "PAYMENT_DEADLINE_EXPIRED", message: "The payment deadline passed during checkout. Please try a new reservation." }, { status: 410 });
       }
       console.error("[checkout] Failed to record payment", paymentError);
-      if (paymentError?.code === "23505") return NextResponse.json({ success: false, message: "This GCash reference has already been used or a payment is pending." }, { status: 409 });
+      if (paymentError?.code === "23505") return NextResponse.json({ success: false, message: "This payment reference has already been used or a payment is pending." }, { status: 409 });
       if (paymentError?.code === "22023" || paymentError?.code === "40001") return NextResponse.json({ success: false, message: paymentError.message }, { status: 409 });
       if (paymentError?.code === "42703" || paymentError?.code === "PGRST204") return NextResponse.json({ success: false, message: "Payment processing is being updated. Please ask an administrator to apply the GCash payment validation migration." }, { status: 503 });
       return NextResponse.json(
@@ -638,8 +650,8 @@ export async function POST(request: Request) {
         actorId: user.id,
         guestId: user.id,
         staffRoles: NOTIFICATION_AUDIENCES.checkout,
-        title: ocr.status === "skipped" ? "Reservation payment submitted" : "Reservation confirmed",
-        message: ocr.status === "skipped" ? `Reservation ${reservation.reference_number} is awaiting payment verification by staff.` : `Reservation ${reservation.reference_number} was confirmed after automatic OCR payment approval.`,
+        title: manualReview ? "Reservation payment submitted" : "Reservation confirmed",
+        message: manualReview ? `Reservation ${reservation.reference_number} is awaiting payment verification by staff.` : `Reservation ${reservation.reference_number} was confirmed after automatic OCR payment approval.`,
         entityType: "payment",
         entityId: payment.payment_id,
         guestActionUrl: "/manage",
@@ -648,7 +660,7 @@ export async function POST(request: Request) {
       if (notificationError) console.warn("Failed to create checkout notifications:", notificationError);
     } catch (notificationError) { console.warn("Failed to create checkout notifications:", notificationError); }
 
-    if (ocr.status !== "skipped") await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
+    if (!manualReview) await sendOcrPaymentEmails(reservation.reservation_id, payment.payment_id, ocr.amount);
 
     return NextResponse.json(
       {
