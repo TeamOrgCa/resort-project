@@ -25,7 +25,7 @@ import { isStaffBookingWindowAllowed } from "@/lib/booking/start-time";
 import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { createClient } from "@/lib/supabase/client";
-import { CALENDAR_COLORS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
+import { CALENDAR_COLORS, CALENDAR_LEGEND_KEYS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
 import { useCalendarAppearance } from "@/components/admin/use-calendar-appearance";
 import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 
@@ -86,7 +86,8 @@ type CalendarEvent = {
 
 const calendarTypeOptions = [
   { value: "reservations", label: "Reservations (all statuses)" },
-  { value: "booking", label: "Booking requests" },
+  { value: "booking", label: "Booking (pending payment)" },
+  { value: "reservation", label: "Reservation (down payment / fully paid)" },
   { value: "ocular", label: "Ocular visits" },
   { value: "maintenance", label: "Maintenance" },
 ] as const;
@@ -106,15 +107,15 @@ type CalendarEntryFilter = "all" | typeof calendarTypeOptions[number]["value"] |
 function matchesCalendarEntry(event: CalendarEvent, filter: CalendarEntryFilter) {
   if (filter === "all") return true;
   if (filter === "reservations") return Boolean(event.reservationId);
-  if (filter === "booking" || filter === "ocular" || filter === "maintenance") return event.kind === filter;
+  if (filter === "booking" || filter === "reservation" || filter === "ocular" || filter === "maintenance") return event.kind === filter;
   if (filter === "checked_in") return Boolean(event.checkedIn);
   return event.status === filter;
 }
 
 const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const eventStyles: Record<EventKind, { label: string; className: string; dotClassName: string }> = {
-  booking: { label: "Booking request", className: "border-amber-500 bg-amber-50 text-amber-900", dotClassName: "bg-amber-500" },
-  reservation: { label: "Confirmed reservation", className: "border-blue-600 bg-blue-50 text-blue-900", dotClassName: "bg-blue-600" },
+  booking: { label: "Booking", className: "border-amber-500 bg-amber-50 text-amber-900", dotClassName: "bg-amber-500" },
+  reservation: { label: "Reservation", className: "border-blue-600 bg-blue-50 text-blue-900", dotClassName: "bg-blue-600" },
   closed: { label: "Closed booking", className: "border-neutral/30 bg-neutral/5 text-neutral/60", dotClassName: "bg-neutral/40" },
   ocular: { label: "Ocular visit", className: "border-teal-600 bg-teal-50 text-teal-800", dotClassName: "bg-teal-600" },
   maintenance: { label: "Maintenance", className: "border-slate-500 bg-slate-100 text-slate-700", dotClassName: "bg-slate-500" },
@@ -233,7 +234,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
           supabase.from("payments").select("reservation_id").in("reservation_id", ids).eq("status", "pending").limit(5000),
           supabase.from("reservation_reschedules").select("reservation_id").in("reservation_id", ids).eq("status", "pending").limit(5000),
           supabase.from("refund_requests").select("reservation_id").in("reservation_id", ids).in("status", ["pending", "reviewed", "approved", "payout_submitted"]).limit(5000),
-          supabase.from("transactions").select("reservation_id, balance").in("reservation_id", ids).limit(1000),
+          supabase.from("transactions").select("reservation_id, balance, paid_amount").in("reservation_id", ids).limit(1000),
         ]) : [];
         if (signalResults.some(result => result.error)) throw new Error("Unable to load payment, reschedule, refund or balance flags. Refresh the calendar.");
         const nextSignals: Record<string, CalendarSignals> = {};
@@ -243,6 +244,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
           if (index === 1) signal.reschedule = true;
           if (index === 2) signal.refund = true;
           if (index === 3 && "balance" in row) signal.balance = Number(row.balance);
+          if (index === 3 && "paid_amount" in row) signal.paidAmount = Number(row.paid_amount ?? 0);
         }));
         const ocularRows = (ocularData as OcularVisit[] | null) ?? [];
         const guestIds = [...new Set([...reservationRows.map((row) => row.guest_id), ...ocularRows.map((row) => row.guest_id)].filter((id): id is string => Boolean(id)))];
@@ -366,8 +368,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         if (occupiedDate < gridStart || occupiedDate >= gridEnd) continue;
         events.push({
           id: `${reservation.reservation_id}:${occupiedDate}`,
-          kind: calendarBookingKind(reservation.status),
-          flags: reservationAttention(reservation, signals[reservation.reservation_id], now),
+          kind: calendarBookingKind(reservation.status, signals[reservation.reservation_id]?.paidAmount),
+          flags: reservationAttention(reservation, signals[reservation.reservation_id]),
           date: occupiedDate,
           label: guest ? `${guest.first_name} ${guest.last_name}` : reservation.reference_number,
           reference: reservation.reference_number,
@@ -385,6 +387,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       label: `Ocular visit · ${visit.reference_number}`,
       reference: visit.reference_number,
       status: visit.status,
+      flags: reservationAttention(visit),
     }));
     const maintenanceEvents = maintenanceBlocks.filter((block) => block.status === "active").flatMap((block) => {
       const events: CalendarEvent[] = [];
@@ -479,13 +482,13 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const monthLabel = formatManilaDate(month, { month: "long", year: "numeric" });
   const today = manilaDateKey(new Date(now));
   const upcomingCount = new Set(calendarEvents.filter(event => event.reservationId && event.date >= today && !["cancelled", "rejected", "completed", "no_show"].includes(event.status ?? "")).map(event => event.reservationId)).size;
-  const attentionCount = new Set(calendarEvents.filter(event => event.flags?.length).map(event => event.reservationId)).size;
+  const attentionCount = new Set(calendarEvents.filter(event => event.flags?.length).map(event => event.reservationId ?? event.id)).size;
   const selectedReservation = reservations.find(row => row.reservation_id === selectedEvent?.reservationId);
   const selectedOcular = ocularVisits.find(visit => visit.visit_id === selectedEvent?.id);
   const checkoutBalance = selectedReservation ? signals[selectedReservation.reservation_id]?.balance : undefined;
   const checkoutBlocked = checkoutBalance === undefined || checkoutBalance > 0 || Boolean(selectedReservation && (signals[selectedReservation.reservation_id]?.payment || signals[selectedReservation.reservation_id]?.reschedule));
-  const selectedFlags = selectedReservation ? reservationAttention(selectedReservation, signals[selectedReservation.reservation_id], now) : [];
-  const flagCount = (flag: AttentionFlag) => new Set(calendarEvents.filter(event => event.flags?.includes(flag)).map(event => event.reservationId)).size;
+  const selectedFlags = selectedReservation ? reservationAttention(selectedReservation, signals[selectedReservation.reservation_id]) : [];
+  const flagCount = (flag: AttentionFlag) => new Set(calendarEvents.filter(event => event.flags?.includes(flag)).map(event => event.reservationId ?? event.id)).size;
   const openEvent = (event: CalendarEvent) => { setSelectedEvent(event); setArrivalConfirmed(false); setDepartureConfirmed(false); setCheckInError(null); };
   const changeMonth = (offset: number) => { const next = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + offset, 1, 4)); setMonth(next); setSelectedDay(dateKey(next)); };
   const recordArrival = async () => {
@@ -541,7 +544,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   };
   const eventAppearance = (event: CalendarEvent) => {
     const key = (event.kind === "ocular" || event.kind === "maintenance" ? event.kind
-      : event.status && event.status in CALENDAR_COLORS ? event.status : "closed") as CalendarColorKey;
+      : event.kind === "booking" ? "pending" : event.kind === "reservation" ? "confirmed" : "closed") as CalendarColorKey;
     const color = event.flags?.length ? URGENT_CALENDAR_COLOR : appearance.colors[key];
     return { backgroundColor: color, borderColor: color, color: calendarTextColor(color) };
   };
@@ -581,7 +584,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         <button disabled={blockBusy} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">{blockBusy ? "Creating..." : "Create maintenance block"}</button>
       </form>
     </RecordDialog>}
-    <div className="hidden gap-4 md:grid md:grid-cols-3">{[{ label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" }, { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" }, { label: "Needs attention", value: attentionCount, detail: "Payments, requests, balances and arrivals" }].map(metric => <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-neutral/50">{metric.label}</p>{isLoading ? <Skeleton className="mt-2 h-9 w-14" /> : <p className="mt-2 text-3xl font-semibold text-neutral">{error ? "-" : metric.value}</p>}<p className="mt-1 text-xs text-neutral/50">{metric.detail}</p></div>)}</div>
+    <div className="hidden gap-4 md:grid md:grid-cols-3">{[{ label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" }, { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" }, { label: "Needs attention", value: attentionCount, detail: "No-shows, cancellations and pending refunds" }].map(metric => <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-neutral/50">{metric.label}</p>{isLoading ? <Skeleton className="mt-2 h-9 w-14" /> : <p className="mt-2 text-3xl font-semibold text-neutral">{error ? "-" : metric.value}</p>}<p className="mt-1 text-xs text-neutral/50">{metric.detail}</p></div>)}</div>
     <section aria-label="Calendar filters" className="@container my-4 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm">
       <div className="grid grid-cols-1 items-end gap-3 @sm:grid-cols-[minmax(0,1fr)_auto] @3xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
       <label className="min-w-0 text-xs font-medium text-neutral/65">Search bookings<input type="search" value={searchTerm} onChange={event => setSearchTerm(event.target.value)} placeholder="Guest or booking reference" className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm" /></label>
@@ -598,18 +601,18 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       <button type="button" onClick={clearFilters} disabled={!hasActiveFilters} className="min-h-11 whitespace-nowrap rounded-xl border border-neutral/20 px-3 text-sm font-semibold hover:bg-base disabled:opacity-45 @sm:order-2 @3xl:order-4">Clear filters</button>
       </div>
     </section>
-    {showColorSettings && <CatalogDialog title="Calendar colors" description="Choose your status colors. Items needing attention always use red. Your choices are saved automatically for your account in this browser." busy={false} onClose={() => setShowColorSettings(false)}>
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{(Object.keys(CALENDAR_COLORS) as CalendarColorKey[]).map(key => <label key={key} className="flex items-center gap-2 text-xs">
+    {showColorSettings && <CatalogDialog title="Calendar colors" description="Choose your category colors. No-shows, cancellations and pending refunds always use red. Your choices are saved automatically for your account in this browser." busy={false} onClose={() => setShowColorSettings(false)}>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{CALENDAR_LEGEND_KEYS.map(key => <label key={key} className="flex items-center gap-2 text-xs">
         <input type="color" aria-label={`${CALENDAR_COLORS[key].label} color`} disabled={!appearance.ready} value={appearance.colors[key]} onChange={event => appearance.setColor(key, event.target.value)} className="calendar-color-picker" />{CALENDAR_COLORS[key].label}
       </label>)}</div>
       <button type="button" onClick={appearance.resetColors} disabled={!appearance.ready} className="mt-3 min-h-11 rounded-lg border px-3 text-xs font-semibold">Reset default colors</button>
     </CatalogDialog>}
     <div ref={calendarView} aria-label="Full reservation calendar" className="scroll-mt-24">
       <div aria-label="Calendar legend" className="mb-3 flex flex-wrap gap-x-4 gap-y-2 rounded-xl border border-neutral/10 bg-white p-3 text-xs">
-        {(Object.keys(CALENDAR_COLORS) as CalendarColorKey[]).map(key => <span key={key} className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: appearance.colors[key] }} />{CALENDAR_COLORS[key].label}</span>)}
+        {CALENDAR_LEGEND_KEYS.map(key => <span key={key} className="inline-flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: appearance.colors[key] }} />{CALENDAR_COLORS[key].label}</span>)}
         <span className="inline-flex items-center gap-2 font-semibold"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: URGENT_CALENDAR_COLOR }} />Needs attention</span>
-        <span className="inline-flex items-center gap-2"><span className="calendar-new-dot h-2 w-2 rounded-full bg-blue-600" />New / not viewed</span>
       </div>
+      <p className="mb-3 text-xs text-neutral/60">Booking: pending verified payment. Reservation: verified down payment or full payment. Needs attention: no-show, cancelled or pending refund.</p>
       {hasActiveFilters && <p role="status" className="mb-3 text-sm text-neutral/70">{Object.keys(filteredEventsByDay).length ? `${new Set(Object.values(filteredEventsByDay).flat().map(event => event.reservationId ?? event.id)).size} matching entries highlighted` : "No entries match your search and filters in this calendar period."}</p>}
     <section aria-label="Desktop reservation calendar" aria-busy={isLoading} className="hidden overflow-x-auto rounded-2xl border border-neutral/10 bg-white shadow-sm md:block">
       <div className="flex items-center justify-between gap-4 border-b border-neutral/10 p-4"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Month view calendar</p><h2 className="mt-1 text-xl font-semibold text-neutral">{monthLabel}</h2></div><div className="flex gap-2">
@@ -708,9 +711,9 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       <p className="mt-3 text-[10px] text-neutral/50">Philippine time. Tap an entry to view details and actions.</p>
     </section>
     </div>
-    {selectedEvent && <RecordDialog resetKey={paymentRevision} variant="admin" title={`${eventStyles[selectedReservation ? calendarBookingKind(selectedReservation.status) : selectedEvent.kind].label} details`} reference={selectedEvent.reference ?? selectedEvent.label} busy={checkInBusy || editorBusy || blockBusy || paymentBusy || ocularBusy} onClose={() => { if (!checkInBusy && !editorBusy && !blockBusy && !paymentBusy && !ocularBusy) setSelectedEvent(null); }}>
+    {selectedEvent && <RecordDialog resetKey={paymentRevision} variant="admin" title={`${eventStyles[selectedReservation ? calendarBookingKind(selectedReservation.status, signals[selectedReservation.reservation_id]?.paidAmount) : selectedEvent.kind].label} details`} reference={selectedEvent.reference ?? selectedEvent.label} busy={checkInBusy || editorBusy || blockBusy || paymentBusy || ocularBusy} onClose={() => { if (!checkInBusy && !editorBusy && !blockBusy && !paymentBusy && !ocularBusy) setSelectedEvent(null); }}>
       {selectedEvent.reservationId ? <>
-        {!!selectedFlags.length && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><p className="font-semibold">Needs attention</p><ul className="mt-2 list-disc space-y-1 pl-5">{selectedFlags.map(flag => <li key={flag}>{ATTENTION_LABELS[flag]}{flag === "balance" ? `: ${new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(signals[selectedEvent.reservationId!]?.balance ?? 0)}` : ""}</li>)}</ul></div>}
+        {!!selectedFlags.length && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><p className="font-semibold">Needs attention</p><ul className="mt-2 list-disc space-y-1 pl-5">{selectedFlags.map(flag => <li key={flag}>{ATTENTION_LABELS[flag]}</li>)}</ul></div>}
         {selectedReservation && <div className="mb-4 rounded-xl border border-neutral/10 p-4 text-sm"><p className="font-semibold">Guest arrival</p><p className="mt-1">{selectedReservation.checked_in_at ? `Checked in: ${new Date(selectedReservation.checked_in_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}` : "Not checked in"}</p>
           {canCheckIn && !selectedReservation.checked_in_at && selectedReservation.status === "confirmed" && manilaDateKey(selectedReservation.start_datetime) === today && Date.parse(selectedReservation.end_datetime) > now && <><label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={arrivalConfirmed} disabled={checkInBusy} onChange={event => setArrivalConfirmed(event.target.checked)} className="mt-0.5 h-5 w-5" />I confirm the guest has arrived at the resort.</label><button type="button" disabled={!arrivalConfirmed || checkInBusy} onClick={() => void recordArrival()} className="mt-3 min-h-11 rounded-xl bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50">{checkInBusy ? "Recording arrival..." : "Mark guest checked in"}</button></>}
           {selectedReservation.checked_in_at && !selectedReservation.checked_out_at && <p className="mt-2 text-neutral/65">Cancellation and rescheduling are locked after check-in.</p>}
@@ -729,10 +732,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             }} />
         </div>}
         <div className="mb-4 flex flex-wrap gap-2 text-sm">
-          {canTransactions && selectedFlags.includes("payment") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=payments">Review submitted payments</Link>}
-          {canRecords && selectedFlags.includes("reschedule") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/records?tab=reschedules">Review reschedule requests</Link>}
+          {canTransactions && selectedReservation && (signals[selectedReservation.reservation_id]?.payment || selectedReservation.status === "payment_submitted") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=payments">Review submitted payments</Link>}
+          {canRecords && selectedReservation && (signals[selectedReservation.reservation_id]?.reschedule || selectedReservation.status === "reschedule_requested") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/records?tab=reschedules">Review reschedule requests</Link>}
           {canTransactions && selectedFlags.includes("refund") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=refunds">Review pending refunds</Link>}
-          {canTransactions && selectedFlags.includes("balance") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=ledger">Open payment ledger</Link>}
+          {canTransactions && selectedReservation && Number(signals[selectedReservation.reservation_id]?.balance) > 0 && !["cancelled", "no_show", "completed", "rejected", "expired"].includes(selectedReservation.status) && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=ledger">Open payment ledger</Link>}
         </div>
         {canReviewPayments && <ReservationPaymentReview key={selectedEvent.reservationId} reservationId={selectedEvent.reservationId} reference={selectedReservation?.reference_number ?? selectedEvent.reference ?? "Reservation"} onBusyChange={setPaymentBusy} onReviewed={() => { setPaymentRevision(value => value + 1); setRefreshKey(key => key + 1); }} />}
         <ReservationEditor key={`${selectedEvent.reservationId}:${paymentRevision}`} reservationId={selectedEvent.reservationId} onBusyChange={setEditorBusy} onSaved={() => setRefreshKey(key => key + 1)} />

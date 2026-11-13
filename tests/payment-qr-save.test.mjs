@@ -7,8 +7,8 @@ import { catalogDatabase, uuid } from "./helpers/catalog-database.mjs";
 
 const account = { account_id: uuid(1), payment_method_id: uuid(2), account_name: "Resort", account_number: "00123", instructions: null, is_active: true };
 const png = () => new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "qr.png", { type: "image/png" });
-function harness({ existing = null, failUpload = false, failWrite = false } = {}) {
-  const database = catalogDatabase({ payment_accounts: existing ? [existing] : [], payment_methods: [{ payment_method_id: uuid(2), is_active: true }] });
+function harness({ existing = null, failUpload = false, failWrite = false, method = "GCash" } = {}) {
+  const database = catalogDatabase({ payment_accounts: existing ? [existing] : [], payment_methods: [{ payment_method_id: uuid(2), name: method, type: method === "GCash" ? "ewallet" : "bank", is_active: true }] });
   const removed = []; const uploads = []; const audit = [];
   database.storage = { from: () => ({
     upload: async (path) => { uploads.push(path); return { error: failUpload ? { message: "Offline" } : null }; },
@@ -46,6 +46,18 @@ test("account is created with its QR in one write, preserving account number zer
   assert.equal(record.qr_image, h.uploads[0]);
   assert.ok(record.qr_image.startsWith(`${record.account_id}/`));
   assert.equal(h.database.writes.length, 1);
+});
+
+test("other-method receiving accounts can be created, edited and restored without a QR when they have account details", async () => {
+  const created = harness({ method: "Bank transfer" });
+  assert.equal((await created.request("POST", createPayload)).status, 201);
+  assert.equal(created.database.tables.payment_accounts[0].account_number, "00123"); assert.equal(created.uploads.length, 0);
+  const edited = harness({ method: "Bank transfer", existing: { ...account, is_active: false } });
+  assert.equal((await edited.request("PATCH", { resource: "payment_accounts", id: uuid(1), record: { account_name: "Updated Bank" } })).status, 200);
+  assert.equal((await edited.request("PATCH", { resource: "payment_accounts", id: uuid(1), action: "restore" })).status, 200);
+  const empty = harness({ method: "Bank transfer" });
+  assert.equal((await empty.request("POST", { ...createPayload, record: { ...createPayload.record, account_number: "" } })).status, 400);
+  assert.equal(empty.database.writes.length, 0);
 });
 
 test("failed QR upload creates no account and leaves replacement details unchanged", async () => {

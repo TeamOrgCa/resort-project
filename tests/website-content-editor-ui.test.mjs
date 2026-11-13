@@ -34,7 +34,7 @@ test("page and section navigation preserve drafts, failed saves retain edits and
     } }) },
   }).default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
-  const button = label => [...container.querySelectorAll("button")].find(node => node.textContent.trim() === label);
+  const button = label => [...document.querySelectorAll("button")].find(node => node.textContent.trim() === label);
   const click = async label => act(async () => { const target = button(label); assert.ok(target, label); assert.equal(target.disabled, false); target.click(); });
   const field = label => document.getElementById([...container.querySelectorAll("label[for]")].find(node => node.textContent === label)?.htmlFor);
   const edit = async (label, value) => act(async () => {
@@ -49,9 +49,12 @@ test("page and section navigation preserve drafts, failed saves retain edits and
     await click("Amenities"); await edit("Amenities heading", "Explore our amenities");
     await click("About page"); await click("Rates & inclusions"); await edit("Rates section heading", "About page draft");
     await click("Home page"); assert.equal(field("Hero heading").value, "A new welcome");
-    await click("Save home page"); assert.match(container.querySelector('[role="alert"]').textContent, /Retry/);
-    assert.equal(field("Hero heading").value, "A new welcome");
     await click("Save home page");
+    assert.equal(saves.length, 0); assert.match(document.querySelector('[role="alertdialog"]').textContent, /Publish home page changes/);
+    await click("Keep editing"); assert.equal(field("Hero heading").value, "A new welcome");
+    await click("Save home page"); await click("Publish changes"); assert.match(container.querySelector('[role="alert"]').textContent, /Retry/);
+    assert.equal(field("Hero heading").value, "A new welcome");
+    await click("Save home page"); await click("Publish changes");
     assert.equal(saves.length, 1); assert.ok(saves[0].every(update => update.key.startsWith("content.home.")));
     assert.equal(saves[0].find(update => update.key === "content.home.hero_title").value, "A new welcome");
     assert.equal(saves[0].find(update => update.key === "content.home.world_class_amenities").value, "Explore our amenities");

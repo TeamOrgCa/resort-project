@@ -8,6 +8,7 @@ import PolicyEditor from "@/components/admin/PolicyEditor";
 import SettingEditor from "@/components/admin/SettingEditor";
 import WebsiteContentEditor from "@/components/admin/WebsiteContentEditor";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
+import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 import { settingCategories, settingDefinitions } from "@/lib/settings/catalog";
 import { useSettings } from "@/components/settings/SettingsProvider";
 import type { SettingCategory, SettingDefinition, SettingValue, SettingsMap } from "@/lib/settings/types";
@@ -22,6 +23,7 @@ export default function ConfigurationClient() {
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const submitting = useRef(false);
+  const { confirm, confirmation } = useActionConfirmation();
   const [uploadingImages, setUploadingImages] = useState(0);
   const [contentGroup, setContentGroup] = useState<NonNullable<SettingDefinition["group"]>>("Branding");
   const definitions = settingDefinitions.filter((definition) => definition.category === activeCategory && (activeCategory !== "content" || definition.group === contentGroup));
@@ -32,9 +34,16 @@ export default function ConfigurationClient() {
     submitting.current = true;
     setMessage(null);
     setSaveFailed(false);
-    setSaving(true);
     try {
-      await save(definitions.map((definition) => ({ key: definition.key, value: draft[definition.key] ?? settings[definition.key] ?? definition.defaultValue })));
+      const updates = definitions.map((definition) => ({ key: definition.key, value: draft[definition.key] ?? settings[definition.key] ?? definition.defaultValue }));
+      const scope = activeCategory === "content" ? contentGroup.toLowerCase() : settingCategories.find(category => category.key === activeCategory)?.label.toLowerCase() ?? "configuration";
+      if (!await confirm({
+        title: activeCategory === "content" ? `Publish ${scope} changes?` : `Save changes to ${scope}?`,
+        message: activeCategory === "content" ? `This publishes all sections in ${scope} to the live website immediately.` : "These settings take effect immediately for new workflows. Review your changes before saving.",
+        confirmText: activeCategory === "content" ? "Publish changes" : "Save settings",
+      })) return;
+      setSaving(true);
+      await save(updates);
       setDraft((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !definitions.some((definition) => definition.key === key))));
       setMessage("Settings saved.");
     } catch (cause) {
@@ -80,6 +89,7 @@ export default function ConfigurationClient() {
         </div>
       </div>}
     </section>
+    {confirmation}
     {restoreOpen && <CatalogDialog title="Restore default website content?" description="Restore the original logo, home page and about page text and images. This publishes immediately and replaces unsaved website content edits." busy={saving} onClose={() => { if (!saving) setRestoreOpen(false); }}>
       <p className="text-sm leading-relaxed text-neutral/75">Your package rates, bookings, payment accounts and resort contact information are kept. Uploaded files remain available; the website will use the original images again.</p>
       {restoreError && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{restoreError}</p>}

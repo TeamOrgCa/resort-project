@@ -29,6 +29,12 @@ test("admins edit and publish FAQ questions and approved answers in Configuratio
     assert.equal(document.activeElement === null, false);
     await value(container.querySelector('[aria-label="FAQ answer 1"]'), "Please confirm outside food arrangements with the resort.");
     await click(button(container, "Save chatbot settings"));
+    assert.equal(saved, undefined);
+    await click(button(document.querySelector('[role="alertdialog"]'), "Keep editing"));
+    assert.equal(saved, undefined);
+    assert.equal(container.querySelector('[aria-label="FAQ question 1"]').value, "Can we bring outside food?");
+    await click(button(container, "Save chatbot settings"));
+    await click(button(document.querySelector('[role="alertdialog"]'), "Save settings"));
     assert.equal(saved.find(row => row.key === "chatbot.faqs").value["Can we bring outside food?"], "Please confirm outside food arrangements with the resort.");
     assert.match(container.textContent, /Settings saved/);
   } finally { await act(async () => root.unmount()); container.remove(); }

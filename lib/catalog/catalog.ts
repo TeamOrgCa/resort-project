@@ -69,7 +69,7 @@ export const catalogResources = {
     ],
   },
   payment_methods: {
-    label: "Payment methods", singular: "payment method", description: "Manage payment channels. Cash is for staff-recorded payments at the resort and is hidden from online booking.",
+    label: "Payment methods", singular: "payment method", description: "Manage payment channels and link active receiving accounts. GCash supports receipt verification; other online methods require cashier approval. Cash is for staff-recorded payments at the resort.",
     id: "payment_method_id", select: "payment_method_id, name, type, is_active, created_at", order: "name", search: "name",
     columns: ["name", "type"], fields: [
       { key: "name", label: "Method name", kind: "text", required: true },
@@ -125,5 +125,5 @@ export function catalogRecordName(resource: CatalogResource, record: CatalogReco
 
 export interface CatalogReferences {
   units: Array<{ unit_id: string; name: string; is_active: boolean; archived_at: string | null }>;
-  paymentMethods: Array<{ payment_method_id: string; name: string; is_active: boolean }>;
+  paymentMethods: Array<{ payment_method_id: string; name: string; type?: string; is_active: boolean }>;
 }

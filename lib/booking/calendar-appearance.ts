@@ -1,16 +1,12 @@
 export const CALENDAR_COLORS = {
-  pending: { label: "Pending payment", color: "#a16207" },
-  payment_submitted: { label: "Payment submitted", color: "#c2410c" },
-  confirmed: { label: "Confirmed", color: "#1d4ed8" },
-  reschedule_requested: { label: "Reschedule requested", color: "#7e22ce" },
-  completed: { label: "Completed", color: "#15803d" },
-  no_show: { label: "No show", color: "#92400e" },
-  cancelled: { label: "Cancelled", color: "#475569" },
-  rejected: { label: "Rejected", color: "#854d0e" },
+  pending: { label: "Booking", color: "#a16207" },
+  confirmed: { label: "Reservation", color: "#1d4ed8" },
   ocular: { label: "Ocular visit", color: "#0e7490" },
   maintenance: { label: "Maintenance", color: "#4338ca" },
   closed: { label: "Other closed bookings", color: "#525252" },
 } as const;
+// Preserve the pending/confirmed storage keys so saved category colors still apply.
+export const CALENDAR_LEGEND_KEYS = ["pending", "confirmed", "ocular", "maintenance"] as const;
 export type CalendarColorKey = keyof typeof CALENDAR_COLORS;
 export type CalendarColors = Record<CalendarColorKey, string>;
 export const DEFAULT_CALENDAR_COLORS = Object.fromEntries(Object.entries(CALENDAR_COLORS).map(([key, value]) => [key, value.color])) as CalendarColors;

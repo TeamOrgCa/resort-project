@@ -26,7 +26,7 @@ export default function ReservationPaymentReview({ reservationId, reference, onR
     let active = true;
     void (async () => {
       try {
-        const { data, error } = await createClient().from("payments").select("payment_id,reservation_id,reference_number,amount,payment_type,account_name,account_number,paid_at,receipt_paid_at,proof_path,status,ocr_status,ocr_notes")
+        const { data, error } = await createClient().from("payments").select("payment_id,reservation_id,reference_number,amount,payment_type,account_name,account_number,paid_at,receipt_paid_at,proof_path,status,ocr_status,ocr_notes,payment_methods(name),receiving_account:payment_accounts!receiving_account_id(account_name,account_number)")
           .eq("reservation_id", reservationId).eq("status", "pending").order("created_at").limit(100);
         if (!active) return;
         if (error) setLoadError("Unable to load submitted payments. Please retry.");
@@ -54,7 +54,7 @@ export default function ReservationPaymentReview({ reservationId, reference, onR
   async function submit(reason?: string) {
     if (!selected || !decision || submitting.current) return;
     if (decision === "reject" && (!reason || reason.trim().length < 5 || reason.trim().length > 2000)) { setError("Enter a rejection reason of 5 to 2,000 characters."); return; }
-    if (decision === "approve" && (!proof?.url || (selected.receipt_paid_at && !reviewed))) return;
+    if (decision === "approve" && (!proof?.url || !reviewed)) return;
     const paymentId = selected.payment_id;
     submitting.current = true; setBusy(true); setError(null);
     try {

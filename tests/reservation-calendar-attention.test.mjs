@@ -3,32 +3,39 @@ import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
 const { reservationAttention, calendarBookingKind } = loadTsModule("lib/booking/calendar-attention.ts");
-const now = Date.parse("2026-10-15T16:30:00Z");
 const reservation = { status: "confirmed", start_datetime: "2026-10-16T08:00:00+08:00", checked_in_at: null };
-test("calendar distinguishes unpaid requests, confirmed stays and closed bookings", () => {
+test("calendar distinguishes pending payments, paid reservations including completed stays, and closed bookings", () => {
   for (const status of ["pending", "payment_submitted"]) assert.equal(calendarBookingKind(status), "booking");
-  for (const status of ["confirmed", "reschedule_requested"]) assert.equal(calendarBookingKind(status), "reservation");
-  for (const status of ["cancelled", "completed", "expired", "rejected", "no_show"]) assert.equal(calendarBookingKind(status), "closed");
-});
-test("all five attention signals coexist on a confirmed reservation without replacing its status", () => {
-  assert.deepEqual(reservationAttention(reservation, { payment: true, reschedule: true, refund: true, balance: 2400 }, now), ["payment", "reschedule", "refund", "balance", "arrival"]);
-  assert.equal(reservation.status, "confirmed");
-});
-test("arrival uses Philippine dates and a recorded check-in removes only the arrival flag", () => {
-  assert.deepEqual(reservationAttention(reservation, {}, now), ["arrival"]);
-  assert.deepEqual(reservationAttention({ ...reservation, checked_in_at: "2026-10-16T08:05:00+08:00" }, { balance: 500 }, now), ["balance"]);
-  assert.deepEqual(reservationAttention(reservation, {}, Date.parse("2026-10-16T16:00:00Z")), []);
-});
-test("cancelled bookings retain pending-refund flags but have no unpaid-stay or arrival flag", () => {
-  assert.deepEqual(reservationAttention({ ...reservation, status: "cancelled" }, { refund: true, balance: 3000 }, now), ["refund"]);
-  assert.deepEqual(reservationAttention({ ...reservation, status: "pending" }, { balance: 0 }, now), []);
+  for (const status of ["confirmed", "reschedule_requested", "completed"]) assert.equal(calendarBookingKind(status), "reservation");
+  for (const status of ["cancelled", "expired", "rejected", "no_show"]) assert.equal(calendarBookingKind(status), "closed");
 });
 
-test("no-show reservations have no active balance or arrival flags and get their own calendar color", () => {
-  assert.deepEqual(reservationAttention({ ...reservation, status: "no_show" }, { balance: 3000 }, now), []);
-  const { readCalendarColors, CALENDAR_COLORS } = loadTsModule("lib/booking/calendar-appearance.ts");
-  assert.equal(CALENDAR_COLORS.no_show.label, "No show");
-  assert.equal(readCalendarColors({ confirmed: "#123456" }).no_show, CALENDAR_COLORS.no_show.color);
+test("verified payments retain reservation classification during later payment reviews and unpaid reschedules remain bookings", () => {
+  assert.equal(calendarBookingKind("payment_submitted", 600), "reservation");
+  assert.equal(calendarBookingKind("payment_submitted", 0), "booking");
+  assert.equal(calendarBookingKind("reschedule_requested", 0), "booking");
+  assert.equal(calendarBookingKind("reschedule_requested", 600), "reservation");
+  assert.equal(calendarBookingKind("cancelled", 600), "closed");
+});
+test("only refunds need attention on an active reservation, independent of payment and arrival signals", () => {
+  assert.deepEqual(reservationAttention(reservation, { payment: true, reschedule: true, refund: true, balance: 2400 }), ["refund"]);
+  assert.equal(reservation.status, "confirmed");
+});
+test("unpaid balances, pending payments, reschedules and arrivals do not create attention flags", () => {
+  for (const status of ["pending", "payment_submitted", "confirmed", "reschedule_requested", "completed", "rejected"]) {
+    assert.deepEqual(reservationAttention({ ...reservation, status }, { payment: true, reschedule: true, balance: 500 }), []);
+  }
+});
+test("cancellations need attention even without an outstanding refund", () => {
+  assert.deepEqual(reservationAttention({ status: "cancelled" }, { refund: true, balance: 3000 }), ["cancelled", "refund"]);
+  assert.deepEqual(reservationAttention({ status: "cancelled" }), ["cancelled"]);
+});
+
+test("no-shows need attention and calendar colors preserve saved booking and reservation colors", () => {
+  assert.deepEqual(reservationAttention({ status: "no_show" }, { balance: 3000 }), ["no_show"]);
+  const { readCalendarColors } = loadTsModule("lib/booking/calendar-appearance.ts");
+  assert.equal(readCalendarColors({ confirmed: "#123456", pending: "#654321", no_show: "#ffffff" }).confirmed, "#123456");
+  assert.equal(readCalendarColors({ pending: "#654321" }).pending, "#654321");
 });
 
 const id = "11111111-1111-4111-8111-111111111111";

@@ -111,8 +111,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "This payment has already been reviewed." }, { status: 409 });
     }
 
-    if (payment.receipt_paid_at && !payload.screenshotReviewed) {
-      return NextResponse.json({ success: false, message: "Check that the proof is a clear original GCash screenshot before approving. Reject photos of another screen." }, { status: 400 });
+    if (!payload.screenshotReviewed) {
+      return NextResponse.json({ success: false, message: payment.receipt_paid_at ? "Check that the proof is a clear original GCash screenshot and verify the received funds before approving. Reject photos of another screen." : "Verify the actual received funds, amount, recipient and transaction reference before approving." }, { status: 400 });
     }
 
     const { data: reservation, error: reservationError } = await staffContext.supabase

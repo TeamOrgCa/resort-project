@@ -6,7 +6,6 @@ export type SettingCategory =
   | "reservation"
   | "ocular"
   | "payments"
-  | "notifications"
   | "chatbot";
 
 export interface BusinessSetting {

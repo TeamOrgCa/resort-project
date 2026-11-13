@@ -126,7 +126,8 @@ const guestId = "11111111-1111-4111-8111-111111111111";
 const reservationId = "22222222-2222-4222-8222-222222222222";
 const paymentBody = { reservationId, payment: { paymentMethodId: "gcash", type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guestId}/proof.png` } };
 function paymentHarness({ beta = false, authenticated = true, owner = guestId, method = "GCash", paid = 0, total = 5000, pending = false, ocrStatus = "consistent", proofMissing = false, accountMissing = false, insertError = null } = {}) {
-  const inserted = [], inspected = [], emails = [];
+  const inserted = [], inspected = [], manualProofs = [], emails = [];
+  const manual = method !== "GCash" && method !== "Cash";
   const client = { auth: { getUser: async () => ({ data: { user: authenticated ? { id: guestId } : null }, error: null }) },
     from: table => {
       const filters = {};
@@ -134,22 +135,23 @@ function paymentHarness({ beta = false, authenticated = true, owner = guestId, m
         maybeSingle: async () => ({ error: null, data: table === "payment_methods" ? { name: method, type: "ewallet", is_active: true }
           : table === "reservations" ? { reservation_id: reservationId, guest_id: owner, reference_number: "MV-TEST", status: paid ? "confirmed" : "pending", payment_deadline_at: new Date(Date.now() + 600000).toISOString() }
           : table === "transactions" ? { total_amount: total, paid_amount: paid, balance: Math.max(total - paid, 0) }
-          : table === "payment_accounts" ? accountMissing ? null : { account_name: "MarVille Resort", account_number: "09171231234" }
+          : table === "payment_accounts" ? accountMissing ? null : { account_id: "33333333-3333-4333-8333-333333333333", account_name: "MarVille Resort", account_number: "09171231234" }
           : table === "payments" ? pending && filters.status === "pending" ? { payment_id: "pending" } : null : null }) };
       return query;
     } };
   const route = loadTsModule("app/api/reservations/payment/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, { p_payment: row }) => {
-      assert.equal(name, ocrStatus === "skipped" ? "submit_unscreened_gcash_payment" : beta ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment"); inserted.push(row);
-      return { data: insertError ? null : { payment_id: "new", is_beta_test: beta, status: ocrStatus === "skipped" ? "pending" : "verified", ocr_status: ocrStatus === "skipped" ? "not_applicable" : row.ocr_status, auto_approved: ocrStatus !== "skipped",
-        paid_amount: paid + (ocrStatus === "skipped" ? 0 : row.amount), remaining_balance: Math.max(total - paid - (ocrStatus === "skipped" ? 0 : row.amount), 0), overpaid_amount: Math.max(paid + (ocrStatus === "skipped" ? 0 : row.amount) - total, 0), reservation_status: ocrStatus === "skipped" && !paid ? "payment_submitted" : "confirmed" }, error: insertError };
+      assert.equal(name, manual ? "submit_manual_guest_payment" : (manual || ocrStatus === "skipped") ? "submit_unscreened_gcash_payment" : beta ? "submit_beta_gcash_payment" : "submit_consistent_gcash_payment"); inserted.push(row);
+      return { data: insertError ? null : { payment_id: "new", is_beta_test: beta, status: (manual || ocrStatus === "skipped") ? "pending" : "verified", ocr_status: (manual || ocrStatus === "skipped") ? "not_applicable" : row.ocr_status, auto_approved: !manual && ocrStatus !== "skipped",
+        paid_amount: paid + ((manual || ocrStatus === "skipped") ? 0 : row.amount), remaining_balance: Math.max(total - paid - ((manual || ocrStatus === "skipped") ? 0 : row.amount), 0), overpaid_amount: Math.max(paid + ((manual || ocrStatus === "skipped") ? 0 : row.amount) - total, 0), reservation_status: (manual || ocrStatus === "skipped") && !paid ? "payment_submitted" : "confirmed" }, error: insertError };
     } }) },
     "@/lib/server/ocr-payment-emails": { sendOcrPaymentEmails: async (...args) => { emails.push(args); } },
-    "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return proofMissing ? null : { status: ocrStatus, betaTest: beta, notes: "Receipt checked", amount: input.amount, reference: input.reference, paidAt: ocrStatus === "skipped" ? undefined : "2026-10-13T01:15:00.000Z" }; } },
+    "@/lib/server/manual-payment-proof": { inspectManualPaymentProof: async (...args) => { manualProofs.push(args); return !proofMissing; } },
+    "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return proofMissing ? null : { status: ocrStatus, betaTest: beta, notes: "Receipt checked", amount: input.amount, reference: input.reference, paidAt: (manual || ocrStatus === "skipped") ? undefined : "2026-10-13T01:15:00.000Z" }; } },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { payment: [] } },
   });
-  return { post: body => route.POST(new Request("http://localhost/api/reservations/payment", { method: "POST", body: JSON.stringify(body) })), inserted, inspected, emails };
+  return { post: body => route.POST(new Request("http://localhost/api/reservations/payment", { method: "POST", body: JSON.stringify(body) })), inserted, inspected, manualProofs, emails };
 }
 test("payment API saves actual OCR amount and canonical reference for larger down payments", async () => {
   const h = paymentHarness(); const response = await h.post(paymentBody); const body = await response.json();
@@ -198,8 +200,8 @@ test("failed, missing and unreadable OCR never insert a payment", async () => {
   }
   const h = paymentHarness({ proofMissing: true }); assert.equal((await h.post(paymentBody)).status, 400); assert.equal(h.inserted.length, 0);
 });
-test("ownership, GCash method, receiving account, pending payments and amount are enforced", async () => {
-  for (const [options, status] of [[{ authenticated: false }, 401], [{ owner: "other" }, 403], [{ method: "Bank" }, 400], [{ pending: true }, 409], [{ accountMissing: true }, 503]]) {
+test("ownership, cash exclusion, receiving account, pending payments and amount are enforced", async () => {
+  for (const [options, status] of [[{ authenticated: false }, 401], [{ owner: "other" }, 403], [{ method: "Cash" }, 400], [{ pending: true }, 409], [{ accountMissing: true }, 503]]) {
     const h = paymentHarness(options); assert.equal((await h.post(paymentBody)).status, status); assert.equal(h.inserted.length, 0);
   }
   for (const amount of [999.99, 1000.001, 100000000]) {
@@ -218,6 +220,30 @@ test("later payments use manual review when OCR is disabled and preserve the cur
   assert.equal(result.payment.status, "pending"); assert.equal(result.payment.autoApproved, false);
   assert.equal(result.reservation.paidAmount, 0); assert.equal(result.reservation.remainingBalance, 5000);
   assert.equal(h.inserted[0].ocr_checked_at, null); assert.equal(h.inserted[0].receipt_paid_at, null);
+});
+
+test("other-method down payments and balance payments stay pending without crediting the entered amount", async () => {
+  for (const paid of [0, 1500]) {
+    const h = paymentHarness({ method: "Bank", paid, beta: true });
+    const response = await h.post({ ...paymentBody, payment: { ...paymentBody.payment, receivingAccountId: "33333333-3333-4333-8333-333333333333", referenceNumber: "BANK-001234 AB", type: paid ? "full" : "downpayment", amount: paid ? 3500 : 1500, autoApproved: true } });
+    assert.equal(response.status, 201); const json = await response.json();
+    assert.equal(json.payment.status, "pending"); assert.equal(json.payment.autoApproved, false);
+    assert.equal(json.reservation.paidAmount, paid); assert.equal(json.reservation.remainingBalance, 5000 - paid);
+    assert.equal(json.reservation.status, paid ? "confirmed" : "payment_submitted");
+    assert.equal(h.inspected.length, 0); assert.equal(h.manualProofs.length, 1); assert.deepEqual(h.emails, []);
+    assert.equal(h.inserted[0].ocr_status, "not_applicable"); assert.equal(h.inserted[0].ocr_checked_at, null); assert.equal(h.inserted[0].receipt_paid_at, null);
+    assert.equal(h.inserted[0].reference_number, "BANK001234AB");
+  }
+});
+
+test("other-method payments retain account, proof, owner, pending-payment and reference validation", async () => {
+  const payment = { ...paymentBody.payment, receivingAccountId: "33333333-3333-4333-8333-333333333333", referenceNumber: "BANK-001234 AB" };
+  for (const [options, status] of [[{ proofMissing: true }, 400], [{ accountMissing: true }, 503], [{ pending: true }, 409], [{ owner: "other" }, 403], [{ authenticated: false }, 401]]) {
+    const h = paymentHarness({ method: "Bank", ...options }); assert.equal((await h.post({ ...paymentBody, payment })).status, status); assert.equal(h.inserted.length, 0);
+  }
+  for (const change of [{ receivingAccountId: undefined }, { referenceNumber: "123" }, { referenceNumber: "bank<script>" }, { amount: 999.99 }, { accountNumber: "bad\naccount" }]) {
+    const h = paymentHarness({ method: "Bank" }); assert.equal((await h.post({ ...paymentBody, payment: { ...payment, ...change } })).status, 400); assert.equal(h.inserted.length, 0);
+  }
 });
 
 test("beta comparison toggle accepts an extracted old receipt but still enforces amount, recipient, status and readable fields", () => {

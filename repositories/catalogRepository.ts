@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isCashMethod } from "@/lib/booking/payment-method";
 
 export interface UnitCatalogRecord {
   unit_id: string;
@@ -66,7 +67,7 @@ export async function getActiveCatalog(supabase: SupabaseClient) {
   const failed = [units, services, paymentMethods, paymentAccounts, policies, ocularSlots].find((result) => result.error);
   if (failed?.error) throw new Error(failed.error.message);
 
-  const onlineMethods = ((paymentMethods.data ?? []) as PaymentMethodRecord[]).filter(method => method.type?.trim().toLowerCase() !== "cash");
+  const onlineMethods = ((paymentMethods.data ?? []) as PaymentMethodRecord[]).filter(method => !isCashMethod(method));
   const activeMethodIds = new Set(onlineMethods.map((method) => method.payment_method_id));
 
   return {

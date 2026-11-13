@@ -1,26 +1,24 @@
-import { manilaDateKey } from "./manila-date";
-
 export const ATTENTION_LABELS = {
-  payment: "Payment submitted",
-  reschedule: "Reschedule requested",
+  no_show: "No show",
+  cancelled: "Cancelled",
   refund: "Refund pending",
-  balance: "Unpaid balance",
-  arrival: "Today: not checked in",
 } as const;
 export type AttentionFlag = keyof typeof ATTENTION_LABELS;
-export type CalendarSignals = { payment?: boolean; reschedule?: boolean; refund?: boolean; balance?: number };
+export type CalendarSignals = { payment?: boolean; reschedule?: boolean; refund?: boolean; balance?: number; paidAmount?: number };
 
-export function reservationAttention(reservation: { status: string; start_datetime: string; checked_in_at?: string | null }, signals: CalendarSignals = {}, now = Date.now()): AttentionFlag[] {
+export function reservationAttention(reservation: { status: string }, signals: CalendarSignals = {}): AttentionFlag[] {
   const flags: AttentionFlag[] = [];
-  if (signals.payment || reservation.status === "payment_submitted") flags.push("payment");
-  if (signals.reschedule || reservation.status === "reschedule_requested") flags.push("reschedule");
+  if (reservation.status === "no_show") flags.push("no_show");
+  if (reservation.status === "cancelled") flags.push("cancelled");
   if (signals.refund) flags.push("refund");
-  if (!["cancelled", "rejected", "expired", "completed", "no_show"].includes(reservation.status) && Number(signals.balance) > 0) flags.push("balance");
-  if (["confirmed", "reschedule_requested"].includes(reservation.status) && !reservation.checked_in_at && manilaDateKey(reservation.start_datetime) === manilaDateKey(new Date(now))) flags.push("arrival");
   return flags;
 }
 
-export function calendarBookingKind(status: string): "booking" | "reservation" | "closed" {
-  return ["pending", "payment_submitted"].includes(status) ? "booking"
-    : ["confirmed", "reschedule_requested"].includes(status) ? "reservation" : "closed";
+export function calendarBookingKind(status: string, paidAmount?: number): "booking" | "reservation" | "closed" {
+  // A later payment review or reschedule must not turn a paid stay into an unpaid booking.
+  if (["confirmed", "completed"].includes(status)) return "reservation";
+  if (["pending", "payment_submitted", "reschedule_requested"].includes(status)) {
+    return (paidAmount ?? (status === "reschedule_requested" ? 1 : 0)) > 0 ? "reservation" : "booking";
+  }
+  return "closed";
 }

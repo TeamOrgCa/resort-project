@@ -7,6 +7,7 @@ import { catalogResources, isCatalogResource, isCatalogUuid, type CatalogDefinit
 import { CatalogValidationError, validateCatalogRecord } from "@/lib/catalog/validation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PAYMENT_QR_BUCKET, PaymentQrStorageError, readCatalogSave, uploadPaymentQr } from "@/lib/catalog/payment-qr";
+import { isGcashMethod } from "@/lib/booking/gcash-receipt";
 
 const invalid = (message: string, status = 400) => NextResponse.json({ success: false, message }, { status });
 const failure = (error: unknown) => error instanceof CatalogValidationError ? invalid(error.message) : invalid(error instanceof PaymentQrStorageError ? error.message : "Unable to complete this catalog request. Please try again.", 500);
@@ -33,6 +34,14 @@ async function validateReference(client: SupabaseClient, resource: CatalogResour
   if (!data || !data.is_active || data.archived_at) throw new CatalogValidationError(`Choose an active ${field === "unit_id" ? "unit" : "payment method"}.`);
 }
 
+async function validatePaymentAccount(client: SupabaseClient, record: CatalogRecord, hasQr: boolean) {
+  const { data: method, error } = await client.from("payment_methods").select("name,type").eq("payment_method_id", record.payment_method_id).maybeSingle<{ name: string; type: string }>();
+  if (error) throw error;
+  if (!method) throw new CatalogValidationError("Select a valid payment method.");
+  if (isGcashMethod(method) && !hasQr) throw new CatalogValidationError("A GCash payment QR image is required. Choose an image before saving or restoring.");
+  if (!hasQr && !String(record.account_number ?? "").trim()) throw new CatalogValidationError("Enter the resort receiving account number or upload a payment QR image.");
+}
+
 export async function GET(request: Request) {
   const staff = await requireAdminStaff();
   if (!staff) return invalid("Unauthorized.", 401);
@@ -42,7 +51,7 @@ export async function GET(request: Request) {
     if (url.searchParams.get("resource") === "references") {
       const [units, paymentMethods] = await Promise.all([
         fetchAllPages<CatalogReferences["units"][number]>((from, to) => client.from("units").select("unit_id, name, is_active, archived_at").order("name").order("unit_id").range(from, to)),
-        fetchAllPages<CatalogReferences["paymentMethods"][number]>((from, to) => client.from("payment_methods").select("payment_method_id, name, is_active").order("name").order("payment_method_id").range(from, to)),
+        fetchAllPages<CatalogReferences["paymentMethods"][number]>((from, to) => client.from("payment_methods").select("payment_method_id, name, type, is_active").order("name").order("payment_method_id").range(from, to)),
       ]);
       return NextResponse.json({ success: true, references: { units, paymentMethods } }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -92,7 +101,7 @@ export async function POST(request: Request) {
     const record = validateCatalogRecord(resource, body.record);
     const client = createAdminClient();
     await validateReference(client, resource, record);
-    if (resource === "payment_accounts" && !file) return invalid("A payment QR image is required. Choose an image before saving.");
+    if (resource === "payment_accounts") await validatePaymentAccount(client, record, Boolean(file));
     let qrPath: string | null = null;
     if (resource === "payment_accounts" && file) {
       const accountId = crypto.randomUUID();
@@ -122,7 +131,6 @@ export async function PATCH(request: Request) {
     const existing = await client.from(resource).select(definition.select).eq(definition.id, body.id).maybeSingle<CatalogRecord>();
     if (existing.error) return invalid("Unable to load this record. Please try again.", 500);
     if (!existing.data) return invalid("This catalog record no longer exists.", 404);
-    if (resource === "payment_accounts" && !existing.data.qr_image && !file) return invalid("A payment QR image is required. Edit this account and upload its QR before saving or restoring.");
 
     let update: CatalogRecord;
     if (body.action === "restore" && body.record === undefined) {
@@ -134,6 +142,7 @@ export async function PATCH(request: Request) {
       update = validateCatalogRecord(resource, body.record, existing.data as CatalogRecord);
       await validateReference(client, resource, update, existing.data as CatalogRecord);
     }
+    if (resource === "payment_accounts") await validatePaymentAccount(client, { ...existing.data, ...update }, Boolean(existing.data.qr_image || file));
     let qrPath: string | null = null;
     if (resource === "payment_accounts" && file) {
       qrPath = await uploadPaymentQr(client, body.id, file);

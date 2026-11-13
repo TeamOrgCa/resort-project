@@ -2,7 +2,8 @@
 
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 import type { BookingPolicy } from "@/lib/booking/booking-policy";
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
 
@@ -19,6 +20,8 @@ export default function PolicyEditor() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const submitting = useRef(false);
+  const { confirm, confirmation } = useActionConfirmation();
   const changed = current !== null && (
     cancellationText.trim() !== current.cancellation_text ||
     refundText.trim() !== current.refund_text ||
@@ -44,15 +47,18 @@ export default function PolicyEditor() {
   }, []);
 
   const publish = async () => {
-    if (!current) return;
-    setSaving(true);
+    if (!current || submitting.current) return;
+    submitting.current = true;
     setError(null);
     setMessage(null);
     try {
+      const payload = { cancellationText, refundText, noticeHours: Number(noticeHours), refundReviewEnabled, expectedVersion: current.version };
+      if (!await confirm({ title: "Publish a new policy version?", message: "The cancellation and refund policy will apply to new reservations immediately. Existing reservations keep the version they booked under. This version will be retained in the policy history and audit log.", confirmText: "Publish policy" })) return;
+      setSaving(true);
       const response = await fetch("/api/admin/booking-policy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cancellationText, refundText, noticeHours: Number(noticeHours), refundReviewEnabled, expectedVersion: current.version }),
+        body: JSON.stringify(payload),
       });
       const result = (await response.json()) as { version?: number; message?: string };
       if (!response.ok) throw new Error(result.message ?? "Unable to publish policy.");
@@ -61,6 +67,7 @@ export default function PolicyEditor() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to publish policy.");
     } finally {
+      submitting.current = false;
       setSaving(false);
     }
   };
@@ -69,12 +76,12 @@ export default function PolicyEditor() {
     <div className="space-y-5 rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-6">
       <div>
         <h2 className="text-lg font-bold text-neutral">Cancellation and refund policy</h2>
-        <p className="text-sm text-neutral/70">Only administrators can publish changes. Every version is retained and recorded in the audit log. Refunds still require admin review.</p>
+        <p className="text-sm text-neutral/70">Only administrators can publish changes. Every version is retained and recorded in the audit log. Refunds still require manager review.</p>
       </div>
       {loading && <AdminFormSkeleton label="Loading policy..." fields={2} />}
       {error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {message ? <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{message}</p> : null}
-      {current && <>
+      {current && <fieldset disabled={saving} className="space-y-5">
         <p className="text-xs text-neutral/60">Current version {current.version} · Published {formatManilaDateTime(current.created_at)}</p>
         <label className="block text-sm font-semibold text-neutral">Guest cancellation notice (hours)
           <input type="number" min="0" max="8760" step="1" value={noticeHours} onChange={(event) => setNoticeHours(event.target.value)} className="mt-2 block w-full max-w-xs rounded-xl border border-neutral/20 bg-white px-3 py-2" />
@@ -86,7 +93,7 @@ export default function PolicyEditor() {
         <label className="block text-sm font-semibold text-neutral">Refund policy shown to guests and reviewers
           <textarea rows={5} maxLength={5000} value={refundText} onChange={(event) => setRefundText(event.target.value)} className="mt-2 block w-full rounded-xl border border-neutral/20 bg-white px-3 py-2 font-normal" />
         </label>
-        <p className="rounded-xl bg-white p-3 text-sm">Eligible cancellation refunds are always created automatically. Guest cancellations retain the initial 20% deposit; resort-attributable cancellations refund all remaining verified payments. Administrators approve requests, and payouts are manual and independently verified. The previous enable/disable setting does not suppress eligible refunds.</p>
+        <p className="rounded-xl bg-white p-3 text-sm">Eligible cancellation refunds are always created automatically. Guest cancellations retain the initial 20% deposit; resort-attributable cancellations refund all remaining verified payments. Managers approve requests, and payouts are manual and independently verified. The previous enable/disable setting does not suppress eligible refunds.</p>
         <button type="button" disabled={saving || !changed || cancellationText.trim().length < 20 || refundText.trim().length < 20 || noticeHours.trim() === "" || !Number.isInteger(Number(noticeHours)) || Number(noticeHours) < 0 || Number(noticeHours) > 8760} onClick={() => void publish()} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Publishing..." : "Publish new version"}</button>
         <div className="border-t border-neutral/10 pt-4">
           <h3 className="mb-2 font-semibold text-neutral">Previous versions</h3>
@@ -98,7 +105,8 @@ export default function PolicyEditor() {
             <p className="mt-2"><strong>Refund review requests:</strong> {item.refund_review_enabled ? "Enabled" : "Disabled"}</p>
           </details>)}</div>
         </div>
-      </>}
+      </fieldset>}
+      {confirmation}
     </div>
   );
 }

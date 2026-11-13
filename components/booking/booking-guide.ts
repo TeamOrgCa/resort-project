@@ -64,13 +64,13 @@ export function bookingGuide(page: BookingGuidePage, saved = false, balance = fa
     };
     case "payment": return {
       title: balance ? "Pay for your existing reservation" : "Secure your booking with payment",
-      description: "This page records your GCash payment and proof for the saved reservation. Check the booking reference and amount before transferring money. The tour itself makes no payment.",
+      description: "Choose an available online payment method and submit proof for the saved reservation. Check the booking reference, receiving account and amount before transferring money. The tour itself makes no payment.",
       steps: [
         step("payment-amount", "Choose the amount to pay", balance ? "Check the outstanding balance and any payment options available for this reservation. A payment awaiting review must be processed before another can be submitted." : `Choose the ${DOWN_PAYMENT_PERCENT}% down payment or full payment. Check the amount due before sending money.`),
-        step("payment-sent", "Enter the exact amount sent", "Use the amount on your GCash receipt. It must meet the minimum shown here; a larger verified payment reduces the remaining balance."),
-        step("payment-account", "Check the receiving account", "Choose a provider and verify its account details and QR code before transferring in GCash. If the QR code is unavailable, use the reload option before sending payment."),
-        step("payment-sender", "Match the receipt details", "Enter the sender name, your account number and the complete numeric GCash reference from the receipt. Keep leading zeroes; do not use your booking reference as the payment reference."),
-        step("payment-proof", "Upload the original screenshot", "Upload the original GCash receipt screenshot in an accepted format and size shown here. Keep the amount, recipient, reference and payment date/time clear and readable."),
+        step("payment-sent", "Enter the exact amount sent", "Use the amount on your payment receipt. It must meet the minimum shown here; a larger verified payment reduces the remaining balance."),
+        step("payment-account", "Check the receiving account", "Choose a method and verify the resort account details or QR code before transferring through your provider. Cash is collected at the resort. Reload the options if the receiving details are unavailable."),
+        step("payment-sender", "Match the receipt details", "Enter the sender name, account identifier and complete provider reference from the receipt. GCash uses 8-20 numeric reference digits. Keep leading zeroes; do not use your booking reference as the payment reference."),
+        step("payment-proof", "Upload the payment receipt", "Use the accepted image format and size shown here. Keep the amount, recipient, reference and date/time readable. GCash requires its original screenshot; other methods await cashier verification."),
         step("payment-policies", "Read and agree", "Review the policy agreement and confirm it before submitting your payment details."),
         step("payment-submit", "Submit once, then check the result", "Confirm Payment submits the details and proof. Follow the resulting status message; uploading proof alone does not mean the reservation is confirmed. Use Manage Booking to follow the payment status."),
       ],
