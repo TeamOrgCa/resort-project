@@ -1,3 +1,4 @@
+import { LEGAL_POLICY_VERSION, legalPoliciesFixture } from "./helpers/legal-policies.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
@@ -152,6 +153,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
       return query;
     },
   };
+  const previousRpc=client.rpc; client.rpc=(name,args)=>name==="get_legal_policies"?Promise.resolve({data:[legalPoliciesFixture().terms,legalPoliciesFixture().privacy],error:null}):previousRpc(name,args);
   const route = loadTsModule(manual ? "app/api/admin/reservations/create/route.ts" : "app/api/reservations/create/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/server/role-permissions": { staffHasPermission: async () => permitted },
@@ -159,7 +161,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict, error: null }) },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { reservation: [] } },
   });
-  const { LEGAL_POLICY_VERSION } = loadTsModule("lib/legal/policies.ts");
+
   return { writes, save: (overrides = {}) => route.POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({
     bookingMode: "day", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00",
     unitId: "unit", adultCount: 22, childCount: 0, packageRateVersion: 2, bookingPolicyVersion: 1, phoneNumber: "09171234567",
@@ -174,7 +176,17 @@ test("reservation creation stamps its schedule and bills server prices rather th
   assert.equal(response.status, 201);
   assert.equal((await response.json()).reservation.totalAmount, 4568.15);
   assert.equal(h.writes.find(w => w.table === "reservations").payload.package_rate_version, 2);
+  assert.equal(h.writes.find(w => w.table === "reservations").payload.terms_policy_id, legalPoliciesFixture().terms.policy_id);
+  assert.equal(h.writes.find(w => w.table === "reservations").payload.privacy_policy_id, legalPoliciesFixture().privacy.policy_id);
   assert.equal(h.writes.find(w => w.table === "transactions").payload.total_amount, 4568.15);
+});
+
+test("stale guest legal agreement is rejected before writes, including a publication racing reservation insert",async()=>{
+  const h=bookingHarness();const response=await h.save({acceptedPoliciesVersion:"terms:2;privacy:1"});
+  assert.equal(response.status,409);assert.equal((await response.json()).code,"LEGAL_POLICY_CHANGED");assert.equal(h.writes.length,0);
+  const race=bookingHarness({insertError:{code:"40001",message:"The legal policies changed. Reload, read and agree again"}});
+  const rejected=await race.save();assert.equal(rejected.status,409);assert.equal((await rejected.json()).code,"LEGAL_POLICY_CHANGED");
+  assert.equal(race.writes.some(write=>write.table==="transactions"),false);
 });
 
 test("guest and staff booking creation enforce catalog service caps before writing and price the actual quantity",async()=>{

@@ -1,3 +1,4 @@
+import { LegalPolicyError, requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 import { parseServiceSelections, serviceQuantityError } from "@/lib/booking/service-quantity";
 import { sendOcrPaymentEmails } from "@/lib/server/ocr-payment-emails";
 import { manilaTimestamp } from "@/lib/booking/manila-date";
@@ -31,6 +32,7 @@ interface ServiceSelectionInput {
 }
 
 interface CheckoutPayload {
+  acceptedPoliciesVersion: string;
   packageRateVersion: number;
   phoneNumber?: string;
   bookingMode: BookingMode;
@@ -135,6 +137,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
   if (!value || typeof value !== "object") return null;
 
   const payload = value as Partial<CheckoutPayload>;
+  if (typeof payload.acceptedPoliciesVersion !== "string") return null;
   const selectedServices = parseServiceSelections(payload.selectedServices);
   if (!selectedServices) return null;
   if (payload.phoneNumber !== undefined && typeof payload.phoneNumber !== "string") return null;
@@ -179,6 +182,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
   }
 
   return {
+    acceptedPoliciesVersion: payload.acceptedPoliciesVersion,
     phoneNumber: payload.phoneNumber,
     bookingMode: payload.bookingMode,
     startDatetime: payload.startDatetime,
@@ -311,6 +315,8 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
+
+    const legalPolicies = await requireCurrentLegalPolicies(supabase, payload.acceptedPoliciesVersion);
 
     const { data: unit, error: unitError } = await supabase
       .from("units")
@@ -474,6 +480,8 @@ export async function POST(request: Request) {
         guest_id: user.id,
         reference_number: reservationReference,
         booking_mode: payload.bookingMode,
+        terms_policy_id: legalPolicies.terms.policy_id,
+        privacy_policy_id: legalPolicies.privacy.policy_id,
         package_rate_version: packageSchedule.version,
         start_datetime: payload.startDatetime,
         end_datetime: payload.endDatetime,
@@ -486,6 +494,7 @@ export async function POST(request: Request) {
       .single();
 
     if (reservationError || !reservation) {
+      if (reservationError?.code === "40001" && /polic|legal/i.test(reservationError.message ?? "")) return NextResponse.json({ success: false, code: "LEGAL_POLICY_CHANGED", message: "Policies changed while saving. Read and agree to the refreshed policies." }, { status: 409 });
       if (reservationError?.code === "40001") return NextResponse.json({ success: false, code: "RATES_CHANGED", message: "Package rates changed. Return to the booking form to review the total." }, { status: 409 });
       if (reservationError?.code === "23P01") {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
@@ -687,6 +696,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof LegalPolicyError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "LEGAL_POLICY_CHANGED" : "LEGAL_POLICY_UNAVAILABLE" }, { status: error.status });
     if (error instanceof GuestBookingPhoneError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "RATES_CHANGED" : "RATES_UNAVAILABLE" }, { status: error.status });
     console.error("[checkout] Unexpected error", error);

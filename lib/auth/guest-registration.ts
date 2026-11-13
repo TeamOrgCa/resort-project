@@ -2,7 +2,7 @@ import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/pho
 import { EMAIL_INPUT_ERROR, hasEmailWhitespace } from "@/lib/validation/email";
 import { normalizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 import { validatePhilippineAddress, type PhilippineAddress } from "@/lib/address/philippine-address";
-import { LEGAL_POLICY_VERSION } from "@/lib/legal/policies";
+import { isLegalPolicyToken } from "@/lib/legal/documents";
 
 export type GuestRegistration = {
   firstName: string;
@@ -64,10 +64,10 @@ export function validateGuestRegistration(input: unknown):
   if (fields.policyAccepted !== true) {
     return { error: "Read the Terms and Conditions and Privacy Policy, then tick the agreement checkbox.", field: "policyAccepted" };
   }
-  if (fields.legalPolicyVersion !== LEGAL_POLICY_VERSION) {
+  if (!isLegalPolicyToken(fields.legalPolicyVersion)) {
     return { error: "The terms or privacy policy changed. Reload this page and read the current documents before agreeing.", field: "policyAccepted" };
   }
 
   return { value: { firstName, lastName, middleName: middleName || null, email, phoneNumber, address, password: fields.password,
-    policyAccepted: true, legalPolicyVersion: LEGAL_POLICY_VERSION } };
+    policyAccepted: true, legalPolicyVersion: fields.legalPolicyVersion } };
 }

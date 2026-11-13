@@ -1,3 +1,4 @@
+import { LEGAL_POLICY_VERSION } from "./helpers/legal-policies.mjs";
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
@@ -19,8 +20,8 @@ async function mount(fetcher, saved = false, draftPatch = {}) {
     "next/link": ({ href, children, ...props }) => createElement("a", { href, ...props }, children),
     "@/components/Navigation": () => null, "@/components/Footer": () => null,
     "@/lib/stores/booking-store": { useBookingStore: store },
-    "@/components/legal/PolicyAgreement": function PolicyAgreementMock({ accepted, onChange, onPolicyVersion }) {
-      useEffect(() => { onPolicyVersion(1); }, [onPolicyVersion]);
+    "@/components/legal/PolicyAgreement": function PolicyAgreementMock({ accepted, onChange, onPolicyVersion, onLegalVersion }) {
+      useEffect(() => { onPolicyVersion(1); onLegalVersion?.(LEGAL_POLICY_VERSION); }, [onPolicyVersion,onLegalVersion]);
       return createElement("input", { type: "checkbox", "aria-label": "Accept terms", checked: accepted, onChange: event => onChange(event.target.checked) });
     },
   }).default;
@@ -83,6 +84,7 @@ test("booking review displays quantity line totals and submits the chosen quanti
       assert.ok(h.container.textContent.includes(`Extra mattress × ${expected}`));assert.ok(h.container.textContent.includes((expected*500).toLocaleString("en-PH",{minimumFractionDigits:2})));
       await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector("button"));
       assert.deepEqual(posted.selectedServices,[{serviceId:"mattress",quantity:expected}]);
+      assert.equal(posted.acceptedPoliciesVersion,LEGAL_POLICY_VERSION);
     }finally{await h.close();}
   }
 });

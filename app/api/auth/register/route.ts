@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isEmailConfigured } from "@/lib/email";
 import { GuestConfirmationError, limitConfirmationRequests, registerGuestWithSmtp, REGISTERED_EMAIL_MESSAGE } from "@/lib/server/guest-confirmation";
 import { guestRegistrationMetadata } from "@/lib/server/guest-registration-metadata";
+import { LegalPolicyError, requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -26,9 +27,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Sign out of the current account before creating another." }, { status: 409 });
     }
 
+    const policies = await requireCurrentLegalPolicies(admin, guest.legalPolicyVersion);
     if (isEmailConfigured()) {
       limitConfirmationRequests(request, guest.email);
-      return NextResponse.json(await registerGuestWithSmtp(admin, request, guest));
+      return NextResponse.json(await registerGuestWithSmtp(admin, request, guest, policies));
     }
 
     const supabase = createSupabaseClient(
@@ -41,10 +43,13 @@ export async function POST(request: Request) {
       password: guest.password,
       options: {
         emailRedirectTo: new URL("/auth/confirm", request.url).toString(),
-        data: guestRegistrationMetadata(guest),
+        data: guestRegistrationMetadata(guest, policies),
       },
     });
     if (error) {
+      // Auth wraps database-trigger errors. Detect a concurrent publication
+      // before returning the wrapped error so the form can reload its reader.
+      await requireCurrentLegalPolicies(admin, guest.legalPolicyVersion);
       if (["email_exists", "user_already_exists"].includes(error.code ?? "")) throw new GuestConfirmationError(REGISTERED_EMAIL_MESSAGE, 409, "EMAIL_ALREADY_REGISTERED");
       return NextResponse.json({ message: error.message }, { status: 400 });
     }
@@ -76,6 +81,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, needsEmailConfirmation: true });
   } catch (error) {
+    if (error instanceof LegalPolicyError) return NextResponse.json({ message: error.message, field: "policyAccepted", code: error.status === 409 ? "LEGAL_POLICY_CHANGED" : "LEGAL_POLICY_UNAVAILABLE" }, { status: error.status });
     if (!(error instanceof GuestConfirmationError)) console.error("Guest registration failed.");
     return NextResponse.json({ message: error instanceof GuestConfirmationError ? error.message : "Unable to create your account. Please try again.",
       ...(error instanceof GuestConfirmationError && error.code ? { code: error.code } : {}),

@@ -1,15 +1,17 @@
+import { LEGAL_POLICY_VERSION, legalPoliciesFixture } from "./helpers/legal-policies.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
 const guest = "11111111-1111-4111-8111-111111111111";
 const account = "22222222-2222-4222-8222-222222222222";
-const body = { bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
+const body = { acceptedPoliciesVersion:LEGAL_POLICY_VERSION,bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
   payment: { paymentMethodId: "gcash", receivingAccountId: account, type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guest}/proof.png` } };
 function harness({ beta = false, status = "consistent", method = "GCash", insertError = null, notificationFails = false, proofValid = true, accountMissing = false, methodActive = true, services = [] } = {}) {
   const writes = [], inspected = [], manualProofs = [], accountFilters = [], emails = [];
   const manual = method !== "GCash" && method !== "Cash";
   const client = {
+    rpc:async()=>({data:[legalPoliciesFixture().terms,legalPoliciesFixture().privacy],error:null}),
     auth: { getUser: async () => ({ data: { user: { id: guest } }, error: null }) },
     from: table => {
       let operation = "select";

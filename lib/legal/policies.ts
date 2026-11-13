@@ -1,3 +1,5 @@
+// Baseline text retained for the version-1 migration/reference only. Live pages
+// and agreements use published documents from reservation_policies.
 export type LegalSection = { heading: string; paragraphs?: string[]; items?: string[] };
 export const LEGAL_POLICY_VERSION = "2026-10";
 

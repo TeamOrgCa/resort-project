@@ -13,7 +13,6 @@ import { sanitizeEmailInput } from "@/lib/validation/email";
 import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
 import type { PhilippineAddress } from "@/lib/address/philippine-address";
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
-import { LEGAL_POLICY_VERSION } from "@/lib/legal/policies";
 
 export default function Register() {
   const router = useRouter();
@@ -31,6 +30,8 @@ export default function Register() {
   
   const [loading, setLoading] = useState(false);
   const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [legalPolicyVersion, setLegalPolicyVersion] = useState<string | null>(null);
+  const [policyReload, setPolicyReload] = useState(0);
   const [error, setError] = useState("");
   const [emailAlreadyRegistered, setEmailAlreadyRegistered] = useState(false);
   const [errorField, setErrorField] = useState<GuestRegistrationField | null>(null);
@@ -107,7 +108,7 @@ export default function Register() {
     setErrorField(null);
     setErrorToast(null);
     setEmailAlreadyRegistered(false);
-    const registrationData = { ...formData, addressDetails: address, policyAccepted, legalPolicyVersion: LEGAL_POLICY_VERSION };
+    const registrationData = { ...formData, addressDetails: address, policyAccepted, legalPolicyVersion };
     const validation = validateGuestRegistration(registrationData);
     if (!validation.value) {
       showRegistrationError(validation.error, validation.field);
@@ -123,6 +124,7 @@ export default function Register() {
       });
       const result = (await response.json()) as { success?: boolean; message?: string; code?: string; field?: GuestRegistrationField; needsEmailConfirmation?: boolean; confirmationEmailSent?: boolean };
       if (!response.ok || !result.success) {
+        if (result.code === "LEGAL_POLICY_CHANGED") { setPolicyAccepted(false); setPolicyReload(value => value + 1); }
         setEmailAlreadyRegistered(result.code === "EMAIL_ALREADY_REGISTERED");
         showRegistrationError(result.message || "Unable to create your account. Please try again.", result.code === "EMAIL_ALREADY_REGISTERED" ? "email" : result.field);
         return;
@@ -322,7 +324,7 @@ export default function Register() {
               </div>
             </div>
 
-            <PolicyAgreement accepted={policyAccepted} onChange={setPolicyAccepted} name="policyAccepted" required disabled={loading} />
+            <PolicyAgreement accepted={policyAccepted} onChange={setPolicyAccepted} onLegalVersion={setLegalPolicyVersion} reloadKey={policyReload} name="policyAccepted" required disabled={loading} />
 
             {error && <div id="registration-error" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               <p>{error}</p>

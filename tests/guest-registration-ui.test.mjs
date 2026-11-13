@@ -1,3 +1,4 @@
+import { LEGAL_POLICY_VERSION, legalPoliciesFixture } from "./helpers/legal-policies.mjs";
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
@@ -8,7 +9,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http:
 globalThis.window = dom.window; globalThis.document = dom.window.document; globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client");
-const { LEGAL_POLICY_VERSION } = loadTsModule("lib/legal/policies.ts");
+
 after(() => dom.window.close());
 
 async function input(container, name, value) {
@@ -30,7 +31,7 @@ async function readAndAgree(container) {
   await act(async()=>reader.dispatchEvent(new window.Event("scroll",{bubbles:true})));
   await act(async()=>container.querySelector('[name="policyAccepted"]').click());
 }
-async function mount(fetcher,{agree=true,policyFetcher}={}) {
+async function mount(fetcher,{agree=true,policyFetcher,legalFetcher}={}) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (url, options) => {
     if (String(url).startsWith("https://psgc.cloud/api/")) {
@@ -38,6 +39,7 @@ async function mount(fetcher,{agree=true,policyFetcher}={}) {
         ? [{ code: "0405800000", name: "Rizal" }]
         : [{ code: "0405813000", name: "Taytay", type: "Mun" }]));
     }
+    if(url==="/api/legal-policies")return legalFetcher?legalFetcher():Promise.resolve(Response.json({policies:legalPoliciesFixture()}));
     if(url==="/api/booking-policy")return policyFetcher?policyFetcher():Promise.resolve(Response.json({policy:{version:1,cancellation_text:"Current cancellation policy",refund_text:"Current refund policy",guest_cancellation_notice_hours:24,refund_review_enabled:true}}));
     return fetcher(url, options);
   };
@@ -111,6 +113,25 @@ test("unavailable policies cannot be accepted and retrying preserves the registr
     assert.equal(h.container.querySelector('[name="email"]').value,"guest@example.com");assert.equal(h.container.querySelector('[name="password"]').value,"secret123");
     assert.match(h.container.querySelector('[role="region"]').textContent,/Updated cancellation policy/);
     await readAndAgree(h.container);assert.equal(h.container.querySelector('[name="policyAccepted"]').checked,true);
+  }finally{await h.close();}
+});
+
+test("a changed legal document resets consent, reloads the new text and preserves account entries", async () => {
+  const requests=[];let loads=0;
+  const h=await mount(async (_url,options)=>{
+    requests.push(JSON.parse(options.body));
+    return requests.length===1?Response.json({code:"LEGAL_POLICY_CHANGED",field:"policyAccepted",message:"Read the updated policy."},{status:409}):Response.json({success:true,needsEmailConfirmation:true});
+  },{legalFetcher:async()=>Response.json({policies:legalPoliciesFixture({termsVersion:++loads})})});
+  try {
+    await h.submit();assert.equal(loads,2);
+    const checkbox=h.container.querySelector('[name="policyAccepted"]');
+    assert.equal(checkbox.checked,false);assert.equal(checkbox.disabled,true);
+    assert.equal(h.container.querySelector('[name="email"]').value,"guest@example.com");
+    assert.equal(h.container.querySelector('[name="password"]').value,"secret123");
+    await h.submit();assert.equal(requests.length,1);
+    await readAndAgree(h.container);await h.submit();
+    assert.equal(requests[0].legalPolicyVersion,"terms:1;privacy:1");
+    assert.equal(requests[1].legalPolicyVersion,"terms:2;privacy:1");
   }finally{await h.close();}
 });
 

@@ -89,7 +89,7 @@ export const catalogResources = {
     ],
   },
   reservation_policies: {
-    label: "Policies", singular: "policy", description: "Manage general guest policies and the order they appear in.",
+    label: "Policies", singular: "policy", description: "Publish versioned Terms and Conditions and Privacy Policy documents.",
     id: "policy_id", select: "policy_id, title, content, display_order, is_active, updated_at", order: "display_order", search: "title",
     columns: ["title", "content", "display_order"], fields: [
       { key: "title", label: "Policy title", kind: "text", required: true },

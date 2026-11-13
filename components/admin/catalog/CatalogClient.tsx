@@ -9,6 +9,7 @@ import AdminTabs from "@/components/admin/AdminTabs";
 import CatalogDialog from "./CatalogDialog";
 import CatalogEditorDialog from "./CatalogEditorDialog";
 import PackageRatesEditor from "./PackageRatesEditor";
+import LegalPoliciesEditor from "./LegalPoliciesEditor";
 import { catalogResources, catalogResourceKeys, catalogRecordName, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource, type CatalogStatus } from "@/lib/catalog/catalog";
 import { validateCatalogRecord } from "@/lib/catalog/validation";
 import { isContentImageUrl } from "@/lib/settings/public-content";
@@ -64,6 +65,7 @@ export default function CatalogClient() {
     const controller = new AbortController();
     const load = async () => {
       if (controller.signal.aborted) return;
+      if (filters.resource === "reservation_policies") { setLoading(false); return; }
       setLoading(true); setLoadError(null);
       try {
         const params = new URLSearchParams({ resource: filters.resource, status: filters.status, page: String(filters.page), pageSize: String(PAGE_SIZE) });
@@ -168,7 +170,7 @@ export default function CatalogClient() {
         if (!resource) return;
         setShowPackageRates(false); setLoading(true); setSearchDraft(""); setFilters({ resource, status: "active", search: "", unitId: "", page: 1 });
       }} />
-      {showPackageRates ? <PackageRatesEditor /> : <div className="p-4 sm:p-6">
+      {showPackageRates ? <PackageRatesEditor /> : filters.resource === "reservation_policies" ? <LegalPoliciesEditor /> : <div className="p-4 sm:p-6">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div><h2 className="text-xl font-semibold text-neutral">{definition.label}</h2><p className="mt-1 text-sm text-neutral/60">{definition.description}</p></div>
           <button type="button" onClick={() => openEditor(null)} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary/90 disabled:opacity-50"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add {definition.singular}</button>
