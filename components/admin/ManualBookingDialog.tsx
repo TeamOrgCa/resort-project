@@ -1,5 +1,7 @@
 "use client";
 
+import { serviceQuantityError, serviceQuantityLimit } from "@/lib/booking/service-quantity";
+
 import Skeleton, { SkeletonGroup } from "@/components/ui/Skeleton";
 import { AdminCardsSkeleton } from "@/components/admin/AdminSkeletons";
 
@@ -25,7 +27,7 @@ import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/pho
 import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 type Unit = { unit_id: string; name: string; capacity: number };
-type Service = { service_id: string; name: string; description: string | null; price: number };
+type Service = { max_quantity?: number; service_id: string; name: string; description: string | null; price: number };
 type PackageMode = Exclude<BookingMode, "custom">;
 type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreated: (booking: { date: string; id?: string; reference?: string }) => void };
 type BookingForm = { bookingDate: string; bookingMode: PackageMode; wholeDayVariant: WholeDayVariant; adultCount: string; childCount: string; unitId: string; specialRequests: string };
@@ -66,7 +68,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
         const supabase = createClient();
         const [unitResult, serviceResult] = await Promise.all([
           supabase.from("units").select("unit_id, name, capacity").eq("is_active", true).is("archived_at", null).order("name"),
-          supabase.from("services").select("service_id, name, description, price").eq("is_active", true).order("name"),
+          supabase.from("services").select("service_id, name, description, price, max_quantity").eq("is_active", true).order("name"),
         ]);
         if ([unitResult, serviceResult].some(result => result.error)) throw new Error("Unable to load units or services. Please reload the booking options.");
         if (!active) return;
@@ -130,7 +132,8 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
   const updateForm = (key: keyof BookingForm, value: string) => setForm(current => ({ ...current, [key]: value }));
   const selectedIssue = packageIssue(form.bookingDate, form.bookingMode, form.wholeDayVariant);
   const selectedServices = Object.entries(serviceQuantities).map(([serviceId, quantity]) => ({ serviceId, quantity: Number(quantity) }));
-  const quantitiesValid = Object.values(serviceQuantities).every(validQuantity);
+  const quantityError = serviceQuantityError(selectedServices, services);
+  const quantitiesValid = Object.values(serviceQuantities).every(validQuantity) && !quantityError;
   const servicesTotal = services.reduce((total, service) => total + (validQuantity(serviceQuantities[service.service_id] ?? "") ? Number(service.price) * Number(serviceQuantities[service.service_id]) : 0), 0);
   const previewWindow = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: form.bookingMode, date: form.bookingDate, wholeDayVariant: form.wholeDayVariant });
   const preview = packageSchedule && !("error" in previewWindow) && isValidGuestCounts(Number(form.adultCount), Number(form.childCount))
@@ -143,7 +146,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
     if (!("error" in previewWindow) && !isStaffBookingWindowAllowed(previewWindow.startDatetime, previewWindow.endDatetime)) { setError(STAFF_BOOKING_WINDOW_MESSAGE); return; }
     if (selectedIssue) { setError(selectedIssue); return; }
     if (optionsLoading || optionsError) { setError(optionsError ?? "Please wait for booking options to load."); return; }
-    if (!quantitiesValid) { setError("Enter a whole-number quantity from 1 to 10,000 for each selected service."); return; }
+    if (!quantitiesValid) { setError(quantityError ?? "Enter a whole-number quantity within the service maximum per booking."); return; }
     if (!packageSchedule || packageRatesError) { setError(packageRatesError ?? "Please wait for booking prices to load."); return; }
     if ("error" in previewWindow) { setError(previewWindow.error ?? "Invalid booking window."); return; }
     const adults = Number(form.adultCount), children = Number(form.childCount);
@@ -233,7 +236,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
                   <input type="checkbox" checked={selected} onChange={event => setServiceQuantities(current => { const next = { ...current }; if (event.target.checked) next[service.service_id] = "1"; else delete next[service.service_id]; return next; })} className="mt-0.5 h-5 w-5 shrink-0" />
                   <span className="min-w-0 flex-1"><span className="block font-medium">{service.name}</span>{service.description && <span className="mt-1 block break-words text-xs text-neutral/60">{service.description}</span>}<span className="mt-1 block text-xs">{money(Number(service.price))} each</span></span>
                 </label>
-                {selected && <div className="mt-3 flex flex-wrap items-end justify-between gap-3"><label className="w-28 text-sm text-neutral">Quantity<input aria-label={`Quantity for ${service.name}`} type="number" min="1" max="10000" step="1" required value={quantity} onChange={event => setServiceQuantities(current => ({ ...current, [service.service_id]: event.target.value }))} className={fieldClass} /></label><p className="text-sm font-semibold text-neutral">{validQuantity(quantity) ? money(Number(service.price) * Number(quantity)) : "Enter a valid quantity"}</p></div>}
+                {selected && <div className="mt-3 flex flex-wrap items-end justify-between gap-3"><label className="w-28 text-sm text-neutral">Quantity<input aria-label={`Quantity for ${service.name}`} type="number" min="1" max={serviceQuantityLimit(service.max_quantity)} step="1" required value={quantity} onChange={event => setServiceQuantities(current => ({ ...current, [service.service_id]: event.target.value }))} className={fieldClass} /></label><p className="text-sm font-semibold text-neutral">{validQuantity(quantity) ? money(Number(service.price) * Number(quantity)) : "Enter a valid quantity"}</p></div>}
               </div>;
             })}</div>
           </section>
@@ -242,7 +245,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
             <p className="font-semibold">{preview.rateTier === "weekend" ? "Weekend" : "Weekday"} package: {money(preview.packageRate)}</p>
             <p className="mt-1">Extra guests: {preview.extraGuests} x {money(preview.addOnPerHead)}</p>
             <p className="mt-1">Additional services: {money(preview.servicesTotal)}</p>
-            {!quantitiesValid && <p role="alert" className="mt-2 text-red-700">Enter a whole-number quantity from 1 to 10,000 for each selected service.</p>}
+            {!quantitiesValid && <p role="alert" className="mt-2 text-red-700">{quantityError ?? "Enter a whole-number quantity within the service maximum per booking."}</p>}
             <p className="mt-2 font-semibold text-primary">Total: {money(preview.total)}</p>
             <p className="mt-1 text-xs text-neutral/60">Minimum 20% downpayment: {money(preview.downPaymentMin)}</p>
           </> : <p>Choose a valid date and guest count to view the current package price.</p>}</div>

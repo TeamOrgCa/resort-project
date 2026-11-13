@@ -1,5 +1,7 @@
 "use client";
 
+import { serviceQuantityLimit } from "@/lib/booking/service-quantity";
+
 import { useEffect, useRef, useState } from "react";
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import { MAX_GUESTS } from "@/lib/booking/guest-count";
@@ -193,7 +195,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
           return <div key={s.service_id} className="flex items-center justify-between gap-3 rounded-xl bg-base/60 p-3">
             <label className="flex cursor-pointer items-start gap-3 text-sm"><input type="checkbox" className="mt-1 accent-primary" checked={Boolean(selected)} disabled={!canEdit || (!canChange && Boolean(old))} onChange={e => setDraft({ ...draft, services: e.target.checked ? [...draft.services, { serviceId: s.service_id, quantity: 1 }] : draft.services.filter(x => x.serviceId !== s.service_id) })} />
               <span><span className="font-medium text-neutral">{s.name}{!s.is_active ? " (archived)" : ""}</span><span className="block text-xs text-neutral/60">{currency(price)} each{old ? " · booked rate" : ""}</span></span></label>
-            {selected && <label className="w-20 shrink-0 text-xs text-neutral/60">Quantity<input aria-label={`Quantity for ${s.name}`} type="number" required min={!canChange ? old?.quantity ?? 1 : 1} max={10000} className={inputClass} value={selected.quantity} onChange={e => setDraft({ ...draft, services: draft.services.map(x => x.serviceId === s.service_id ? { ...x, quantity: Number(e.target.value) } : x) })} /></label>}
+            {selected && <label className="w-20 shrink-0 text-xs text-neutral/60">Quantity<input aria-label={`Quantity for ${s.name}`} type="number" required min={!canChange ? old?.quantity ?? 1 : 1} max={serviceQuantityLimit(s.max_quantity, old?.quantity)} className={inputClass} value={selected.quantity} onChange={e => setDraft({ ...draft, services: draft.services.map(x => x.serviceId === s.service_id ? { ...x, quantity: Number(e.target.value) } : x) })} /></label>}
           </div>;
         })}
       </div>

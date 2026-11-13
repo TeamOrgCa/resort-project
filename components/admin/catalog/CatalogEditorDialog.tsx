@@ -6,6 +6,7 @@ import { catalogResources, isCatalogActive, type CatalogDefinition, type Catalog
 import CatalogDialog from "./CatalogDialog";
 import ContentImageEditor from "@/components/admin/ContentImageEditor";
 import ServicePhoto from "@/components/booking/ServicePhoto";
+import UnitPhoto from "@/components/booking/UnitPhoto";
 
 interface Props {
   resource: CatalogResource;
@@ -41,10 +42,10 @@ export default function CatalogEditorDialog({ resource, record, references, refe
         {definition.fields.map((field, index) => {
           const value = String(draft[field.key] ?? "");
           let control;
-          if (resource === "services" && field.kind === "image") {
+          if (field.kind === "image") {
             control = <div className="mt-2 rounded-xl border border-neutral/15 bg-base/40 p-4">
-              {!value && <div className="h-24 w-24 overflow-hidden rounded-lg"><ServicePhoto src={null} /></div>}
-              <ContentImageEditor value={value} onChange={(url) => setField(field.key, url)} label="service photo" compact onUploadingChange={setUploadingImage} />
+              {!value && <div className="h-24 w-36 overflow-hidden rounded-lg">{resource === "units" ? <UnitPhoto src={null} /> : <ServicePhoto src={null} />}</div>}
+              <ContentImageEditor value={value} onChange={(url) => setField(field.key, url)} label={resource === "units" ? "unit photo" : "service photo"} compact onUploadingChange={setUploadingImage} />
               {value && <button type="button" disabled={blocked} onClick={() => setField(field.key, "")} className="mt-3 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50">Remove photo</button>}
             </div>;
           } else if (field.kind === "unit" || field.kind === "payment_method") {
@@ -59,10 +60,10 @@ export default function CatalogEditorDialog({ resource, record, references, refe
             control = <textarea id={`catalog-${field.key}`} rows={field.key === "content" ? 6 : 4} required={field.required} maxLength={10000} value={value} onChange={(event) => setField(field.key, event.target.value)} className={inputClass} />;
           } else {
             const type = field.kind === "money" || field.kind === "integer" ? "number" : field.kind === "date" || field.kind === "time" ? field.kind : "text";
-            control = <input id={`catalog-${field.key}`} data-autofocus={index === 0 ? true : undefined} type={type} required={field.required} min={field.kind === "time" ? field.minTime : field.kind === "date" && field.key === "effective_to" ? String(draft.effective_from ?? "") : field.min} max={field.kind === "time" ? field.maxTime : undefined} step={field.kind === "money" ? "0.01" : field.kind === "integer" ? "1" : undefined} maxLength={type === "text" ? field.kind === "image" ? 2048 : 200 : undefined} value={value} onChange={(event) => setField(field.key, event.target.value)} className={inputClass} />;
+            control = <input id={`catalog-${field.key}`} data-autofocus={index === 0 ? true : undefined} type={type} required={field.required} min={field.kind === "time" ? field.minTime : field.kind === "date" && field.key === "effective_to" ? String(draft.effective_from ?? "") : field.min} max={field.kind === "time" ? field.maxTime : field.max} step={field.kind === "money" ? "0.01" : field.kind === "integer" ? "1" : undefined} maxLength={type === "text" ? 200 : undefined} value={value} onChange={(event) => setField(field.key, event.target.value)} className={inputClass} />;
           }
           return <div key={field.key} className={field.kind === "textarea" || field.kind === "image" ? "sm:col-span-2" : ""}>
-            <label htmlFor={resource === "services" && field.kind === "image" ? undefined : `catalog-${field.key}`} className="text-sm font-medium text-neutral">{field.label}{field.required && <span className="ml-1 text-primary" aria-label="required">*</span>}</label>
+            <label htmlFor={field.kind === "image" ? undefined : `catalog-${field.key}`} className="text-sm font-medium text-neutral">{field.label}{field.required && <span className="ml-1 text-primary" aria-label="required">*</span>}</label>
             {control}
             {field.help && <p className="mt-1.5 text-xs leading-relaxed text-neutral/55">{field.help}</p>}
           </div>;

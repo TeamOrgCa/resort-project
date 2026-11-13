@@ -914,8 +914,8 @@ function PaymentContent() {
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>
                       {selectedServices.map((service) => (
                         <div key={service.id || service.name} className="flex justify-between text-sm mb-1">
-                          <span className="text-neutral/70">{service.name}</span>
-                          <span className="whitespace-nowrap text-neutral">₱{service.price.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span className="text-neutral/70">{service.name} × {service.quantity ?? 1}</span>
+                          <span className="whitespace-nowrap text-neutral">₱{(service.price * (service.quantity ?? 1)).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </div>
                       ))}
                     </div>

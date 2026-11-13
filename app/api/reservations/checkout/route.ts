@@ -1,3 +1,4 @@
+import { parseServiceSelections, serviceQuantityError } from "@/lib/booking/service-quantity";
 import { sendOcrPaymentEmails } from "@/lib/server/ocr-payment-emails";
 import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { saveGuestBookingPhone, GuestBookingPhoneError } from "@/lib/server/guest-booking-phone";
@@ -63,6 +64,8 @@ interface UnitRow {
 }
 
 interface ServiceRow {
+  max_quantity?: number;
+  name?: string;
   service_id: string;
   price: number;
   is_active: boolean;
@@ -132,6 +135,8 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
   if (!value || typeof value !== "object") return null;
 
   const payload = value as Partial<CheckoutPayload>;
+  const selectedServices = parseServiceSelections(payload.selectedServices);
+  if (!selectedServices) return null;
   if (payload.phoneNumber !== undefined && typeof payload.phoneNumber !== "string") return null;
 
   if (
@@ -189,14 +194,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     childCount: payload.childCount,
     unitId: payload.unitId,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
-    selectedServices: Array.isArray(payload.selectedServices)
-      ? payload.selectedServices
-          .filter((item): item is ServiceSelectionInput => typeof item?.serviceId === "string")
-          .map((item) => ({
-            serviceId: item.serviceId,
-            quantity: Number.isInteger(item.quantity) && (item.quantity ?? 0) > 0 ? item.quantity : 1,
-          }))
-      : [],
+    selectedServices,
     payment: {
       paymentMethodId: payment.paymentMethodId,
       receivingAccountId: payment.receivingAccountId,
@@ -335,7 +333,7 @@ export async function POST(request: Request) {
     const { data: servicesData, error: servicesError } = uniqueServiceIds.length
       ? await supabase
           .from("services")
-          .select("service_id, price, is_active")
+          .select("service_id, name, price, max_quantity, is_active")
           .in("service_id", uniqueServiceIds)
       : { data: [], error: null };
 
@@ -369,6 +367,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const quantityError = serviceQuantityError(selectedServices, [...servicesById.values()]);
+    if (quantityError) return NextResponse.json({ success: false, message: quantityError }, { status: 400 });
 
     const servicesTotal = selectedServices.reduce((sum, service) => {
       const matchedService = servicesById.get(service.serviceId);

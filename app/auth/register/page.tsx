@@ -12,6 +12,8 @@ import PasswordInput from "@/components/ui/PasswordInput";
 import { sanitizeEmailInput } from "@/lib/validation/email";
 import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
 import type { PhilippineAddress } from "@/lib/address/philippine-address";
+import PolicyAgreement from "@/components/legal/PolicyAgreement";
+import { LEGAL_POLICY_VERSION } from "@/lib/legal/policies";
 
 export default function Register() {
   const router = useRouter();
@@ -28,6 +30,7 @@ export default function Register() {
   const [address, setAddress] = useState<PhilippineAddress>({ streetAddress: "", province: "", city: "", zipCode: "" });
   
   const [loading, setLoading] = useState(false);
+  const [policyAccepted, setPolicyAccepted] = useState(false);
   const [error, setError] = useState("");
   const [emailAlreadyRegistered, setEmailAlreadyRegistered] = useState(false);
   const [errorField, setErrorField] = useState<GuestRegistrationField | null>(null);
@@ -104,7 +107,7 @@ export default function Register() {
     setErrorField(null);
     setErrorToast(null);
     setEmailAlreadyRegistered(false);
-    const registrationData = { ...formData, addressDetails: address };
+    const registrationData = { ...formData, addressDetails: address, policyAccepted, legalPolicyVersion: LEGAL_POLICY_VERSION };
     const validation = validateGuestRegistration(registrationData);
     if (!validation.value) {
       showRegistrationError(validation.error, validation.field);
@@ -319,13 +322,15 @@ export default function Register() {
               </div>
             </div>
 
+            <PolicyAgreement accepted={policyAccepted} onChange={setPolicyAccepted} name="policyAccepted" required disabled={loading} />
+
             {error && <div id="registration-error" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               <p>{error}</p>
               {emailAlreadyRegistered && <p className="mt-2 flex flex-wrap gap-4"><Link href="/auth/login" className="font-semibold underline">Sign in</Link><Link href="/auth/forgot" className="font-semibold underline">Reset password</Link></p>}
             </div>}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !policyAccepted}
               className="w-full bg-primary text-base py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Creating account..." : "Create Account"}

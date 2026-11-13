@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useReservationFormGuard } from "@/components/booking/use-reservation-form-guard";
 import ServiceSelectionCard from "@/components/booking/ServiceSelectionCard";
+import UnitSelectionCard from "@/components/booking/UnitSelectionCard";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
@@ -22,12 +23,15 @@ import { isValidName, sanitizeName } from "@/lib/helper/validation";
 import { isValidGuestCounts, MAX_GUESTS, MAX_EXTRA_GUESTS } from "@/lib/booking/guest-count";
 import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
 import { parsePhilippineAddress, validatePhilippineAddress } from "@/lib/address/philippine-address";
+import { serviceQuantityError, serviceQuantityLimit } from "@/lib/booking/service-quantity";
 
 interface UnitOption {
   id: string;
   name: string;
   price: number;
   description: string;
+  imageUrl: string | null;
+  capacity: number | null;
 }
 
 interface ServiceOption {
@@ -36,6 +40,7 @@ interface ServiceOption {
   price: number;
   description: string;
   imageUrl: string | null;
+  maxQuantity: number;
 }
 
 interface GuestProfile {
@@ -77,7 +82,7 @@ function BookingFormContent() {
   });
   const [address, setAddress] = useState(() => parsePhilippineAddress(bookingDraft.address || ""));
 
-  const [selectedAmenities, setSelectedAmenities] = useState<string[]>(bookingDraft.services.map((service) => service.id));
+  const [serviceQuantities, setServiceQuantities] = useState<Record<string, number>>(() => Object.fromEntries(bookingDraft.services.map(service => [service.id, service.quantity ?? 1])));
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -100,8 +105,8 @@ function BookingFormContent() {
         success?: boolean;
         message?: string;
         catalog?: {
-          units: Array<{ unit_id: string; name: string; description: string | null; base_price: number }>;
-          services: Array<{ service_id: string; name: string; price: number; description?: string | null; image_url?: string | null }>;
+          units: Array<{ unit_id: string; name: string; description: string | null; base_price: number; unit_img?: string | null; capacity?: number | null }>;
+          services: Array<{ service_id: string; name: string; price: number; description?: string | null; image_url?: string | null; max_quantity?: number }>;
         };
       };
 
@@ -116,6 +121,8 @@ function BookingFormContent() {
         name: unit.name,
         price: Number(unit.base_price),
         description: unit.description ?? "",
+        imageUrl: unit.unit_img ?? null,
+        capacity: unit.capacity ?? null,
       }));
 
       const mappedServices: ServiceOption[] = catalogResult.catalog.services.map((service) => ({
@@ -124,6 +131,7 @@ function BookingFormContent() {
         price: Number(service.price),
         description: service.description ?? "",
         imageUrl: service.image_url ?? null,
+        maxQuantity: serviceQuantityLimit(service.max_quantity),
       }));
 
       const authUser = authResult.data.user;
@@ -143,7 +151,7 @@ function BookingFormContent() {
       setServices(mappedServices);
       setFormData((prev) => ({
         ...prev,
-        roomType: prev.roomType || mappedUnits[0]?.id || "",
+        roomType: mappedUnits.some(unit => unit.id === prev.roomType) ? prev.roomType : mappedUnits[0]?.id || "",
         firstName: prev.firstName || guestProfile?.first_name || authUser?.user_metadata?.first_name || "",
         lastName: prev.lastName || guestProfile?.last_name || authUser?.user_metadata?.last_name || "",
         email: prev.email || authUser?.email || "",
@@ -166,7 +174,7 @@ function BookingFormContent() {
           paidAmount: 0,
           services: [],
         });
-        setSelectedAmenities([]);
+        setServiceQuantities({});
       }
     };
 
@@ -196,9 +204,12 @@ function BookingFormContent() {
 };
 
   const toggleAmenity = (amenityId: string) => {
-    setSelectedAmenities((prev) =>
-      prev.includes(amenityId) ? prev.filter((id) => id !== amenityId) : [...prev, amenityId]
-    );
+    setServiceQuantities(previous => {
+      const next = { ...previous };
+      if (amenityId in next) delete next[amenityId]; else next[amenityId] = 1;
+      return next;
+    });
+    setFormError(null);
   };
 
   const fallbackStartDate = useMemo(() => new Date(), []);
@@ -211,11 +222,10 @@ function BookingFormContent() {
 
   const durationHours = Math.max(1, (effectiveEndDate.getTime() - effectiveStartDate.getTime()) / (1000 * 60 * 60));
   const selectedRoom = units.find((room) => room.id === formData.roomType);
-  const amenitiesTotal = selectedAmenities.reduce((total, id) => {
-    const amenity = services.find((a) => a.id === id);
-    return total + (amenity?.price || 0);
-  }, 0);
-  const selectedServiceItems = services.filter((service) => selectedAmenities.includes(service.id));
+  const selectedServiceItems = services.filter(service => service.id in serviceQuantities).map(service => ({ ...service, quantity: serviceQuantities[service.id] }));
+  const quantityError = serviceQuantityError(selectedServiceItems.map(service => ({ serviceId: service.id, quantity: service.quantity })),
+    services.map(service => ({ service_id: service.id, name: service.name, max_quantity: service.maxQuantity })));
+  const amenitiesTotal = selectedServiceItems.reduce((total, service) => total + service.price * Math.max(0, Number.isFinite(service.quantity) ? service.quantity : 0), 0);
   const guestCountsValid = isValidGuestCounts(formData.adultCount, formData.childCount);
   const pricing = computeBookingPricing({
     bookingMode: bookingDraft.bookingMode,
@@ -231,6 +241,7 @@ function BookingFormContent() {
   const downPayment = pricing.downPaymentMin;
 
   const handleContinueToPayment = () => {
+    if (quantityError) { setFormError(quantityError); return; }
     if ((bookingDraft.packageRateVersion && bookingDraft.packageRateVersion !== packageSchedule.version)
       || !validateBookingWindow({ ...bookingDraft, startDatetime: effectiveStartDate.toISOString(), endDatetime: effectiveEndDate.toISOString() }, packageSchedule.times).valid) {
       setFormError("Package prices or times changed. Return to the booking calendar to review the current schedule.");
@@ -361,7 +372,7 @@ function BookingFormContent() {
                 {/* Booking Details */}
                 <div data-booking-guide="guest-group" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Booking Details</h3>
-                  <div className="grid md:grid-cols-3 gap-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Adults</label>
                       <input
@@ -389,22 +400,6 @@ function BookingFormContent() {
                         className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Room Type *</label>
-                      <select
-                        name="roomType"
-                        value={formData.roomType}
-                        onChange={handleInputChange}
-                        disabled={catalogLoading || units.length === 0}
-                        className="w-full h-[50px] px-4 rounded-lg border border-neutral/20 bg-white focus:border-primary focus:outline-none"
-                      >
-                        {units.map((room) => (
-                          <option key={room.id} value={room.id}>
-                            {room.name} - Unit selection
-                          </option>
-                        ))}
-                      </select>
-                    </div>
                   </div>
                   <p className={`mt-3 text-sm ${guestCountsValid ? "text-neutral/70" : "text-red-600"}`} aria-live="polite">
                     {guestCountsValid
@@ -413,11 +408,16 @@ function BookingFormContent() {
                           : "no additional guest charge applies."}</>
                       : `Enter at least one adult and no more than ${MAX_GUESTS} guests in total.`}
                   </p>
-                  {selectedRoom && (
-                    <div className="mt-4 p-4 bg-primary/5 rounded-lg">
-                      <p className="text-sm text-neutral/80">{selectedRoom.description}</p>
+                  <fieldset disabled={catalogLoading} className="mt-6 min-w-0">
+                    <legend className="mb-2 text-sm font-semibold text-neutral">Room Type *</legend>
+                    <p className="mb-4 text-sm text-neutral/65">Choose a room to include in your booking. Select a photo or room name to choose it.</p>
+                    {catalogLoading && <p role="status" className="text-sm text-neutral/60">Loading available rooms...</p>}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {units.map(room => <UnitSelectionCard key={room.id} unit={room} selected={formData.roomType === room.id}
+                        disabled={catalogLoading} onSelect={() => { setFormData(current => ({ ...current, roomType: room.id })); setFormError(null); }} />)}
                     </div>
-                  )}
+                    {!catalogLoading && !catalogError && units.length === 0 && <p role="status" className="rounded-xl bg-base p-4 text-sm text-neutral/70">No rooms are available for booking right now. Please contact the resort.</p>}
+                  </fieldset>
                 </div>
 
                 {/* Additional Services */}
@@ -433,10 +433,12 @@ function BookingFormContent() {
                   )}
                   <div className="grid gap-3 sm:grid-cols-2">
                     {services.map((amenity) => (
-                      <ServiceSelectionCard key={amenity.id} service={amenity} selected={selectedAmenities.includes(amenity.id)} onToggle={() => toggleAmenity(amenity.id)} />
+                      <ServiceSelectionCard key={amenity.id} service={amenity} selected={amenity.id in serviceQuantities} quantity={serviceQuantities[amenity.id] ?? 1}
+                        onToggle={() => toggleAmenity(amenity.id)} onQuantityChange={quantity => { setServiceQuantities(current => ({ ...current, [amenity.id]: quantity })); setFormError(null); }} />
                     ))}
                   </div>
                   {!catalogLoading && !catalogError && services.length === 0 && <p className="text-sm text-neutral/60">No additional services are available right now.</p>}
+                  {quantityError && <p role="alert" className="mt-3 text-sm text-red-700">{quantityError}</p>}
                 </div>
 
                 {/* Special Requests */}
@@ -461,7 +463,7 @@ function BookingFormContent() {
                   </Link>
                   <div className="flex-1">
                     <button data-booking-guide="guest-continue" type="button" onClick={handleContinueToPayment}
-                      disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0}
+                      disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || Boolean(quantityError)}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Review Full Details
@@ -523,15 +525,14 @@ function BookingFormContent() {
                     </div>
                   </div>
 
-                  {selectedAmenities.length > 0 && (
+                  {selectedServiceItems.length > 0 && (
                     <div className="pb-4 border-b border-neutral/10">
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>
-                      {selectedAmenities.map((id) => {
-                        const amenity = services.find((a) => a.id === id);
+                      {selectedServiceItems.map((amenity) => {
                         return (
-                          <div key={id} className="flex justify-between text-sm mb-1">
-                            <span className="text-neutral/70">{amenity?.name}</span>
-                            <span className="whitespace-nowrap text-neutral">₱{Number(amenity?.price || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <div key={amenity.id} className="flex justify-between text-sm mb-1">
+                            <span className="text-neutral/70">{amenity.name} × {amenity.quantity}</span>
+                            <span className="whitespace-nowrap text-neutral">₱{(Number(amenity.price) * amenity.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         );
                       })}
