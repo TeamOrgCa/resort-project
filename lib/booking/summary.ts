@@ -4,7 +4,7 @@ import type { BookingDraft } from "@/lib/stores/booking-store";
 export function buildBookingCostSummary(draft: BookingDraft) {
   const total = Number(draft.total || 0);
   const tax = Number(draft.tax || 0);
-  const servicesTotal = draft.services.reduce((sum, service) => sum + Number(service.price || 0), 0);
+  const servicesTotal = draft.services.reduce((sum, service) => sum + Number(service.price || 0) * (service.quantity ?? 1), 0);
   const packageRate = Number(draft.roomPrice || 0);
   const hasDates = Boolean(draft.startDatetime && draft.endDatetime);
   const pricing = hasDates && draft.packageRates ? computeBookingPricing({

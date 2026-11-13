@@ -5,7 +5,7 @@ import { catalogDatabase, uuid } from "./helpers/catalog-database.mjs";
 
 const { catalogResources } = loadTsModule("lib/catalog/catalog.ts");
 const samples = {
-  services: { name: "Extra mattress", description: "A comfortable extra", price: "500.25" },
+  services: { max_quantity: 10, name: "Extra mattress", description: "A comfortable extra", price: "500.25" },
   units: { name: "Family unit", description: "Pool view", capacity: "6", base_price: "7500.00", unit_img: "/website_photo.jpg" },
   unit_rates: { unit_id: uuid(1), price: "8000.00", effective_from: "2026-10-12", effective_to: "2026-12-31" },
   guest_rates: { adult_rate: "125.50", child_rate: "0", effective_from: "2026-10-12", effective_to: "2026-12-31" },
@@ -19,17 +19,26 @@ const seed = () => ({
   payment_methods: [{ payment_method_id: uuid(2), name: "GCash", type: "ewallet", is_active: true }],
 });
 
+test("service catalog persists its maximum and rejects missing, fractional or excessive limits",async()=>{
+  const {validateCatalogRecord}=loadTsModule("lib/catalog/validation.ts");
+  for(const max_quantity of [undefined,null,0,-1,1.5,10001])assert.throws(()=>validateCatalogRecord("services",{...samples.services,max_quantity}));
+  assert.equal(validateCatalogRecord("services",{...samples.services,max_quantity:4}).max_quantity,4);
+});
+
 test("service photos persist through create, replacement, public catalog, and removal", async () => {
   const { request, database, auth } = harness();
   const create = await request("POST", { resource: "services", record: { ...samples.services, image_url: "https://images.example.com/first.jpg" } });
   assert.equal(create.status, 201);
   const id = (await create.json()).record.service_id;
+  assert.equal(database.tables.services[0].max_quantity,10);
+  assert.equal((await request("PATCH",{resource:"services",id,record:{max_quantity:4}})).status,200);
   const patch = image_url => request("PATCH", { resource: "services", id, record: { image_url } });
   assert.equal((await patch("http://insecure.example.com/photo.jpg")).status, 400);
   assert.equal((await patch("javascript:alert(1)")).status, 400);
   assert.equal((await patch("https://images.example.com/next.jpg")).status, 200);
   const { getActiveCatalog } = loadTsModule("repositories/catalogRepository.ts");
   assert.equal((await getActiveCatalog(database)).services[0].image_url, "https://images.example.com/next.jpg");
+  assert.equal((await getActiveCatalog(database)).services[0].max_quantity,4);
   assert.equal((await (await patch("")).json()).record.image_url, null);
   assert.equal((await getActiveCatalog(database)).services[0].image_url, null);
   auth.allowed = false;

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { GuestRegistration } from "@/lib/auth/guest-registration";
 import { sendGuestConfirmationEmail } from "@/lib/email";
+import { guestRegistrationMetadata } from "@/lib/server/guest-registration-metadata";
 
 export class GuestConfirmationError extends Error {
   constructor(message: string, public status = 502, public code?: string) { super(message); }
@@ -64,7 +65,7 @@ export async function registerGuestWithSmtp(admin: SupabaseClient, request: Requ
   await assertGuestSignupEnabled();
   const { data, error } = await admin.auth.admin.createUser({
     email: guest.email, password: guest.password, email_confirm: false,
-    user_metadata: { first_name: guest.firstName, last_name: guest.lastName, middle_name: guest.middleName, phone_number: guest.phoneNumber, address: guest.address },
+    user_metadata: guestRegistrationMetadata(guest),
   });
   if (error && !["email_exists", "user_already_exists"].includes(error.code ?? "")) throw new GuestConfirmationError(error.status && error.status < 500 ? error.message : "Unable to create your account. Please try again.", error.status && error.status < 500 ? 400 : 502);
   if (!error) {

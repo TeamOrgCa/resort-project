@@ -64,13 +64,15 @@ test("schedule validation rejects incorrect package duration and invalid custom 
   assert.equal(helper.validateEditWindow({ ...edit, bookingMode: "custom", startDatetime: "2027-06-14T07:00:00+08:00" }).valid, false);
 });
 
-function routeHarness({ grant = true, approveLate = true, active = true, loaded = detail(), rpcError = null, conflict = false, availabilityError = null } = {}) {
+function routeHarness({ grant = true, approveLate = true, active = true, loaded = detail(), rpcError = null, conflict = false, availabilityError = null, emailSent = true } = {}) {
   const calls = [];
   const checks = [];
+  const emails = [];
   const routes = loadTsModule("app/api/admin/reservations/[id]/route.ts", {
     "@/lib/server/admin-audit": { requireActiveStaff: async () => active ? { staffUser: { id, role: "staff" }, supabase: {} } : null },
     "@/lib/server/role-permissions": { staffHasPermission: async (_db, _role, permission) => grant && (permission !== "reschedule_approval" || approveLate) },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }) },
+    "@/lib/server/billing-email": { emailUpdatedBillingStatement: async (...args) => { emails.push(args); return { sent: emailSent, ...(emailSent ? {} : { error: "Email unavailable." }) }; } },
     "@/lib/server/reservation-editor": { loadReservationEditor: async () => loaded },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async (...args) => { checks.push(args); return { conflict, error: availabilityError }; } },
     "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, args) => {
@@ -80,8 +82,30 @@ function routeHarness({ grant = true, approveLate = true, active = true, loaded 
   const patch = body => routes.PATCH(new Request("http://localhost/api/admin/reservations/" + id, {
     method: "PATCH", body: JSON.stringify(body), headers: { "Content-Type": "application/json" },
   }), { params: Promise.resolve({ id }) });
-  return { patch, calls, checks, routes };
+  return { patch, calls, checks, emails, routes };
 }
+
+test("staff service additions and removals email a revised statement, excluding note-only and failed edits",async()=>{
+  for(const change of [{services:[],expectedTotal:8500},{services:[{serviceId,quantity:2}],expectedTotal:8700}]){
+    const h=routeHarness();const response=await h.patch({...edit,...change});assert.equal(response.status,200);assert.deepEqual(h.emails,[[id,8600]]);assert.equal((await response.json()).billingEmail.sent,true);
+  }
+  const notes=routeHarness();await notes.patch({...edit,specialRequests:"Late arrival"});assert.equal(notes.emails.length,0);
+  const failed=routeHarness({rpcError:{code:"40001",message:"Reload"}});await failed.patch({...edit,services:[],expectedTotal:8500});assert.equal(failed.emails.length,0);
+  const unavailable=routeHarness({emailSent:false});const response=await unavailable.patch({...edit,services:[],expectedTotal:8500});assert.equal(response.status,200);const body=await response.json();assert.equal(body.success,true);assert.match(body.message,/not emailed/);assert.equal(unavailable.calls.length,1);
+});
+
+test("service change detection ignores ordering and identifier casing but includes equal-price replacements",()=>{
+  const before=[...existing,{service_id:newServiceId,quantity:2,price_at_time:100}];
+  assert.equal(helper.serviceSelectionsChanged(before,[{serviceId:newServiceId.toUpperCase(),quantity:2},{serviceId,quantity:1}]),false);
+  assert.equal(helper.serviceSelectionsChanged(existing,[{serviceId:newServiceId,quantity:1}]),true);
+  assert.equal(helper.serviceSelectionsChanged(existing,[{serviceId,quantity:2}]),true);
+});
+
+test("staff edits enforce a catalog maximum before saving while retained historical quantities remain valid",async()=>{
+  const loaded=detail();loaded.catalogServices=loaded.catalogServices.map(service=>({...service,max_quantity:1}));
+  const h=routeHarness({loaded});const response=await h.patch({...edit,services:[{serviceId,quantity:2}],expectedTotal:8700});assert.equal(response.status,400);assert.match((await response.json()).message,/maximum quantity of 1/);assert.equal(h.calls.length,0);assert.equal(h.emails.length,0);
+  assert.equal((await h.patch(edit)).status,200);
+});
 
 test("schedule edits recheck availability excluding the current reservation before making changes", async () => {
   const moved = { ...edit, startDatetime: "2027-06-15T08:00:00+08:00", endDatetime: "2027-06-15T16:00:00+08:00", expectedTotal: 8650 };

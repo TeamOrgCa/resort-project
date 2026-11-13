@@ -6,9 +6,9 @@ const id = "33333333-3333-4333-8333-333333333333", guest = "guest", service = "4
 const version = "a".repeat(64);
 const reservation = { reservation_id: id, guest_id: guest, reference_number: "MV-TEST", status: "confirmed", booking_mode: "day",
   start_datetime: "2027-06-14T08:00:00+08:00", end_datetime: "2027-06-14T16:00:00+08:00", adult_count: 22, child_count: 0 };
-function harness({ authenticated = true, owned = true, full = false, locked = null, refunds = [], rpcError = null, notifyFails = false } = {}) {
-  const calls = [], reads = [];
-  const loaded = { reservation, services: [{ service_id: service, quantity: 2, price_at_time: 100 }], catalogServices: [{ service_id: service, name: "Table", is_active: false, price: 999 }],
+function harness({ authenticated = true, owned = true, full = false, locked = null, refunds = [], rpcError = null, notifyFails = false, emailSent = true, committedTotal = 8150, maxQuantity = 10000 } = {}) {
+  const calls = [], reads = [], emails = [];
+  const loaded = { reservation, services: [{ service_id: service, quantity: 2, price_at_time: 100 }], catalogServices: [{ service_id: service, name: "Table", is_active: false, price: 999, max_quantity:maxQuantity }],
     bill: { total_amount: 8600, paid_amount: full ? 8600 : 1720, status: full ? "paid" : "partial" }, lockedReason: locked, canChangeDetails: true,
     version, snapshot: { fixture: "server snapshot" }, packageRates: legacyRates };
   const routes = loadTsModule("app/api/reservations/edit/route.ts", {
@@ -16,11 +16,12 @@ function harness({ authenticated = true, owned = true, full = false, locked = nu
       from: () => { const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ error: null, data: owned ? { reservation_id: id } : null }) }; return q; } }) },
     "@/lib/server/reservation-editor": { loadReservationEditor: async value => { reads.push(value); return loaded; } },
     "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => { const q = { select: () => q, eq: () => q, in: () => q, limit: async () => ({ data: refunds, error: null }) }; return q; },
-      rpc: async (name, args) => { calls.push({ name, args }); return { data: { totalAmount: 8150, paidAmount: 1720, remainingBalance: 6430, overpaidAmount: 0, adultCount: 20, childCount: 0, services: [] }, error: rpcError }; } }) },
+      rpc: async (name, args) => { calls.push({ name, args }); return { data: { totalAmount: committedTotal, paidAmount: 1720, remainingBalance: 6430, overpaidAmount: 0, adultCount: 20, childCount: 0, services: [] }, error: rpcError }; } }) },
+    "@/lib/server/billing-email": { emailUpdatedBillingStatement: async (...args) => { emails.push(args); return { sent: emailSent, ...(emailSent ? {} : { error: "Email unavailable." }) }; } },
     "@/lib/notifications": { NOTIFICATION_AUDIENCES: { reservation: [] }, createNotifications: async () => { if (notifyFails) throw Error("Unavailable"); return { error: null }; } },
   });
   const url = "http://localhost/api/reservations/edit?reservationId=" + id;
-  return { calls, reads, get: () => routes.GET(new Request(url)), post: (body = {}) => routes.POST(new Request(url, { method: "POST", body: JSON.stringify({ adultCount: 20, childCount: 0, services: [], version, expectedTotal: 8150, ...body }) })) };
+  return { calls, reads, emails, get: () => routes.GET(new Request(url)), post: (body = {}) => routes.POST(new Request(url, { method: "POST", body: JSON.stringify({ adultCount: 20, childCount: 0, services: [], version, expectedTotal: 8150, ...body }) })) };
 }
 
 test("guests must own the booking before privileged editor data is loaded", async () => {
@@ -53,4 +54,15 @@ test("missing migrations and database races remain actionable; notification fail
     if (code === "PGRST202") assert.match((await response.json()).message, /guest-booking-edit migration/);
   }
   assert.equal((await harness({ notifyFails: true }).post()).status, 200);
+});
+
+test("saved guest service changes email a revised statement while failed and unchanged saves do not",async()=>{
+  const h=harness();const body=await (await h.post()).json();assert.deepEqual(h.emails,[[id,8150]]);assert.equal(body.billingEmail.sent,true);assert.match(body.message,/statement emailed/);
+  const failed=harness({rpcError:{code:"40001",message:"Reload"}});await failed.post();assert.equal(failed.emails.length,0);
+  const unchanged=harness({committedTotal:8600});await unchanged.post({adultCount:22,services:[{serviceId:service,quantity:2}],expectedTotal:8600});assert.equal(unchanged.calls.length,1);assert.equal(unchanged.emails.length,0);
+  const unavailable=harness({emailSent:false});const response=await unavailable.post();assert.equal(response.status,200);assert.equal((await response.json()).billingEmail.sent,false);assert.equal(unavailable.calls.length,1);
+});
+
+test("guest service edits reject exceeding a lowered cap before the bill RPC or any email",async()=>{
+  const h=harness({maxQuantity:1});const response=await h.post({adultCount:22,services:[{serviceId:service,quantity:3}],expectedTotal:8700});assert.equal(response.status,400);assert.match((await response.json()).message,/maximum quantity of 2/);assert.equal(h.calls.length,0);assert.equal(h.emails.length,0);
 });

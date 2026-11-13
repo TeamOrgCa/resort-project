@@ -8,6 +8,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http:
 globalThis.window = dom.window; globalThis.document = dom.window.document; globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client");
+const { LEGAL_POLICY_VERSION } = loadTsModule("lib/legal/policies.ts");
 after(() => dom.window.close());
 
 async function input(container, name, value) {
@@ -23,7 +24,13 @@ const popup = () => document.querySelector('[data-no-auto-scroll] [role="alert"]
 const popupButton = () => popup()?.querySelector("button");
 const scrolls = [];
 window.HTMLElement.prototype.scrollIntoView = function(options) { scrolls.push({ name: this.getAttribute("name"), options }); };
-async function mount(fetcher) {
+async function readAndAgree(container) {
+  const reader=container.querySelector('[role="region"][aria-label="Terms and Privacy Policy; scroll to the end"]');
+  Object.defineProperties(reader,{clientHeight:{configurable:true,value:288},scrollHeight:{configurable:true,value:2000},scrollTop:{configurable:true,writable:true,value:1712}});
+  await act(async()=>reader.dispatchEvent(new window.Event("scroll",{bubbles:true})));
+  await act(async()=>container.querySelector('[name="policyAccepted"]').click());
+}
+async function mount(fetcher,{agree=true,policyFetcher}={}) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (url, options) => {
     if (String(url).startsWith("https://psgc.cloud/api/")) {
@@ -31,6 +38,7 @@ async function mount(fetcher) {
         ? [{ code: "0405800000", name: "Rizal" }]
         : [{ code: "0405813000", name: "Taytay", type: "Mun" }]));
     }
+    if(url==="/api/booking-policy")return policyFetcher?policyFetcher():Promise.resolve(Response.json({policy:{version:1,cancellation_text:"Current cancellation policy",refund_text:"Current refund policy",guest_cancellation_notice_hours:24,refund_review_enabled:true}}));
     return fetcher(url, options);
   };
   const pushes = [];
@@ -42,6 +50,7 @@ async function mount(fetcher) {
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   await act(async () => root.render(createElement(Component)));
   for (const [name, value] of Object.entries({ firstName: "Maria", lastName: "Cruz", email: "guest@example.com", phoneNumber: "09171234567", province: "Rizal", city: "Taytay", streetAddress: "  Block 2, Main Street  ", zipCode: "1920", password: "secret123", confirmPassword: "secret123" })) await input(container, name, value);
+  if(agree)await readAndAgree(container);
   return { container, pushes, submit: () => act(async () => container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }))),
     close: async () => { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; } };
 }
@@ -72,6 +81,39 @@ test("registration password icons independently reveal and hide values without s
   } finally { await h.close(); }
 });
 
+test("registration keeps agreement and account creation locked until both policies are scrolled through and explicitly accepted",async()=>{
+  const requests=[];
+  const h=await mount(async(_url,options)=>{requests.push(JSON.parse(options.body));return Response.json({success:true,needsEmailConfirmation:true});},{agree:false});
+  try{
+    const checkbox=h.container.querySelector('[name="policyAccepted"]'),submit=h.container.querySelector('button[type="submit"]'),reader=h.container.querySelector('[role="region"]');
+    assert.equal(checkbox.disabled,true);assert.equal(checkbox.checked,false);assert.equal(checkbox.required,true);assert.equal(submit.disabled,true);
+    assert.match(reader.textContent,/Terms and Conditions/);assert.match(reader.textContent,/Privacy Policy/);assert.match(reader.textContent,/Current cancellation policy/);
+    assert.ok(h.container.querySelector('a[href="/terms"][target="_blank"]'));assert.ok(h.container.querySelector('a[href="/privacy"][target="_blank"]'));
+    await act(async()=>checkbox.click());assert.equal(checkbox.checked,false);await h.submit();assert.equal(requests.length,0);assert.match(popup().textContent,/agreement checkbox/);
+    Object.defineProperties(reader,{clientHeight:{configurable:true,value:288},scrollHeight:{configurable:true,value:2000},scrollTop:{configurable:true,writable:true,value:700}});
+    await act(async()=>reader.dispatchEvent(new window.Event("scroll",{bubbles:true})));assert.equal(checkbox.disabled,true);
+    reader.scrollTop=1712;await act(async()=>reader.dispatchEvent(new window.Event("scroll",{bubbles:true})));
+    assert.equal(checkbox.disabled,false);assert.equal(checkbox.checked,false);assert.equal(submit.disabled,true);
+    await act(async()=>checkbox.click());assert.equal(checkbox.checked,true);assert.equal(submit.disabled,false);
+    await act(async()=>checkbox.click());assert.equal(submit.disabled,true);await h.submit();assert.equal(requests.length,0);
+    await act(async()=>checkbox.click());await h.submit();assert.equal(requests.length,1);assert.equal(requests[0].policyAccepted,true);assert.equal(requests[0].legalPolicyVersion,LEGAL_POLICY_VERSION);
+  }finally{await h.close();}
+});
+
+test("unavailable policies cannot be accepted and retrying preserves the registration form",async()=>{
+  let attempts=0;
+  const h=await mount(async()=>{throw Error("Registration must not be called");},{agree:false,policyFetcher:async()=>++attempts===1
+    ?Response.json({message:"Policy temporarily unavailable"},{status:503})
+    :Response.json({policy:{version:2,cancellation_text:"Updated cancellation policy",refund_text:"Refund policy",guest_cancellation_notice_hours:24,refund_review_enabled:true}})});
+  try{
+    await readAndAgree(h.container);assert.equal(h.container.querySelector('[name="policyAccepted"]').disabled,true);assert.equal(h.container.querySelector('[name="policyAccepted"]').checked,false);
+    const retry=[...h.container.querySelectorAll("button")].find(button=>button.textContent==="Retry loading policies");assert.ok(retry);await act(async()=>retry.click());assert.equal(attempts,2);
+    assert.equal(h.container.querySelector('[name="email"]').value,"guest@example.com");assert.equal(h.container.querySelector('[name="password"]').value,"secret123");
+    assert.match(h.container.querySelector('[role="region"]').textContent,/Updated cancellation policy/);
+    await readAndAgree(h.container);assert.equal(h.container.querySelector('[name="policyAccepted"]').checked,true);
+  }finally{await h.close();}
+});
+
 test("already registered email shows recovery links, keeps the form and allows retry with a different address", async () => {
   const requests = [];
   const h = await mount(async (url, options) => {
@@ -85,6 +127,7 @@ test("already registered email shows recovery links, keeps the form and allows r
     await h.submit();
     assert.equal(requests[0].body.phoneNumber, "+639171234567");
     assert.equal(requests[0].body.address, "Block 2, Main Street, Taytay, Rizal, 1920");
+    assert.equal(requests[0].body.policyAccepted,true);assert.equal(requests[0].body.legalPolicyVersion,LEGAL_POLICY_VERSION);
     const alert = popup(); assert.match(alert.textContent, /already registered/);
     assert.equal(document.querySelector('[role="alertdialog"]'), null);
     assert.equal(container.contains(alert), true); assert.match(alert.parentElement.className, /fixed inset-x-0 top-4/);

@@ -22,7 +22,7 @@ test("wrong country codes, doubled trunk prefixes, letters, extensions and wrong
 });
 
 test("registration validates and stores the canonical country code", () => {
-  const guest = { firstName: "Maria", lastName: "Cruz", middleName: "", email: "guest@example.com", addressDetails: { streetAddress: "Block 2", city: "Taytay", province: "Rizal", zipCode: "1920" }, password: "secret123", confirmPassword: "secret123" };
+  const guest = { policyAccepted: true, legalPolicyVersion: loadTsModule("lib/legal/policies.ts").LEGAL_POLICY_VERSION, firstName: "Maria", lastName: "Cruz", middleName: "", email: "guest@example.com", addressDetails: { streetAddress: "Block 2", city: "Taytay", province: "Rizal", zipCode: "1920" }, password: "secret123", confirmPassword: "secret123" };
   assert.equal(validateGuestRegistration({ ...guest, phoneNumber: "0917 123 4567" }).value.phoneNumber, "+639171234567");
   for (const phoneNumber of ["12345678901", "+6309171234567", "+649171234567"]) assert.match(validateGuestRegistration({ ...guest, phoneNumber }).error, /Philippine mobile/);
 });

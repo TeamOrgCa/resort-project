@@ -8,6 +8,7 @@ export interface CatalogField {
   kind: CatalogFieldKind;
   required?: boolean;
   min?: number;
+  max?: number;
   minTime?: string;
   maxTime?: string;
   defaultValue?: number;
@@ -29,10 +30,11 @@ export interface CatalogDefinition {
 export const catalogResources = {
   services: {
     label: "Services", singular: "service", description: "Manage the extras guests can add to their stay.",
-    id: "service_id", select: "service_id, name, description, image_url, price, is_active, created_at", order: "name", search: "name",
-    columns: ["name", "price"], fields: [
+    id: "service_id", select: "service_id, name, description, image_url, price, max_quantity, is_active, created_at", order: "name", search: "name",
+    columns: ["name", "price", "max_quantity"], fields: [
       { key: "name", label: "Service name", kind: "text", required: true },
       { key: "price", label: "Price (PHP)", kind: "money", required: true, min: 0 },
+      { key: "max_quantity", label: "Maximum quantity per booking", kind: "integer", required: true, min: 1, max: 10000, defaultValue: 1, help: "Guests can select up to this many of the service in one booking." },
       { key: "description", label: "Description", kind: "textarea" },
       { key: "image_url", label: "Service photo", kind: "image", help: "Upload or replace a photo, or remove it to use the default placeholder. Save changes to publish." },
     ],
@@ -44,7 +46,7 @@ export const catalogResources = {
       { key: "name", label: "Unit name", kind: "text", required: true },
       { key: "capacity", label: "Guest capacity", kind: "integer", required: true, min: 1 },
       { key: "base_price", label: "Base price (PHP)", kind: "money", required: true, min: 0 },
-      { key: "unit_img", label: "Image URL", kind: "image", help: "Use an HTTPS image URL or a local image path, such as /website_photo.jpg." },
+      { key: "unit_img", label: "Unit photo", kind: "image", help: "Upload or replace the photo guests see when choosing a room. Save changes to publish, or remove it to use the room placeholder." },
       { key: "description", label: "Description", kind: "textarea" },
     ],
   },

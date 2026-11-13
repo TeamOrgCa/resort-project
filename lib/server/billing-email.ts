@@ -36,16 +36,18 @@ const relatedName = (relation: NameRelation, fallback: string) =>
 export async function emailBillingDocuments(
   supabase: SupabaseClient,
   reservation: Reservation,
-  paymentId: string,
+  paymentId: string | null,
   paymentAmount: number,
+  options: { invoiceOnly?: boolean; expectedTotal?: number; updatedAt?: string } = {},
 ) {
   const result: BillingEmailResult = { receiptSent: false, invoiceSent: false };
+  const updatedAt = options.invoiceOnly ? options.updatedAt ?? new Date().toISOString() : options.updatedAt;
   let metadataClient: SupabaseClient | null = null;
 
   let { data: enabled, error: settingError } = await supabase.rpc("billing_email_enabled");
   if (settingError) {
     console.warn("Billing email setting RPC unavailable; using the authorized server fallback.", { code: settingError.code, message: settingError.message });
-    // Callers have already authorized and committed a verified payment. Read
+    // Callers have already authorized and committed the payment or bill edit. Read
     // only its email preference with the server client if the legacy RPC is
     // missing, stale in PostgREST, or denies the cashier session.
     metadataClient = tryCreateAdminClient();
@@ -96,7 +98,7 @@ export async function emailBillingDocuments(
   }
 
   const [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult, paymentResult] = await Promise.all([
-    supabase.from("receipts").select("receipt_id, receipt_number, issued_at, email_sent, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name")
+    options.invoiceOnly ? Promise.resolve({ data: null, error: null }) : supabase.from("receipts").select("receipt_id, receipt_number, issued_at, email_sent, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name")
       .eq("payment_id", paymentId).maybeSingle(),
     supabase.from("invoices").select("invoice_id, created_at, status, total_amount, email_sent")
       .eq("reservation_id", reservation.reservation_id).neq("status", "void")
@@ -110,10 +112,11 @@ export async function emailBillingDocuments(
       .eq("reservation_id", reservation.reservation_id),
     supabase.from("reservation_services").select("quantity, price_at_time, services(name)")
       .eq("reservation_id", reservation.reservation_id),
-    supabase.from("payments").select("reference_number,payment_methods(name)").eq("payment_id",paymentId).maybeSingle(),
+    // Read optional provider/beta metadata without requiring a new schema migration.
+    options.invoiceOnly ? Promise.resolve({ data: null, error: null }) : supabase.from("payments").select("*,payment_methods(name)").eq("payment_id",paymentId).maybeSingle(),
   ]);
   const { data: receipt } = receiptResult;
-  const { data: invoice } = invoiceResult;
+  const { data: issuedInvoice } = invoiceResult;
   const { data: transaction } = transactionResult;
   const { data: charges } = chargesResult;
   const queryError = [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult, paymentResult]
@@ -123,6 +126,18 @@ export async function emailBillingDocuments(
     result.error = "Unable to load the issued billing documents. Check the billing migrations and server log.";
     return result;
   }
+  // Do not label a newer concurrent edit with this edit's total or timestamp.
+  if (options.invoiceOnly && (Number(transaction.total_amount) !== options.expectedTotal
+    || (issuedInvoice && Number(issuedInvoice.total_amount) !== options.expectedTotal))) {
+    result.error = "The bill changed again before the updated statement could be sent. View the latest bill in Manage Booking.";
+    return result;
+  }
+  // Pending bookings have a bill but no confirmation invoice yet. Email their
+  // current statement using the booking reference without creating an invoice.
+  const invoice = issuedInvoice ?? (options.invoiceOnly ? {
+    invoice_id: undefined, created_at: updatedAt, status: "issued",
+    total_amount: transaction.total_amount, email_sent: false,
+  } : null);
 
   const units: BilledUnit[] = ((unitsResult.data as UnitRow[] | null) ?? []).map((row) => ({
     name: relatedName(row.units, "Booked unit"),
@@ -145,8 +160,9 @@ export async function emailBillingDocuments(
     bookingMode: ({ day: "Day swimming", night: "Overnight swimming", whole_day: "Whole day swimming", custom: "Custom booking" } as Record<string, string>)[charges.booking_mode ?? ""] ?? "Resort booking",
     adultCount: Number(charges.adult_count),
     childCount: Number(charges.child_count),
-    paymentMethod: relatedName(paymentResult.data?.payment_methods as NameRelation, "Resort payment"),
-    paymentReference: paymentResult.data?.reference_number ?? undefined,
+    paymentMethod: paymentResult.data ? relatedName(paymentResult.data.payment_methods as NameRelation, "Not recorded") : undefined,
+    paymentReference: paymentResult.data?.beta_receipt_reference || paymentResult.data?.reference_number || undefined,
+    paidAt: paymentResult.data?.receipt_paid_at || paymentResult.data?.paid_at || null,
   };
   const totalAmount = Number(transaction?.total_amount ?? 0);
   const paidAmount = Number(transaction?.paid_amount ?? 0);
@@ -178,25 +194,45 @@ export async function emailBillingDocuments(
   }
 
   let invoiceAttempted = false;
-  if (invoice && (!invoice.email_sent || (receipt && !receipt.email_sent)) && ["issued", "partially_paid", "paid"].includes(invoice.status) && Number(invoice.total_amount) > 0) {
+  if (invoice && (options.invoiceOnly || !invoice.email_sent || (receipt && !receipt.email_sent)) && ["issued", "partially_paid", "paid"].includes(invoice.status) && Number(invoice.total_amount) >= 0) {
     invoiceAttempted = true;
     result.invoiceSent = await sendReservationInvoiceEmail({
       ...base,
       invoiceId: invoice.invoice_id,
       issuedAt: invoice.created_at,
+      updatedAt,
       totalAmount: Number(invoice.total_amount),
       paidAmount,
       balance,
       breakdown: buildBillingBreakdown({ ...breakdownInput, recordedTotal: Number(invoice.total_amount) }),
     });
-    await recordDelivery("invoice", invoice.invoice_id, result.invoiceSent);
+    if (invoice.invoice_id) await recordDelivery("invoice", invoice.invoice_id, result.invoiceSent);
   }
 
   if (receipt?.email_sent) result.receiptAlreadySent = true;
   if (invoice?.email_sent && !invoiceAttempted) result.invoiceAlreadySent = true;
-  if (!receipt || !invoice) result.error ??= "A receipt or invoice was not found. Check the issued documents before retrying email delivery.";
-  else if ((!result.receiptSent && !result.receiptAlreadySent) || (!result.invoiceSent && !result.invoiceAlreadySent))
+  if ((!options.invoiceOnly && !receipt) || !invoice) result.error ??= "A receipt or invoice was not found. Check the issued documents before retrying email delivery.";
+  else if ((!options.invoiceOnly && !result.receiptSent && !result.receiptAlreadySent) || (!result.invoiceSent && !result.invoiceAlreadySent))
     result.error ??= "A billing email could not be sent. Check the server log for PDF generation or mail-provider errors.";
 
   return result;
+}
+
+/** Call only after an authorized, committed bill edit. Delivery failure must not undo the edit. */
+export async function emailUpdatedBillingStatement(reservationId: string, expectedTotal: number): Promise<{ sent: boolean; error?: string }> {
+  try {
+    const supabase = tryCreateAdminClient();
+    if (!supabase) return { sent: false, error: "The server email configuration is unavailable." };
+    const { data: reservation, error } = await supabase.from("reservations")
+      .select("reservation_id,guest_id,walk_in_guest_id,reference_number,start_datetime,end_datetime")
+      .eq("reservation_id", reservationId).maybeSingle<Reservation>();
+    if (error || !reservation) return { sent: false, error: "Unable to load the reservation for statement delivery." };
+    const result = await emailBillingDocuments(supabase, reservation, null, 0, {
+      invoiceOnly: true, expectedTotal, updatedAt: new Date().toISOString(),
+    });
+    return { sent: result.invoiceSent, ...(result.error ? { error: result.error } : {}) };
+  } catch (error) {
+    console.error("Bill saved but updated statement delivery failed.", error);
+    return { sent: false, error: "The updated billing statement could not be emailed. View the latest bill in Manage Booking." };
+  }
 }

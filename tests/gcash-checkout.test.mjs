@@ -6,18 +6,18 @@ const guest = "11111111-1111-4111-8111-111111111111";
 const account = "22222222-2222-4222-8222-222222222222";
 const body = { bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
   payment: { paymentMethodId: "gcash", receivingAccountId: account, type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guest}/proof.png` } };
-function harness({ beta = false, status = "consistent", method = "GCash", insertError = null, notificationFails = false, proofValid = true, accountMissing = false, methodActive = true } = {}) {
+function harness({ beta = false, status = "consistent", method = "GCash", insertError = null, notificationFails = false, proofValid = true, accountMissing = false, methodActive = true, services = [] } = {}) {
   const writes = [], inspected = [], manualProofs = [], accountFilters = [], emails = [];
   const manual = method !== "GCash" && method !== "Cash";
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: guest } }, error: null }) },
     from: table => {
       let operation = "select";
-      const result = () => ({ error: null, data: table === "payment_methods" ? { name: method, type: "ewallet", is_active: methodActive }
+      const result = () => ({ error: null, data: table === "services" ? services : table === "payment_methods" ? { name: method, type: "ewallet", is_active: methodActive }
         : table === "payment_accounts" ? accountMissing ? null : { account_id: account, account_name: "Displayed Resort Account", account_number: "09171231234" }
         : table === "units" ? { unit_id: "unit", base_price: 1, is_active: true, archived_at: null }
         : table === "reservations" && operation === "insert" ? { reservation_id: "reservation", reference_number: "MV-TEST", status: "pending", payment_deadline_at: new Date(Date.now() + 100000).toISOString() } : null });
-      const query = { select: () => query, eq: (field, value) => { if (table === "payment_accounts") accountFilters.push({ field, value }); return query; }, not: () => query, order: () => query, limit: () => query,
+      const query = { select: () => query, in: () => query, eq: (field, value) => { if (table === "payment_accounts") accountFilters.push({ field, value }); return query; }, not: () => query, order: () => query, limit: () => query,
         insert: payload => { operation = "insert"; writes.push({ table, operation, payload }); return query; },
         upsert: payload => { operation = "upsert"; writes.push({ table, operation, payload }); return query; },
         update: payload => { operation = "update"; writes.push({ table, operation, payload }); return query; },
@@ -55,6 +55,12 @@ test("legacy checkout uses the displayed recipient account, server minimum and a
   const payment = h.writes.find(w => w.table === "payments").payload;
   assert.equal(payment.amount, 1500); assert.equal(payment.reference_number, "1234567890123"); assert.equal(payment.receipt_paid_at, "2026-10-13T01:00:00Z");
   assert.equal((await response.json()).payment.amount, 1500);
+});
+
+test("legacy checkout enforces service quantity limits before saving a reservation or payment",async()=>{
+  const services=[{service_id:"mattress",name:"Mattress",price:500,is_active:true,max_quantity:2}];
+  const h=harness({services});const response=await h.post({...body,selectedServices:[{serviceId:"mattress",quantity:3}]});assert.equal(response.status,400);assert.match((await response.json()).message,/maximum quantity of 2/);assert.equal(h.writes.length,0);
+  const accepted=harness({services});assert.equal((await accepted.post({...body,selectedServices:[{serviceId:"mattress",quantity:2}]})).status,201);assert.equal(accepted.writes.find(write=>write.table==="reservation_services").payload[0].quantity,2);
 });
 
 test("legacy checkout rejects alphanumeric GCash references without reading a receipt or creating records", async () => {

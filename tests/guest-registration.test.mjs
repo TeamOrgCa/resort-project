@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 const { validateGuestRegistration } = loadTsModule("lib/auth/guest-registration.ts");
+const { LEGAL_POLICY_VERSION } = loadTsModule("lib/legal/policies.ts");
 
 const valid = {
   firstName: "  María  ", lastName: "Dela Cruz", middleName: "",
   email: "GUEST@EXAMPLE.COM", phoneNumber: "+639171234567",
   addressDetails: { streetAddress: "Block 2, Main Street", city: "Taytay", province: "Rizal", zipCode: "1920" },
   password: "secret123", confirmPassword: "secret123",
+  policyAccepted: true, legalPolicyVersion: LEGAL_POLICY_VERSION,
 };
 
 test("accepts a valid guest without a middle name and normalizes contact details", () => {
@@ -21,6 +23,16 @@ test("accepts a valid guest without a middle name and normalizes contact details
 test("accepts an optional valid middle name", () => {
   const result = validateGuestRegistration({ ...valid, middleName: "O'Neil" });
   assert.equal(result.value?.middleName, "O'Neil");
+});
+
+test("registration requires explicit agreement to the current legal policy version",()=>{
+  for(const policyAccepted of [undefined,null,false,"true",1,{}]){
+    const result=validateGuestRegistration({...valid,policyAccepted});assert.equal(result.value,undefined);assert.equal(result.field,"policyAccepted");assert.match(result.error,/agreement checkbox/);
+  }
+  for(const legalPolicyVersion of [undefined,null,"outdated",1]){
+    const result=validateGuestRegistration({...valid,legalPolicyVersion});assert.equal(result.value,undefined);assert.match(result.error,/Reload this page/);
+  }
+  const result=validateGuestRegistration(valid);assert.equal(result.value.policyAccepted,true);assert.equal(result.value.legalPolicyVersion,LEGAL_POLICY_VERSION);
 });
 
 test("rejects email spaces, padding and invisible whitespace before normalization", () => {

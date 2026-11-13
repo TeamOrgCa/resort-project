@@ -14,6 +14,7 @@ interface ReservationEmailBase {
 interface BillingEmailBase {
   paymentMethod?: string;
   paymentReference?: string;
+  paidAt?: string | null;
   guestEmail: string;
   guestName: string;
   reservationReference: string;
@@ -36,6 +37,7 @@ interface ReceiptEmailPayload extends BillingEmailBase {
 interface InvoiceEmailPayload extends BillingEmailBase {
   invoiceId?: string;
   issuedAt: string;
+  updatedAt?: string;
   totalAmount: number;
   paidAmount: number;
   balance: number;
@@ -296,10 +298,16 @@ export const sendGuestConfirmationEmail = async ({ email, guestName, confirmatio
 });
 
 export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
+  const paymentDetails = [
+    ["Payment method", payload.paymentMethod || "Not recorded"],
+    ["Payment reference", payload.paymentReference || "Not recorded"],
+    ["Paid at (Philippine time)", payload.paidAt ? formatDateTimeLabel(payload.paidAt) : "Not recorded"],
+  ];
   const lines = [
     `Hi ${payload.guestName || "Guest"},`, "", "Your verified payment receipt is ready.",
     `Receipt: ${payload.receiptNumber}`,
     `Issued: ${formatDateTimeLabel(payload.issuedAt)}`,
+    ...paymentDetails.map(([label, value]) => `${label}: ${value}`),
     ...billingLines(payload),
     "",
     ...breakdownText(payload.breakdown),
@@ -316,6 +324,7 @@ export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
     ...billingRows(payload),
   ];
   const paymentRows = [
+    ...paymentDetails,
     ["Amount paid", formatMoney(payload.amountPaid)],
     ["Reservation total", formatMoney(payload.totalAmount)],
     ["Remaining balance", formatMoney(payload.balance)],
@@ -330,9 +339,12 @@ export const sendPaymentReceiptEmail = async (payload: ReceiptEmailPayload) => {
 };
 
 export const sendReservationInvoiceEmail = async (payload: InvoiceEmailPayload) => {
+  const title = payload.updatedAt ? "Updated Billing Statement" : "Reservation Invoice";
+  const introduction = payload.updatedAt ? "Your reservation bill has been updated. Review the charges, verified payments and remaining balance below." : "Your reservation invoice is ready.";
   const lines = [
-    `Hi ${payload.guestName || "Guest"},`, "", "Your reservation invoice is ready.",
+    `Hi ${payload.guestName || "Guest"},`, "", introduction,
     `Issued: ${formatDateTimeLabel(payload.issuedAt)}`,
+    ...(payload.updatedAt ? [`Statement updated: ${formatDateTimeLabel(payload.updatedAt)}`] : []),
     ...billingLines(payload),
     "",
     ...breakdownText(payload.breakdown),
@@ -345,6 +357,7 @@ export const sendReservationInvoiceEmail = async (payload: InvoiceEmailPayload) 
   ];
   const rows = [
     ["Issued", formatDateTimeLabel(payload.issuedAt)],
+    ...(payload.updatedAt ? [["Statement updated", formatDateTimeLabel(payload.updatedAt)]] : []),
     ...billingRows(payload),
   ];
   const paymentRows = [
@@ -354,10 +367,10 @@ export const sendReservationInvoiceEmail = async (payload: InvoiceEmailPayload) 
   ];
   return sendMail({
     to: payload.guestEmail,
-    subject: `Reservation Invoice ${payload.reservationReference}`,
+    subject: `${title} ${payload.reservationReference}`,
     pdf: { ...payload, kind: "invoice", documentNumber: payload.invoiceId ?? payload.reservationReference },
     text: lines.join("\n"),
-    html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.5"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">Reservation Invoice</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>Your reservation invoice is ready. A downloadable PDF copy is attached to this email.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>You can review your booking in your account.</p></div>`,
+    html: `<div style="font-family:Arial,sans-serif;color:#3B2A1E;line-height:1.5"><h2 style="margin:0 0 20px;color:#3B2A1E;font-size:28px;line-height:1.25;font-weight:700">${title}</h2><p>Hi ${escapeHtml(payload.guestName || "Guest")},</p><p>${introduction} A downloadable PDF copy is attached to this email.</p>${billingTable(rows)}${breakdownTable(payload.breakdown)}<h3>Payment summary</h3>${billingTable(paymentRows)}${billingNotesHtml(payload.balance)}<p>You can review your booking in your account.</p></div>`,
   });
 };
 
