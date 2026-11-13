@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { GuestRegistration } from "@/lib/auth/guest-registration";
 import { sendGuestConfirmationEmail } from "@/lib/email";
 import { guestRegistrationMetadata } from "@/lib/server/guest-registration-metadata";
+import type { LegalPolicies } from "@/lib/legal/documents";
+import { requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 
 export class GuestConfirmationError extends Error {
   constructor(message: string, public status = 502, public code?: string) { super(message); }
@@ -61,12 +63,13 @@ export async function sendGuestConfirmation(admin: SupabaseClient, request: Requ
   return sendGuestConfirmationEmail({ email, guestName: profile.first_name, confirmationUrl: guestConfirmationUrl(request, data.properties.hashed_token) });
 }
 
-export async function registerGuestWithSmtp(admin: SupabaseClient, request: Request, guest: GuestRegistration) {
+export async function registerGuestWithSmtp(admin: SupabaseClient, request: Request, guest: GuestRegistration, policies: LegalPolicies) {
   await assertGuestSignupEnabled();
   const { data, error } = await admin.auth.admin.createUser({
     email: guest.email, password: guest.password, email_confirm: false,
-    user_metadata: guestRegistrationMetadata(guest),
+    user_metadata: guestRegistrationMetadata(guest, policies),
   });
+  if (error) await requireCurrentLegalPolicies(admin, guest.legalPolicyVersion);
   if (error && !["email_exists", "user_already_exists"].includes(error.code ?? "")) throw new GuestConfirmationError(error.status && error.status < 500 ? error.message : "Unable to create your account. Please try again.", error.status && error.status < 500 ? 400 : 502);
   if (!error) {
     if (!data.user || data.user.email_confirmed_at) throw new GuestConfirmationError("Guest email confirmation is unavailable. Please contact the resort.", 503);

@@ -1,3 +1,4 @@
+import { LegalPolicyError, requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 import { parseServiceSelections, serviceQuantityError } from "@/lib/booking/service-quantity";
 import { saveGuestBookingPhone, GuestBookingPhoneError } from "@/lib/server/guest-booking-phone";
 import { NextResponse } from "next/server";
@@ -9,7 +10,6 @@ import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
-import { LEGAL_POLICY_VERSION } from "@/lib/legal/policies";
 
 type DbErrorLike = {
   message?: string;
@@ -105,7 +105,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     typeof payload.adultCount !== "number" ||
     typeof payload.childCount !== "number" ||
     !Number.isSafeInteger(payload.packageRateVersion) || Number(payload.packageRateVersion) < 1 ||
-    payload.acceptedPoliciesVersion !== LEGAL_POLICY_VERSION ||
+    typeof payload.acceptedPoliciesVersion !== "string" ||
     !Number.isSafeInteger(payload.bookingPolicyVersion) || Number(payload.bookingPolicyVersion) < 1
   ) {
     return null;
@@ -135,7 +135,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     unitId: payload.unitId,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices,
-    acceptedPoliciesVersion: LEGAL_POLICY_VERSION,
+    acceptedPoliciesVersion: payload.acceptedPoliciesVersion,
     bookingPolicyVersion: Number(payload.bookingPolicyVersion),
     packageRateVersion: Number(payload.packageRateVersion),
   };
@@ -222,6 +222,8 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
+
+    const legalPolicies = await requireCurrentLegalPolicies(supabase, payload.acceptedPoliciesVersion);
 
     const { data: unit, error: unitError } = await supabase
       .from("units")
@@ -335,6 +337,8 @@ export async function POST(request: Request) {
         guest_id: user.id,
         reference_number: reservationReference,
         booking_mode: payload.bookingMode,
+        terms_policy_id: legalPolicies.terms.policy_id,
+        privacy_policy_id: legalPolicies.privacy.policy_id,
         start_datetime: payload.startDatetime,
         end_datetime: payload.endDatetime,
         adult_count: payload.adultCount,
@@ -348,6 +352,7 @@ export async function POST(request: Request) {
       .single();
 
     if (reservationError || !reservation) {
+      if (reservationError?.code === "40001" && /polic|legal/i.test(reservationError.message ?? "")) return NextResponse.json({ success: false, code: "LEGAL_POLICY_CHANGED", message: "Policies changed while saving. Read and agree to the refreshed policies." }, { status: 409 });
       if (reservationError?.code === "22023") return NextResponse.json({ success: false, message: "The selected package has already started. Choose a future start time (Philippine time)." }, { status: 400 });
       if (reservationError?.code === "23P01") {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
@@ -448,6 +453,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof LegalPolicyError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "LEGAL_POLICY_CHANGED" : "LEGAL_POLICY_UNAVAILABLE" }, { status: error.status });
     if (error instanceof GuestBookingPhoneError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "RATES_CHANGED" : "RATES_UNAVAILABLE" }, { status: error.status });
     if (reservationId) {

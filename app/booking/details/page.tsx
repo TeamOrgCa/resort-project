@@ -10,7 +10,6 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
 import { buildBookingCostSummary } from "@/lib/booking/summary";
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
-import { LEGAL_POLICY_VERSION } from "@/lib/legal/policies";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -37,6 +36,8 @@ function BookingDetailsContent() {
   const [paymentDeadlineAt, setPaymentDeadlineAt] = useState<string | null>(null);
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [bookingPolicyVersion, setBookingPolicyVersion] = useState<number | null>(null);
+  const [legalPolicyVersion, setLegalPolicyVersion] = useState<string | null>(null);
+  const [policyReload, setPolicyReload] = useState(0);
 
   const startDateTime = parseDateTimeString(bookingDraft.startDatetime || null);
   const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
@@ -67,7 +68,7 @@ function BookingDetailsContent() {
       return;
     }
 
-    if ((!acceptedPolicies || bookingPolicyVersion === null) && !isAlreadySaved) {
+    if ((!acceptedPolicies || bookingPolicyVersion === null || !legalPolicyVersion) && !isAlreadySaved) {
       setSaveError("Read and agree to the Terms and Conditions and Privacy Policy before saving your booking.");
       return;
     }
@@ -105,7 +106,7 @@ function BookingDetailsContent() {
             serviceId: service.id,
             quantity: service.quantity ?? 1,
           })),
-          acceptedPoliciesVersion: LEGAL_POLICY_VERSION,
+          acceptedPoliciesVersion: legalPolicyVersion,
           bookingPolicyVersion,
         }),
       });
@@ -113,6 +114,7 @@ function BookingDetailsContent() {
       const json = (await response.json().catch(() => null)) as
         | {
             success?: boolean;
+            code?: string;
             message?: string;
             reservation?: {
               id?: string;
@@ -124,6 +126,7 @@ function BookingDetailsContent() {
         | null;
 
       if (!response.ok || !json?.success || !json.reservation?.id) {
+        if (json?.code === "LEGAL_POLICY_CHANGED") { setAcceptedPolicies(false); setPolicyReload(value => value + 1); }
         setSaveError(json?.message || "Failed to save booking.");
         setIsSavingBooking(false);
         return;
@@ -241,7 +244,7 @@ function BookingDetailsContent() {
                   </div>
                 </div>
 
-                {!isAlreadySaved && <div data-booking-guide="review-policies" className="mt-8"><PolicyAgreement accepted={acceptedPolicies} onChange={setAcceptedPolicies} onPolicyVersion={setBookingPolicyVersion} /></div>}
+                {!isAlreadySaved && <div data-booking-guide="review-policies" className="mt-8"><PolicyAgreement accepted={acceptedPolicies} onChange={setAcceptedPolicies} onPolicyVersion={setBookingPolicyVersion} onLegalVersion={setLegalPolicyVersion} reloadKey={policyReload} /></div>}
 
                 {saveError && <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{saveError}</div>}
                 {isAlreadySaved && (

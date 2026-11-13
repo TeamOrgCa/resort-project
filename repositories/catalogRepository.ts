@@ -61,7 +61,7 @@ export async function getActiveCatalog(supabase: SupabaseClient) {
     supabase.from("services").select("service_id, name, description, image_url, price, max_quantity, is_active").eq("is_active", true).order("name"),
     supabase.from("payment_methods").select("payment_method_id, name, type, is_active").eq("is_active", true).order("name"),
     supabase.from("payment_accounts").select("account_id, payment_method_id, account_name, account_number, qr_image, instructions, is_active").eq("is_active", true).order("account_name"),
-    supabase.from("reservation_policies").select("policy_id, title, content, display_order, is_active").eq("is_active", true).order("display_order"),
+    supabase.from("reservation_policies").select("policy_id, title, content, display_order, is_active").eq("document_type", "general").eq("is_active", true).order("display_order"),
     supabase.from("ocular_time_slots").select("slot_id, start_time, end_time, max_capacity, is_active").eq("is_active", true).order("start_time"),
   ]);
 

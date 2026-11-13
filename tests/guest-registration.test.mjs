@@ -1,8 +1,9 @@
+import { LEGAL_POLICY_VERSION } from "./helpers/legal-policies.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 const { validateGuestRegistration } = loadTsModule("lib/auth/guest-registration.ts");
-const { LEGAL_POLICY_VERSION } = loadTsModule("lib/legal/policies.ts");
+
 
 const valid = {
   firstName: "  María  ", lastName: "Dela Cruz", middleName: "",
@@ -25,7 +26,7 @@ test("accepts an optional valid middle name", () => {
   assert.equal(result.value?.middleName, "O'Neil");
 });
 
-test("registration requires explicit agreement to the current legal policy version",()=>{
+test("registration requires explicit agreement and a well-formed legal version token",()=>{
   for(const policyAccepted of [undefined,null,false,"true",1,{}]){
     const result=validateGuestRegistration({...valid,policyAccepted});assert.equal(result.value,undefined);assert.equal(result.field,"policyAccepted");assert.match(result.error,/agreement checkbox/);
   }

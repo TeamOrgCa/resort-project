@@ -1,13 +1,15 @@
+import { LEGAL_POLICY_VERSION, legalPoliciesFixture } from "./helpers/legal-policies.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 import { catalogDatabase, uuid } from "./helpers/catalog-database.mjs";
 
-const guest = { policyAccepted: true, legalPolicyVersion: loadTsModule("lib/legal/policies.ts").LEGAL_POLICY_VERSION, firstName: "Maria", lastName: "Cruz", middleName: "", email: "guest@example.com", phoneNumber: "09171234567", addressDetails: { streetAddress: "Block 2", city: "Taytay", province: "Rizal", zipCode: "1920" }, password: "secret123", confirmPassword: "secret123" };
+const guest = { policyAccepted: true, legalPolicyVersion: LEGAL_POLICY_VERSION, firstName: "Maria", lastName: "Cruz", middleName: "", email: "guest@example.com", phoneNumber: "09171234567", addressDetails: { streetAddress: "Block 2", city: "Taytay", province: "Rizal", zipCode: "1920" }, password: "secret123", confirmPassword: "secret123" };
 function harness({ existing = false, confirmed = false, staff = false, delivery = true, settings = { external: { email: true }, mailer_autoconfirm: false }, configured = true, missingProfile = false, duplicateCode = "email_exists", signupError = null, linkError = null } = {}) {
   const database = catalogDatabase({ guests: existing ? [{ id: uuid(1), email: guest.email, first_name: "Original" }] : [], staff_users: staff ? [{ id: uuid(1) }] : [] });
   const user = { id: uuid(1), email: guest.email, email_confirmed_at: confirmed ? "2026-01-01" : null };
   const calls = { created: [], links: [], emails: [], signup: [], resend: [] };
+  database.rpc=async()=>({data:Object.values(legalPoliciesFixture()).filter(item=>typeof item==="object"),error:null});
   database.auth = { admin: {
     createUser: async (payload) => {
       calls.created.push(payload);
@@ -67,11 +69,33 @@ test("both registration delivery paths reject missing, false or outdated agreeme
   }
 });
 
+test("well-formed but stale policy versions are rejected before either signup path writes",async()=>{
+  for(const configured of [true,false]){
+    const h=harness({configured});
+    const response=await h.register({...guest,legalPolicyVersion:"terms:2;privacy:1"});
+    assert.equal(response.status,409);assert.equal((await response.json()).code,"LEGAL_POLICY_CHANGED");
+    assert.equal(h.calls.created.length,0);assert.equal(h.calls.signup.length,0);assert.equal(h.calls.emails.length,0);
+  }
+});
+
+test("publication racing an SMTP signup reloads consent after Auth wraps the trigger rejection",async()=>{
+  const h=harness();
+  h.database.auth.admin.createUser=async()=>{
+    h.database.rpc=async()=>({data:Object.values(legalPoliciesFixture({termsVersion:2})).filter(item=>typeof item==="object"),error:null});
+    return {data:{user:null},error:{status:500,code:"unexpected_failure",message:"Database error creating user"}};
+  };
+  const response=await h.register();assert.equal(response.status,409);
+  assert.equal((await response.json()).code,"LEGAL_POLICY_CHANGED");assert.equal(h.calls.emails.length,0);
+});
+
 test("SMTP and Supabase signup preserve the server-generated consent version and time in existing account metadata",async()=>{
   for(const configured of [true,false]){
     const h=harness({configured});const before=Date.now();const response=await h.register({...guest,legal_consent:{accepted_at:"1900-01-01",policy_version:"forged"}});assert.equal(response.status,200);
     const metadata=configured?h.calls.created[0].user_metadata:h.calls.signup[0].options.data;
     assert.equal(metadata.legal_consent.terms_accepted,true);assert.equal(metadata.legal_consent.privacy_acknowledged,true);assert.equal(metadata.legal_consent.policy_version,guest.legalPolicyVersion);
+    assert.equal(metadata.legal_consent.terms_policy_id,legalPoliciesFixture().terms.policy_id);
+    assert.equal(metadata.legal_consent.privacy_policy_id,legalPoliciesFixture().privacy.policy_id);
+    assert.equal(metadata.legal_consent.terms_version,1);assert.equal(metadata.legal_consent.privacy_version,1);
     const timestamp=Date.parse(metadata.legal_consent.accepted_at);assert.ok(timestamp>=before&&timestamp<=Date.now());assert.equal(metadata.password,undefined);assert.equal(metadata.confirmPassword,undefined);
   }
 });
