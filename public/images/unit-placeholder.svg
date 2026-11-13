@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640">
+  <rect width="960" height="640" fill="#f5f1eb"/>
+  <g fill="none" stroke="#ae9786" stroke-linecap="round" stroke-linejoin="round" stroke-width="10">
+    <path d="M300 390V270a20 20 0 0 1 20-20h320a20 20 0 0 1 20 20v120M280 390h400v65H280zM300 455v30m360-30v30"/>
+    <rect x="325" y="285" width="135" height="70" rx="12"/>
+    <rect x="500" y="285" width="135" height="70" rx="12"/>
+  </g>
+  <text x="480" y="555" text-anchor="middle" font-family="Arial,sans-serif" font-size="26" fill="#806b5a">Room photo coming soon</text>
+</svg>
