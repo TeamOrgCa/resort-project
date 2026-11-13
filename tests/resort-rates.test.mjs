@@ -39,15 +39,22 @@ test("loading and failed rate requests never substitute old printed prices", () 
   assert.match(failed, /temporarily unavailable/);
   assert.doesNotMatch(loading + failed, /₱/);
   for (const markup of [loading, failed]) {
-    assert.match(markup, /\/rates\/info_marville\.jpg/); assert.match(markup, /\/rates\/pricing_marville\.jpg/);
-    assert.match(markup, /Printed prices and payment details may differ/);
+    assert.doesNotMatch(markup, /\/rates\/(info|pricing)_marville\.jpg/);
+    assert.doesNotMatch(markup, /Printed prices and payment details may differ/);
   }
 });
 
-test("brochures and readable inclusions retain admin-edited content and full-size links", () => {
+test("readable inclusions retain admin edits while legacy brochure settings cannot restore the removed section", () => {
   const markup = render({ overrides: { "content.about.info_poster": "https://images.example.com/new-guide.jpg", "content.about.inclusions": "Updated cottage\nUpdated food inclusion", "content.about.info_poster_title": "Updated resort guide" } });
-  assert.match(markup, /href="https:\/\/images\.example\.com\/new-guide\.jpg"/);
-  assert.match(markup, /target="_blank"/);
+  assert.doesNotMatch(markup, /new-guide\.jpg|Updated resort guide|Open full size|Resort guides/);
   assert.match(markup, /<li>Updated cottage<\/li>/); assert.match(markup, /<li>Updated food inclusion<\/li>/);
-  assert.match(markup, /Updated resort guide/);
+});
+
+test("website configuration and public content no longer offer brochure fields",()=>{
+  const {settingDefinitions}=loadTsModule("lib/settings/catalog.ts");
+  const {contentSections}=loadTsModule("lib/settings/content-layout.ts");
+  const removed=["posters_heading","posters_description","posters_note","info_poster","info_poster_title","pricing_poster","pricing_poster_title"].map(key=>"content.about."+key);
+  for(const key of removed){assert.equal(key in publicContentDefaults,false);assert.ok(!settingDefinitions.some(definition=>definition.key===key));}
+  const sections=contentSections("About page",settingDefinitions.filter(definition=>definition.group==="About page"));
+  assert.ok(!sections.some(section=>section.id==="brochures"));assert.ok(sections.some(section=>section.id==="rates"));
 });

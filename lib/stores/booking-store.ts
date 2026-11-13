@@ -7,6 +7,7 @@ export interface BookingServiceItem {
   id: string;
   name: string;
   price: number;
+  quantity?: number;
 }
 
 export interface BookingDraft {

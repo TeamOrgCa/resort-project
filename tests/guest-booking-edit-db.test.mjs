@@ -37,13 +37,14 @@ before(async () => {
     create trigger legacy_services after insert or update or delete on public.reservation_services for each row execute function public.legacy_recalculate();
     create trigger legacy_counts after update of adult_count,child_count on public.reservations for each row execute function public.legacy_recalculate();`);
   await db.exec(migration);
+  await db.exec(readFileSync("docs/service-quantity-limits-migration.sql","utf8"));
 });
 after(async () => { await db?.close(); });
 beforeEach(async () => {
   await db.exec("truncate public.guests,public.staff_users,public.reservations,public.transactions,public.services,public.reservation_services,public.reservation_units,public.payments,public.refund_requests,public.reservation_reschedules,public.invoices,public.receipts,public.audit_logs");
   await db.query("insert into public.guests values($1,true),($2,true)", [guest, other]);
   await db.query("insert into public.reservations values($1,$2,'MV-TEST','confirmed','day',now()+interval '20 days',now()+interval '20 days 8 hours',22,0,now(),null)", [reservation, guest]);
-  await db.query("insert into public.services values($1,'Table',999,false),($2,'Karaoke',500,true)", [service, extra]);
+  await db.query("insert into public.services(service_id,name,price,is_active) values($1,'Table',999,false),($2,'Karaoke',500,true)", [service, extra]);
   await db.query("insert into public.reservation_services values($1,$2,2,100)", [reservation, service]);
   await db.query("insert into public.transactions values($1,8600,1720,'partial')", [reservation]);
   await db.query("insert into public.payments values($1,'verified',1720)", [reservation]);
@@ -58,6 +59,37 @@ async function edit({ adults = 22, children = 0, services = [{ serviceId: servic
   const patch = { adultCount: adults, childCount: children, services, packageDelta: delta, expectedTotal: expectedTotal ?? total };
   return { expected, patch, save: async () => (await one("select public.edit_guest_reservation_bill($1,$2,$3,$4) result", [reservation, actor, expected, patch])).result };
 }
+
+test("database caps reject oversized service additions without changing bills, invoices, receipts or audits",async()=>{
+  await db.query("update public.services set max_quantity=2 where service_id=$1",[extra]);
+  const request=await edit({services:[{serviceId:service,quantity:2},{serviceId:extra,quantity:3}]});
+  await assert.rejects(request.save,/Karaoke allows a maximum quantity of 2 per booking/);
+  assert.equal((await one("select total_amount from public.transactions")).total_amount,"8600");
+  assert.equal((await one("select total_amount from public.invoices where status<>'void'")).total_amount,"8600");
+  assert.equal((await one("select count(*) n from public.audit_logs")).n,0);
+  assert.equal((await one("select count(*) n from public.reservation_services")).n,1);
+  assert.equal((await one("select transaction_total_at_time from public.receipts")).transaction_total_at_time,"8600");
+  const exact=await edit({services:[{serviceId:service,quantity:2},{serviceId:extra,quantity:2}]});assert.equal((await exact.save()).totalAmount,9600);
+});
+
+test("lowering a catalog cap retains historical quantities and prevents later increases above that cap",async()=>{
+  await db.query("update public.services set max_quantity=1 where service_id=$1",[service]);
+  await (await edit()).save();assert.equal((await one("select quantity from public.reservation_services")).quantity,2);
+  await db.query("insert into public.reservation_services(reservation_id,service_id,quantity,price_at_time) values($1,$2,2,100) on conflict(reservation_id,service_id) do update set quantity=excluded.quantity",[reservation,service]);
+  // Restore the bill after the fixture's intentionally simplistic legacy trigger.
+  await db.exec("update public.transactions set total_amount=8600");
+  await assert.rejects((await edit({services:[{serviceId:service,quantity:3}]})).save,/maximum quantity of 2/);
+  await (await edit({services:[{serviceId:service,quantity:1}]})).save();
+  await assert.rejects((await edit({services:[{serviceId:service,quantity:2}]})).save,/maximum quantity of 1/);
+  assert.equal((await one("select quantity from public.reservation_services")).quantity,1);
+});
+
+test("catalog limits reject invalid values, and the quantity migration is safe to apply again",async()=>{
+  for(const maximum of [0,-1,10001])await assert.rejects(db.query("update public.services set max_quantity=$1",[maximum]),code("23514"));
+  await assert.rejects(db.exec("update public.services set max_quantity=null"),code("23502"));
+  await db.exec(readFileSync("docs/service-quantity-limits-migration.sql","utf8"));
+  assert.equal((await one("select max_quantity from public.services limit 1")).max_quantity,10000);
+});
 const code = value => error => error.code === value;
 
 test("partially paid guests can reduce guest count and remove every service; captured prices and receipt history stay intact", async () => {

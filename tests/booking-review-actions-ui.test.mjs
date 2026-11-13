@@ -11,15 +11,15 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client"); after(() => dom.window.close());
 const draft = { startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", bookingMode: "day", unitId: "pool", adultCount: 4, childCount: 0,
   firstName: "Maria", lastName: "Cruz", email: "guest@example.com", phone: "09171234567", address: "Taytay", services: [], specialRequests: "", roomPrice: 7500, total: 7500, nights: 1, tax: 0, reservationId: "", reservationReference: "" };
-async function mount(fetcher, saved = false) {
+async function mount(fetcher, saved = false, draftPatch = {}) {
   const original = globalThis.fetch; globalThis.fetch = fetcher;
-  const store = create(set => ({ bookingDraft: { ...draft, ...(saved ? { reservationId: "reservation", reservationReference: "MV-SAVED" } : {}) },
+  const store = create(set => ({ bookingDraft: { ...draft, ...draftPatch, ...(saved ? { reservationId: "reservation", reservationReference: "MV-SAVED" } : {}) },
     setBookingDraft: patch => set(state => ({ bookingDraft: { ...state.bookingDraft, ...patch } })) }));
   const Component = loadTsModule("app/booking/details/page.tsx", {
     "next/link": ({ href, children, ...props }) => createElement("a", { href, ...props }, children),
     "@/components/Navigation": () => null, "@/components/Footer": () => null,
     "@/lib/stores/booking-store": { useBookingStore: store },
-    "@/components/legal/PolicyAgreement": ({ accepted, onChange, onPolicyVersion }) => {
+    "@/components/legal/PolicyAgreement": function PolicyAgreementMock({ accepted, onChange, onPolicyVersion }) {
       useEffect(() => { onPolicyVersion(1); }, [onPolicyVersion]);
       return createElement("input", { type: "checkbox", "aria-label": "Accept terms", checked: accepted, onChange: event => onChange(event.target.checked) });
     },
@@ -72,4 +72,17 @@ test("reopening an already saved booking shows its confirmation and only home/pa
     assert.match(h.container.querySelector('[role="status"]').textContent, /MV-SAVED/);
     assert.equal(h.container.querySelector('[aria-label="Accept terms"]'), null); assert.equal(posts, 0);
   } finally { await h.close(); }
+});
+
+test("booking review displays quantity line totals and submits the chosen quantity, including legacy drafts",async()=>{
+  for(const quantity of [3,undefined]){
+    const expected=quantity??1;let posted;
+    const h=await mount(async(_url,options)=>{posted=JSON.parse(options.body);return Response.json({success:true,reservation:{id:"reservation"}});},false,
+      {services:[{id:"mattress",name:"Extra mattress",price:500,...(quantity?{quantity}:{})}],total:7500+expected*500});
+    try{
+      assert.ok(h.container.textContent.includes(`Extra mattress × ${expected}`));assert.ok(h.container.textContent.includes((expected*500).toLocaleString("en-PH",{minimumFractionDigits:2})));
+      await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector("button"));
+      assert.deepEqual(posted.selectedServices,[{serviceId:"mattress",quantity:expected}]);
+    }finally{await h.close();}
+  }
 });

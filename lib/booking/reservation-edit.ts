@@ -1,3 +1,4 @@
+import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { DEFAULT_PACKAGE_TIMES, type PackageTimes } from "./package-times";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { validateBookingWindow, type BookingMode } from "@/lib/booking/policy";
@@ -26,7 +27,7 @@ export type EditableReservation = {
 };
 export type SelectedService = { service_id: string; quantity: number; price_at_time: number };
 export type SelectedUnit = { unit_id: string; quantity: number; price_per_night: number };
-export type CatalogService = { service_id: string; name: string; price: number; is_active: boolean };
+export type CatalogService = { max_quantity?: number; service_id: string; name: string; price: number; is_active: boolean };
 export type CatalogUnit = { unit_id: string; name: string; base_price: number; is_active: boolean; archived_at: string | null };
 export type Bill = { total_amount: number; paid_amount: number; status: string };
 export type EditDetail = {
@@ -38,6 +39,11 @@ export type EditDetail = {
   canRescheduleException?: boolean;
 };
 export const moneyRound = (n: number) => Math.round(n * 100) / 100;
+
+export function serviceSelectionsChanged(before: SelectedService[], after: ServiceChoice[]) {
+  const quantities = new Map(before.map(service => [service.service_id.toLowerCase(), Number(service.quantity)]));
+  return before.length !== after.length || after.some(service => quantities.get(service.serviceId.toLowerCase()) !== service.quantity);
+}
 
 export function moveReservationToDate(reservation: Pick<EditableReservation, "start_datetime" | "end_datetime">, date: string) {
   const delta = Date.parse(`${date}T00:00:00Z`) - Date.parse(`${manilaDateKey(reservation.start_datetime)}T00:00:00Z`);
@@ -115,6 +121,8 @@ export function validateEditWindow(edit: ReservationEdit, times: PackageTimes = 
 // Apply the package difference to the recorded bill. This retains historical
 // discounts, reschedule fees and negotiated charges, including on service-only edits.
 export function previewReservationEdit(r: EditableReservation, bill: Bill, existing: SelectedService[], catalog: CatalogService[], edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime" | "adultCount" | "childCount" | "services">, rates: PackageRates, now = Date.now()) {
+  const quantityError = serviceQuantityError(edit.services, catalog, existing);
+  if (quantityError) throw new Error(quantityError);
   const priceInput = { bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count };
   const changed = priceInput.bookingMode !== edit.bookingMode || Date.parse(priceInput.startDatetime) !== Date.parse(edit.startDatetime) ||
     Date.parse(priceInput.endDatetime) !== Date.parse(edit.endDatetime) || priceInput.adultCount !== edit.adultCount || priceInput.childCount !== edit.childCount;

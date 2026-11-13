@@ -5,10 +5,10 @@ import { join } from "node:path";
 import type { BillingBreakdown } from "@/lib/booking/billing-breakdown";
 
 export type BillingPdfInput = {
-  kind: "receipt" | "invoice"; documentNumber: string; issuedAt: string;
+  kind: "receipt" | "invoice"; documentNumber: string; issuedAt: string; updatedAt?: string;
   guestName: string; reservationReference: string; checkInDate: string; checkOutDate: string;
   bookingMode: string; adultCount: number; childCount: number; breakdown: BillingBreakdown;
-  totalAmount: number; paidAmount: number; balance: number; paymentMethod?: string; paymentReference?: string;
+  totalAmount: number; paidAmount: number; balance: number; paymentMethod?: string; paymentReference?: string; paidAt?: string | null;
 };
 const money = (value: number) => `PHP ${value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const date = (value: string) => {
@@ -39,7 +39,7 @@ export async function createBillingPdf(input: BillingPdfInput, logo?: Buffer): P
   const pdf = await PDFDocument.create(); pdf.registerFontkit(fontkit);
   const font = await pdf.embedFont(await readFile(join(process.cwd(), "assets/fonts/NotoSans-Regular.ttf")), { subset: true });
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const title = input.kind === "receipt" ? "Payment Receipt" : "Reservation Invoice";
+  const title = input.kind === "receipt" ? "Payment Receipt" : input.updatedAt ? "Updated Billing Statement" : "Reservation Invoice";
   pdf.setTitle(`${title} - ${input.documentNumber}`);
   pdf.setSubject(`Reservation ${input.reservationReference} | Guest ${input.guestName}`);
   pdf.setAuthor("MarVille Resort Complex"); pdf.setCreator("MarVille Resort Complex");
@@ -71,13 +71,15 @@ export async function createBillingPdf(input: BillingPdfInput, logo?: Buffer): P
     y-=rowHeight;
   };
   startPage();
-  row(input.kind==="receipt"?"Receipt number":"Invoice ID",input.documentNumber);
+  row(input.kind==="receipt"?"Receipt number":input.updatedAt?"Statement reference":"Invoice ID",input.documentNumber);
   row("Issued",date(input.issuedAt));row("Guest",input.guestName);
+  if(input.updatedAt)row("Statement updated",date(input.updatedAt));
   row("Booking reference",input.reservationReference);row("Payment for",input.bookingMode);
   row("Guests",`${input.adultCount} adults, ${input.childCount} children`);
   row("Check-in (Philippine time)",date(input.checkInDate));row("Check-out (Philippine time)",date(input.checkOutDate));
-  if(input.paymentMethod)row("Payment method",input.paymentMethod);
-  if(input.paymentReference)row("Payment reference",input.paymentReference);
+  if(input.kind==="receipt" || input.paymentMethod)row("Payment method",input.paymentMethod || "Not recorded");
+  if(input.kind==="receipt" || input.paymentReference)row("Payment reference",input.paymentReference || "Not recorded");
+  if(input.kind==="receipt")row("Paid at (Philippine time)",input.paidAt ? date(input.paidAt) : "Not recorded");
   y-=22;ensure(55);paragraph("ITEMS AND CHARGES",11,terracotta);
   for(const item of input.breakdown.lines){
     // Keep the heading and amount together; long descriptions can continue on

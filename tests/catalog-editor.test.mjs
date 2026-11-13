@@ -9,6 +9,11 @@ const { default: Editor } = loadTsModule("components/admin/catalog/CatalogEditor
 const references = { units: [{ unit_id: uuid(1), name: "Archived villa", is_active: false, archived_at: "2026-10-12T00:00:00Z" }], paymentMethods: [] };
 const render = (resource, record) => renderToStaticMarkup(createElement(Editor, { resource, record, references, referencesError: null, busy: false, error: null, onClose: () => {}, onSave: async () => {} }));
 
+test("service editors expose a required per-booking maximum for new and existing services",()=>{
+  assert.match(render("services",null),/id="catalog-max_quantity"[^>]*type="number"[^>]*required=""[^>]*min="1"[^>]*max="10000"[^>]*step="1"[^>]*value="1"/);
+  assert.match(render("services",{name:"Mattress",price:500,max_quantity:7}),/id="catalog-max_quantity"[^>]*value="7"/);
+});
+
 test("editing an archived rate keeps its linked name and uses native date and price fields", () => {
   const markup = render("unit_rates", { unit_rate_id: uuid(2), unit_id: uuid(1), price: 8000.25, effective_from: "2026-10-12", effective_to: null, is_active: false });
   assert.match(markup, /Archived villa \(archived\)/);

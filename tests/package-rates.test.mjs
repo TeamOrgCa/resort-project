@@ -177,6 +177,19 @@ test("reservation creation stamps its schedule and bills server prices rather th
   assert.equal(h.writes.find(w => w.table === "transactions").payload.total_amount, 4568.15);
 });
 
+test("guest and staff booking creation enforce catalog service caps before writing and price the actual quantity",async()=>{
+  const serviceId="44444444-4444-4444-8444-444444444444";
+  for(const manual of [false,true]){
+    const options={manual,services:[{service_id:serviceId,name:"Mattress",price:500,is_active:true,max_quantity:3}]};
+    const excessive=bookingHarness(options);const rejected=await excessive.save({selectedServices:[{serviceId,quantity:4}]});assert.equal(rejected.status,400);assert.match((await rejected.json()).message,/maximum quantity of 3/);assert.equal(excessive.writes.length,0);
+    const exact=bookingHarness(options);const response=await exact.save({selectedServices:[{serviceId,quantity:3,price:1,max_quantity:9999}]});assert.equal(response.status,201);
+    assert.equal((await response.json()).reservation.totalAmount,6068.15);assert.equal(exact.writes.find(write=>write.table==="reservation_services").payload[0].quantity,3);
+  }
+  for(const selectedServices of [[{serviceId,quantity:0}],[{serviceId,quantity:1.5}],[{serviceId},{serviceId}]]){
+    const h=bookingHarness();assert.equal((await h.save({selectedServices})).status,400);assert.equal(h.writes.length,0);
+  }
+});
+
 test("guest and staff creation accept saved edited slots and reject old clocks without writes", async () => {
   const times = structuredClone(DEFAULT_PACKAGE_TIMES);
   times.day = { start: "09:30", end: "17:00", endDayOffset: 0 };

@@ -22,9 +22,9 @@ export function validateCatalogRecord(resource: CatalogResource, input: unknown,
     if (field.kind === "money" || field.kind === "integer") {
       if ((typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !/^\d+(?:\.\d+)?$/.test(value.trim()))) throw new CatalogValidationError(`Enter a valid ${field.label.toLowerCase()}.`);
       const number = Number(value);
-      if (!Number.isFinite(number) || number < (field.min ?? 0) || number > (field.kind === "integer" ? 2147483647 : 99999999.99) ||
+      if (!Number.isFinite(number) || number < (field.min ?? 0) || number > (field.max ?? (field.kind === "integer" ? 2147483647 : 99999999.99)) ||
           (field.kind === "integer" && !Number.isInteger(number)) || (field.kind === "money" && Math.abs(number * 100 - Math.round(number * 100)) > 0.000001)) {
-        throw new CatalogValidationError(`${field.label} must be ${field.kind === "integer" ? "a whole number" : "a price with at most two decimal places"} of at least ${field.min ?? 0}.`);
+        throw new CatalogValidationError(`${field.label} must be ${field.kind === "integer" ? "a whole number" : "a price with at most two decimal places"} of at least ${field.min ?? 0}${field.max ? ` and no more than ${field.max}` : ""}.`);
       }
       result[field.key] = number;
       continue;

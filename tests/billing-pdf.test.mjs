@@ -11,11 +11,12 @@ test("receipt PDFs preserve actual references, Philippine times, accented guest 
     const doc=await pdfLib.PDFDocument.create(),addPage=doc.addPage.bind(doc);
     doc.addPage=(...args)=>{const page=addPage(...args),draw=page.drawText.bind(page);page.drawText=(text,options)=>{drawn.push({text,...options});return draw(text,options);};return page;};return doc;
   }}}});
-  const bytes=await createBillingPdf(base),pdf=await pdfLib.PDFDocument.load(bytes);
+  const bytes=await createBillingPdf({...base,paidAt:"2027-01-13T16:10:00Z"}),pdf=await pdfLib.PDFDocument.load(bytes);
   assert.equal(bytes.subarray(0,5).toString(),"%PDF-");assert.match(pdf.getTitle(),/RCP-TEST-123/);
   for(const value of ["José Muñoz","MV-TEST-123","Cash","CASH-12345678","PHP 2,500.00","PHP 7,500.00"])
     assert.ok(drawn.some(line=>line.text.includes(value)),`PDF is missing ${value}`);
   assert.ok(drawn.some(line=>/12:30/.test(line.text)));assert.ok(drawn.some(line=>/4:00/.test(line.text)));
+  assert.ok(drawn.some(line=>line.text==="Paid at (Philippine time)"));assert.ok(drawn.some(line=>/Jan 14, 2027.*12:10/.test(line.text)));
   assert.equal(billingPdfFilename("receipt","../RCP/123\r\n"),"receipt----RCP-123--.pdf");
 });
 
@@ -26,8 +27,9 @@ test("long invoices paginate and keep all line text within the printable page",a
     doc.addPage=(...args)=>{const page=add(...args),draw=page.drawText.bind(page);page.drawText=(text,options)=>{drawn.push({text,...options});return draw(text,options);};return page;};return doc;
   }}}});
   const lines=Array.from({length:80},(_,index)=>({description:`Additional service ${index+1}`,detail:"Long description ".repeat(15)+(index===0?"A".repeat(300):""),quantity:2,unitPrice:125,amount:250}));
-  const bytes=await createBillingPdf({...base,kind:"invoice",documentNumber:"invoice-id",breakdown:{lines,total:20000},totalAmount:20000,paidAmount:20000,balance:0});
+  const bytes=await createBillingPdf({...base,kind:"invoice",updatedAt:"2027-01-15T16:15:00Z",documentNumber:"invoice-id",breakdown:{lines,total:20000},totalAmount:20000,paidAmount:20000,balance:0});
   const pdf=await pdfLib.PDFDocument.load(bytes);assert.ok(pdf.getPageCount()>2);
+  assert.match(pdf.getTitle(),/Updated Billing Statement/);assert.ok(drawn.some(line=>line.text==="Statement updated"));assert.ok(drawn.some(line=>/Jan 16, 2027.*12:15/.test(line.text)));
   assert.ok(drawn.some(line=>line.text==="Additional service 80"));assert.ok(drawn.some(line=>line.text==="PHP 0.00"));
   for(const line of drawn){assert.ok(line.y>=29&&line.y<842);assert.ok(line.x+line.font.widthOfTextAtSize(line.text,line.size)<=554,`Text overflows: ${line.text}`);}
 });
