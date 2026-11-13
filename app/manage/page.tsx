@@ -11,6 +11,7 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 import { manilaDateKey, manilaDateTimeLocal } from "@/lib/booking/manila-date";
+import { matchesBookingSearch, matchesOcularSearch } from "@/lib/booking/manage-search";
 import GuestRefundStatus from "@/components/GuestRefundStatus";
 import CancellationDialog from "@/components/CancellationDialog";
 import ManageIcon from "@/components/manage/ManageIcon";
@@ -222,6 +223,7 @@ export default function ManageBooking() {
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [activeTab, setActiveTab] = useState<ManageTab>("bookings");
   const [search, setSearch] = useState("");
+  const [searchDate, setSearchDate] = useState("");
   const [ocularMessage, setOcularMessage] = useState<string | null>(null);
   const [recordMode, setRecordMode] = useState<RecordMode>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -752,11 +754,11 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       : isClosedReservation(status) ? "bg-neutral/5 text-neutral/60" : "bg-amber-50 text-amber-800";
   };
   const bookingStatus = (record: BookingRecord) => record.cancellationOutcome === "no_refund" ? "Cancelled - No Refund" : record.status;
-  const visibleBookings = bookings.filter(record => record.reference.toLowerCase().includes(search.trim().toLowerCase()));
-  const visibleOcular = ocularBookings.filter(record => record.reference.toLowerCase().includes(search.trim().toLowerCase()));
+  const visibleBookings = bookings.filter(record => matchesBookingSearch(record, search, searchDate));
+  const visibleOcular = ocularBookings.filter(record => matchesOcularSearch(record, search, searchDate));
   const currentRecord = activeTab === "bookings" ? selectedBooking : activeTab === "ocular" ? selectedOcular : null;
   const showRefunds = (reference: string) => {
-    closeRecord(); setActiveTab("refunds"); setSearch(reference);
+    closeRecord(); setActiveTab("refunds"); setSearch(reference); setSearchDate("");
     window.requestAnimationFrame(() => {
       refundsTab.current?.focus({ preventScroll: true });
       recordsPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
@@ -778,25 +780,31 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
       <main className="relative mx-auto max-w-6xl px-3 pb-16 pt-6 sm:px-6 sm:pt-8">
         <div ref={recordsPanel} className="scroll-mt-24 rounded-3xl border border-neutral/10 bg-white p-4 shadow-sm sm:p-7">
-          <div className="flex flex-col justify-between gap-4 border-b border-neutral/10 pb-5 md:flex-row md:items-center">
+          <div className="flex flex-col justify-between gap-4 border-b border-neutral/10 pb-5 xl:flex-row xl:items-center">
             <div className="grid grid-cols-3 gap-1 rounded-2xl bg-base p-1 md:flex" role="group" aria-label="Record type">
               {(["bookings", "ocular", "refunds"] as const).map(tab => <button key={tab} ref={tab === "refunds" ? refundsTab : undefined} type="button" aria-pressed={activeTab === tab}
-                onClick={() => { closeRecord(); setActiveTab(tab); setSearch(""); }}
+                onClick={() => { closeRecord(); setActiveTab(tab); setSearch(""); setSearchDate(""); }}
                 className={`flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-3 text-xs font-semibold transition sm:px-3 sm:text-sm ${activeTab === tab ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:text-neutral"}`}>
                 <ManageIcon name={tab === "bookings" ? "calendar" : tab === "ocular" ? "view" : "wallet"} className="hidden h-4 w-4 shrink-0 sm:block" />
                 {tab === "bookings" ? "Bookings" : tab === "ocular" ? "Ocular visits" : "Refunds"}
                 {tab !== "refunds" && <span className="hidden rounded-full bg-neutral/5 px-2 py-0.5 text-xs sm:inline">{tab === "bookings" ? bookings.length : ocularBookings.length}</span>}
               </button>)}
             </div>
-            <label className="flex items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2.5 md:w-56">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="flex min-h-11 items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2.5 sm:w-60">
               <ManageIcon name="search" className="h-4 w-4 text-neutral/45" />
-              <input type="search" aria-label="Search booking reference" value={search} onChange={event => setSearch(event.target.value)}
-                placeholder="Search reference" className="min-w-0 w-full bg-transparent text-black text-neutral outline-none sm:text-sm" />
+              <input type="search" aria-label={activeTab === "refunds" ? "Search booking reference" : "Search booking reference or date"} value={search} onChange={event => setSearch(event.target.value)}
+                placeholder={activeTab === "refunds" ? "Search reference" : "Reference or YYYY-MM-DD"} className="min-w-0 w-full bg-transparent text-black text-neutral outline-none sm:text-sm" />
             </label>
+            {activeTab !== "refunds" && <label className="flex min-h-11 items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2 text-xs text-neutral/60">{activeTab === "ocular" ? "Visit date" : "Stay date"}
+              <input type="date" aria-label={activeTab === "ocular" ? "Search visit date" : "Search booking date"} value={searchDate} onChange={event => setSearchDate(event.target.value)} className="min-w-0 flex-1 bg-transparent text-base text-black sm:text-sm" />
+            </label>}
+            {activeTab !== "refunds" && (search || searchDate) && <button type="button" onClick={() => { setSearch(""); setSearchDate(""); }} className="min-h-11 rounded-xl px-3 text-sm font-semibold text-primary hover:bg-primary/5">Clear search</button>}
+            </div>
           </div>
           <div className="mb-5 mt-5 flex items-start justify-between gap-3">
             <div><h2 className="text-xl font-semibold text-neutral">{activeTab === "bookings" ? "Your reservations" : activeTab === "ocular" ? "Your ocular visits" : "Your refunds"}</h2>
-              <p className="mt-1 text-sm text-neutral/60">{activeTab === "refunds" ? "Track refund progress and request eligible excess-payment refunds here." : "Open the three-dot options menu to view details or make changes."}</p></div>
+              <p className="mt-1 text-sm text-neutral/60">{activeTab === "refunds" ? "Track refund progress and request eligible excess-payment refunds here." : "Select a card to view details. Use its options menu to make changes. Search by reference or a stay / visit date."}</p></div>
             <span className="hidden shrink-0 rounded-full bg-base px-3 py-2 text-xs text-neutral/55 sm:inline-flex">Philippine time</span>
           </div>
           {fetchError && activeTab !== "refunds" && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{fetchError}</p>}
@@ -812,25 +820,26 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             : ((activeTab === "bookings" ? visibleBookings : visibleOcular).length === 0) ?
               <div className="rounded-2xl border border-dashed border-neutral/15 bg-base/50 p-10 text-center">
                 <ManageIcon name="calendar" className="mx-auto mb-3 h-8 w-8 text-neutral/35" />
-                <p className="font-semibold text-neutral">{search ? "No matching references" : activeTab === "bookings" ? "No reservations yet" : "No ocular visits yet"}</p>
-                <p className="mt-2 text-sm text-neutral/60">{search ? "Try another reference or clear your search." : "Your saved records will appear here."}</p>
+                <p className="font-semibold text-neutral">{search || searchDate ? "No matching records" : activeTab === "bookings" ? "No reservations yet" : "No ocular visits yet"}</p>
+                <p className="mt-2 text-sm text-neutral/60">{search || searchDate ? "Try another reference or date, or clear your search." : "Your saved records will appear here."}</p>
               </div>
             : <div className="space-y-4">
               {activeTab === "bookings" && visibleBookings.map(record => {
                 const closed = isClosedReservation(record.status), reviewing = record.status.toLowerCase() === "payment submitted";
-                return <article key={record.id} aria-label={`Booking ${record.reference}`} className="overflow-hidden rounded-2xl border border-neutral/10 transition hover:border-primary/25 hover:shadow-sm">
+                return <article key={record.id} aria-label={`Booking ${record.reference}`} className="relative isolate overflow-hidden rounded-2xl border border-neutral/10 transition hover:border-primary/25 hover:shadow-sm">
+                  <button type="button" aria-label={`View booking ${record.reference}`} aria-haspopup="dialog" onClick={() => openBookingRecord(record, "view")} className="absolute inset-0 z-[1] cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
                   <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
                     <div className="min-w-0"><p className="ui-reference text-black font-semibold text-neutral">{record.reference}</p>
                       <p className="mt-1 flex items-center gap-2 text-xs text-neutral/60"><span className="capitalize">{record.bookingMode?.replace(/_/g, " ") || "Reservation"}</span><span aria-hidden="true">&middot;</span><ManageIcon name="guests" className="h-4 w-4" />{record.guests} guests</p>
                       <span className={`status-badge mt-3 rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{bookingStatus(record)}</span>
                     </div>
-                    <RecordActionsMenu reference={record.reference} actions={[
+                    <div className="relative z-10 shrink-0"><RecordActionsMenu reference={record.reference} actions={[
                       { label: "View", icon: "view", explanation: "Details, payment and refund updates", onSelect: () => openBookingRecord(record, "view") },
                       { label: "Edit booking", icon: "edit", disabled: closed || reviewing, explanation: closed ? "This reservation is closed" : reviewing ? "Available after payment review" : "Update guest counts, services and billing", onSelect: () => openBookingRecord(record, "edit") },
                       { label: "Reschedule", icon: "calendar", disabled: Boolean(record.checkedInAt) || record.status.toLowerCase() !== "confirmed", explanation: record.checkedInAt ? "Rescheduling is locked after check-in" : record.status.toLowerCase() === "confirmed" ? "Choose an available date for automatic approval" : "Available for confirmed reservations", onSelect: () => openBookingRecord(record, "reschedule") },
                       { label: "Pay balance", icon: "wallet", disabled: closed || reviewing || record.remainingBalance <= 0, explanation: closed ? "This reservation is closed" : reviewing ? "Your payment is being reviewed" : record.remainingBalance <= 0 ? "No outstanding balance" : "Continue to GCash payment", onSelect: () => openPaymentPortal(record) },
                       { label: "Cancel reservation", icon: "cancel", danger: true, disabled: closed || Boolean(record.checkedInAt), explanation: record.checkedInAt ? "Cancellation is locked after check-in" : closed ? "This reservation is closed" : "Review the refund calculation first", onSelect: () => { setCancelError(null); setPendingCancellation({ id: record.id, reference: record.reference, checkIn: record.checkIn }); } },
-                    ]} />
+                    ]} /></div>
                   </div>
                   <div className="grid min-w-0 gap-4 border-t border-neutral/5 px-4 py-4 [overflow-wrap:anywhere] sm:grid-cols-2 sm:px-5 lg:grid-cols-4">
                     <div><p className="mb-1 text-xs text-neutral/55">Check-in</p><p className="text-sm font-medium text-neutral">{formatDateTime(record.startDatetime)}</p></div>
@@ -838,7 +847,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     <div><p className="mb-1 text-xs text-neutral/55">Reservation total</p><p className="text-sm font-semibold text-neutral">{formatCurrency(record.totalAmount)}</p><p className="mt-1 text-xs text-neutral/55">Net paid {formatCurrency(record.paidAmount)}</p></div>
                     <div><p className="mb-1 text-xs text-neutral/55">{record.status.toLowerCase() === "cancelled" ? "Payment collection" : (isNoShow(record.status) ? "Recorded balance" : "Remaining balance")}</p>
                       <p className="text-sm font-semibold text-primary">{record.status.toLowerCase() === "cancelled" ? "Closed" : formatCurrency(record.remainingBalance)}</p>
-                      {record.cancellationOutcome === "pending_refund" && <button type="button" onClick={() => showRefunds(record.reference)} className="mt-1 text-xs text-primary underline">View refund updates</button>}
+                      {record.cancellationOutcome === "pending_refund" && <button type="button" onClick={() => showRefunds(record.reference)} className="relative z-10 mt-1 text-xs text-primary underline">View refund updates</button>}
                       {record.status.toLowerCase() === "pending" && record.paymentDeadlineAt && <p className="mt-1 text-xs text-amber-800">Payment due {formatDateTime(record.paymentDeadlineAt)}</p>}
                     </div>
                   </div>
@@ -846,13 +855,14 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               })}
               {activeTab === "ocular" && visibleOcular.map(record => {
                 const closed = isClosedReservation(record.status);
-                return <article key={record.id} aria-label={`Ocular visit ${record.reference}`} className="rounded-2xl border border-neutral/10 p-4 transition hover:border-primary/25 hover:shadow-sm sm:p-5">
+                return <article key={record.id} aria-label={`Ocular visit ${record.reference}`} className="relative isolate rounded-2xl border border-neutral/10 p-4 transition hover:border-primary/25 hover:shadow-sm sm:p-5">
+                  <button type="button" aria-label={`View ocular visit ${record.reference}`} aria-haspopup="dialog" onClick={() => openOcularRecord(record, "view")} className="absolute inset-0 z-[1] cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="ui-reference font-semibold text-neutral">{record.reference}</p><span className={`status-badge mt-2 rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{record.status}</span></div>
-                    <RecordActionsMenu reference={record.reference} actions={[
+                    <div className="relative z-10 shrink-0"><RecordActionsMenu reference={record.reference} actions={[
                       { label: "View", icon: "view", explanation: "Visit schedule and status", onSelect: () => openOcularRecord(record, "view") },
                       { label: "Edit visit", icon: "edit", disabled: closed, explanation: closed ? "This visit is closed" : "Change the date or time slot", onSelect: () => openOcularRecord(record, "edit") },
                       { label: "Cancel visit", icon: "cancel", danger: true, disabled: closed, explanation: closed ? "This visit is closed" : "Cancel your scheduled resort visit", onSelect: () => { setOcularCancelError(null); setOcularMessage(null); setPendingOcularCancellation({ id: record.id, reference: record.reference }); } },
-                    ]} />
+                    ]} /></div>
                   </div>
                   <div className="mt-4 grid gap-3 border-t border-neutral/5 pt-4 text-sm sm:grid-cols-3">
                     <div><p className="mb-1 text-xs text-neutral/55">Scheduled date</p><p className="font-medium">{formatDate(record.scheduledDate)}</p></div>

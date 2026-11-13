@@ -4,6 +4,8 @@ The swimming package prices and times below are initial reference values. Curren
 
 APP TIMEZONE: Admin and guest date/time displays, emails, calendar dates, report periods and date-based receipt numbers use Asia/Manila (UTC+8), regardless of device/server timezone. App-generated event timestamps include +08:00. Database timestamptz values preserve absolute instants; do not add eight hours to saved timestamps or rewrite historical payments to change their display date. A UTC timestamp such as 2026-10-16T16:30:00Z displays as October 17, 2026, 12:30 AM in Philippine time. See docs/TIMEZONE.md and apply docs/philippine-timezone-migration.sql for existing installations to fix timezone-stripping defaults and legacy SQL report labels.
 
+NOTIFICATION CONFIGURATION: The unused Configuration > Notification settings tab and its email/SMS template and admin channel controls have been removed because delivery logic never read them. Existing stored notifications.* preferences are left in the database but are no longer editable through the settings API. Working guest/staff notifications, account pop-up preferences, and Payment settings > Email receipts remain available. No database migration is required.
+
 LOCATION & CONTACT INFO
 
 Guest registration, profiles, online bookings and staff manual entries require a Philippine mobile contact. Forms show a fixed +63 prefix and accept 10 national digits starting with 9; pasted 09..., 639... and +639... formats are normalized and saved as +639XXXXXXXXX. Registration and reservation APIs validate the same format. Online booking saves the validated contact to the authenticated guest profile used by reservation records. This validates the number format, not ownership through SMS.
