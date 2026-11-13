@@ -1,14 +1,16 @@
+import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { staffHasPermission } from "@/lib/server/role-permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadReservationEditor } from "@/lib/server/reservation-editor";
-import { bookedPackageChangeReason, detailsChanged, moneyRound, parseReservationEdit, previewReservationEdit, uuidPattern, validateEditWindow } from "@/lib/booking/reservation-edit";
+import { bookedPackageChangeReason, detailsChanged, moneyRound, parseReservationEdit, previewReservationEdit, serviceSelectionsChanged, uuidPattern, validateEditWindow } from "@/lib/booking/reservation-edit";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { reschedulePolicy } from "@/lib/booking/reschedule-charge-policy";
 import { createNotifications } from "@/lib/notifications";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
+import { emailUpdatedBillingStatement } from "@/lib/server/billing-email";
 
 type Context = { params: Promise<{ id: string }> };
 const fail = (message: string, status: number) => NextResponse.json({ success: false, message }, { status });
@@ -73,6 +75,8 @@ export async function PATCH(request: Request, context: Context) {
     if (unitChanged && (detail.units.length > 1 || detail.units.some(u => u.quantity !== 1))) return fail("Reservations with multiple accommodations require individual billing review.", 400);
     if (unitChanged && (!edit.unitId || !detail.catalogUnits.some(u => u.unit_id === edit.unitId && u.is_active && !u.archived_at))) return fail("Choose an available accommodation.", 400);
     if (!detail.canChangeDetails && detail.services.some(s => (edit.services.find(e => e.serviceId === s.service_id)?.quantity ?? 0) < s.quantity)) return fail("Services already booked during a stay cannot be removed or reduced.", 400);
+    const quantityError = serviceQuantityError(edit.services, detail.catalogServices, detail.services);
+    if (quantityError) return fail(quantityError, 400);
     const preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, edit, detail.packageRates, now);
     if (preview.total < 0) return fail("This change would produce a negative bill. Review the reservation charges.", 400);
     if (preview.total !== moneyRound(edit.expectedTotal)) return fail("Service prices or the bill changed. Reload to review the updated amount.", 409);
@@ -94,6 +98,11 @@ export async function PATCH(request: Request, context: Context) {
       }
       catch (cause) { console.warn("Reservation saved but reschedule notification failed", cause); }
     }
-    return NextResponse.json({ success: true, ...data, message: "Reservation and bill updated. The change was recorded in the audit log." });
+    const billChanged = changed || unitChanged || serviceSelectionsChanged(detail.services, edit.services)
+      || Number(data.totalAmount) !== Number(detail.bill.total_amount);
+    const billingEmail = billChanged ? await emailUpdatedBillingStatement(id, Number(data.totalAmount)) : undefined;
+    const emailMessage = billingEmail ? (billingEmail.sent ? " Updated billing statement emailed." : ` Updated billing statement was not emailed. ${billingEmail.error ?? "Check email delivery settings."}`) : "";
+    return NextResponse.json({ success: true, ...data, billingEmail,
+      message: `Reservation and bill updated. The change was recorded in the audit log.${emailMessage}` });
   } catch (error) { return fail(error instanceof Error ? error.message : "Unable to update reservation.", 500); }
 }

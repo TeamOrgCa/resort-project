@@ -1,5 +1,7 @@
 "use client";
 
+import { serviceQuantityLimit } from "@/lib/booking/service-quantity";
+
 import { useEffect, useRef, useState } from "react";
 import LoadingState from "@/components/ui/LoadingState";
 import { guestEditRestriction, parseGuestBookingEdit, type GuestEditDetail, type GuestEditResult } from "@/lib/booking/guest-edit";
@@ -86,15 +88,15 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
           const minimum = !detail.canReduceServices && original ? original.quantity : 1;
           return <div key={service.serviceId} className="grid min-w-0 gap-3 rounded-xl border border-neutral/10 p-4 sm:grid-cols-[minmax(0,1fr)_7rem_auto] sm:items-center">
             <div className="min-w-0"><p className="break-words font-medium text-neutral">{listed?.name ?? "Booked service"}</p><p className="mt-1 text-sm text-neutral/65">{currency(Number(original?.price_at_time ?? listed?.price ?? 0))} each</p></div>
-            <input type="number" aria-label={`Quantity for ${listed?.name ?? "Booked service"}`} min={minimum} max={10000} step={1} required className={inputClass} value={service.quantity} onChange={event => setServices(current => current.map(item => item.serviceId === service.serviceId ? { ...item, quantity: Number(event.target.value) } : item))} />
+            <input type="number" aria-label={`Quantity for ${listed?.name ?? "Booked service"}`} min={minimum} max={serviceQuantityLimit(listed?.max_quantity, original?.quantity)} step={1} required className={inputClass} value={service.quantity} onChange={event => setServices(current => current.map(item => item.serviceId === service.serviceId ? { ...item, quantity: Number(event.target.value) } : item))} />
             <button type="button" aria-label={`Remove ${listed?.name ?? "Booked service"}`} disabled={Boolean(original) && !detail.canReduceServices} onClick={() => setServices(current => current.filter(item => item.serviceId !== service.serviceId))} className="min-h-11 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-40">Remove</button>
           </div>;
         })}
         <div className="grid gap-3 rounded-xl bg-base p-4 sm:grid-cols-[minmax(0,1fr)_6rem_auto] sm:items-end">
           <label className="text-sm text-neutral">Add a service<select aria-label="New service" className={inputClass} value={newService} onChange={event => setNewService(event.target.value)}><option value="">Select a service</option>{choices.filter(choice => choice.is_active && !services.some(service => service.serviceId === choice.service_id)).map(choice => <option key={choice.service_id} value={choice.service_id}>{choice.name} ({currency(Number(choice.price))})</option>)}</select></label>
-          <label className="text-sm text-neutral">Quantity<input aria-label="New service quantity" type="number" min={1} max={10000} step={1} value={quantity} onChange={event => setQuantity(event.target.value)} className={inputClass} /></label>
+          <label className="text-sm text-neutral">Quantity<input aria-label="New service quantity" type="number" min={1} max={serviceQuantityLimit(choices.find(choice => choice.service_id === newService)?.max_quantity, detail.services.find(old => old.service_id === newService)?.quantity)} step={1} value={quantity} onChange={event => setQuantity(event.target.value)} className={inputClass} /></label>
           <button type="button" onClick={() => {
-            if (!newService || !Number.isSafeInteger(Number(quantity)) || Number(quantity) < 1 || Number(quantity) > 10000) { setError("Choose a service and a whole-number quantity from 1 to 10000."); return; }
+            if (!newService || !Number.isSafeInteger(Number(quantity)) || Number(quantity) < 1 || Number(quantity) > serviceQuantityLimit(choices.find(choice => choice.service_id === newService)?.max_quantity, detail.services.find(old => old.service_id === newService)?.quantity)) { setError("Choose a service and a whole-number quantity within its maximum per booking."); return; }
             setServices(current => [...current, { serviceId: newService, quantity: Number(quantity) }]); setNewService(""); setQuantity("1"); setError(null);
           }} className="min-h-11 rounded-lg border border-primary/30 px-4 py-2 text-sm font-semibold text-primary">Add Service</button>
         </div>

@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { isEmailConfigured } from "@/lib/email";
 import { GuestConfirmationError, limitConfirmationRequests, registerGuestWithSmtp, REGISTERED_EMAIL_MESSAGE } from "@/lib/server/guest-confirmation";
+import { guestRegistrationMetadata } from "@/lib/server/guest-registration-metadata";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -40,13 +41,7 @@ export async function POST(request: Request) {
       password: guest.password,
       options: {
         emailRedirectTo: new URL("/auth/confirm", request.url).toString(),
-        data: {
-          first_name: guest.firstName,
-          last_name: guest.lastName,
-          middle_name: guest.middleName,
-          phone_number: guest.phoneNumber,
-          address: guest.address,
-        },
+        data: guestRegistrationMetadata(guest),
       },
     });
     if (error) {

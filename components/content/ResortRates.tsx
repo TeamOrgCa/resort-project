@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { SiteImage, SiteText, contentText, useSiteContent } from "@/components/content/SiteContent";
-import { isContentImageUrl, publicContentDefaults } from "@/lib/settings/public-content";
+import { SiteText, contentText, useSiteContent } from "@/components/content/SiteContent";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { packageTimesLabel } from "@/lib/booking/package-times";
 import { PACKAGE_LABELS, PACKAGE_MODES, RATE_TIERS } from "@/lib/booking/package-rates";
@@ -10,10 +9,6 @@ import { INCLUDED_GUESTS } from "@/lib/booking/guest-count";
 import Skeleton, { SkeletonGroup } from "@/components/ui/Skeleton";
 
 const currency = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 });
-const brochures = [
-  { key: "content.about.info_poster", title: "content.about.info_poster_title", width: 816, height: 1056, alt: "MarVille private swimming brochure with package inclusions, rates and resort information" },
-  { key: "content.about.pricing_poster", title: "content.about.pricing_poster_title", width: 1080, height: 1920, alt: "MarVille brochure with public swimming, cottage, room, videoke and cooking information" },
-];
 
 export default function ResortRates() {
   const { schedule, error } = usePackageRates();
@@ -80,28 +75,6 @@ export default function ResortRates() {
           </article>
         </div>
 
-        <div className="mb-7 max-w-3xl">
-          <h3 className="mb-3 text-2xl font-bold text-neutral"><SiteText contentKey="content.about.posters_heading" /></h3>
-          <p className="leading-relaxed text-neutral/75"><SiteText contentKey="content.about.posters_description" /></p>
-        </div>
-        <p className="mb-7 rounded-xl border border-primary/15 bg-primary/5 p-4 text-sm leading-relaxed text-neutral/80"><SiteText contentKey="content.about.posters_note" /></p>
-        <div className="grid items-start gap-7 md:grid-cols-2">
-          {brochures.map(brochure => {
-            const source = contentText(content, brochure.key);
-            const href = isContentImageUrl(source) ? source : String(publicContentDefaults[brochure.key]);
-            return (
-              <figure data-reveal key={brochure.key} className="overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm">
-                <figcaption className="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
-                  <h4 className="font-semibold text-neutral"><SiteText contentKey={brochure.title} /></h4>
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-primary underline underline-offset-4">Open full size<span className="sr-only">: {contentText(content, brochure.title)} (new tab)</span></a>
-                </figcaption>
-                <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open ${contentText(content, brochure.title)} at full size (new tab)`}>
-                  <SiteImage skeleton contentKey={brochure.key} alt={brochure.alt} width={brochure.width} height={brochure.height} sizes="(min-width: 768px) 50vw, 100vw" className="h-auto w-full" />
-                </a>
-              </figure>
-            );
-          })}
-        </div>
       </div>
     </section>
   );

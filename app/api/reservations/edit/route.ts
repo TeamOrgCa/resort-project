@@ -1,10 +1,12 @@
+import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadReservationEditor } from "@/lib/server/reservation-editor";
-import { previewReservationEdit, uuidPattern } from "@/lib/booking/reservation-edit";
+import { previewReservationEdit, serviceSelectionsChanged, uuidPattern } from "@/lib/booking/reservation-edit";
 import { guestEditRestriction, parseGuestBookingEdit, type GuestEditDetail } from "@/lib/booking/guest-edit";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
+import { emailUpdatedBillingStatement } from "@/lib/server/billing-email";
 
 async function ownedDetail(request: Request) {
   const id = new URL(request.url).searchParams.get("reservationId") ?? "";
@@ -47,6 +49,8 @@ export async function POST(request: Request) {
     const restriction = guestEditRestriction(detail, edit);
     if (restriction) return NextResponse.json({ message: restriction }, { status: 409 });
     const r = detail.reservation;
+    const quantityError = serviceQuantityError(edit.services, detail.catalogServices, detail.services);
+    if (quantityError) return NextResponse.json({ message: quantityError }, { status: 400 });
     const preview = previewReservationEdit(r, detail.bill, detail.services, detail.catalogServices,
       { ...edit, bookingMode: r.booking_mode, startDatetime: r.start_datetime, endDatetime: r.end_datetime }, detail.packageRates);
     if (Math.abs(preview.total - edit.expectedTotal) > 0.001) return NextResponse.json({ message: "The bill changed. Reload and review the new total." }, { status: 409 });
@@ -62,6 +66,11 @@ export async function POST(request: Request) {
         title: "Booking updated", message: `Guest counts or services for ${r.reference_number} were updated. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
         entityType: "reservation", entityId: id, guestActionUrl: "/manage", staffActionUrl: "/admin/reservations" });
     } catch { /* The audited bill is committed; notification delivery must not prompt duplicate saves. */ }
-    return NextResponse.json({ success: true, ...data, message: "Booking updated. Your total and remaining balance have been recalculated." });
+    const billChanged = r.adult_count !== edit.adultCount || r.child_count !== edit.childCount
+      || serviceSelectionsChanged(detail.services, edit.services) || Number(data.totalAmount) !== Number(detail.bill.total_amount);
+    const billingEmail = billChanged ? await emailUpdatedBillingStatement(id, Number(data.totalAmount)) : undefined;
+    const emailMessage = billingEmail ? (billingEmail.sent ? " Updated billing statement emailed." : ` Updated billing statement was not emailed. ${billingEmail.error ?? "Check email delivery settings."}`) : "";
+    return NextResponse.json({ success: true, ...data, billingEmail,
+      message: `Booking updated. Your total and remaining balance have been recalculated.${emailMessage}` });
   } catch (error) { return NextResponse.json({ message: error instanceof Error ? error.message : "Unable to update this booking." }, { status: 503 }); }
 }

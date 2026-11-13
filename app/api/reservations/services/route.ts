@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
+import { emailUpdatedBillingStatement } from "@/lib/server/billing-email";
 
 type ServiceInput = { serviceId: string; quantity: number };
 type BillResult = { totalAmount: number; paidAmount: number; remainingBalance: number; status: string; addedCharge: number };
@@ -42,17 +43,21 @@ export async function POST(request: Request) {
   }
   const bill = data as BillResult;
   if (bill.addedCharge > 0) {
-    const notice = await createNotifications({
-      actorId: user.id, staffRoles: NOTIFICATION_AUDIENCES.reservation,
-      title: "Reservation services added",
-      message: `Additional services were added to a reservation. New balance: PHP ${Number(bill.remainingBalance).toFixed(2)}.`,
-      entityType: "reservation", entityId: payload.reservationId,
-      staffActionUrl: "/admin/transactions",
-    });
-    if (notice.error) console.warn("Failed to notify staff of additional service charge:", notice.error);
+    try {
+      const notice = await createNotifications({
+        actorId: user.id, staffRoles: NOTIFICATION_AUDIENCES.reservation,
+        title: "Reservation services added",
+        message: `Additional services were added to a reservation. New balance: PHP ${Number(bill.remainingBalance).toFixed(2)}.`,
+        entityType: "reservation", entityId: payload.reservationId,
+        staffActionUrl: "/admin/transactions",
+      });
+      if (notice.error) console.warn("Failed to notify staff of additional service charge:", notice.error);
+    } catch (cause) { console.warn("Services saved but staff notification failed:", cause); }
   }
-  return NextResponse.json({ success: true, reservationId: payload.reservationId, ...bill,
-    message: bill.remainingBalance > 0
+  const billingEmail = bill.addedCharge > 0 ? await emailUpdatedBillingStatement(payload.reservationId, Number(bill.totalAmount)) : undefined;
+  const emailMessage = billingEmail ? (billingEmail.sent ? " Updated billing statement emailed." : ` Updated billing statement was not emailed. ${billingEmail.error ?? "Check email delivery settings."}`) : "";
+  return NextResponse.json({ success: true, reservationId: payload.reservationId, ...bill, billingEmail,
+    message: (bill.remainingBalance > 0
       ? "Services added to your bill. Pay the new balance to receive a receipt for that payment."
-      : "Services updated. No balance remains." });
+      : "Services updated. No balance remains.") + emailMessage });
 }

@@ -1,3 +1,4 @@
+import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { computeBookingPricing } from "@/lib/booking/pricing";
@@ -57,6 +58,8 @@ interface UnitRow {
 }
 
 interface ServiceRow {
+  max_quantity?: number;
+  name?: string;
   service_id: string;
   price: number;
   is_active: boolean;
@@ -259,7 +262,7 @@ export async function POST(request: Request) {
     const { data: servicesData, error: servicesError } = uniqueServiceIds.length
       ? await staffContext.supabase
           .from("services")
-          .select("service_id, price, is_active")
+          .select("service_id, name, price, max_quantity, is_active")
           .in("service_id", uniqueServiceIds)
       : { data: [], error: null };
 
@@ -293,6 +296,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const quantityError = serviceQuantityError(selectedServices, [...servicesById.values()]);
+    if (quantityError) return NextResponse.json({ success: false, message: quantityError }, { status: 400 });
 
     const guestId: string | null = null;
     let walkInGuestId: string | null = null;
