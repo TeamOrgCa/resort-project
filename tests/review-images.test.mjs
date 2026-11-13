@@ -10,7 +10,7 @@ function multipart(file = photo(), details = payload) {
   if (file) form.set("image", file);
   return new Request("http://localhost/api/reviews/create", { method: "POST", body: form });
 }
-function harness({ authenticated = true, guest = true, active = true, policy = { allowed: true }, policyError = null, insertError = null, uploadError = null, ownReservation = true, notificationFails = false } = {}) {
+function harness({ authenticated = true, guest = true, active = true, policy = { allowed: true }, policyError = null, insertError = null, uploadError = null, completedStay = true, ownReservation = true, linkedStatus = "completed", reservationError = null, notificationFails = false } = {}) {
   const uploads = [], removals = [], inserts = [];
   let adminCalls = 0;
   const storage = {
@@ -22,13 +22,17 @@ function harness({ authenticated = true, guest = true, active = true, policy = {
     auth: { getUser: async () => ({ data: { user: authenticated ? { id: guestId } : null }, error: null }) },
     from: table => {
       let inserting = false;
+      const filters = new Map();
       const query = {
-        select: () => query, eq: () => query, limit: () => query,
+        select: () => query, eq: (key,value) => { filters.set(key,value);return query; }, limit: () => query,
         maybeSingle: () => query.single(),
         insert: row => { inserting = true; inserts.push(row); return query; },
         single: async () => {
           if (table === "guests") return { data: guest ? { id: guestId, first_name: "Test", last_name: "Guest", is_active: active } : null, error: null };
-          if (table === "reservations") return { data: ownReservation ? { reservation_id: "reservation" } : null, error: null };
+          if (table === "reservations") {
+            assert.equal(filters.get("guest_id"),guestId);assert.equal(filters.get("status"),"completed");
+            return { data: (filters.has("reservation_id") ? ownReservation && linkedStatus === "completed" : completedStay) ? { reservation_id: "reservation" } : null, error: reservationError };
+          }
           assert.equal(table, "reviews");
           return { data: inserting ? insertError ? null : { review_id: "review", ...inserts.at(-1) } : null, error: inserting ? insertError : null };
         },
@@ -56,11 +60,20 @@ test("guest photo uploads use generated owned paths, validated content and the r
   assert.equal(h.removals.length, 0);
 });
 
-test("an active guest without any reservation can submit a general review with a photo", async () => {
-  const h = harness({ ownReservation: false });
+test("a guest without a completed stay cannot submit general feedback or upload a photo", async () => {
+  const h = harness({ completedStay: false });
   const response = await h.post(multipart());
-  assert.equal(response.status, 201); assert.equal(h.uploads.length, 1); assert.equal(h.inserts.length, 1);
-  assert.equal(h.inserts[0].reservation_id, null);
+  assert.equal(response.status,403);assert.equal((await response.json()).code,"COMPLETED_STAY_REQUIRED");
+  assert.equal(h.uploads.length,0);assert.equal(h.inserts.length,0);assert.equal(h.adminCalls(),0);
+});
+
+test("eligible guests cannot link an incomplete stay, and lookup failures stop submissions",async()=>{
+  for(const linkedStatus of ["pending","confirmed","cancelled","no_show","expired"]){
+    const h=harness({linkedStatus});const response=await h.post(multipart(photo(),{...payload,reservation_id:guestId}));
+    assert.equal(response.status,400);assert.equal(h.uploads.length,0);assert.equal(h.inserts.length,0);
+  }
+  const h=harness({reservationError:{message:"Lookup unavailable"}});
+  assert.equal((await h.post(multipart())).status,503);assert.equal(h.uploads.length,0);
 });
 
 test("text-only reviews remain supported and clients cannot attach a forged stored path", async () => {

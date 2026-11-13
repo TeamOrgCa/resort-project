@@ -448,14 +448,14 @@ export default function Reviews() {
                     </div>}
                   </div>
 
-                  {/* Optional reservation link */}
+                  {/* Only completed stays are eligible for linking. */}
                   <div>
-                    <label htmlFor="review-reservation" className="block text-sm font-medium text-neutral/70 mb-2">Reservation (optional)</label>
+                    <label htmlFor="review-reservation" className="block text-sm font-medium text-neutral/70 mb-2">Completed stay (optional)</label>
                     <select id="review-reservation"
                       value={formData.reservationId}
                       onChange={(e) => setFormData({ ...formData, reservationId: e.target.value })}
                       className="w-full px-4 py-3 rounded-lg border border-neutral/20 bg-white text-black focus:border-primary focus:outline-none"
-                    ><option value="">General feedback (no reservation linked)</option>{guestReservations.map(stay => <option key={stay.reservation_id} value={stay.reservation_id}>{stay.reference_number} — {new Date(stay.end_datetime).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</option>)}</select>
+                    ><option value="">General feedback about my completed stay</option>{guestReservations.map(stay => <option key={stay.reservation_id} value={stay.reservation_id}>{stay.reference_number} — {new Date(stay.end_datetime).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</option>)}</select>
                   </div>
 
                   {/* Would Recommend */}

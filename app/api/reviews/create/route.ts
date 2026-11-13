@@ -4,7 +4,7 @@ import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications
 import { createAdminClient } from "@/lib/supabase/admin";
 import { contentImageExtension } from "@/lib/settings/content-images";
 import { REVIEW_IMAGE_BUCKET, REVIEW_IMAGE_MAX_BYTES, REVIEW_IMAGE_HELP } from "@/lib/reviews/images";
-import { reviewRetrySeconds } from "@/lib/reviews/submission-policy";
+import { REVIEW_COMPLETED_STAY_REQUIRED, reviewRetrySeconds } from "@/lib/reviews/submission-policy";
 
 export async function POST(request: NextRequest) {
   let uploadedPath: string | null = null;
@@ -135,12 +135,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Enter a valid reservation ID or leave it blank." }, { status: 400 });
     }
 
-    // Linking a reservation is optional; any linked reservation must be owned.
+    // Enforce eligibility before uploads even if the database has not yet been
+    // migrated. A passed date or a checked-in booking is not a completed stay.
+    const { data: completedStay, error: completedError } = await supabase.from("reservations")
+      .select("reservation_id").eq("guest_id", user.id).eq("status", "completed").limit(1).maybeSingle();
+    if (completedError) return NextResponse.json({ error: "Unable to verify your completed stay. Please try again." }, { status: 503 });
+    if (!completedStay) return NextResponse.json({ error: REVIEW_COMPLETED_STAY_REQUIRED, code: "COMPLETED_STAY_REQUIRED" }, { status: 403 });
+
+    // Eligible guests may leave general feedback; linked stays must also be
+    // their own completed reservations, even when another stay qualifies them.
     if (reservation_id) {
       const { data: reservation, error: reservationError } = await supabase.from("reservations")
-        .select("reservation_id").eq("guest_id", user.id).eq("reservation_id", reservation_id).maybeSingle();
+        .select("reservation_id").eq("guest_id", user.id).eq("status", "completed").eq("reservation_id", reservation_id).maybeSingle();
       if (reservationError) return NextResponse.json({ error: "Unable to verify your reservation. Please try again." }, { status: 503 });
-      if (!reservation) return NextResponse.json({ error: "Choose one of your own reservations or leave the reservation field blank." }, { status: 400 });
+      if (!reservation) return NextResponse.json({ error: "Choose one of your own completed stays or leave the reservation field blank." }, { status: 400 });
     }
 
     // Preflight avoids unnecessary uploads. The database trigger checks again
@@ -148,7 +156,7 @@ export async function POST(request: NextRequest) {
     const { data: policy, error: policyError } = await supabase.rpc("review_submission_status", { p_title: title.trim(), p_text: review_text.trim() });
     if (policyError) return NextResponse.json({ error: ["PGRST202", "42883"].includes(policyError.code)
       ? "Review submissions need the feedback management migration. Please contact the resort."
-      : "Unable to check review submission limits. Please try again." }, { status: policyError.code === "42501" ? 403 : 503 });
+      : policyError.code === "42501" ? REVIEW_COMPLETED_STAY_REQUIRED : "Unable to check review submission limits. Please try again." }, { status: policyError.code === "42501" ? 403 : 503 });
     if (!policy?.allowed) {
       const limited = policy?.code === "REVIEW_RATE_LIMITED", retryAfter = reviewRetrySeconds(policy?.retryAfter);
       return NextResponse.json({ error: policy?.message ?? "Unable to submit this review.", code: policy?.code,
@@ -199,8 +207,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: insertError.message, code: "REVIEW_RATE_LIMITED", retryAfter }, { status: 429, headers: { "Retry-After": String(retryAfter) } });
       }
       if (insertError?.code === "P0409") return NextResponse.json({ error: insertError.message, code: "DUPLICATE_REVIEW" }, { status: 409 });
-      if (insertError?.code === "42501") return NextResponse.json({ error: "An active guest account is required to submit a review. Linked reservations must belong to your account." }, { status: 403 });
-      if (insertError?.code === "23505") return NextResponse.json({ error: "A review already exists for this reservation. For another experience, leave the reservation field blank or use another reservation." }, { status: 409 });
+      if (insertError?.code === "42501") return NextResponse.json({ error: "An active guest account with a completed stay is required. Linked reservations must be your own completed stays." }, { status: 403 });
+      if (insertError?.code === "23505") return NextResponse.json({ error: "A review already exists for this completed stay. Choose another completed stay or leave general feedback within the submission limits." }, { status: 409 });
       if (insertError?.code === "PGRST204" || insertError?.code === "42703") return NextResponse.json({ error: "Review photos are temporarily unavailable. Please try again later or submit your review without a photo." }, { status: 503 });
       return NextResponse.json(
         { error: "Failed to create review. Please try again." },

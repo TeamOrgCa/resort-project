@@ -1,3 +1,5 @@
+-- HISTORICAL: superseded by review-completed-stay-required-migration.sql.
+-- Do not reapply this file alone to a current deployment.
 -- Apply after review-feedback-management and stay-completion migrations.
 -- Active guests can review without a completed stay or any reservation.
 -- Preserve ownership checks, cooldowns, quotas and duplicate-review rules.

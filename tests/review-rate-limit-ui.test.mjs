@@ -31,17 +31,18 @@ test("review rate-limit errors appear in a popup with the retry time and retain 
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; }
 });
 
-test("review form requires an active guest account and allows feedback without a reservation", async () => {
+test("review form blocks guests until a completed stay exists and lists eligible stays", async () => {
   const originalFetch = globalThis.fetch; let eligible = false;
-  globalThis.fetch = async url => String(url).includes("/eligibility") ? Response.json({ eligible, message: "Sign in with an active guest account.", reservations: [] }) : Response.json({ reviews: [] });
+  globalThis.fetch = async url => String(url).includes("/eligibility") ? Response.json({ eligible, message: "Complete a resort stay before submitting a review.", reservations: eligible ? [{reservation_id:"completed",reference_number:"MV-COMPLETED",end_datetime:"2026-11-13T08:00:00Z"}] : [] }) : Response.json({ reviews: [] });
   const Component = loadTsModule("app/reviews/page.tsx", { "@/components/Navigation": () => null, "@/components/Footer": () => null, "next/image": () => null, "next/link": ({ href, children }) => createElement("a", { href }, children) }).default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   try {
     await act(async () => root.render(createElement(Component)));
     await act(async () => button(container, "Write a Review").click());
-    assert.equal(container.querySelector("form"), null); assert.match(container.querySelector('[role="alert"]').textContent, /active guest account/);
+    assert.equal(container.querySelector("form"), null); assert.match(container.querySelector('[role="alert"]').textContent, /Complete a resort stay/);
     eligible = true; await act(async () => button(container, "Write a Review").click());
     assert.ok(container.querySelector("form")); assert.match(container.querySelector("#review-reservation").textContent, /General feedback/);
     assert.equal(container.querySelector("#review-reservation").value, "");
+    assert.match(container.textContent,/Only guests with a completed stay/);assert.match(container.querySelector("#review-reservation").textContent,/MV-COMPLETED/);
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; }
 });
