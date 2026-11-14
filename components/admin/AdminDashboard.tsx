@@ -105,7 +105,7 @@ export default function AdminDashboard() {
           {[
             { label: "Arrivals today", value: dashboard.arrivalsToday.toLocaleString("en-PH"), help: "Active reservations starting today, including payment holds still valid." },
             { label: "Scheduled now", value: dashboard.scheduledNow.toLocaleString("en-PH"), help: "Confirmed bookings within their stay times; not a check-in attendance count." },
-            { label: "Collections today", value: money(dashboard.collectionsToday), help: `${dashboard.verifiedToday} verified payments. Money received before refunds.` },
+            { label: "Collections today", value: money(dashboard.collectionsToday), help: `${dashboard.verifiedToday} received payments, including public access. Before refunds.` },
             { label: "Bookings created", value: dashboard.bookingsCreated.toLocaleString("en-PH"), help: "Last 7 days, including today. All reservation statuses." },
           ].map(item => <article key={item.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-sm font-medium text-neutral/65">{item.label}</p><p className="metric-value mt-2 text-xl sm:text-3xl font-semibold tracking-tight">{item.value}</p><p className="mt-2 text-xs leading-relaxed text-neutral/60">{item.help}</p></article>)}
         </div>

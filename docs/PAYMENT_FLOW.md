@@ -1,18 +1,32 @@
-# Booking payments, GCash OCR and excess refunds
+# Booking payments, manual review, GCash OCR and excess refunds
+
+## Public access collections
+
+Cashiers use **Transactions → Transaction Ledger → New payment** for public swimming, cottage and room usage, entering guest/contact, usage, Payment for notes, received amount and method. Private reservations use their row's **Settle payment** action. Public collections have their own receipt/audit records and are included alongside verified private payments in Sales Report, dashboard and analytics. Ledger/receipts and Sales Report provide **All collections / Public access / Private booking** source filters. Apply [public-access-sales-migration.sql](public-access-sales-migration.sql) before deployment; see [Public access collections](PUBLIC_ACCESS_SALES.md) for details.
 
 ## Guest payments
 
+### Billing statements and receipt emails
+
+After a saved service addition/removal or another bill-affecting reservation edit, the system emails an **Updated Billing Statement** and PDF containing current itemized charges, verified payments, remaining balance and update time. Notes-only and unchanged edits do not resend it. Pending bookings can receive a statement using their booking reference before an invoice exists. Delivery respects Configuration > Receipt settings > emailEnabled and requires a guest email address; delivery failures are reported without undoing the saved edit. No new table or migration is required.
+
+Payment receipts remain records of each verified payment. Editing services does not issue or resend a receipt and does not change historical receipt amounts or balances. Newly sent receipt emails and PDFs include the **payment method**, **payment reference**, and **paid-at date/time in Philippine time**. The provider timestamp is preferred, with the saved payment timestamp as fallback; missing historical fields read **Not recorded**. Previously delivered emails cannot be changed.
+
 1. Saving `/booking/details` creates a reservation with the server-calculated bill.
-2. `/booking/payment` accepts GCash only. Before any verified payment, guests choose the **minimum 20% down payment** (rounded up to a cent) or the **full outstanding balance**. After a verified payment, only the outstanding balance is offered.
+2. `/booking/payment` accepts active non-cash catalog methods with configured receiving accounts. GCash retains conditional automatic approval; other methods require manual review. Before any verified payment, guests choose the **minimum 20% down payment** (rounded up to a cent) or the **full outstanding balance**. After a verified payment, only the outstanding balance is offered.
 3. **Amount sent** must equal the amount printed on the receipt and meet the selected minimum. A receipt for less than the minimum is rejected. A larger payment is saved at its actual amount, including payments above the entire bill.
 4. After staff approval, the actual payment reduces the remaining balance. For example, a PHP 1,500 receipt against a PHP 1,000 minimum and PHP 3,000 bill leaves PHP 1,500 owing. A PHP 3,500 payment against a PHP 3,000 bill produces PHP 500 of refundable excess.
 5. Guests return through `/manage` to pay a remaining balance or request a refund of verified excess. Pending payments block another submission and a refund request until staff finishes reviewing them.
 
 The minimum remains 20%; the illustrative PHP 1,000 example does not change that policy. `lib/booking/payment-policy.ts` owns rounding and money validation. Both guest APIs check server totals; a database insert guard rechecks the current bill after OCR, holding reservation and transaction locks. Existing staff/manual payment entry retains its separate workflow.
 
-## Required receipt checks
+## Other non-cash methods
 
-Upload the **original screenshot taken directly in GCash**, as a clear, complete PNG, JPEG or WebP up to 8 MB, to the guest's folder in the private `payment-proofs` bucket. Photos of another phone, scans, blurred images and edited receipts are not accepted. Select the original screenshot from the gallery rather than photographing a screen. The server runs image checks and the bundled Tesseract worker and English model. All these checks must pass before either guest API inserts a pending payment:
+Configure the active method and receiving account in Business Catalog. Guest checkout and balance payments accept owned, decodable PNG/JPEG/WebP proof images up to 8 MB without running OCR. The service-only manual-submission RPC rechecks account/method, ownership, current bill, deadline, initial minimum and pending reviews. It stores pending evidence with no verified credit, no receipt, no extracted time and no automatic-approval marker. Cashier approval requires opening the proof and explicitly acknowledging matched actual received funds. Cash remains staff-only. Apply `docs/guest-payment-methods-migration.sql` before deployment; see [GUEST_PAYMENT_METHODS.md](GUEST_PAYMENT_METHODS.md).
+
+## GCash receipt checks
+
+Upload the **original screenshot taken directly in GCash**, as a clear, complete PNG, JPEG or WebP up to 8 MB, to the guest's folder in the private `payment-proofs` bucket. Photos of another phone, scans, blurred images and edited receipts are not accepted. Select the original screenshot from the gallery rather than photographing a screen. The server runs image checks and the bundled Tesseract worker and English model. For GCash, all these checks must pass before either guest API inserts a pending payment:
 
 - A valid single-frame image, at least 320 pixels on its shorter side and 480 on its longer side. Camera-specific EXIF tags, substantial photo-like pixel texture and heavy compression are rejected. Ordinary screenshot software/orientation metadata is allowed. Native-resolution sampling does not resize away camera noise.
 - Readable text: overall OCR confidence at least 75, numeric words in payment amount, reference, recipient-phone and date/time fields at least 80 with a height of at least 12 native pixels, and no multiple tilted long text lines. Decorative carbon statistics do not trigger payment-number rejection. Up to six uncertain transaction lines may be cropped from the original screenshot, normalized and enlarged for a focused OCR retry; the same confidence and native-size requirements still apply. No form/account values are supplied to OCR. Missing numeric fields or OCR geometry fail closed.
@@ -24,7 +38,7 @@ Upload the **original screenshot taken directly in GCash**, as a clear, complete
 
 Dates support English abbreviated/full months, month-first and day-first named dates, ISO dates, numeric MM/DD/YYYY, 12/24-hour clocks, and a date followed by a separate Time line. Compact named dates such as `Oct13,2026 6:22PM` are allowed when OCR loses spaces. All unzoned timestamps are explicitly interpreted as Philippine time, independently of the server timezone.
 
-Failed receipt checks return `422 RECEIPT_VALIDATION_FAILED` (or `INVALID_PAYMENT_PROOF` for unrelated/failed images). OCR failure returns `503 PROOF_SCREENING_UNAVAILABLE`. No mismatched or unreadable new guest receipt is silently saved for manual review. Guests can correct the entered amount/reference or upload a clearer complete receipt and retry.
+Failed receipt checks return `422 RECEIPT_VALIDATION_FAILED` (or `INVALID_PAYMENT_PROOF` for unrelated/failed images). OCR failure returns `503 PROOF_SCREENING_UNAVAILABLE`. No mismatched or unreadable GCash receipt is silently saved for manual review. Guests can correct the entered amount/reference or upload a clearer complete receipt and retry.
 
 Accepted receipts store `ocr_status = consistent`, notes, screening time and `receipt_paid_at`. The staff payment review modal displays the extracted receipt time in Philippine time. Older/manual payments can have no extracted receipt time and retain their existing review lanes.
 

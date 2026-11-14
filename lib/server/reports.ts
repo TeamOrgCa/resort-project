@@ -5,6 +5,7 @@ import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { fetchAllPages } from "@/lib/server/fetch-all-pages";
 import { parseReportPeriod, reportBucket, reportWindow } from "@/lib/reports/periods";
 import type { ReportData, ReportMetric, ReportRow, ReportTab } from "@/lib/reports/types";
+import { PUBLIC_ACCESS_TYPES, SALES_SOURCES, type PublicAccessSale, type SalesSource } from "@/lib/public-access/sales";
 export type { ReportTab } from "@/lib/reports/types";
 
 type Window = ReturnType<typeof reportWindow>;
@@ -53,23 +54,30 @@ async function reservations(client: Client, window: Window) {
     .gte("created_at", window.start.toISOString()).lt("created_at", window.end.toISOString()).order("created_at").order("reservation_id").range(from, to));
 }
 
-async function salesReport(client: Client, window: Window, now: Date): Promise<ReportData> {
+async function salesReport(client: Client, window: Window, now: Date, source: SalesSource): Promise<ReportData> {
   const start = window.start.toISOString(), end = window.end.toISOString();
-  const [payments, bookings] = await Promise.all([
-    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id, amount, payment_type, created_at, verified_at")
+  const [payments, bookings, admissions] = await Promise.all([
+    source === "public" ? Promise.resolve([] as Payment[]) : fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id, amount, payment_type, created_at, verified_at")
       .eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`)
-      .order("created_at").order("payment_id").range(from, to)), reservations(client, window),
+      .order("created_at").order("payment_id").range(from, to)), source === "public" ? Promise.resolve([] as Reservation[]) : reservations(client, window),
+    source === "private" ? Promise.resolve([] as Pick<PublicAccessSale,"sale_id"|"amount"|"access_type"|"paid_at">[]) : fetchAllPages<Pick<PublicAccessSale,"sale_id"|"amount"|"access_type"|"paid_at">>((from,to)=>client.from("public_access_sales")
+      .select("sale_id,amount,access_type,paid_at").gte("paid_at",start).lt("paid_at",end).order("paid_at").order("sale_id").range(from,to)),
   ]);
-  const values = trend(window, payments.map(p => ({ date: p.verified_at ?? p.created_at, value: number(p.amount) })));
-  const counts = trend(window, payments.map(p => ({ date: p.verified_at ?? p.created_at, value: 1 })));
+  const privateValues=payments.map(p=>({date:p.verified_at??p.created_at,value:number(p.amount)})), publicValues=admissions.map(p=>({date:p.paid_at,value:number(p.amount)}));
+  const values = trend(window, [...privateValues,...publicValues]);
+  const privateTrend=trend(window,privateValues), publicTrend=trend(window,publicValues), admissionCounts=trend(window,admissions.map(p=>({date:p.paid_at,value:1})));
+  const counts = trend(window, [...payments.map(p => ({ date: p.verified_at ?? p.created_at, value: 1 })),...admissions.map(p=>({date:p.paid_at,value:1}))]);
   const bookingCounts = trend(window, bookings.map(r => ({ date: r.created_at, value: 1 })));
   const byType = new Map<string, number>();
   const types: Record<string, string> = { downpayment: "Down payments", full: "Full / balance payments", additional: "Additional payments" };
   for (const p of payments) { const label = types[p.payment_type] ?? "Other payments"; byType.set(label, (byType.get(label) ?? 0) + number(p.amount)); }
+  for(const sale of admissions){const label=PUBLIC_ACCESS_TYPES[sale.access_type]??"Public access";byType.set(label,(byType.get(label)??0)+number(sale.amount));}
+  const publicTotal=rounded(admissions.reduce((sum,p)=>sum+number(p.amount),0)),privateTotal=rounded(payments.reduce((sum,p)=>sum+number(p.amount),0));
   return { ...base(window, now), trend: values, split: [...byType].map(([label, value]) => ({ label, value: rounded(value) })),
-    metrics: [metric("Payments collected", rounded(payments.reduce((sum, p) => sum + number(p.amount), 0)), "Verified payments before refunds", "money"), metric("Verified payments", payments.length, "Payments approved during these dates"), metric("Reservations created", bookings.length, "All reservation statuses included")],
-    rows: values.map((item, index) => ({ id: `sales-${index}`, label: item.label, periodStart: window.boundaries[index].toISOString(), revenue: money.format(item.value), payments: String(counts[index].value), bookings: String(bookingCounts[index].value) })),
-    note: "Collections use the payment approval date; legacy payments without that date use their submission date. Refunds are separate from these gross collections. Booking counts use reservation creation dates and include all statuses.",
+    metrics: [metric("Payments collected", rounded(publicTotal+privateTotal), "Gross received collections before refunds", "money"), metric("Received payments", payments.length+admissions.length, "Verified private payments and cashier-recorded public collections"), metric("Private reservations created", bookings.length, "All private reservation statuses included"),
+      metric("Public access collections",publicTotal,"Swimming, cottage and room usage payments","money"),metric("Private booking collections",privateTotal,"Verified reservation payments","money"),metric("Public access sales",admissions.length,"Collection records, not a count of swimmers")],
+    rows: values.map((item, index) => ({ id: `sales-${index}`, collectionSource: SALES_SOURCES[source], label: item.label, periodStart: window.boundaries[index].toISOString(), revenue: money.format(item.value), publicRevenue:money.format(publicTrend[index].value),privateRevenue:money.format(privateTrend[index].value),payments: String(counts[index].value), publicAdmissions:String(admissionCounts[index].value),bookings: String(bookingCounts[index].value) })),
+    note: `Collection source: ${SALES_SOURCES[source]}. Private collections use payment approval dates; legacy payments without that date use submission dates. Public collections use their server-recorded paid-at dates. These are gross collections before refunds. Booking counts use private reservation creation dates and include all statuses; public access does not create a reservation.`,
   };
 }
 
@@ -127,10 +135,12 @@ async function staffReport(client: Client, window: Window, now: Date): Promise<R
 export async function generateReport(request: Request, tab: ReportTab) {
   try {
     const params = new URL(request.url).searchParams, period = parseReportPeriod(params.get("period"));
+    const source=params.get("source")??"all";
+    if(tab==="Sales Report"&&!Object.hasOwn(SALES_SOURCES,source))return NextResponse.json({success:false,message:"Choose All collections, Public access or Private booking."},{status:400});
     const now = new Date();
     const window = reportWindow(period, period === "Custom" ? { startDate: params.get("startDate") ?? "", endDate: params.get("endDate") ?? "" } : undefined, now);
     const client = createAdminClient();
-    const report = tab === "Sales Report" ? await salesReport(client, window, now) : tab === "Guest Report" ? await guestReport(client, window, now) : await staffReport(client, window, now);
+    const report = tab === "Sales Report" ? await salesReport(client, window, now, source as SalesSource) : tab === "Guest Report" ? await guestReport(client, window, now) : await staffReport(client, window, now);
     return NextResponse.json({ success: true, report }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof InvalidDateRangeError) return NextResponse.json({ success: false, message: error.message }, { status: 400 });

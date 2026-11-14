@@ -43,6 +43,9 @@ import { loadReservationGuestNames } from "@/lib/booking/reservation-guest-names
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import { resolveDateRange, withinDateRange, type DatePreset } from "@/lib/admin/date-range";
 
+import PublicAccessPaymentDialog from "@/components/admin/transactions/PublicAccessPaymentDialog";
+import { PUBLIC_SALE_COLUMNS, PUBLIC_ACCESS_TYPES, SALES_SOURCES, type PublicAccessSale, type SalesSource } from "@/lib/public-access/sales";
+
 interface PaymentSnapshotRow {
   payment_id: string;
   reservation_id: string;
@@ -70,8 +73,10 @@ const paymentReviewLane = (status: PaymentSnapshotRow["ocr_status"]) => {
 const transactionTabs = ["Transaction Ledger", "Payment Verification Queue", "Refund Requests", "Generated Invoices", "Issued Receipts"] as const;
 
 const transactionColumns: AdminTableColumn[] = [
-  { key: "reference", label: "Reservation Ref" },
+  { key: "reference", label: "Booking / Collection Ref" },
   { key: "guest", label: "Guest name" },
+  { key: "collectionSource", label: "Collection source" },
+  { key: "paymentFor", label: "Payment for" },
   { key: "bookingType", label: "Booking Type" },
   { key: "total", label: "Total Amount" },
   { key: "paid", label: "Paid Amount" },
@@ -90,9 +95,10 @@ const invoiceColumns: AdminTableColumn[] = [
 ];
 
 const receiptColumns: AdminTableColumn[] = [
+  { key: "collectionSource", label: "Collection source" },
   { key: "receiptNumber", label: "Receipt No." },
   { key: "guest", label: "Guest name" },
-  { key: "reference", label: "Reservation Ref" },
+  { key: "reference", label: "Booking / Collection Ref" },
   { key: "paymentReference", label: "Payment Ref" },
   { key: "issuedAt", label: "Issued At" },
   { key: "status", label: "Status" },
@@ -185,6 +191,10 @@ export default function AdminTransactionsPage() {
   const dateFilterKey = `${datePreset}:${dateRange.start}:${dateRange.end}:${dateRange.error}`;
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [publicSales,setPublicSales]=useState<PublicAccessSale[]>([]);
+  const [collectionSource,setCollectionSource]=useState<SalesSource>("all");
+  const [showPublicPayment,setShowPublicPayment]=useState(false);
+  const [canRecordPublic,setCanRecordPublic]=useState(false);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
@@ -240,13 +250,16 @@ export default function AdminTransactionsPage() {
             const role = staffRole.role as StaffRole;
             const { data: grants } = role === "admin" ? { data: null } : await supabase.from("role_permissions").select("permissions").eq("role", role).maybeSingle();
             if (isMounted) setCanReviewPayments(hasPermission(role, grants?.permissions ?? [], "payment_approval"));
-            if (isMounted) setCanRecordPayments(hasPermission(role, grants?.permissions ?? [], "payment_entry"));
+            if (isMounted) { setCanRecordPayments(hasPermission(role, grants?.permissions ?? [], "payment_entry")); setCanRecordPublic(role === "cashier" && hasPermission(role, grants?.permissions ?? [], "payment_entry") && hasPermission(role, grants?.permissions ?? [], "transactions")); }
           }
         }
 
         const activeMethods = await fetchAllPages<StaffPaymentMethod>((from, to) => supabase.from("payment_methods")
           .select("payment_method_id, name, type, is_active").eq("is_active", true).order("name").order("payment_method_id").range(from, to));
         if (isMounted) setPaymentMethods(activeMethods);
+
+        const publicCollections=await fetchAllPages<PublicAccessSale>((from,to)=>supabase.from("public_access_sales").select(PUBLIC_SALE_COLUMNS).order("paid_at",{ascending:false}).order("sale_id").range(from,to));
+        if(isMounted)setPublicSales(publicCollections);
 
         const transactionList = await fetchAllPages<TransactionRow>((from, to) => supabase.from("transactions")
           .select("transaction_id, reservation_id, total_amount, paid_amount, balance, overpaid_amount, status, created_at, updated_at")
@@ -338,19 +351,23 @@ export default function AdminTransactionsPage() {
     };
   }, [refreshRevision]);
 
-  const matchingTransactions = useMemo(() => transactions.filter(item => withinDateRange(item.updated_at, dateRange)), [transactions, dateRange]);
+  const matchingTransactions = useMemo(() => transactions.filter(item => collectionSource!=="public" && withinDateRange(item.updated_at, dateRange)), [transactions, dateRange,collectionSource]);
   const matchingInvoices = useMemo(() => invoices.filter(item => withinDateRange(item.created_at, dateRange)), [invoices, dateRange]);
-  const matchingReceipts = useMemo(() => receipts.filter(item => withinDateRange(item.issued_at, dateRange)), [receipts, dateRange]);
+  const matchingReceipts = useMemo(() => receipts.filter(item => collectionSource!=="public" && withinDateRange(item.issued_at, dateRange)), [receipts, dateRange,collectionSource]);
   const matchingPayments = useMemo(() => payments.filter(item => withinDateRange(item.paid_at, dateRange)), [payments, dateRange]);
+
+  const matchingPublicSales=useMemo(()=>publicSales.filter(sale=>collectionSource!=="private"&&withinDateRange(sale.paid_at,dateRange)),[publicSales,collectionSource,dateRange]);
+  const publicCollected=matchingPublicSales.reduce((sum,sale)=>sum+Number(sale.amount),0);
 
   const transactionRows: AdminTableRow[] = useMemo(
     () =>
-      matchingTransactions.map((transaction) => {
+      [...matchingTransactions.map((transaction) => {
         const totalAmount = Number(transaction.total_amount ?? 0);
         const paidAmount = Number(transaction.paid_amount ?? 0);
         const balanceAmount = Number(transaction.balance ?? 0);
 
         return {
+          collectionSource:"Private booking", paymentFor:"Private reservation",
           id: transaction.transaction_id,
           reference: reservationReferencesById[transaction.reservation_id] ?? "-",
           guest: guestNamesByReservationId[transaction.reservation_id] ?? "Guest unavailable",
@@ -362,8 +379,8 @@ export default function AdminTransactionsPage() {
           status: transaction.status === "cancelled" ? "Cancelled" : toTitleCase(deriveTransactionStatus(totalAmount, paidAmount, balanceAmount)),
           updatedAt: formatDateTime(transaction.updated_at),
         };
-      }),
-    [bookingTypesById, reservationReferencesById, guestNamesByReservationId, matchingTransactions]
+      }),...matchingPublicSales.map(sale=>({id:`public:${sale.sale_id}`,reference:sale.reference_number,guest:sale.guest_name,collectionSource:"Public access",paymentFor:sale.payment_for,bookingType:PUBLIC_ACCESS_TYPES[sale.access_type],total:formatCurrency(Number(sale.amount)),paid:formatCurrency(Number(sale.amount)),balance:formatCurrency(0),overpaid:formatCurrency(0),status:"Paid",updatedAt:formatDateTime(sale.paid_at)}))],
+    [bookingTypesById, reservationReferencesById, guestNamesByReservationId, matchingTransactions,matchingPublicSales]
   );
 
   const invoiceRows: AdminTableRow[] = useMemo(
@@ -381,7 +398,8 @@ export default function AdminTransactionsPage() {
 
   const receiptRows: AdminTableRow[] = useMemo(
     () =>
-      matchingReceipts.map((receipt) => ({
+      [...matchingReceipts.map((receipt) => ({
+        collectionSource:"Private booking",
         id: receipt.receipt_id,
         receiptNumber: receipt.receipt_number,
         guest: receipt.billed_to_name?.trim() || guestNamesByReservationId[paymentReservationById[receipt.payment_id] ?? ""] || "Guest unavailable",
@@ -389,8 +407,8 @@ export default function AdminTransactionsPage() {
         paymentReference: paymentReferencesById[receipt.payment_id] ?? "-",
         issuedAt: formatDateTime(receipt.issued_at),
         status: receipt.is_active === false ? "Archived" : receipt.archived_at ? "Archived" : "Active",
-      })),
-    [paymentReferencesById, paymentReservationById, matchingReceipts, reservationReferencesById, guestNamesByReservationId]
+      })),...matchingPublicSales.map(sale=>({id:`public:${sale.sale_id}`,collectionSource:"Public access",receiptNumber:sale.receipt_number,guest:sale.guest_name,reference:sale.reference_number,paymentReference:sale.payment_reference,issuedAt:formatDateTime(sale.paid_at),status:"Active"}))],
+    [paymentReferencesById, paymentReservationById, matchingReceipts, reservationReferencesById, guestNamesByReservationId,matchingPublicSales]
   );
 
   const paymentVerificationRows: AdminTableRow[] = useMemo(
@@ -429,21 +447,29 @@ export default function AdminTransactionsPage() {
     () => matchingTransactions.reduce((sum, item) => sum + Number(item.overpaid_amount ?? 0), 0),
     [matchingTransactions]
   );
-  const pendingVerifications = matchingPayments.filter(payment => payment.status === "pending").length;
+  const pendingVerifications = collectionSource === "public" ? 0 : matchingPayments.filter(payment => payment.status === "pending").length;
 
   const liveTransactionMetrics = useMemo(
     () => [
-      { label: "Recorded Bills", value: formatCurrency(totalDue), trend: "Historical totals; cancelled balances are not collectible" },
-      { label: "Collected", value: formatCurrency(collected), trend: `${totalDue > 0 ? ((collected / totalDue) * 100).toFixed(1) : 0}% collected` },
+      { label: "Recorded Bills", value: formatCurrency(totalDue+publicCollected), trend: "Historical totals; cancelled balances are not collectible" },
+      { label: "Collected", value: formatCurrency(collected+publicCollected), trend: "Public access received plus private net verified payments" },
       { label: "Outstanding", value: formatCurrency(outstanding), trend: "Requires follow-up" },
       { label: "Overpaid", value: formatCurrency(overpaid), trend: "Above billed totals" },
       { label: "Pending Verifications", value: String(pendingVerifications), trend: "Unresolved proofs in the selected payment date range" },
     ],
-    [collected, outstanding, overpaid, pendingVerifications, totalDue]
+    [collected, outstanding, overpaid, pendingVerifications, totalDue,publicCollected]
   );
 
+  const openPublicReceipt=(sale:PublicAccessSale,print=false)=>setViewDetails({title:"Public Access Receipt",kind:"receipt",printOnOpen:print,fields:[
+    {label:"Receipt No.",value:sale.receipt_number},{label:"Issued At",value:formatDateTime(sale.paid_at)},
+    {label:"Guest Name",value:sale.guest_name},{label:"Contact No.",value:sale.contact_number},{label:"Collection Ref",value:sale.reference_number},
+    {label:"Access Type",value:PUBLIC_ACCESS_TYPES[sale.access_type]},{label:"Payment for",value:sale.payment_for},
+    {label:"Payment Method",value:sale.payment_method_name},{label:"Payment Ref",value:sale.payment_reference},{label:"Paid At",value:formatDateTime(sale.paid_at)},
+    {label:"Amount Paid",value:formatCurrency(Number(sale.amount))},{label:"Collection Total",value:formatCurrency(Number(sale.amount))},{label:"Balance After Payment",value:formatCurrency(0)}]});
+
   const handleTransactionRowAction = (action: string, row: AdminTableRow) => {
-    if (action === "Record payment") {
+    if(row.id.startsWith("public:")){const sale=publicSales.find(s=>`public:${s.sale_id}`===row.id);if(sale&&action==="View")openPublicReceipt(sale);return;}
+    if (action === "Settle payment") {
       const transaction = transactions.find((item) => item.transaction_id === row.id);
       if (!canRecordPayments || !transaction || Number(transaction.balance ?? 0) <= 0 || !["pending", "confirmed"].includes(transaction.reservation_status ?? "")) return;
       setPaymentReservationId(transaction.reservation_id);
@@ -738,6 +764,7 @@ export default function AdminTransactionsPage() {
   };
 
   const handleReceiptRowAction = async (action: string, row: AdminTableRow) => {
+    if(row.id.startsWith("public:")){const sale=publicSales.find(s=>`public:${s.sale_id}`===row.id);if(sale)openPublicReceipt(sale,action==="Print");return;}
     if (action !== "View" && action !== "Print") {
       return;
     }
@@ -856,11 +883,11 @@ export default function AdminTransactionsPage() {
       {paymentMessage && <p role="status" className="mt-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-neutral">{paymentMessage}</p>}
 
       <section className="admin-panel mt-6">
-        <AdminTabs tabs={transactionTabs} value={activeTab} onChange={setActiveTab} label="Transaction sections" />
+        <AdminTabs tabs={transactionTabs} value={activeTab} onChange={tab=>{setActiveTab(tab);setCollectionSource("all");}} label="Transaction sections" />
 
         {activeTab !== "Refund Requests" && <p className="mb-4 text-xs leading-relaxed text-neutral/65">Tables include records in the selected date range with pagination. CSV exports include every row matching the date range, table search and filters.</p>}
         {activeTab === "Generated Invoices" && <p className="mb-4 text-sm text-neutral/70">Invoices are generated automatically from reservation billing. Refresh to load the latest documents, or select View to inspect an invoice.</p>}
-        {activeTab === "Issued Receipts" && <p className="mb-4 text-sm text-neutral/70">Receipts are issued automatically for verified payments. Select Print to print a receipt or save it as a PDF.</p>}
+        {activeTab === "Issued Receipts" && <p className="mb-4 text-sm text-neutral/70">Receipts are issued for verified private payments and cashier-recorded public collections. Select Print to print a receipt or save it as a PDF.</p>}
 
         <section aria-label="Transaction date filters" className="mb-5 border-b border-neutral/10 pb-4">
           <div className="flex flex-wrap items-end gap-3">
@@ -869,6 +896,7 @@ export default function AdminTransactionsPage() {
                 <option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="overall">Overall</option><option value="custom">Custom date</option>
               </select>
             </label>
+            {(activeTab==="Transaction Ledger"||activeTab==="Issued Receipts")&&<label className="text-sm font-medium">Collection source<select aria-label="Transaction collection source" value={collectionSource} onChange={e=>setCollectionSource(e.target.value as SalesSource)} className="admin-field mt-1 block">{Object.entries(SALES_SOURCES).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>}
             {datePreset === "custom" && <>
               <label className="min-w-0 flex-1 text-sm font-medium sm:max-w-52">Start date<input type="date" value={customStart} onChange={event => setCustomStart(event.target.value)} aria-invalid={Boolean(dateRange.error)} className="admin-field mt-1 w-full" /></label>
               <label className="min-w-0 flex-1 text-sm font-medium sm:max-w-52">End date<input type="date" min={customStart} value={customEnd} onChange={event => setCustomEnd(event.target.value)} aria-invalid={Boolean(dateRange.error)} className="admin-field mt-1 w-full" /></label>
@@ -884,21 +912,19 @@ export default function AdminTransactionsPage() {
             title="Transaction Ledger"
             columns={transactionColumns}
             rows={transactionRows}
-            paginationResetKey={dateFilterKey}
+            paginationResetKey={`${dateFilterKey}:${collectionSource}`}
             defaultSort={{ key: "updatedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid", "Cancelled"] }]}
-            actions={canRecordPayments ? ["Refresh ledger", "New payment", "Export Ledger"] : ["Refresh ledger", "Export Ledger"]}
-            rowActions={canRecordPayments ? ["View", "Record payment"] : ["View"]}
-            isRowActionDisabled={(action, row) => action === "Record payment" && !transactions.some(item => item.transaction_id === row.id && Number(item.balance ?? 0) > 0 && ["pending", "confirmed"].includes(item.reservation_status ?? ""))}
+            actions={canRecordPublic ? ["Refresh ledger", "New payment", "Export Ledger"] : ["Refresh ledger", "Export Ledger"]}
+            rowActions={canRecordPayments ? ["View", "Settle payment"] : ["View"]}
+            isRowActionDisabled={(action, row) => action === "Settle payment" && !transactions.some(item => item.transaction_id === row.id && Number(item.balance ?? 0) > 0 && ["pending", "confirmed"].includes(item.reservation_status ?? ""))}
             isLoading={isLoading}
             hasError={Boolean(fetchError)}
             onAction={(action, rows) => {
               if (action === "Refresh ledger") { setRefreshRevision(revision => revision + 1); return; }
               if (action === "Export Ledger") { downloadReportCsv(transactionColumns, rows, "transaction-ledger.csv"); return; }
-              if (action !== "New payment" || !canRecordPayments) return;
-              const first = transactions.find((transaction) => Number(transaction.balance ?? 0) > 0 && ["pending", "confirmed"].includes(transaction.reservation_status ?? ""));
-              if (!first) { setFetchError("No reservation has an outstanding balance."); return; }
-              setPaymentReservationId(first.reservation_id);
+              if (action !== "New payment" || !canRecordPublic) return;
+              setShowPublicPayment(true);
             }}
             onRowAction={handleTransactionRowAction}
           />
@@ -951,7 +977,7 @@ export default function AdminTransactionsPage() {
             title="Issued Receipts"
             columns={receiptColumns}
             rows={receiptRows}
-            paginationResetKey={dateFilterKey}
+            paginationResetKey={`${dateFilterKey}:${collectionSource}`}
             defaultSort={{ key: "issuedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Active", "Archived"] }]}
             actions={["Refresh receipts", "Export receipts CSV"]}
@@ -982,6 +1008,9 @@ export default function AdminTransactionsPage() {
 
       {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)} /> : null}
 
+      {showPublicPayment&&<PublicAccessPaymentDialog methods={paymentMethods} onClose={()=>setShowPublicPayment(false)} onSaved={(sale,message)=>{
+        setShowPublicPayment(false);setPaymentMessage(`${message} Receipt ${sale.receipt_number}.`);setCollectionSource("public");setDatePreset("today");setRefreshRevision(n=>n+1);openPublicReceipt(sale);
+      }}/>}
       {paymentReservationId && <RecordPaymentDialog initialReservationId={paymentReservationId}
         bills={transactions} references={reservationReferencesById} methods={paymentMethods}
         onSaved={paymentSaved} onClose={() => setPaymentReservationId(null)} />}

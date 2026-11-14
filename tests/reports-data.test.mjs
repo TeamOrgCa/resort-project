@@ -57,6 +57,36 @@ test("sales include payments approved in the period, exclude pending/rejected pa
   assert.equal(response.headers.get("cache-control"), "no-store"); assert.match(report.note, /before|gross/);
 });
 
+test("sales reconcile public and private filters with Manila boundaries and complete pagination", async () => {
+  const sales = Array.from({ length: 1001 }, (_, i) => ({ sale_id: `s${i}`, amount: 10.25, access_type: i % 2 ? "cottage" : "swimming", paid_at: "2026-09-30T16:00:00Z" }));
+  sales.push({ sale_id: "room", amount: 500, access_type: "room", paid_at: "2026-10-03T15:59:59Z" },
+    { sale_id: "outside", amount: 99999, access_type: "mixed", paid_at: "2026-10-03T16:00:00Z" });
+  const tables = { public_access_sales: sales, payments: [{ payment_id: "p", amount: 2000, payment_type: "full", status: "verified", verified_at: "2026-10-02T01:00:00Z" }], reservations: [booking("r")] };
+  const reports = {};
+  for (const source of ["all", "public", "private"]) {
+    const h = harness(tables);
+    reports[source] = (await (await h.get("Sales Report", `period=Custom&startDate=2026-10-01&endDate=2026-10-03&source=${source}`)).json()).report;
+    const report = reports[source];
+    assert.equal(report.trend.reduce((sum, point) => sum + point.value, 0), report.metrics[0].value);
+    assert.equal(report.split.reduce((sum, point) => sum + point.value, 0), report.metrics[0].value);
+    if (source === "private") assert.ok(h.calls.every(call => call.table !== "public_access_sales"));
+    if (source === "public") {
+      assert.ok(h.calls.every(call => call.table === "public_access_sales"));
+      assert.ok(h.calls.some(call => call.from === 1000));
+    }
+  }
+  assert.equal(reports.public.metrics[0].value, 10760.25);
+  assert.equal(reports.public.metrics[1].value, 1002);
+  assert.equal(reports.public.metrics[2].value, 0, "Public sales must not become private reservations");
+  assert.equal(reports.private.metrics[0].value, 2000);
+  assert.equal(reports.all.metrics[0].value, reports.public.metrics[0].value + reports.private.metrics[0].value);
+  assert.match(reports.public.note, /Collection source: Public access/);
+  const invalid = harness();
+  assert.equal((await invalid.get("Sales Report", "source=unknown")).status, 400);
+  assert.equal(invalid.calls.length, 0);
+  assert.equal((await harness({}, "public_access_sales").get("Sales Report")).status, 500, "A failed source cannot silently understate collections");
+});
+
 test("guest report includes online and walk-in contact details and uses reservation history rather than signup date", async () => {
   const h = harness({ reservations: [booking("old", { created_at: "2026-09-01T01:00:00Z" }), booking("repeat"), booking("second"), booking("manual", { guest_id: null, walk_in_guest_id: "walk", booking_type: "walk_in", adult_count: 4, child_count: 2 }), booking("missing", { guest_id: "deleted", status: "cancelled" })], guests: [{ id: "guest", first_name: "Registered", last_name: "Guest", phone_number: "09170000000", email: "guest@example.com" }], walk_in_guests: [{ walk_in_guest_id: "walk", first_name: "Walk-in", last_name: "Guest", phone_number: "09171111111", email: "walk@example.com" }] });
   const { report } = await (await h.get("Guest Report")).json();

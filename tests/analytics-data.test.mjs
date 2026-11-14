@@ -18,6 +18,21 @@ function analytics(tables = {}) {
   return { generateAnalytics, calls };
 }
 const payment = (amount, extras = {}) => ({ amount, status: "verified", payment_type: "downpayment", created_at: "2026-10-01T01:00:00Z", verified_at: "2026-10-02T01:00:00Z", ...extras });
+
+test("analytics includes public collections in totals and estimates while keeping booking counts private", async () => {
+  const h = analytics({ payments: [payment(600)], public_access_sales: [
+    { sale_id: "public", access_type: "room", amount: 300, paid_at: "2026-09-30T16:00:00Z" },
+    { sale_id: "boundary", access_type: "swimming", amount: 9999, paid_at: "2026-10-03T16:00:00Z" },
+  ] });
+  const reports = await h.generateAnalytics("Custom", { startDate: "2026-10-01", endDate: "2026-10-03" });
+  assert.equal(reports.revenue.metrics[0].value, 900);
+  assert.equal(reports.revenue.metrics[1].value, 300);
+  assert.equal(reports.revenue.metrics[2].value, 300);
+  assert.equal(reports.revenue.split.find(point => point.label === "Room usage").value, 300);
+  assert.equal(reports.revenue.trend.reduce((sum, point) => sum + point.value, 0), 900);
+  assert.equal(reports.booking.metrics[0].value, 0);
+  assert.match(reports.revenue.note, /public collections use the server-recorded paid-at date/);
+});
 test("analytics uses verification dates, legacy fallback and selected calendar days for forecasts", async () => {
   const h = analytics({ payments: [payment(4500, { created_at: "2026-09-01T00:00:00Z" }), payment(1500, { verified_at: null }), payment(800, { status: "pending" }), payment(4000, { verified_at: "2026-10-04T01:00:00Z" })], reservations: [{ booking_type: "online", created_at: "2026-10-01T01:00:00Z" }, { booking_type: "walk_in", created_at: "2026-10-02T01:00:00Z" }, { booking_type: null, created_at: "2026-10-03T01:00:00Z" }] });
   const reports = await h.generateAnalytics("Custom", { startDate: "2026-10-01", endDate: "2026-10-03" }, new Date("2026-10-03T01:00:00Z"));
@@ -44,7 +59,7 @@ test("analytics paginates all sources and returns honest empty estimates", async
   const h = analytics({ reservations: Array.from({ length: 1001 }, () => ({ booking_type: "online", created_at: "2026-10-01T01:00:00Z" })) });
   const reports = await h.generateAnalytics("Custom", { startDate: "2026-10-01", endDate: "2026-10-03" });
   assert.equal(reports.booking.metrics[0].value, 1001); assert.ok(h.calls.some(c => c.from === 1000));
-  assert.equal(reports.revenue.metrics[2].value, 0); assert.match(reports.revenue.note, /No verified payments/);
+  assert.equal(reports.revenue.metrics[2].value, 0); assert.match(reports.revenue.note, /No received payments/);
   const invalid = analytics(); await assert.rejects(invalid.generateAnalytics("Custom", { startDate: "2026-02-30", endDate: "2026-03-01" })); assert.equal(invalid.calls.length, 0);
 });
 

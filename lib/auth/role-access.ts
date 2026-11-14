@@ -63,6 +63,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/reschedule-requests")) return "reschedule_approval";
   if (path.startsWith("/api/admin/ocular-visits")) return "ocular_approval";
   if (path.startsWith("/api/admin/payments/manual-entry")) return "payment_entry";
+  if (path.startsWith("/api/admin/public-access-sales")) return "payment_entry";
   if (path.startsWith("/api/admin/payments/")) return "payment_approval";
   if (path.startsWith("/api/admin/refunds")) return "transactions";
   if (path === "/api/admin/transactions/guest-report") return "reports";

@@ -4,8 +4,8 @@ import type { ReportTab } from "./types";
 type ReportConfig = { description: string; trendTitle: string; splitTitle: string; tableTitle: string; search: string; columns: AdminTableColumn[]; sort: AdminTableSort; filters?: AdminTableFilter[] };
 export const reportConfig: Record<ReportTab, ReportConfig> = {
   "Sales Report": {
-    description: "See verified payment collections and reservations created during the selected dates.", trendTitle: "Payments collected over time", splitTitle: "Collections by payment type", tableTitle: "Collections and bookings", search: "Search a date or amount…",
-    columns: [{ key: "label", label: "Dates", sortType: "date", sortKey: "periodStart" }, { key: "revenue", label: "Payments collected", sortType: "number" }, { key: "payments", label: "Verified payments", sortType: "number" }, { key: "bookings", label: "Reservations created", sortType: "number" }], sort: { key: "label", direction: "asc" },
+    description: "See received public-access collections and verified private-booking payments during the selected dates.", trendTitle: "Payments collected over time", splitTitle: "Collections by payment / access type", tableTitle: "Collections and bookings", search: "Search a date or amount…",
+    columns: [{ key: "collectionSource", label: "Collection source" }, { key: "label", label: "Dates", sortType: "date", sortKey: "periodStart" }, { key: "revenue", label: "Payments collected", sortType: "number" }, {key:"publicRevenue",label:"Public access",sortType:"number"},{key:"privateRevenue",label:"Private booking",sortType:"number"},{ key: "payments", label: "Received payments", sortType: "number" },{key:"publicAdmissions",label:"Public access sales",sortType:"number"}, { key: "bookings", label: "Private reservations created", sortType: "number" }], sort: { key: "label", direction: "asc" },
   },
   "Guest Report": {
     description: "Find guests and reservations created during the selected dates, including offline bookings.", trendTitle: "Reservations created over time", splitTitle: "Booking sources", tableTitle: "Guest reservations", search: "Search guest name, contact or reservation reference…",
