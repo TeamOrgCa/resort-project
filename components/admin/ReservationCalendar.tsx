@@ -733,7 +733,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         </div>}
         <div className="mb-4 flex flex-wrap gap-2 text-sm">
           {canTransactions && selectedReservation && (signals[selectedReservation.reservation_id]?.payment || selectedReservation.status === "payment_submitted") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=payments">Review submitted payments</Link>}
-          {canRecords && selectedReservation && (signals[selectedReservation.reservation_id]?.reschedule || selectedReservation.status === "reschedule_requested") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/records?tab=reschedules">Review reschedule requests</Link>}
+          {canRecords && selectedReservation && (signals[selectedReservation.reservation_id]?.reschedule || selectedReservation.status === "reschedule_requested") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/records?tab=reschedules">View reschedule history</Link>}
           {canTransactions && selectedFlags.includes("refund") && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=refunds">Review pending refunds</Link>}
           {canTransactions && selectedReservation && Number(signals[selectedReservation.reservation_id]?.balance) > 0 && !["cancelled", "no_show", "completed", "rejected", "expired"].includes(selectedReservation.status) && <Link className="min-h-11 rounded-xl border px-3 py-3 underline" href="/admin/transactions?tab=ledger">Open payment ledger</Link>}
         </div>

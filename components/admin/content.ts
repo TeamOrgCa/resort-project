@@ -37,7 +37,7 @@ export const dashboardModules: AdminFeatureCard[] = [
   },
   {
     title: "Reservation Records",
-    summary: "Review reservation records, reschedule requests, and ocular visit records.",
+    summary: "Review reservation records, reschedule history, and ocular visit records.",
     href: "/admin/records",
   },
   {
