@@ -10,7 +10,7 @@ globalThis.HTMLElement = dom.window.HTMLElement; globalThis.IS_REACT_ACT_ENVIRON
 const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 const id = "11111111-1111-4111-8111-111111111111", walkId = "22222222-2222-4222-8222-222222222222";
-async function mount({ failProfiles = false, detailFails = false, reviewable = false } = {}) {
+async function mount({ failProfiles = false, detailFails = false, reviewable = false, rescheduleState = null, legacyPermission = true } = {}) {
   const originalFetch = globalThis.fetch, reads = [], requests = []; let failDetail = detailFails;
   const state = { reviewError: false, deferReview: null };
   const r = { reservation_id: id, reference_number: "MV-WALKIN", guest_id: null, walk_in_guest_id: walkId,
@@ -29,8 +29,10 @@ async function mount({ failProfiles = false, detailFails = false, reviewable = f
     data.reservation_reschedules[0].status = "pending";
     data.ocular_visits.push({ visit_id: "visit", reference_number: "MV-VISIT", guest_id: walkId, scheduled_date: "2027-06-14", time_slot_id: "slot", status: "pending", created_at: r.created_at });
     data.ocular_time_slots.push({ slot_id: "slot", start_time: "09:00", end_time: "10:00" });
-    data.role_permissions[0].permissions.push("reschedule_approval", "ocular_approval");
+    data.role_permissions[0].permissions.push("ocular_approval");
+    if (legacyPermission) data.role_permissions[0].permissions.push("reschedule_approval");
   }
+  if (rescheduleState) data.reservation_reschedules[0].status = rescheduleState;
   const client = { auth: { getUser: async () => ({ data: { user: { id: "staff" } } }) }, from(table) {
     const predicates = []; let fields = null, range = null;
     reads.push({ table });
@@ -84,7 +86,7 @@ test("records resolves separate walk-in and account names, including the walk-in
     assert.match(row(h.container, "MV-ONLINE").textContent, /Juan Online/);
     assert.match(row(h.container, "MV-MISSING").textContent, /Guest profile unavailable/);
     for (const ref of ["MV-WALKIN", "MV-ONLINE", "MV-MISSING"]) assert.equal(row(h.container, ref).querySelector("button").disabled, false);
-    await click([...h.container.querySelectorAll('[aria-label="Record sections"] button')].find(tab => tab.textContent === "Reschedule Requests"));
+    await click([...h.container.querySelectorAll('[aria-label="Record sections"] button')].find(tab => tab.textContent === "Reschedule History"));
     assert.match(h.container.textContent, /Maria Walkin/);
     assert.match(h.container.textContent, /Family schedule changed/);
   } finally { await h.close(); }
@@ -127,58 +129,67 @@ async function typeReason(dialog, value) {
   });
 }
 
-test("record approval and rejection use custom dialogs with reasons and explicit confirmation", async () => {
-  const originalPrompt = window.prompt, originalConfirm = window.confirm;
-  window.prompt = window.confirm = () => { assert.fail("Native dialogs must not be used"); };
+test("applied reschedules are history records with a View action and no approval controls", async () => {
+  const h = await mount({ reviewable: true, rescheduleState: "approved" });
   try {
-    for (const ocular of [false, true]) for (const action of ["Approve", "Reject"]) {
-      const h = await mount({ reviewable: true });
-      try {
-        await click(button(h.container.querySelector('[aria-label="Record sections"]'), ocular ? "Ocular Visit Records" : "Reschedule Requests"));
-        await click(button(row(h.container, ocular ? "MV-VISIT" : "MV-WALKIN"), action));
-        const dialog = document.querySelector('[role="dialog"]'); assert.ok(dialog);
-        assert.match(dialog.textContent, new RegExp(`${action} ${ocular ? "ocular visit" : "reschedule request"}`));
-        assert.match(dialog.textContent, ocular ? /09:00/ : /Additional charge/);
-        const confirm = button(dialog, action === "Approve" ? "Confirm approval" : "Confirm rejection");
-        if (ocular || action === "Reject") {
-          assert.equal(confirm.disabled, true);
-          await typeReason(dialog, "   "); assert.equal(confirm.disabled, true);
-          if (ocular) { await typeReason(dialog, "abcd"); assert.equal(confirm.disabled, true); }
-          await typeReason(dialog, "  Schedule reviewed with guest.  ");
-        } else assert.equal(dialog.querySelector("textarea"), null);
-        assert.equal(h.requests.length, 0);
-        await click(confirm);
-        assert.equal(document.querySelector('[role="dialog"]'), null);
-        assert.deepEqual(h.requests, [{ url: `/api/admin/${ocular ? "ocular-visits" : "reschedule-requests"}/${action.toLowerCase()}`, method: "POST",
-          body: ocular ? { visitId: "visit", reviewReason: "Schedule reviewed with guest." }
-            : { rescheduleId: "reschedule", ...(action === "Reject" ? { rejectionReason: "Schedule reviewed with guest." } : {}) } }]);
-        assert.match(h.container.textContent, /Review saved/);
-      } finally { await h.close(); }
-    }
-  } finally { window.prompt = originalPrompt; window.confirm = originalConfirm; }
+    await click(button(h.container.querySelector('[aria-label="Record sections"]'), "Reschedule History"));
+    assert.match(row(h.container, "MV-WALKIN").textContent, /Applied/);
+    assert.match(h.container.textContent, /New Schedule/); assert.match(h.container.textContent, /Recorded/);
+    assert.doesNotMatch(h.container.textContent, /Requested Schedule|Reschedule Requests/);
+    await click(button(row(h.container, "MV-WALKIN"), "View"));
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /Reschedule history details/); assert.match(dialog.textContent, /Family schedule changed/);
+    assert.match(dialog.textContent, /Applied changes require no approval/);
+    assert.equal(button(dialog, "Approve legacy change"), undefined); assert.equal(button(dialog, "Reject legacy change"), undefined);
+    assert.equal(h.requests.length, 0);
+  } finally { await h.close(); }
 });
 
-test("review dialogs cancel without saving and retain reasons on failure; pending saves block duplicate submissions and dismissal", async () => {
+test("older pending entries retain explicit legacy resolution inside details, with reasons and confirmation", async () => {
+  for (const action of ["Approve", "Reject"]) {
+    const h = await mount({ reviewable: true });
+    try {
+      await click(button(h.container.querySelector('[aria-label="Record sections"]'), "Reschedule History"));
+      const entry = row(h.container, "MV-WALKIN"); assert.match(entry.textContent, /Legacy pending/);
+      assert.equal(button(entry, "Approve"), undefined);
+      await click(button(entry, "View"));
+      const details = document.querySelector('[role="dialog"]'); assert.match(details.textContent, /proposed dates have not been applied/);
+      await click(button(details, `${action} legacy change`));
+      const dialog = document.querySelector('[role="dialog"]'); assert.match(dialog.textContent, new RegExp(`${action} legacy reschedule`));
+      const confirm = button(dialog, action === "Approve" ? "Confirm approval" : "Confirm rejection");
+      if (action === "Reject") {
+        assert.equal(confirm.disabled, true); await typeReason(dialog, "   "); assert.equal(confirm.disabled, true);
+        await typeReason(dialog, "  Schedule reviewed with guest.  ");
+      } else assert.equal(dialog.querySelector("textarea"), null);
+      assert.equal(h.requests.length, 0); await click(confirm);
+      assert.equal(document.querySelector('[role="dialog"]'), null);
+      assert.deepEqual(h.requests, [{ url: `/api/admin/reschedule-requests/${action.toLowerCase()}`, method: "POST", body: { rescheduleId: "reschedule", ...(action === "Reject" ? { rejectionReason: "Schedule reviewed with guest." } : {}) } }]);
+      assert.match(h.container.textContent, /Review saved/);
+    } finally { await h.close(); }
+  }
+  const h = await mount({ reviewable: true, legacyPermission: false });
+  try {
+    await click(button(h.container.querySelector('[aria-label="Record sections"]'), "Reschedule History"));
+    await click(button(row(h.container, "MV-WALKIN"), "View"));
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.equal(button(dialog, "Approve legacy change"), undefined); assert.equal(button(dialog, "Reject legacy change"), undefined);
+  } finally { await h.close(); }
+});
+
+test("legacy resolution retains reasons on failure and blocks duplicate submissions and dismissal while saving", async () => {
   const h = await mount({ reviewable: true }); let release;
   try {
-    await click(button(h.container.querySelector('[aria-label="Record sections"]'), "Ocular Visit Records"));
-    const open = () => click(button(row(h.container, "MV-VISIT"), "Reject"));
+    await click(button(h.container.querySelector('[aria-label="Record sections"]'), "Reschedule History"));
+    const open = async () => { await click(button(row(h.container, "MV-WALKIN"), "View")); await click(button(document.querySelector('[role="dialog"]'), "Reject legacy change")); };
     await open(); await typeReason(document.querySelector('[role="dialog"]'), "Old reason");
     await click(button(document.querySelector('[role="dialog"]'), "Cancel"));
     assert.equal(document.querySelector('[role="dialog"]'), null); assert.equal(h.requests.length, 0);
-    await open();
-    const dialog = document.querySelector('[role="dialog"]');
-    assert.equal(dialog.querySelector("textarea").value, "");
-    await typeReason(dialog, "Schedule is unavailable.");
-    h.state.reviewError = true;
+    await open(); const dialog = document.querySelector('[role="dialog"]'); assert.equal(dialog.querySelector("textarea").value, "");
+    await typeReason(dialog, "Schedule is unavailable."); h.state.reviewError = true;
     await click(button(dialog, "Confirm rejection"));
-    assert.match(dialog.querySelector('[role="alert"]').textContent, /Review could not be saved/);
-    assert.equal(dialog.querySelector("textarea").value, "Schedule is unavailable.");
-    h.state.reviewError = false;
-    h.state.deferReview = finish => new Promise(resolve => { release = () => resolve(finish()); });
-    await click(button(dialog, "Confirm rejection"));
-    assert.equal(button(dialog, "Saving...").disabled, true);
-    assert.equal(dialog.querySelector("fieldset").disabled, true);
+    assert.match(dialog.querySelector('[role="alert"]').textContent, /Review could not be saved/); assert.equal(dialog.querySelector("textarea").value, "Schedule is unavailable.");
+    h.state.reviewError = false; h.state.deferReview = finish => new Promise(resolve => { release = () => resolve(finish()); });
+    await click(button(dialog, "Confirm rejection")); assert.equal(button(dialog, "Saving...").disabled, true);
     await act(async () => {
       dialog.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
       document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

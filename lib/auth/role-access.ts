@@ -6,7 +6,7 @@ export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_LABELS: Record<Permission, string> = {
   dashboard: "Dashboard", reservations: "View reservations", create_reservation: "Add reservation",
   edit_reservation: "Edit reservations and services",
-  cancel_reservation: "Cancel reservation", reschedule_approval: "Approve or reject reschedules",
+  cancel_reservation: "Cancel reservation", reschedule_approval: "Resolve legacy reschedules",
   ocular_approval: "Manage ocular visits and record attendance", transactions: "View transactions",
   payment_approval: "Approve or reject payments", payment_entry: "Record payments",
   refund_approval: "Approve or reject refunds (manager only)", refund_payout: "Record refund payout (cashier only)", refund_verify: "Verify refund payout (manager only)",

@@ -14,7 +14,7 @@ import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
 import RecordDialog from "@/components/manage/RecordDialog";
 import ReservationRecordDetails from "@/components/admin/ReservationRecordDetails";
 
-const tabs = ["Reservation Records", "Reschedule Requests", "Ocular Visit Records"] as const;
+const tabs = ["Reservation Records", "Reschedule History", "Ocular Visit Records"] as const;
 const reservationColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reference" }, { key: "guest", label: "Guest" },
   { key: "checkIn", label: "Check-in" }, { key: "checkOut", label: "Check-out" },
@@ -22,9 +22,9 @@ const reservationColumns: AdminTableColumn[] = [
 ];
 const rescheduleColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reservation Ref" }, { key: "guest", label: "Guest" },
-  { key: "oldDates", label: "Original Schedule" }, { key: "newDates", label: "Requested Schedule" },
+  { key: "oldDates", label: "Original Schedule" }, { key: "newDates", label: "New Schedule" },
   { key: "additionalCharge", label: "Additional Charge" }, { key: "reason", label: "Reason" },
-  { key: "status", label: "Status" }, { key: "requestedAt", label: "Requested" },
+  { key: "status", label: "Status" }, { key: "recordedAt", label: "Recorded" },
 ];
 const ocularColumns: AdminTableColumn[] = [
   { key: "reference", label: "Reference" }, { key: "guest", label: "Guest" },
@@ -36,14 +36,15 @@ const ocularColumns: AdminTableColumn[] = [
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" }) : "-";
 const dateOnly = (value: string | null) => value ? new Date(value).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium" }) : "-";
 const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const rescheduleStatus = (status: string) => status === "approved" ? "Applied" : status === "pending" ? "Legacy pending" : status === "rejected" ? "Previously rejected" : titleCase(status);
 
 type Guest = { id: string; first_name: string; last_name: string };
 type WalkInGuest = Omit<Guest, "id"> & { walk_in_guest_id: string };
-type RecordReview = { action: "Approve" | "Reject" | "Cancel visit"; row: AdminTableRow; isOcular: boolean };
+type RecordReview = { action: "Approve" | "Reject"; row: AdminTableRow };
 
 export default function AdminRecordsPage() {
   const [activeTab, setActiveTab] = useModuleTab<(typeof tabs)[number]>("Reservation Records", {
-    reschedules: "Reschedule Requests", ocular: "Ocular Visit Records", reservations: "Reservation Records",
+    reschedules: "Reschedule History", ocular: "Ocular Visit Records", reservations: "Reservation Records",
   });
   const [reservations, setReservations] = useState<AdminTableRow[]>([]);
   const [reschedules, setReschedules] = useState<AdminTableRow[]>([]);
@@ -53,10 +54,11 @@ export default function AdminRecordsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [canApproveReschedules, setCanApproveReschedules] = useState(false);
+  const [canResolveLegacyReschedules, setCanResolveLegacyReschedules] = useState(false);
   const [canApproveOcular, setCanApproveOcular] = useState(false);
   const [canCancelOcular, setCanCancelOcular] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState<AdminTableRow | null>(null);
+  const [rescheduleDetail, setRescheduleDetail] = useState<AdminTableRow | null>(null);
   const [selectedReview, setSelectedReview] = useState<RecordReview | null>(null);
   const [reviewReason, setReviewReason] = useState("");
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -94,7 +96,7 @@ export default function AdminRecordsPage() {
         const guestName = (id: string | number | null) => guestMap[String(id ?? "")] ? `${guestMap[String(id)].first_name} ${guestMap[String(id)].last_name}` : "-";
         setReservations(reservationRows.map((row) => ({ id: String(row.reservation_id), reference: String(row.reference_number), guest: reservationGuestName(row), checkIn: dateTime(String(row.start_datetime)), checkOut: dateTime(String(row.end_datetime)), guests: String(Number(row.adult_count ?? 0) + Number(row.child_count ?? 0)), status: titleCase(String(row.status ?? "")) })));
         const reservationReference = reservationRows.reduce<Record<string, string>>((map, row) => ({ ...map, [String(row.reservation_id)]: String(row.reference_number) }), {});
-        setReschedules((((rescheduleData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.reschedule_id), reference: reservationReference[String(row.reservation_id)] ?? "-", guest: reservationMap[String(row.reservation_id)] ? reservationGuestName(reservationMap[String(row.reservation_id)]) : guestName(row.requested_by), oldDates: `${dateTime(String(row.old_start))} - ${dateTime(String(row.old_end))}`, newDates: `${dateTime(String(row.new_start))} - ${dateTime(String(row.new_end))}`, additionalCharge: `₱${(Number(row.reschedule_fee ?? 0) + Number(row.rate_adjustment ?? 0)).toFixed(2)}`, reason: String(row.reason ?? "Not recorded"), status: titleCase(String(row.status ?? "")), requestedAt: dateTime(String(row.created_at)) }))));
+        setReschedules((((rescheduleData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.reschedule_id), reference: reservationReference[String(row.reservation_id)] ?? "-", guest: reservationMap[String(row.reservation_id)] ? reservationGuestName(reservationMap[String(row.reservation_id)]) : guestName(row.requested_by), oldDates: `${dateTime(String(row.old_start))} - ${dateTime(String(row.old_end))}`, newDates: `${dateTime(String(row.new_start))} - ${dateTime(String(row.new_end))}`, additionalCharge: `₱${(Number(row.reschedule_fee ?? 0) + Number(row.rate_adjustment ?? 0)).toFixed(2)}`, reason: String(row.reason ?? "Not recorded"), status: rescheduleStatus(String(row.status ?? "")), recordedAt: dateTime(String(row.created_at)) }))));
         const slots = Object.fromEntries(((slotData as Array<{ slot_id: string; start_time: string; end_time: string }> | null) ?? []).map((slot) => [slot.slot_id, `${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)}`]));
         setOcularVisits((((ocularData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.visit_id), reference: String(row.reference_number), guest: guestName(row.guest_id), scheduledDate: dateOnly(String(row.scheduled_date)), timeSlot: slots[String(row.time_slot_id)] ?? "-", status: titleCase(String(row.status ?? "")), reason: String(row.cancellation_reason ?? row.review_reason ?? "-"), createdAt: dateTime(String(row.created_at)) }))));
         const { data: { user } } = await supabase.auth.getUser();
@@ -103,7 +105,7 @@ export default function AdminRecordsPage() {
           if (staff) {
             const { data: grants } = staff.role === "admin" ? { data: null } : await supabase.from("role_permissions").select("permissions").eq("role", staff.role).maybeSingle();
             if (mounted) {
-              setCanApproveReschedules(hasPermission(staff.role, grants?.permissions ?? [], "reschedule_approval"));
+              setCanResolveLegacyReschedules(hasPermission(staff.role, grants?.permissions ?? [], "reschedule_approval"));
               setCanApproveOcular(hasPermission(staff.role, grants?.permissions ?? [], "ocular_approval"));
               setCanCancelOcular(staff.role === "staff" && hasPermission(staff.role, grants?.permissions ?? [], "ocular_approval"));
             }
@@ -120,17 +122,19 @@ export default function AdminRecordsPage() {
   }, [refreshKey]);
 
   const openReview = (action: RecordReview["action"], row: AdminTableRow) => {
-    setSelectedReview({ action, row, isOcular: activeTab === "Ocular Visit Records" });
+    if (!canResolveLegacyReschedules || row.status !== "Legacy pending") return;
+    setRescheduleDetail(null);
+    setSelectedReview({ action, row });
     setReviewReason("");
     setReviewError(null);
   };
   const closeReview = () => { if (!submittingReview.current) setSelectedReview(null); };
-  const needsReason = selectedReview?.isOcular || selectedReview?.action === "Reject";
-  const validReason = !needsReason || (reviewReason.trim().length >= (selectedReview?.isOcular ? 5 : 1) && reviewReason.trim().length <= 2000);
+  const needsReason = selectedReview?.action === "Reject";
+  const validReason = !needsReason || (reviewReason.trim().length >= 1 && reviewReason.trim().length <= 2000);
 
   const review = async () => {
     if (!selectedReview || submittingReview.current || !validReason) return;
-    const { action, row, isOcular } = selectedReview;
+    const { action, row } = selectedReview;
     const rejectionReason = needsReason ? reviewReason.trim() : null;
     submittingReview.current = true;
     setBusyId(row.id);
@@ -138,10 +142,8 @@ export default function AdminRecordsPage() {
     setError(null);
     setMessage(null);
     try {
-      const url = isOcular ? `/api/admin/ocular-visits/${action === "Cancel visit" ? "cancel" : action === "Approve" ? "approve" : "reject"}` : `/api/admin/reschedule-requests/${action === "Approve" ? "approve" : "reject"}`;
-      const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(isOcular
-        ? { visitId: row.id, ...(action === "Cancel visit" ? { cancellationReason: rejectionReason } : { reviewReason: rejectionReason }) }
-        : { rescheduleId: row.id, ...(rejectionReason ? { rejectionReason } : {}) }) });
+      const url = `/api/admin/reschedule-requests/${action === "Approve" ? "approve" : "reject"}`;
+      const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rescheduleId: row.id, ...(rejectionReason ? { rejectionReason } : {}) }) });
       const result = await response.json() as { success?: boolean; message?: string };
       if (!response.ok || !result.success) throw new Error(result.message ?? "Unable to review request.");
       setMessage(result.message ?? "Review saved.");
@@ -156,56 +158,55 @@ export default function AdminRecordsPage() {
   };
 
   const [ocularDetail, setOcularDetail] = useState<AdminTableRow | null>(null);
-  const activeRows = useMemo(() => activeTab === "Reservation Records" ? reservations : activeTab === "Reschedule Requests" ? reschedules : ocularVisits, [activeTab, ocularVisits, reservations, reschedules]);
+  const activeRows = useMemo(() => activeTab === "Reservation Records" ? reservations : activeTab === "Reschedule History" ? reschedules : ocularVisits, [activeTab, ocularVisits, reservations, reschedules]);
 
   return (
     <div>
-      <AdminSectionHeader title="Records" subtitle="A single source of truth for reservations, reschedule requests, and ocular visits." />
+      <AdminSectionHeader title="Records" subtitle="View reservation records, reschedule history, and ocular visits." />
       {error ? <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p> : null}
       {message ? <p role="status" className="mt-4 rounded-xl border border-green-300 bg-green-50 px-3 py-2 text-sm text-neutral">{message}</p> : null}
       <section className="admin-panel mt-6">
         <AdminTabs tabs={tabs} value={activeTab} onChange={setActiveTab} label="Record sections" />
+        {activeTab === "Reschedule History" && <p className="mb-4 text-sm text-neutral/70">Eligible guest reschedules apply automatically after availability and fee checks. Review the original/new schedules, charges and reason here. Older pending or rejected entries retain their historical status.</p>}
         <AdminTablePreview
           key={activeTab}
           title={activeTab}
           isLoading={isLoading}
-          columns={activeTab === "Reservation Records" ? reservationColumns : activeTab === "Reschedule Requests" ? rescheduleColumns : ocularColumns}
+          columns={activeTab === "Reservation Records" ? reservationColumns : activeTab === "Reschedule History" ? rescheduleColumns : ocularColumns}
           rows={activeRows}
           pageSize={25}
           showResetFilters
-          defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule Requests" ? "requestedAt" : "scheduledDate", direction: "desc" }}
-          filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule Requests" ? ["Pending", "Approved", "Rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Completed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed", "No Show"] }]}
-          rowActions={activeTab === "Reservation Records" ? ["View"] : activeTab === "Reschedule Requests" && canApproveReschedules ? ["Approve", "Reject"] : activeTab === "Ocular Visit Records" ? ["View"] : []}
-          onRowAction={(action, row) => { if (action === "View") { if (activeTab === "Ocular Visit Records") setOcularDetail(row); else setSelectedReservation(row); } else openReview(action as RecordReview["action"], row); }}
-          isRowActionDisabled={(action, row) => action === "View" ? false : Boolean(busyId) || (action === "Cancel visit" ? !["Pending", "Confirmed"].includes(row.status) : row.status !== "Pending")}
+          defaultSort={{ key: activeTab === "Reservation Records" ? "checkIn" : activeTab === "Reschedule History" ? "recordedAt" : "scheduledDate", direction: "desc" }}
+          filters={[{ key: "status", label: "Status", options: activeTab === "Reschedule History" ? ["Applied", "Legacy pending", "Previously rejected"] : activeTab === "Ocular Visit Records" ? ["Pending", "Confirmed", "Completed", "Rejected", "Cancelled"] : ["Pending", "Confirmed", "Cancelled", "Completed", "No Show"] }]}
+          rowActions={["View"]}
+          onRowAction={(action, row) => { if (action !== "View") return; if (activeTab === "Ocular Visit Records") setOcularDetail(row); else if (activeTab === "Reschedule History") setRescheduleDetail(row); else setSelectedReservation(row); }}
+          isRowActionDisabled={() => Boolean(busyId)}
         />
       </section>
+      {rescheduleDetail && <RecordDialog variant="admin" title="Reschedule history details" reference={rescheduleDetail.reference} busy={false} onClose={() => setRescheduleDetail(null)}>
+        <dl className="grid gap-3 sm:grid-cols-2">{rescheduleColumns.map(column => <div key={column.key}><dt className="text-sm text-neutral/60">{column.label}</dt><dd className="break-words">{rescheduleDetail[column.key]}</dd></div>)}</dl>
+        {rescheduleDetail.status === "Legacy pending" ? <div className="mt-5 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+          <p>This older entry is still pending from the previous approval workflow. Its proposed dates have not been applied. New guest reschedules apply automatically.</p>
+          {canResolveLegacyReschedules && <div className="flex flex-wrap gap-3"><button type="button" onClick={() => openReview("Approve", rescheduleDetail)} className="admin-button-primary">Approve legacy change</button><button type="button" onClick={() => openReview("Reject", rescheduleDetail)} className="admin-button-secondary">Reject legacy change</button></div>}
+        </div> : <p className="mt-5 text-sm text-neutral/70">This is a historical record. Applied changes require no approval; any previously rejected change was not applied.</p>}
+      </RecordDialog>}
       {ocularDetail && <RecordDialog variant="admin" title="Ocular visit details" reference={ocularDetail.reference} busy={Boolean(busyId)} onClose={() => { if (!busyId) setOcularDetail(null); }}>
         <dl className="mb-5 grid gap-3 sm:grid-cols-2">{ocularColumns.map(column => <div key={column.key}><dt className="text-sm text-neutral/60">{column.label}</dt><dd>{ocularDetail[column.key]}</dd></div>)}</dl>
         <OcularVisitReview visit={{ visit_id: ocularDetail.id, status: ocularDetail.status.toLowerCase(), cancellation_reason: ocularDetail.reason === "-" ? null : ocularDetail.reason }} canReview={canApproveOcular} canCancel={canCancelOcular} onBusyChange={busy => setBusyId(busy ? ocularDetail.id : null)} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularDetail(row => row ? { ...row, status: titleCase(visit.status), reason: visit.cancellation_reason ?? row.reason } : row); setRefreshKey(value => value + 1); }} />
       </RecordDialog>}
-      {selectedReview && <RecordDialog variant="admin" title={`${selectedReview.action} ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}`} reference={selectedReview.row.reference} busy={Boolean(busyId)} onClose={closeReview}>
+      {selectedReview && <RecordDialog variant="admin" title={`${selectedReview.action} legacy reschedule`} reference={selectedReview.row.reference} busy={Boolean(busyId)} onClose={closeReview}>
         <form className="space-y-5" onSubmit={event => { event.preventDefault(); void review(); }}>
           <dl className="grid gap-3 rounded-xl border border-neutral/10 bg-base p-4 text-sm sm:grid-cols-2">
-            {[
-              ["Guest", selectedReview.row.guest],
-              ...(selectedReview.isOcular
-                ? [["Scheduled date", selectedReview.row.scheduledDate], ["Time", selectedReview.row.timeSlot]]
-                : [["Original schedule", selectedReview.row.oldDates], ["Requested schedule", selectedReview.row.newDates], ["Additional charge", selectedReview.row.additionalCharge]]),
-            ].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="mt-1 font-medium text-neutral">{value}</dd></div>)}
+            {[["Guest", selectedReview.row.guest], ["Original schedule", selectedReview.row.oldDates], ["Proposed schedule", selectedReview.row.newDates], ["Additional charge", selectedReview.row.additionalCharge]].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="mt-1 font-medium text-neutral">{value}</dd></div>)}
           </dl>
-          <p className="text-sm text-neutral/75">{selectedReview.action === "Cancel visit" ? "Cancel this ocular visit. The cancellation reason will be shared with the guest." : selectedReview.action === "Approve"
-            ? `Confirm approval of this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}.`
-            : `Confirm rejection of this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"}. The reason will be shared with the guest.`}</p>
-          {needsReason && <label className="block text-sm font-medium text-neutral">
-            {selectedReview.action === "Cancel visit" ? "Cancellation reason" : selectedReview.isOcular ? "Review reason" : "Rejection reason"} <span className="text-red-700">(required)</span>
-            <textarea name="reviewReason" required minLength={selectedReview.isOcular ? 5 : 1} maxLength={2000} rows={4} value={reviewReason} onChange={event => setReviewReason(event.target.value)} aria-describedby="record-review-reason-help" className="admin-field mt-2 w-full" placeholder={`Explain why this ${selectedReview.isOcular ? "ocular visit" : "reschedule request"} should be ${selectedReview.action === "Cancel visit" ? "cancelled" : selectedReview.action === "Approve" ? "approved" : "rejected"}.`} />
-            <span id="record-review-reason-help" className="mt-1 block text-xs font-normal text-neutral/60">{selectedReview.isOcular ? "Enter 5 to 2,000 characters. " : "Enter up to 2,000 characters. "}This reason will be shared with the guest.</span>
+          <p className="text-sm text-neutral/75">{selectedReview.action === "Approve" ? "Confirm this older pending schedule change after checking availability and charges." : "Reject this older pending change. The reason will be shared with the guest."}</p>
+          {needsReason && <label className="block text-sm font-medium text-neutral">Rejection reason <span className="text-red-700">(required)</span>
+            <textarea name="reviewReason" required minLength={1} maxLength={2000} rows={4} value={reviewReason} onChange={event => setReviewReason(event.target.value)} className="admin-field mt-2 w-full" placeholder="Explain why this older change should be rejected." />
           </label>}
           {reviewError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{reviewError}</p>}
           <div className="flex flex-wrap justify-end gap-3">
             <button type="button" onClick={closeReview} disabled={Boolean(busyId)} className="admin-button-secondary">Cancel</button>
-            <button type="submit" disabled={Boolean(busyId) || !validReason} className={selectedReview.action === "Approve" ? "admin-button-primary" : "admin-button-secondary border-red-200 text-red-700 hover:bg-red-50"}>{busyId ? "Saving..." : selectedReview.action === "Cancel visit" ? "Confirm cancellation" : selectedReview.action === "Approve" ? "Confirm approval" : "Confirm rejection"}</button>
+            <button type="submit" disabled={Boolean(busyId) || !validReason} className={selectedReview.action === "Approve" ? "admin-button-primary" : "admin-button-secondary border-red-200 text-red-700 hover:bg-red-50"}>{busyId ? "Saving..." : selectedReview.action === "Approve" ? "Confirm approval" : "Confirm rejection"}</button>
           </div>
         </form>
       </RecordDialog>}
