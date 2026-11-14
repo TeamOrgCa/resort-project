@@ -14,6 +14,21 @@ function data(tables = {}, errors = {}) {
   return { ...db, generateDashboard };
 }
 
+test("dashboard combines public paid-at collections with private payments without adding bookings", async () => {
+  const h = data({ payments: [payment(1200)], public_access_sales: [
+    { sale_id: "today", amount: 350, paid_at: "2026-10-12T16:00:00Z" },
+    { sale_id: "yesterday", amount: 200, paid_at: "2026-10-12T15:59:59Z" },
+    { sale_id: "outside", amount: 9999, paid_at: "2026-10-13T16:00:00Z" },
+  ] });
+  const snapshot = await h.generateDashboard(now);
+  assert.equal(snapshot.collectionsToday, 1550);
+  assert.equal(snapshot.verifiedToday, 2);
+  assert.equal(snapshot.collections.reduce((sum, point) => sum + point.value, 0), 1750);
+  assert.equal(snapshot.bookingsCreated, 0);
+  assert.equal(snapshot.arrivalsToday, 0);
+  await assert.rejects(data({}, { public_access_sales: "Unavailable" }).generateDashboard(now), /Unavailable/);
+});
+
 test("dashboard totals use Philippine dates and verification dates with a legacy fallback", async () => {
   const h = data({ payments: [payment(1000), payment(500, { verified_at: null, created_at: "2026-10-12T16:20:00Z" }),
     payment(300, { verified_at: "2026-10-12T15:59:59Z" }), payment(9000, { status: "pending", created_at: "2026-08-01T00:00:00Z" }),

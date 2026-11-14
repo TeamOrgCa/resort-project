@@ -10,7 +10,7 @@ interface KeyValueDetailsModalProps {
   details: ViewDetailsState;
   onClose: () => void;
 }
-const receiptFields = new Set(["Receipt No.", "Issued At", "Guest Name", "Billed To", "Reservation Ref", "Payment for", "Payment Method", "Payment Ref", "Paid At", "Amount Paid", "Booking Total at Payment", "Transaction Total at Time", "Balance After Payment"]);
+const receiptFields = new Set(["Receipt No.", "Issued At", "Guest Name", "Billed To", "Reservation Ref", "Payment for", "Payment Method", "Payment Ref", "Paid At", "Amount Paid", "Booking Total at Payment", "Transaction Total at Time", "Balance After Payment", "Contact No.", "Collection Ref", "Access Type", "Collection Total"]);
 
 export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetailsModalProps) {
   const readOnly = useAdminReadOnly();
@@ -53,7 +53,7 @@ export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetai
         <div className="mt-5 grid gap-2 text-sm text-neutral/80 sm:grid-cols-2">
           {fields.map((field) => (
             <p key={field.label} className="receipt-field flex min-w-0 flex-col gap-1">
-              {field.label}: <span className={`font-semibold text-neutral ${/amount|total|balance|status|method|paid at|issued at|payment for/i.test(field.label) ? "ui-nowrap max-w-full overflow-x-auto" : "break-words"}`}>{field.value || "-"}</span>
+              {field.label}: <span className={`font-semibold text-neutral ${/amount|total|balance|status|method|paid at|issued at/i.test(field.label) ? "ui-nowrap max-w-full overflow-x-auto" : "break-words"}`}>{field.value || "-"}</span>
             </p>
           ))}
         </div>

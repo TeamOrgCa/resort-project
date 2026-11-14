@@ -46,7 +46,7 @@ interface AdminTablePreviewProps {
 function columnLayout(column: AdminTableColumn) {
   if (column.key === "status") return "table-cell-status";
   if (column.sortType === "number" || /(?:amount|total|balance|paid|price|fee|revenue|cost|charge)/i.test(column.key)) return "table-cell-number";
-  if (/guest|customer|name|staff|actor|description|reason|notes|message|details|address|email|action|entity/i.test(column.key)) return "table-cell-text";
+  if (/guest|customer|name|staff|actor|description|paymentFor|reason|notes|message|details|summary|address|email|action|entity/i.test(column.key)) return "table-cell-text";
   return "";
 }
 

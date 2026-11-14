@@ -1,6 +1,6 @@
 # Staff cash payments
 
-Cash is available to authorized staff under Transactions. Online booking and guest balance-payment forms remain GCash only. Cash methods and their accounts are excluded from the public catalog, and online submission endpoints reject Cash.
+Cash is available to authorized staff under Transactions. Online booking and guest balance-payment forms support active non-cash catalog methods; non-GCash guest submissions require manual approval. Cash methods and their accounts are excluded from the public catalog, and online submission endpoints reject Cash.
 
 ## Installation
 
@@ -8,12 +8,12 @@ Run `docs/staff-cash-payments-migration.sql` in the Supabase SQL editor after th
 
 The migration creates an active Cash payment method if none exists. An existing archived Cash method stays archived: enable it in Business Catalog > Payment methods when required. Cash needs no QR code, receiving account or uploaded proof.
 
-Administrators can record cash. Other active staff need Transactions module access and the Record payments (`payment_entry`) permission. The database checks the current staff session and permission; guest accounts cannot record Cash, including through a direct payment insert.
+Administrators have view-only access. Authorized operational staff need Transactions module access and the Record payments (`payment_entry`) permission. The database checks the current staff session and permission; guest accounts cannot record Cash, including through a direct payment insert.
 
 ## At check-in
 
 1. Open Transactions > Transaction Ledger and find the booking.
-2. Choose Settle in cash, or Record cash and select the reservation.
+2. Choose the private reservation's **Settle payment** action and select Cash. **New payment** is exclusively for cashier [public-access collections](PUBLIC_ACCESS_SALES.md).
 3. Check the displayed balance. The full remaining balance is filled in automatically. Reduce the applied amount for a partial payment.
 4. Count the received cash and give any change separately. Record only the amount credited to the bill.
 5. Tick the received-cash acknowledgement and choose Record payment and issue receipt.

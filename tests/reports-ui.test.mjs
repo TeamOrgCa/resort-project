@@ -45,7 +45,7 @@ async function click(element) { assert.ok(element, "Button exists"); assert.equa
 async function value(element, nextValue) {
   assert.ok(element);
   await act(async () => {
-    const proto = element.tagName === "SELECT" ? dom.window.HTMLSelectElement.prototype : dom.window.HTMLInputElement.prototype;
+    const proto = element.tagName === "SELECT" ? dom.window.HTMLSelectElement.prototype : element.tagName === "TEXTAREA" ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value").set.call(element, nextValue);
     element.dispatchEvent(new dom.window.Event(element.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
   });
@@ -282,7 +282,7 @@ test("staff can settle a reservation balance in cash, acknowledge receipt and se
  }});
  try{
    await click(h.container.querySelector('button[aria-haspopup="menu"]'));
-   await click(button(document.body,"Record payment"));const modal=h.container.querySelector('[role="dialog"]');
+   await click(button(document.body,"Settle payment"));const modal=h.container.querySelector('[role="dialog"]');
    assert.match(modal.textContent,/Cash \(staff only\)/);assert.equal(modal.querySelector('input[type="number"]').value,"2400.00");
    assert.equal(button(modal,"Record payment and issue receipt").disabled,true);
    await click(modal.querySelector('input[type="checkbox"]'));await click(button(modal,"Record payment and issue receipt"));assert.match(modal.textContent,/same cash reference/);
@@ -292,7 +292,7 @@ test("staff can settle a reservation balance in cash, acknowledge receipt and se
    if(billingError)assert.match(h.container.querySelector('[role="status"]').textContent,/Email notice: Billing emails are disabled/);
    else assert.match(h.container.querySelector('[role="status"]').textContent,/Receipt email: sent. Invoice email: sent/);
    await click(h.container.querySelector('button[aria-haspopup="menu"]'));
-   assert.equal(button(document.body,"Record payment").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
+   assert.equal(button(document.body,"Settle payment").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
  }finally{await h.close();} }
 });
 
@@ -312,7 +312,7 @@ test("cashier selects active catalog methods, supplies transfer evidence and ret
   saved=true;return Response.json({success:true,receipt:{receipt_number:'RCPT-GCASH'},remainingBalance:0,billingEmails:{receiptSent:true,invoiceSent:true}});
  }});
  try{
-  await click(h.container.querySelector('button[aria-haspopup="menu"]'));await click(button(document.body,'Record payment'));
+  await click(h.container.querySelector('button[aria-haspopup="menu"]'));await click(button(document.body,'Settle payment'));
   const modal=h.container.querySelector('[role="dialog"]');
   const field=label=>[...modal.querySelectorAll('label')].find(el=>el.textContent.startsWith(label))?.querySelector('select,input');
   assert.match(field('Payment method').textContent,/GCash/);assert.doesNotMatch(field('Payment method').textContent,/Disabled bank/);
@@ -335,6 +335,62 @@ test("all report types including Guest Report use the Reports endpoint",async()=
  const h=await mount({tabs:["Sales Report","Guest Report","Staff Report"]});
  try {await click(button(h.container,"Guest Report"));assert.match(h.requests.at(-1).url,/^\/api\/admin\/reports\?tab=Guest/);assert.match(h.container.textContent,/Guest reservations/);}
  finally{await h.close();}
+});
+
+test("New payment records public access without a private bill; retries preserve identity and receipts respect source filters", async () => {
+  const cashier = "11111111-1111-4111-8111-111111111111", cash = "22222222-2222-4222-8222-222222222222";
+  let sale = null; const posts = [];
+  const client = { auth: { getUser: async () => ({ data: { user: { id: cashier } } }) }, from: table => {
+    const result = () => ({ error: null, data: table === "staff_users" ? { role: "cashier", is_active: true } : table === "role_permissions" ? { permissions: ["transactions", "payment_entry"] } : table === "payment_methods" ? [{ payment_method_id: cash, name: "Cash", type: "cash", is_active: true }] : table === "public_access_sales" && sale ? [sale] : [] });
+    const q = { select: () => q, eq: () => q, in: () => q, order: () => q, range: async (from, to) => { const r = result(); return { ...r, data: r.data.slice(from, to + 1) }; }, maybeSingle: async () => result(), then: (yes, no) => Promise.resolve(result()).then(yes, no) }; return q;
+  } };
+  const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: { "@/lib/supabase/client": { createClient: () => client } }, fetcher: (url, options) => {
+    assert.equal(url, "/api/admin/public-access-sales"); const body = JSON.parse(options.body); posts.push(body);
+    if (posts.length === 1) return Response.json({ success: false, message: "Retry the same admission" }, { status: 503 });
+    sale = { sale_id: body.requestId, reference_number: "PA-TEST", receipt_number: "PA-RCPT-TEST", guest_name: body.guestName, contact_number: body.contactNumber, access_type: body.accessType, payment_for: body.paymentFor, amount: body.amount, payment_method_id: cash, payment_method_name: "Cash", payment_reference: "PA-CASH-TEST", cashier_id: cashier, paid_at: new Date().toISOString() };
+    return Response.json({ success: true, sale, message: "Public access payment recorded" }, { status: 201 });
+  } });
+  try {
+    await click(button(h.container, "New payment"));
+    const modal = h.container.querySelector('[role="dialog"]');
+    assert.match(modal.textContent, /Public access payment/);
+    const field = label => [...modal.querySelectorAll("label")].find(el => el.textContent.startsWith(label))?.querySelector("input,select,textarea");
+    await value(field("Guest name"), "Maria Cruz"); await value(field("Contact no."), "09171234567");
+    await value(field("Public access usage"), "mixed"); await value(field("Payment for"), "4 adults swimming and cottage usage"); await value(field("Amount received"), "1200");
+    await click(modal.querySelector('input[type="checkbox"]'));
+    const submit = () => act(async () => modal.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await submit(); assert.match(modal.textContent, /Retry the same admission/); await submit();
+    assert.equal(posts[0].requestId, posts[1].requestId);
+    assert.equal(posts[1].contactNumber, "+639171234567"); assert.equal(posts[1].amount, 1200);
+    const receipt = document.body.querySelector('[role="dialog"][aria-label="Public Access Receipt"]'); assert.ok(receipt); assert.match(receipt.textContent, /PA-CASH-TEST/); assert.match(receipt.textContent, /4 adults swimming and cottage usage/);
+    assert.match(receipt.textContent, /Contact No\./); assert.match(receipt.textContent, /Paid At/); assert.match(receipt.textContent, /Cash/);
+    await click(receipt.querySelector('button[aria-label="Close dialog"]') ?? button(receipt, "Close"));
+    assert.match(h.container.querySelector("tbody").textContent, /PA-TEST/);
+    const source = h.container.querySelector('select[aria-label="Transaction collection source"]');
+    await value(source, "private"); assert.doesNotMatch(h.container.querySelector("tbody")?.textContent ?? "", /PA-TEST/);
+    await value(source, "public"); await click(button(h.container, "Export Ledger"));
+    assert.match(await h.downloads.at(-1).blob.text(), /Public access/);
+    await click(button(h.container, "Issued Receipts")); assert.match(h.container.querySelector("tbody").textContent, /PA-RCPT-TEST/);
+    await value(h.container.querySelector('select[aria-label="Transaction collection source"]'), "private"); assert.doesNotMatch(h.container.querySelector("tbody")?.textContent ?? "", /PA-RCPT-TEST/);
+  } finally { await h.close(); }
+});
+
+test("Sales Report source changes refetch totals, hide stale exports, and label CSV and printing", async () => {
+  let resolvePublic;
+  const h = await mount({ tabs: ["Sales Report"], fetcher: url => {
+    const source = new URL(url, "http://localhost").searchParams.get("source");
+    if (source === "public") return new Promise(resolve => { resolvePublic = resolve; });
+    return Response.json({ success: true, report: makeReport("Sales Report", 1) });
+  } });
+  try {
+    await value(h.container.querySelector('select[aria-label="Sales collection source"]'), "public");
+    assert.match(h.requests.at(-1).url, /source=public/); assert.equal(button(h.container, "Export CSV"), undefined);
+    const report = makeReport("Sales Report", 1); report.note = "Collection source: Public access"; report.rows[0].collectionSource = "Public access";
+    await act(async () => resolvePublic(Response.json({ success: true, report })));
+    await click(button(h.container, "Export CSV")); assert.match(h.downloads[0].filename, /sales-report-public-/); assert.match(await h.downloads[0].blob.text(), /Public access/);
+    await click(button(h.container, "Print report")); await act(async () => new Promise(resolve => setTimeout(resolve, 180))); assert.match(h.printed(), /Collection source: Public access/);
+    await value(h.container.querySelector('select[aria-label="Sales collection source"]'), "private"); assert.match(h.requests.at(-1).url, /source=private/);
+  } finally { await h.close(); }
 });
 
 test("Staff Report filters staff across all pages and applies the selection to CSV and printing", async () => {

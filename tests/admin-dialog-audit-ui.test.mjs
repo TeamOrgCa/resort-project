@@ -46,7 +46,7 @@ test("audit exports the current filters, opens details in the shared dialog and 
   globalThis.fetch = async () => {
     reads++;
     return Response.json({ success: true, rows: [
-      { id: "1", staff: "manager@example.com", module: "Reservations", action: "Updated reservation", record: "MV-1", timestamp: "2026-10-16T23:00:00Z", summary: "Guest count updated" },
+      { id: "1", staff: "manager@example.com", module: "Reservations", action: "Updated reservation", record: "MV-1", timestamp: "2026-10-16T23:00:00Z", summaryPreview: "Guest count updated", summary: "Guest count updated\nReason: Two additional adults", recordId:"original-record", originalAction:"edited_reservation",details:'{"adult_count":22}' },
       { id: "2", staff: "admin@example.com", module: "Payments", action: "Verified payment", record: `MV-${reads + 1}`, timestamp: "2026-10-17T00:00:00Z", summary: "Payment verified" },
     ] });
   };
@@ -63,11 +63,17 @@ test("audit exports the current filters, opens details in the shared dialog and 
       search.dispatchEvent(new window.Event("input", { bubbles: true }));
     });
     await click(button(container, "Export Log"));
+    assert.ok(container.querySelector("tbody tr").children[4].classList.contains("table-cell-text"));
     assert.equal(downloads[0].filename, "audit-log.csv"); assert.equal(downloads[0].rows.length, 1);
     assert.equal(downloads[0].rows[0].record, "MV-1");
+    assert.ok(downloads[0].columns.some(column=>column.key==="summary"));assert.ok(!downloads[0].columns.some(column=>column.key==="summaryPreview"));
+    assert.match(downloads[0].rows[0].summary,/Reason: Two additional adults/);
     assert.match(downloads[0].rows[0].timestamp, /Oct 17, 2026/); // Philippine date, not the UTC day.
     await click(button(container, "View Details"));
     assert.match(container.querySelector('[role="dialog"]').textContent, /Guest count updated/);
+    assert.match(container.querySelector('[role="dialog"]').textContent,/Reason: Two additional adults/);
+    assert.equal(container.querySelector('[role="dialog"] details').open,false);
+    assert.doesNotMatch(container.querySelector("tbody").textContent,/adult_count|edited_reservation/);
     await act(async () => container.querySelector('[aria-label="Close dialog"]').click());
     assert.equal(container.querySelector('[role="dialog"]'), null);
     await click(button(container, "Clear table filters")); await click(button(container, "Refresh log"));
@@ -107,17 +113,26 @@ test("audit date selection fetches the applied period, keeps exports in scope, v
   try {
     await act(async () => root.render(createElement(Page)));
     assert.match(container.textContent, /Narrow the date range/);
+    assert.equal(calls[0],"/api/admin/audit?period=today");
+    const select=container.querySelector('[aria-label="Audit period"]');
+    assert.deepEqual([...select.options].map(option=>option.textContent),["Today","This week","This month","Custom date range"]);
+    assert.equal(container.querySelector('input[type="date"]'),null);
+    await act(async()=>{select.value="custom";select.dispatchEvent(new window.Event("change",{bubbles:true}));});
     await date("Audit start date", "2026-10-01"); await date("Audit end date", "2026-10-05");
     assert.equal(calls.length, 1);
-    await apply(); assert.equal(calls.at(-1), "/api/admin/audit?startDate=2026-10-01&endDate=2026-10-05");
+    await apply(); assert.equal(calls.at(-1), "/api/admin/audit?period=custom&startDate=2026-10-01&endDate=2026-10-05");
     assert.match(container.querySelector("tbody").textContent, /MV-OLDER/);
     await click(button(container, "Export Log")); assert.equal(downloads[0][0].record, "MV-OLDER");
     await click(button(container, "Refresh log")); assert.match(calls.at(-1), /startDate=2026-10-01/);
     const reads = calls.length;
     await date("Audit start date", "2026-10-10"); await apply();
     assert.equal(calls.length, reads); assert.match(container.querySelector('[role="alert"]').textContent, /valid date range/);
-    await click(button(container, "Clear dates")); assert.equal(calls.at(-1), "/api/admin/audit");
+    await click(button(container, "Reset to today")); assert.equal(calls.at(-1), "/api/admin/audit?period=today");
     assert.equal(container.querySelector('[role="alert"]'), null);
     assert.match(container.querySelector("tbody").textContent, /MV-RECENT/);
+    for(const preset of ["this-week","this-month"]){
+      await act(async()=>{select.value=preset;select.dispatchEvent(new window.Event("change",{bubbles:true}));});
+      assert.equal(calls.at(-1),`/api/admin/audit?period=${preset}`);assert.equal(container.querySelector('input[type="date"]'),null);
+    }
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = savedFetch; }
 });

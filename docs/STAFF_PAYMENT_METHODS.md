@@ -1,7 +1,9 @@
 # Recording received payments
 
-In **Transactions → Transaction Ledger**, use **New payment** or a reservation's
-**Record payment** action. An active staff account needs `payment_entry`.
+In **Transactions → Transaction Ledger**, use a private reservation's
+**Settle payment** action. An active operational staff account needs `payment_entry`.
+**New payment** is now exclusively cashier public-access entry for swimming,
+cottage or room usage; see [Public access collections](PUBLIC_ACCESS_SALES.md).
 Admin operational access remains read-only. The form records funds already
 received; it does not charge an account or initiate a transfer.
 
@@ -37,3 +39,7 @@ definitions are appended to `updated-schema.sql` for new installations.
 The [Cashier PDF](flowcharts/CASHIER_FLOWCHART.pdf) contains updated C0/C4 diagrams
 and the new C5 non-cash flow. The combined PDF and preview images are regenerated
 from the same flow definitions.
+
+Guest online checkout also supports configured non-cash methods. These guest
+submissions are pending until authorized manual approval, unlike staff entry of
+already-verified funds. See [GUEST_PAYMENT_METHODS.md](GUEST_PAYMENT_METHODS.md).

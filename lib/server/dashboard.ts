@@ -37,7 +37,7 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
     if (count == null) throw new Error(`Unable to count ${table}`);
     return count;
   };
-  const [arrivals, bookings, verified, payments, reschedules, ocular, refundReview, refundPayout] = await Promise.all([
+  const [arrivals, bookings, verified, payments, reschedules, ocular, refundReview, refundPayout, publicSales] = await Promise.all([
     fetchAllPages<Reservation>((from, to) => client.from("reservations")
       .select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, booking_type, booking_mode, status, payment_deadline_at, created_at")
       .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"])
@@ -50,7 +50,9 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
       .order("created_at").order("payment_id").range(from, to)),
     count("payments", "pending"), count("reservation_reschedules", "pending"), count("ocular_visits", "confirmed"),
     count("refund_requests", ["pending", "reviewed"]), count("refund_requests", ["approved", "payout_submitted"]),
+    fetchAllPages<{sale_id:string;amount:number;paid_at:string}>((from,to)=>client.from("public_access_sales").select("sale_id,amount,paid_at").gte("paid_at",start).lt("paid_at",end).order("paid_at").order("sale_id").range(from,to)),
   ]);
+  verified.push(...publicSales.map(sale=>({amount:sale.amount,created_at:sale.paid_at,verified_at:sale.paid_at})));
 
   // An overdue unpaid hold is not a usable reservation, even before the expiry job runs.
   const active = arrivals.filter(r => r.status !== "pending" || !r.payment_deadline_at || Date.parse(r.payment_deadline_at) > now.getTime());
