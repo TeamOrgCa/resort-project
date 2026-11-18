@@ -1,3 +1,4 @@
+import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { NextResponse } from "next/server";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
@@ -218,6 +219,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: STAFF_BOOKING_WINDOW_MESSAGE }, { status: 400 });
     }
 
+    const advanceIssue = await checkAdvanceBooking(payload.startDatetime);
+    if (advanceIssue) return NextResponse.json({ success: false, message: advanceIssue }, { status: 400 });
     const email = payload.walkInGuest!.email;
     if (email) {
       const { data: registeredGuest, error: guestLookupError } = await staffContext.supabase.from("guests")

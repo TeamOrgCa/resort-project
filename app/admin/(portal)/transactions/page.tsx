@@ -82,7 +82,8 @@ const transactionColumns: AdminTableColumn[] = [
   { key: "paid", label: "Paid Amount" },
   { key: "balance", label: "Balance" },
   { key: "overpaid", label: "Overpaid" },
-  { key: "status", label: "Status" },
+  { key: "status", label: "Payment status" },
+  { key: "bookingStatus", label: "Booking status" },
   { key: "updatedAt", label: "Updated" },
 ];
 
@@ -377,6 +378,7 @@ export default function AdminTransactionsPage() {
           balance: formatCurrency(balanceAmount),
           overpaid: formatCurrency(Number(transaction.overpaid_amount ?? 0)),
           status: transaction.status === "cancelled" ? "Cancelled" : toTitleCase(deriveTransactionStatus(totalAmount, paidAmount, balanceAmount)),
+          bookingStatus: toTitleCase(transaction.reservation_status ?? "unavailable"),
           updatedAt: formatDateTime(transaction.updated_at),
         };
       }),...matchingPublicSales.map(sale=>({id:`public:${sale.sale_id}`,reference:sale.reference_number,guest:sale.guest_name,collectionSource:"Public access",paymentFor:sale.payment_for,bookingType:PUBLIC_ACCESS_TYPES[sale.access_type],total:formatCurrency(Number(sale.amount)),paid:formatCurrency(Number(sale.amount)),balance:formatCurrency(0),overpaid:formatCurrency(0),status:"Paid",updatedAt:formatDateTime(sale.paid_at)}))],
@@ -467,11 +469,34 @@ export default function AdminTransactionsPage() {
     {label:"Payment Method",value:sale.payment_method_name},{label:"Payment Ref",value:sale.payment_reference},{label:"Paid At",value:formatDateTime(sale.paid_at)},
     {label:"Amount Paid",value:formatCurrency(Number(sale.amount))},{label:"Collection Total",value:formatCurrency(Number(sale.amount))},{label:"Balance After Payment",value:formatCurrency(0)}]});
 
-  const handleTransactionRowAction = (action: string, row: AdminTableRow) => {
+  const pendingPaymentFor = (transaction: TransactionRow) => payments.find(payment => payment.reservation_id === transaction.reservation_id && payment.status === "pending");
+  const canSettleTransaction = (transaction: TransactionRow) => canRecordPayments && Number(transaction.balance ?? 0) > 0
+    && ["pending", "confirmed"].includes(transaction.reservation_status ?? "") && !pendingPaymentFor(transaction);
+  const paymentActionLabel = (row: AdminTableRow) => {
+    const transaction = transactions.find(item => item.transaction_id === row.id);
+    if (!transaction) return "No balance due";
+    if (["expired", "cancelled", "rejected", "completed", "no_show"].includes(transaction.reservation_status ?? "")) return `Booking ${toTitleCase(transaction.reservation_status ?? "").toLowerCase()}`;
+    if (pendingPaymentFor(transaction)) return "Review payment";
+    if (Number(transaction.balance ?? 0) <= 0) return "No balance due";
+    return "Settle payment";
+  };
+  const canUsePaymentAction = (row: AdminTableRow) => {
+    const transaction = transactions.find(item => item.transaction_id === row.id);
+    if (!transaction) return false;
+    if (pendingPaymentFor(transaction)) return canReviewPayments && ["payment_submitted", "confirmed"].includes(transaction.reservation_status ?? "");
+    return canSettleTransaction(transaction);
+  };
+
+  const handleTransactionRowAction = async (action: string, row: AdminTableRow) => {
     if(row.id.startsWith("public:")){const sale=publicSales.find(s=>`public:${s.sale_id}`===row.id);if(sale&&action==="View")openPublicReceipt(sale);return;}
     if (action === "Settle payment") {
       const transaction = transactions.find((item) => item.transaction_id === row.id);
-      if (!canRecordPayments || !transaction || Number(transaction.balance ?? 0) <= 0 || !["pending", "confirmed"].includes(transaction.reservation_status ?? "")) return;
+      if (!transaction || !canUsePaymentAction(row)) return;
+      const pendingPayment = pendingPaymentFor(transaction);
+      if (pendingPayment) {
+        await handlePaymentRowAction("Review", { id: pendingPayment.payment_id });
+        return;
+      }
       setPaymentReservationId(transaction.reservation_id);
       return;
     }
@@ -489,6 +514,8 @@ export default function AdminTransactionsPage() {
         { label: "Balance", value: row.balance ?? "-" },
         { label: "Overpaid", value: row.overpaid ?? "-" },
         { label: "Status", value: row.status ?? "-" },
+        { label: "Booking status", value: row.bookingStatus ?? "-" },
+        { label: "Payment action", value: paymentActionLabel(row) },
         { label: "Updated", value: row.updatedAt ?? "-" },
       ],
     });
@@ -907,6 +934,7 @@ export default function AdminTransactionsPage() {
           <p className="mt-1 text-xs leading-relaxed text-neutral/65">Bill totals show the current amounts and balances of ledger entries updated in this range. Pending verifications use payment dates.</p>
         </section>
 
+        {activeTab === "Transaction Ledger" && <p className="text-sm text-neutral/70">Unpaid describes the bill. Check the booking status before collecting: use Review payment for submitted proof, or Settle payment for an active booking with no payment awaiting review.</p>}
         {activeTab === "Transaction Ledger" && (
           <TransactionsTablePanel
             title="Transaction Ledger"
@@ -916,8 +944,9 @@ export default function AdminTransactionsPage() {
             defaultSort={{ key: "updatedAt", direction: "desc" }}
             filters={[{ key: "status", label: "Status", options: ["Paid", "Partial", "Unpaid", "Cancelled"] }]}
             actions={canRecordPublic ? ["Refresh ledger", "New payment", "Export Ledger"] : ["Refresh ledger", "Export Ledger"]}
-            rowActions={canRecordPayments ? ["View", "Settle payment"] : ["View"]}
-            isRowActionDisabled={(action, row) => action === "Settle payment" && !transactions.some(item => item.transaction_id === row.id && Number(item.balance ?? 0) > 0 && ["pending", "confirmed"].includes(item.reservation_status ?? ""))}
+            rowActions={canRecordPayments || canReviewPayments ? ["View", "Settle payment"] : ["View"]}
+            getRowActionLabel={(action, row) => action === "Settle payment" ? paymentActionLabel(row) : action}
+            isRowActionDisabled={(action, row) => action === "Settle payment" && !canUsePaymentAction(row)}
             isLoading={isLoading}
             hasError={Boolean(fetchError)}
             onAction={(action, rows) => {

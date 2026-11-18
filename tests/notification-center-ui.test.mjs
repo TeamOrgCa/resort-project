@@ -14,6 +14,54 @@ const alerts = () => document.querySelector('[aria-label="New notifications"]');
 const button = (container, text) => [...container.querySelectorAll("button")].find(button => button.textContent.trim() === text);
 async function click(control) { assert.ok(control); assert.equal(control.disabled, false); await act(async () => control.click()); }
 
+test("legacy payment notices hide automated OCR approval in popup copy, accessible labels and guest menus", async () => {
+  const h = await mount({ menus: "guest", rows: [row("payment", { title: "Payment automatically approved", message: "Payment for reservation MV-PAID was automatically approved because its receipt passed OCR validation." })] });
+  try {
+    assert.match(alerts().textContent, /Payment approved/);
+    assert.doesNotMatch(alerts().innerHTML, /OCR|automatically/i);
+    await click(h.container.querySelector('[aria-label="Open user menu"]'));
+    assert.match(document.body.textContent, /Payment approved/);
+    assert.doesNotMatch(document.body.textContent, /OCR|automatically approved/i);
+  } finally { await h.close(); }
+});
+
+test("guest ocular View details and tray links open the visit in Manage Booking for old and new notifications", async () => {
+  for (const action_url of ["/ocular", "/manage?tab=ocular&visit=visit-id"]) {
+    const h = await mount({ menus: "guest", rows: [row("ocular", { action_url, entity_type: "ocular_visit", entity_id: "visit-id" })] });
+    try {
+      assert.equal(alerts().querySelector("a").getAttribute("href"), "/manage?tab=ocular&visit=visit-id");
+      await click(h.container.querySelector('[aria-label="Open user menu"]'));
+      const trayLink = [...document.querySelectorAll("a")].find(a => a.textContent.includes("Booking update ocular"));
+      assert.ok(trayLink); assert.equal(trayLink.getAttribute("href"), "/manage?tab=ocular&visit=visit-id");
+    } finally { await h.close(); }
+  }
+});
+
+test("saved, confirmed and rescheduled notifications open their matching reservation from popups and the guest menu", async () => {
+  for (const [entity_type, parameter, title] of [["reservation", "reservation", "Booking saved"], ["payment", "payment", "Reservation confirmed"], ["reservation_reschedule", "reschedule", "Reservation rescheduled"]]) {
+    const h = await mount({ menus: "guest", rows: [row("reservation", { title, action_url: "/manage", entity_type, entity_id: "record-id" })] });
+    try {
+      const expected = `/manage?tab=bookings&${parameter}=record-id`;
+      assert.equal(alerts().querySelector("a").getAttribute("href"), expected);
+      await click(h.container.querySelector('[aria-label="Open user menu"]'));
+      const link = [...document.querySelectorAll("a")].find(a => a.textContent.includes(title));
+      assert.ok(link); assert.equal(link.getAttribute("href"), expected);
+    } finally { await h.close(); }
+  }
+});
+
+test("legacy currency precision is corrected in popups and both notification menus", async () => {
+  for (const menus of ["guest", "admin"]) {
+    const h = await mount({ menus, rows: [row("amount", { message: "Refund: PHP 2500.000000; remaining balance: ₱123.456000." })] });
+    try {
+      assert.match(alerts().textContent, /PHP 2,500\.00; remaining balance: ₱123\.46/);
+      await click(h.container.querySelector(`[aria-label="${menus === "guest" ? "Open user menu" : "Open admin notifications"}"]`));
+      assert.match(document.body.textContent, /PHP 2,500\.00; remaining balance: ₱123\.46/);
+      assert.doesNotMatch(document.body.textContent, /000000|456000/);
+    } finally { await h.close(); }
+  }
+});
+
 function compactViewport(initial = true) {
   const original = window.matchMedia;
   const listeners = new Set();

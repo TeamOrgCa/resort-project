@@ -41,11 +41,14 @@ function client() {
     services: [{ service_id: serviceId, name: "Extra table", price: 100 }, { service_id: karaokeId, name: "Karaoke", price: 500 }],
     ocular_visits: [{ visit_id: "visit", reference_number: "OC-VISIT", scheduled_date: day(12), time_slot_id: "slot", status: "confirmed", created_at: new Date().toISOString() }],
     ocular_time_slots: [{ slot_id: "slot", start_time: "10:00:00", end_time: "11:00:00" }],
+    payments: [{ payment_id: "payment", reservation_id: "booking" }, { payment_id: "foreign-payment", reservation_id: "another-guests-reservation" }],
+    reservation_reschedules: [{ reschedule_id: "legacy-reschedule", reservation_id: "booking" }, { reschedule_id: "foreign-reschedule", reservation_id: "another-guests-reservation" }],
   };
   return { auth: { getUser: async () => ({ data: { user: { id: "guest", email: "guest@example.com" } }, error: null }) },
     from(table) {
-      const query = { select: () => query, eq: () => query, in: () => query, order: () => query,
-        maybeSingle: async () => ({ data: data[table], error: null }),
+      const conditions = [];
+      const query = { select: () => query, eq: (key, value) => { conditions.push(row => row[key] === value); return query; }, in: () => query, order: () => query,
+        maybeSingle: async () => ({ data: ["payments", "reservation_reschedules"].includes(table) ? data[table].find(row => conditions.every(match => match(row))) ?? null : data[table], error: null }),
         then: (resolve, reject) => Promise.resolve({ data: data[table], error: null }).then(resolve, reject) };
       return query;
     },
@@ -81,6 +84,64 @@ async function mount(fetcher = async () => Response.json({ refunds: [], eligible
   return { container, pushes, drafts, close: async () => { await act(async () => root.unmount()); container.remove(); globalThis.fetch = original; } };
 }
 const options = reference => document.querySelector(`button[aria-label="Options for ${reference}"]`);
+
+test("booking notifications open the right details for direct reservations, confirmed payments and both reschedule ID formats", async () => {
+  rows.push({ ...rows[0], reservation_id: "saved", reference_number: "MV-SAVED", status: "pending" });
+  try {
+    for (const [query, title, reference] of [
+      ["reservation=saved", "Booking details", "MV-SAVED"],
+      ["reservation=booking", "Reservation details", "MV-CONFIRMED"],
+      ["payment=payment", "Reservation details", "MV-CONFIRMED"],
+      ["reschedule=booking", "Reservation details", "MV-CONFIRMED"],
+      ["reschedule=legacy-reschedule", "Reservation details", "MV-CONFIRMED"],
+      ["reservation=someone-elses-reservation", null, null],
+      ["payment=foreign-payment", null, null],
+      ["reschedule=foreign-reschedule", null, null],
+    ]) {
+      window.history.replaceState(null, "", `/manage?tab=bookings&${query}`);
+      const h = await mount();
+      try {
+        if (title) {
+          assert.ok(dialog()); assert.match(dialog().textContent, new RegExp(title)); assert.match(dialog().textContent, new RegExp(reference));
+          await click(button(dialog(), "Close"));
+          await act(async () => window.dispatchEvent(new window.Event("focus")));
+          assert.equal(dialog(), null, "closing the notification does not reopen it during refresh");
+        } else assert.equal(dialog(), null, "a notification target cannot open another guest's reservation");
+      } finally { await h.close(); window.history.replaceState(null, "", "/manage"); }
+    }
+  } finally { rows.pop(); }
+});
+
+test("ocular notification URLs select the visits tab and open only a visit in the guest's loaded records", async () => {
+  for (const suffix of ["&visit=visit", "&visit=someone-elses-visit", ""]) {
+    window.history.replaceState(null, "", `/manage?tab=ocular${suffix}`);
+    const h = await mount();
+    try {
+      assert.ok(h.container.querySelector('[aria-label="View ocular visit OC-VISIT"]'));
+      if (suffix === "&visit=visit") {
+        assert.match(dialog().textContent, /Ocular visit details/);
+        assert.match(dialog().textContent, /OC-VISIT/);
+        await click(button(dialog(), "Close"));
+        await act(async () => window.dispatchEvent(new window.Event("focus")));
+        assert.equal(dialog(), null, "refreshing must not reopen a dismissed notification");
+      } else assert.equal(dialog(), null);
+    } finally { await h.close(); window.history.replaceState(null, "", "/manage"); }
+  }
+});
+
+test("completed reservations open as reservation details with actual check-in and check-out times", async () => {
+  rows.push({ ...rows[0], reservation_id: "completed", reference_number: "MV-COMPLETED", status: "completed", checked_in_at: "2026-11-01T01:15:00Z", checked_out_at: "2026-11-01T10:45:00Z" });
+  const h = await mount();
+  try {
+    await click(h.container.querySelector('[aria-label="View reservation MV-COMPLETED"]'));
+    assert.match(dialog().textContent, /Reservation details/);
+    assert.doesNotMatch(dialog().textContent, /Booking details/);
+    const details = [...dialog().querySelectorAll("dt")];
+    assert.match(details.find(dt => dt.textContent === "Checked in at:").nextElementSibling.textContent, /9:15/);
+    assert.match(details.find(dt => dt.textContent === "Checked out at:").nextElementSibling.textContent, /6:45/);
+    assert.equal(button(dialog(), "Edit reservation"), undefined);
+  } finally { await h.close(); rows.pop(); }
+});
 async function action(reference, label) { await click(options(reference)); await click(menuItem(label)); }
 async function chooseDate(date) {
   for (let attempt = 0; attempt < 24 && !dialog().querySelector(`button[data-date="${date}"]`); attempt++) {
@@ -96,17 +157,17 @@ test("booking actions open a focused dialog without inline details and restore t
   try {
     assert.equal(dialog(), null); assert.equal(h.container.textContent.includes("Booked services"), false);
     const trigger = options("MV-CONFIRMED"); await click(trigger);
-    assert.equal(document.activeElement, menuItem("View")); await key(document.activeElement, "ArrowDown"); assert.equal(document.activeElement, menuItem("Edit booking"));
+    assert.equal(document.activeElement, menuItem("View")); await key(document.activeElement, "ArrowDown"); assert.equal(document.activeElement, menuItem("Edit reservation"));
     await key(document.activeElement, "Escape"); assert.equal(document.querySelector('[role="menu"]'), null); assert.equal(document.activeElement, trigger);
     await action("MV-CONFIRMED", "View");
     assert.ok(dialog()); assert.equal(h.container.contains(dialog()), false); assert.equal(document.body.style.overflow, "hidden");
-    assert.match(dialog().textContent, /Booking details/); assert.match(dialog().textContent, /Extra table/);
+    assert.match(dialog().textContent, /Reservation details/); assert.match(dialog().textContent, /Extra table/);
     assert.match(dialog().textContent, /3 adults, 1 child/);
     const breakdown = dialog().querySelector('[aria-label="Amount breakdown"]');
     assert.match(breakdown.textContent, /Reschedule fees \(non-refundable\)/);
     assert.match(breakdown.textContent, /2,300/); assert.match(breakdown.textContent, /500/);
     assert.match(breakdown.textContent, /Total reservation amount/);
-    for (const label of ["Edit booking", "Reschedule", "Cancel reservation", "Continue to Payment"]) assert.ok(button(dialog(), label), label);
+    for (const label of ["Edit reservation", "Reschedule", "Cancel reservation", "Continue to Payment"]) assert.ok(button(dialog(), label), label);
     assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
     const last = [...dialog().querySelectorAll("button, a[href], input, select, textarea")].at(-1); last.focus(); await key(last, "Tab"); assert.equal(document.activeElement.getAttribute("aria-label"), "Close booking dialog");
     await key(document.activeElement, "Escape"); assert.ok(dialog()); await click(button(dialog(), "Close")); assert.equal(dialog(), null); assert.equal(document.body.style.overflow, ""); assert.equal(document.activeElement, trigger);
@@ -117,9 +178,9 @@ test("booking actions open a focused dialog without inline details and restore t
 test("booking and ocular cards provide direct keyboard-focusable View controls while options stay separate", async () => {
   const h = await mount();
   try {
-    const cardView = h.container.querySelector('button[aria-label="View booking MV-CONFIRMED"]');
+    const cardView = h.container.querySelector('button[aria-label="View reservation MV-CONFIRMED"]');
     assert.ok(cardView); assert.equal(cardView.getAttribute("aria-haspopup"), "dialog");
-    cardView.focus(); await click(cardView); assert.match(dialog().textContent, /Booking details/);
+    cardView.focus(); await click(cardView); assert.match(dialog().textContent, /Reservation details/);
     await click(button(dialog(), "Close")); assert.equal(document.activeElement, cardView);
     await click(options("MV-CONFIRMED")); assert.equal(dialog(), null); assert.ok(document.querySelector('[role="menu"]'));
     await key(document.activeElement, "Escape");
@@ -157,16 +218,16 @@ test("service errors and recalculated amounts remain visible in the selected dia
     return new Promise(resolve => { resolveSave = () => resolve(Response.json({ success: true, message: "Services saved", totalAmount: 3600, paidAmount: 600, remainingBalance: 3000, adultCount: 3, childCount: 1, services: [{ serviceId, name: "Extra table", quantity: 2, priceAtTime: 100 }, { serviceId: karaokeId, name: "Karaoke", quantity: 1, priceAtTime: 500 }] })); });
   });
   try {
-    await action("MV-CONFIRMED", "Edit booking");
+    await action("MV-CONFIRMED", "Edit reservation");
     await value(dialog().querySelector('[aria-label="New service"]'), karaokeId);
     await click(button(dialog(), "Add Service"));
     await value(dialog().querySelector('[aria-label="Quantity for Extra table"]'), "2");
-    await click(button(dialog(), "Save Booking Changes")); assert.match(dialog().querySelector('[role="alert"]').textContent, /Service not available/);
+    await click(button(dialog(), "Save Reservation Changes")); await click([...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Confirm changes")); assert.match(dialog().querySelector('[role="alert"]').textContent, /Service not available/);
     assert.deepEqual(calls[0].body, { adultCount: 3, childCount: 1, services: [{ serviceId, quantity: 2 }, { serviceId: karaokeId, quantity: 1 }], expectedTotal: 3600, version: "a".repeat(64) });
-    rejectSave = false; await click(button(dialog(), "Save Booking Changes"));
+    rejectSave = false; await click(button(dialog(), "Save Reservation Changes")); await click([...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Confirm changes"));
     assert.equal(dialog().getAttribute("aria-busy"), "true"); assert.equal(button(dialog(), "Close").disabled, true);
     await key(dialog(), "Escape"); assert.ok(dialog()); await act(async () => resolveSave());
-    assert.match(dialog().textContent, /Services saved/); assert.match(dialog().textContent, /Booking details/);
+    assert.match(dialog().textContent, /Services saved/); assert.match(dialog().textContent, /Reservation details/);
     assert.match(dialog().textContent, /3,600/); assert.match(dialog().textContent, /Karaoke/);
     await click(button(dialog(), "Close"));
     assert.match(h.container.querySelector('[aria-label="Booking MV-CONFIRMED"]').textContent, /3,600/);
@@ -182,10 +243,10 @@ test("a paid-downpayment booking opens edits from View and carries saved adult/c
     return Response.json({ success: true, adultCount: 5, childCount: 2, services: [], totalAmount: 2900, paidAmount: 600, remainingBalance: 2300, message: "Booking updated" });
   });
   try {
-    await action("MV-CONFIRMED", "View"); await click(button(dialog(), "Edit booking"));
+    await action("MV-CONFIRMED", "View"); await click(button(dialog(), "Edit reservation"));
     await value(dialog().querySelector('[aria-label="Adults"]'), "5"); await value(dialog().querySelector('[aria-label="Children"]'), "2");
     await click(dialog().querySelector('[aria-label="Remove Extra table"]'));
-    await click(button(dialog(), "Save Booking Changes"));
+    await click(button(dialog(), "Save Reservation Changes")); await click([...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Confirm changes"));
     assert.equal(posted.adultCount, 5); assert.equal(posted.childCount, 2); assert.deepEqual(posted.services, []);
     assert.match(dialog().textContent, /7 guests/); assert.match(dialog().textContent, /No services selected/);
     assert.match(dialog().textContent, /5 adults, 2 children/);
@@ -490,7 +551,7 @@ test("cancellation offers rescheduling without calling the cancellation endpoint
     assert.match(dialog().textContent,/Would you prefer to reschedule/);
     assert.equal(cancellationCalls,0);
     await click(button(dialog(),"Reschedule instead"));
-    assert.match(dialog().textContent,/Reschedule Booking/);
+    assert.match(dialog().textContent,/Reschedule reservation/);
     await chooseDate(day(25));
     assert.equal(button(dialog(),"Confirm Reschedule").disabled,false);
     assert.equal(cancellationCalls,0);
@@ -615,7 +676,7 @@ test("a no-show is a closed guest record with its status, historical bill and no
   try {
     await action("MV-CLOSED","View");assert.match(dialog().textContent,/No Show/);
     assert.match(dialog().textContent,/closed for booking changes and new payments/);assert.match(dialog().textContent,/Recorded balance/);
-    for(const label of ["Edit booking","Reschedule","Cancel reservation","Continue to Payment"])assert.equal(button(dialog(),label),undefined,label);
+    for(const label of ["Edit reservation","Reschedule","Cancel reservation","Continue to Payment"])assert.equal(button(dialog(),label),undefined,label);
     assert.equal(h.pushes.length,0);
   }finally{await h.close();rows[2]=original;}
 });

@@ -109,7 +109,7 @@ export default function AdminLoginForm() {
       </div> : null}
 
       {requiresOtp ? <div>
-        <p className="mb-3 text-sm text-neutral/70">Enter the verification code sent to your staff email.</p>
+        <p className="mb-3 text-sm text-neutral/70">Enter the verification code sent to your staff email. It expires in 5 minutes and can only be used once.</p>
         <label htmlFor="admin-otp" className="mb-2 block text-sm font-medium text-neutral">Verification Code</label>
         <input
           id="admin-otp"
@@ -131,6 +131,8 @@ export default function AdminLoginForm() {
       >
         {isSubmitting ? "Verifying..." : requiresOtp ? "Verify Code" : "Sign In to Staff Portal"}
       </button>
+
+      {requiresOtp && <button type="button" disabled={isSubmitting || signedIn} onClick={() => { setRequiresOtp(false); setOtp(""); setPassword(""); setError(""); }} className="block min-h-11 w-full text-center text-sm font-medium text-primary hover:underline disabled:opacity-50">Sign in again for a new code</button>}
 
       {!requiresOtp ? <Link href="/auth/forgot?staff=1" className="block text-center text-sm font-medium text-primary hover:underline">
         Forgot your password?

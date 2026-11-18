@@ -1,3 +1,4 @@
+import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -149,6 +150,8 @@ export async function POST(request: Request) {
     }
 
     const adminSupabase = createAdminClient();
+    const advanceIssue = await checkAdvanceBooking(payload.newStartDatetime, adminSupabase);
+    if (advanceIssue) return NextResponse.json({ success: false, message: advanceIssue }, { status: 400 });
 
     /* -----------------------------
        STATUS CHECK

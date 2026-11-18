@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { isRecentRecovery, validPasswordResetExpiry } from "@/lib/server/email-auth";
 
 export async function GET(request: NextRequest) {
   const tokenHash = request.nextUrl.searchParams.get("token_hash");
@@ -30,12 +31,14 @@ export async function GET(request: NextRequest) {
   }
   const supabase = await createClient();
 
-  if (tokenHash && type === "recovery") {
-    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
-    if (!error) return NextResponse.redirect(destination);
-  } else if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(destination);
+  if (validPasswordResetExpiry(request.nextUrl, request.nextUrl.searchParams.get("staff") === "1")) {
+    const result = tokenHash && type === "recovery"
+      ? await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" })
+      : code ? await supabase.auth.exchangeCodeForSession(code) : null;
+    if (result && !result.error) {
+      if (isRecentRecovery(result.data.user)) return NextResponse.redirect(destination);
+      await supabase.auth.signOut({ scope: "local" });
+    }
   }
 
   destination.searchParams.set("error", "invalid_link");

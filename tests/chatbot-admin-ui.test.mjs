@@ -1,4 +1,4 @@
-import test, { after } from "node:test";
+import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
@@ -8,12 +8,45 @@ for (const key of ["window", "document", "HTMLElement", "Node"]) globalThis[key]
 window.HTMLElement.prototype.scrollIntoView = () => {};
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client"); after(() => dom.window.close());
+beforeEach(() => window.localStorage.clear());
 const button = (container, text) => [...container.querySelectorAll("button")].find(item => item.textContent.trim() === text);
 const click = async element => { assert.ok(element); assert.equal(element.disabled, false); await act(async () => element.click()); };
 const value = async (element, text) => { assert.ok(element); await act(async () => {
   Object.getOwnPropertyDescriptor(element.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype, "value").set.call(element,text);
   element.dispatchEvent(new window.Event("input", { bubbles: true }));
 }); };
+
+test("Mars shows compact greeting, thinking and answer emotes without adding them to chat history", async () => {
+  const original = globalThis.fetch, requests = []; let reply;
+  globalThis.fetch = (_url, options) => { requests.push(JSON.parse(options.body)); return new Promise(resolve => { reply = resolve; }); };
+  const Component = loadTsModule("components/ChatBotMars.tsx", {
+    "@/components/content/SiteContent": { useSiteContent: () => ({}) },
+    "next/image": { __esModule: true, default: props => createElement("img", props) },
+  }).default;
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  const emote = name => container.querySelector(`[role="log"] img[src$="chatbotmars_${name}.png"]`);
+  try {
+    await act(async () => root.render(createElement(Component)));
+    await click(container.querySelector('[aria-label="Open ChatBot Mars"]'));
+    assert.ok(emote("waving"));
+    await click(button(container, "Show me services"));
+    assert.ok(emote("thinking")); assert.match(container.querySelector('[role="log"]').textContent, /Typing\.\.\./);
+    await act(async () => reply(Response.json({ reply: "Here are the available resort services." })));
+    assert.ok(emote("approved")); assert.equal(emote("thinking"), null);
+    assert.match(container.querySelector('[role="log"]').textContent, /available resort services/);
+    for (const img of container.querySelectorAll('[role="log"] img')) {
+      assert.equal(img.getAttribute("width"), "40"); assert.equal(img.getAttribute("height"), "40");
+      assert.equal(img.alt, ""); assert.match(img.className, /shrink-0/);
+    }
+    await click(button(container, "How do I book?"));
+    assert.ok(requests[1].history.length);
+    assert.ok(requests[1].history.every(message => Object.keys(message).sort().join() === "content,role"));
+    await act(async () => reply(Response.json({ error: "Please try again later." }, { status: 503 })));
+    assert.ok(emote("thinking")); assert.match(container.querySelector('[role="log"]').textContent, /Please try again later/);
+    assert.equal(container.querySelector('[role="log"]').getAttribute("aria-busy"), "false");
+    assert.ok(container.querySelector("#chatbot-message"));
+  } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = original; }
+});
 
 test("admins edit and publish FAQ questions and approved answers in Configuration", async () => {
   let saved;

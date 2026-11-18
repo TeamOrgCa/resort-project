@@ -71,6 +71,7 @@ function routeHarness({ grant = true, approveLate = true, active = true, loaded 
   const routes = loadTsModule("app/api/admin/reservations/[id]/route.ts", {
     "@/lib/server/admin-audit": { requireActiveStaff: async () => active ? { staffUser: { id, role: "staff" }, supabase: {} } : null },
     "@/lib/server/role-permissions": { staffHasPermission: async (_db, _role, permission) => grant && (permission !== "reschedule_approval" || approveLate) },
+    "@/lib/server/advance-booking": { checkAdvanceBooking: async () => null },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }) },
     "@/lib/server/billing-email": { emailUpdatedBillingStatement: async (...args) => { emails.push(args); return { sent: emailSent, ...(emailSent ? {} : { error: "Email unavailable." }) }; } },
     "@/lib/server/reservation-editor": { loadReservationEditor: async () => loaded },
@@ -153,12 +154,12 @@ test("stale versions and changed catalog quotes require review before saving", a
   assert.equal((await h.patch({ ...edit, expectedTotal: 1 })).status, 409);
   assert.equal(h.calls.length, 0);
 });
-test("in-stay guest count changes and additions are allowed; service reductions remain blocked", async () => {
+test("managers can change guest counts and reduce or remove services during an editable stay", async () => {
   const h = routeHarness({ loaded: { ...detail(), canChangeDetails: false } });
   assert.equal((await h.patch({ ...edit, adultCount: 21, expectedTotal: 8725 })).status, 200);
-  assert.equal((await h.patch({ ...edit, services: [], expectedTotal: 8500 })).status, 400);
+  assert.equal((await h.patch({ ...edit, services: [], expectedTotal: 8500 })).status, 200);
   assert.equal((await h.patch({ ...edit, services: [{ serviceId, quantity: 2 }], expectedTotal: 8700 })).status, 200);
-  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls.length, 3);
 });
 test("saving uses one atomic RPC with server-derived prices and actor", async () => {
   const h = routeHarness();

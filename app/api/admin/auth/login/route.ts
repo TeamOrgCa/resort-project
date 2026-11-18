@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { loginAccess, loginError, recordAttempt } from "@/lib/server/login-access";
 import { completeStaffLogin } from "@/lib/server/staff-login";
+import { isEmailConfigured, sendStaffOtpEmail } from "@/lib/email";
+import { createStaffOtpChallenge, STAFF_OTP_COOKIE, staffOtpCookieOptions } from "@/lib/server/email-auth";
 
 export async function POST(request: Request) {
   try {
@@ -23,18 +25,31 @@ export async function POST(request: Request) {
       return completeStaffLogin({ admin, supabase, user, authSessionId, email, deviceId, finish });
     }
 
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-    await supabase.auth.signOut({ scope: "local" });
-    if (otpError) return finish(loginError("Unable to send the verification code.", 502));
+    const challenge = createStaffOtpChallenge(email);
+    let sent = false;
+    try {
+      if (isEmailConfigured()) {
+        const { data, error: otpError } = await admin.auth.admin.generateLink({ type: "magiclink", email });
+        if (!otpError && data.user?.id === user.id && data.properties?.verification_type === "magiclink" && /^\d{6,8}$/.test(data.properties.email_otp)) {
+          sent = await sendStaffOtpEmail({ email, code: data.properties.email_otp });
+        }
+      } else {
+        const { error: otpError } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+        sent = !otpError;
+      }
+    } finally {
+      // Never leave the password session signed in if code delivery throws.
+      await supabase.auth.signOut({ scope: "local" });
+    }
+    if (!sent) return finish(loginError("Unable to send the verification code.", 502));
 
-    return finish(NextResponse.json({
+    const response = finish(NextResponse.json({
       success: true,
       requiresOtp: true,
-      message: "A verification code was sent to your staff email.",
+      message: "A verification code was sent to your staff email. It expires in 5 minutes and can only be used once.",
     }));
+    response.cookies.set(STAFF_OTP_COOKIE, challenge, staffOtpCookieOptions);
+    return response;
   } catch {
     return loginError("Unable to process login request.", 500);
   }

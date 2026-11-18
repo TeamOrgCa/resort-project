@@ -50,7 +50,9 @@ export default function SettingEditor({ definition, value, onChange, onUploading
   } else if (definition.input === "textarea") {
     control = <textarea id={id} aria-describedby={compact ? undefined : `${id}-help`} rows={compact ? /inclusions|reminders/i.test(definition.label) ? 4 : 2 : 3} value={String(value)} onChange={(event) => onChange(event.target.value)} className={controlClass} />;
   } else {
-    control = <input id={id} aria-describedby={compact ? undefined : `${id}-help`} type={definition.input === "number" ? "number" : "text"} value={String(value)} onChange={(event) => onChange(definition.input === "number" ? Number(event.target.value) : event.target.value)} className={controlClass} />;
+    control = <input id={id} aria-describedby={compact ? undefined : `${id}-help`} type={definition.input === "number" ? "number" : "text"}
+      min={definition.key === "reservation.maximum_advance_booking_days" ? 0 : undefined} max={definition.key === "reservation.maximum_advance_booking_days" ? 3650 : undefined} step={definition.key === "reservation.maximum_advance_booking_days" ? 1 : undefined}
+      value={String(value)} onChange={(event) => onChange(definition.input === "number" ? Number(event.target.value) : event.target.value)} className={controlClass} />;
   }
   return <div className={compact ? "min-w-0" : "rounded-xl border border-neutral/10 p-4"}>
     {simpleControl ? <label htmlFor={id} className="block text-sm font-medium text-neutral">{definition.label}</label> : <p className="text-sm font-semibold text-neutral">{definition.label}</p>}

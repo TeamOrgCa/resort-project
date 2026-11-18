@@ -267,6 +267,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [selectedOcularId, setSelectedOcularId] = useState<string | null>(null);
 
   const selectedBooking = bookings.find((item) => item.id === selectedBookingId) ?? null;
+  const selectedRecordName = ["confirmed", "completed"].includes(selectedBooking?.status.toLowerCase() ?? "") ? "reservation" : "booking";
   const selectedOcular = ocularBookings.find((item) => item.id === selectedOcularId) ?? null;
   const selectedReschedulePolicy = selectedBooking ? reschedulePolicy(selectedBooking.startDatetime, now) : null;
   const canRequestReschedule = !selectedBooking?.checkedInAt && selectedBooking?.status.toLowerCase() === "confirmed";
@@ -660,6 +661,43 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         setOcularSlotsById(
           ocularSlotMap
         );
+        // Notification links are applied after the authenticated guest's
+        // records load. A URL can open only one of this guest's records.
+        const destination = new URLSearchParams(window.location.search);
+        if (destination.get("tab") === "ocular") {
+          setActiveTab("ocular");
+          const visit = mappedOcularBookings.find(record => record.id === destination.get("visit"));
+          if (visit) {
+            setSelectedOcularId(visit.id);
+            setSelectedBookingId(null);
+            setRecordMode("view");
+            setOcularEdit({ scheduledDate: visit.scheduledDate, timeSlotId: visit.timeSlotId });
+          }
+        } else if (destination.get("tab") === "bookings") {
+          setActiveTab("bookings");
+          const reservationId = destination.get("reservation");
+          const paymentId = destination.get("payment");
+          const rescheduleId = destination.get("reschedule");
+          // Automatic reschedule notifications historically stored the
+          // reservation ID; legacy approvals stored a reschedule record ID.
+          let reservation = mappedBookings.find(record => record.id === (reservationId || rescheduleId));
+          if (!reservation && !reservationId && reservationIds.length && (paymentId || rescheduleId)) {
+            const { data: related, error: relatedError } = await supabase
+              .from(paymentId ? "payments" : "reservation_reschedules")
+              .select("reservation_id")
+              .eq(paymentId ? "payment_id" : "reschedule_id", paymentId || rescheduleId!)
+              .in("reservation_id", reservationIds)
+              .maybeSingle<{ reservation_id: string }>();
+            if (!isMounted) return;
+            if (relatedError) setFetchError("Unable to open the notification details. Select your reservation below.");
+            reservation = mappedBookings.find(record => record.id === related?.reservation_id);
+          }
+          if (reservation) {
+            setSelectedBookingId(reservation.id);
+            setSelectedOcularId(null);
+            setRecordMode("view");
+          }
+        }
       } catch {
         if (!isMounted) return;
         setFetchError("Failed to load your booking records.");
@@ -774,7 +812,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         <div className="relative z-10 px-5 text-center">
           <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/75">Your Marville stay</p>
           <h1 className="text-3xl font-bold text-white sm:text-5xl">Manage Booking</h1>
-          <p className="mt-3 max-w-xl text-sm text-white/85 sm:text-black">Your schedules, payments and requests, all in one place.</p>
+          <p className="mt-3 max-w-xl text-sm text-white/85 sm:text-white">Your schedules, payments and requests, all in one place.</p>
         </div>
       </section>
 
@@ -826,8 +864,9 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             : <div className="space-y-4">
               {activeTab === "bookings" && visibleBookings.map(record => {
                 const closed = isClosedReservation(record.status), reviewing = record.status.toLowerCase() === "payment submitted";
-                return <article key={record.id} aria-label={`Booking ${record.reference}`} className="relative isolate overflow-hidden rounded-2xl border border-neutral/10 transition hover:border-primary/25 hover:shadow-sm">
-                  <button type="button" aria-label={`View booking ${record.reference}`} aria-haspopup="dialog" onClick={() => openBookingRecord(record, "view")} className="absolute inset-0 z-[1] cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
+                const recordName = ["confirmed", "completed"].includes(record.status.toLowerCase()) ? "reservation" : "booking";
+                return <article key={record.id} aria-label={`${record.status.toLowerCase() === "completed" ? "Reservation" : "Booking"} ${record.reference}`} className="relative isolate overflow-hidden rounded-2xl border border-neutral/10 transition hover:border-primary/25 hover:shadow-sm">
+                  <button type="button" aria-label={`View ${recordName} ${record.reference}`} aria-haspopup="dialog" onClick={() => openBookingRecord(record, "view")} className="absolute inset-0 z-[1] cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
                   <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
                     <div className="min-w-0"><p className="ui-reference text-black font-semibold text-neutral">{record.reference}</p>
                       <p className="mt-1 flex items-center gap-2 text-xs text-neutral/60"><span className="capitalize">{record.bookingMode?.replace(/_/g, " ") || "Reservation"}</span><span aria-hidden="true">&middot;</span><ManageIcon name="guests" className="h-4 w-4" />{record.guests} guests</p>
@@ -835,7 +874,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                     </div>
                     <div className="relative z-10 shrink-0"><RecordActionsMenu reference={record.reference} actions={[
                       { label: "View", icon: "view", explanation: "Details, payment and refund updates", onSelect: () => openBookingRecord(record, "view") },
-                      { label: "Edit booking", icon: "edit", disabled: closed || reviewing, explanation: closed ? "This reservation is closed" : reviewing ? "Available after payment review" : "Update guest counts, services and billing", onSelect: () => openBookingRecord(record, "edit") },
+                      { label: `Edit ${recordName}`, icon: "edit", disabled: closed || reviewing, explanation: closed ? "This reservation is closed" : reviewing ? "Available after payment review" : "Update guest counts, services and billing", onSelect: () => openBookingRecord(record, "edit") },
                       { label: "Reschedule", icon: "calendar", disabled: Boolean(record.checkedInAt) || record.status.toLowerCase() !== "confirmed", explanation: record.checkedInAt ? "Rescheduling is locked after check-in" : record.status.toLowerCase() === "confirmed" ? "Choose an available date for automatic approval" : "Available for confirmed reservations", onSelect: () => openBookingRecord(record, "reschedule") },
                       { label: "Pay balance", icon: "wallet", disabled: closed || reviewing || record.remainingBalance <= 0, explanation: closed ? "This reservation is closed" : reviewing ? "Your payment is being reviewed" : record.remainingBalance <= 0 ? "No outstanding balance" : "Continue to online payment", onSelect: () => openPaymentPortal(record) },
                       { label: "Cancel reservation", icon: "cancel", danger: true, disabled: closed || Boolean(record.checkedInAt), explanation: record.checkedInAt ? "Cancellation is locked after check-in" : closed ? "This reservation is closed" : "Review the refund calculation first", onSelect: () => { setCancelError(null); setPendingCancellation({ id: record.id, reference: record.reference, checkIn: record.checkIn }); } },
@@ -877,7 +916,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       </main>
 
       {recordMode && currentRecord && <RecordDialog reference={currentRecord.reference} busy={dialogBusy} onClose={closeRecord}
-        title={activeTab === "ocular" ? recordMode === "view" ? "Ocular visit details" : "Edit ocular visit" : recordMode === "view" ? "Booking details" : recordMode === "edit" ? "Edit booking" : "Reschedule booking"}>
+        title={activeTab === "ocular" ? recordMode === "view" ? "Ocular visit details" : "Edit ocular visit" : recordMode === "view" ? `${toTitleCase(selectedRecordName)} details` : recordMode === "edit" ? `Edit ${selectedRecordName}` : `Reschedule ${selectedRecordName}`}>
         {activeTab === "bookings" && <>
           {recordMode === "view" && selectedBooking && <div className="space-y-5">
             {serviceEditMessage && <p role="status" className="rounded-xl bg-secondary/10 p-4 text-sm text-teal-900">{serviceEditMessage}</p>}
@@ -890,6 +929,10 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             <dl className="grid gap-4 rounded-2xl bg-base p-5 text-sm sm:grid-cols-2">
               <div><dt className="text-neutral/55">Check-in</dt><dd className="mt-1 font-semibold">{formatDateTime(selectedBooking.startDatetime)}</dd></div>
               <div><dt className="text-neutral/55">Check-out</dt><dd className="mt-1 font-semibold">{formatDateTime(selectedBooking.endDatetime)}</dd></div>
+              {selectedBooking.status.toLowerCase() === "completed" && <>
+                <div><dt className="text-neutral/55">Checked in at:</dt><dd className="mt-1 font-semibold">{selectedBooking.checkedInAt ? formatDateTime(selectedBooking.checkedInAt) : "Not recorded"}</dd></div>
+                <div><dt className="text-neutral/55">Checked out at:</dt><dd className="mt-1 font-semibold">{selectedBooking.checkedOutAt ? formatDateTime(selectedBooking.checkedOutAt) : "Not recorded"}</dd></div>
+              </>}
               <div><dt className="text-neutral/55">Package</dt><dd className="mt-1 font-medium capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Reservation"}</dd></div>
               <div><dt className="text-neutral/55">Guests</dt><dd className="mt-1 font-medium">{selectedBooking.adultCount} {selectedBooking.adultCount === 1 ? "adult" : "adults"}, {selectedBooking.childCount} {selectedBooking.childCount === 1 ? "child" : "children"}</dd></div>
               <div><dt className="text-neutral/55">Contact email</dt><dd className="mt-1 break-all font-medium">{selectedBooking.email}</dd></div>
@@ -909,7 +952,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               <button type="button" onClick={() => openPaymentPortal(selectedBooking)} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl sm:w-auto bg-primary px-5 py-3 text-sm font-semibold text-white hover:bg-primary/90">Continue to Payment<ManageIcon name="arrow" className="h-4 w-4" /></button>
             </div>}
             {!["payment submitted", "reschedule requested"].includes(selectedBooking.status.toLowerCase()) && !isClosedReservation(selectedBooking.status) && <div className="flex flex-col gap-3 sm:flex-row">
-              <button type="button" onClick={() => openBookingRecord(selectedBooking, "edit")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/25 px-5 py-3 text-sm font-semibold text-primary hover:bg-primary/5"><ManageIcon name="edit" />Edit booking</button>
+              <button type="button" onClick={() => openBookingRecord(selectedBooking, "edit")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary/25 px-5 py-3 text-sm font-semibold text-primary hover:bg-primary/5"><ManageIcon name="edit" />Edit {selectedRecordName}</button>
               {!selectedBooking.checkedInAt && selectedBooking.status.toLowerCase() === "confirmed" && <button type="button" onClick={() => openBookingRecord(selectedBooking, "reschedule")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-neutral/15 px-5 py-3 text-sm font-semibold text-neutral"><ManageIcon name="calendar" />Reschedule</button>}
               {!selectedBooking.checkedInAt && <button type="button" onClick={() => { setRecordMode(null); setPendingCancellation({ id: selectedBooking.id, reference: selectedBooking.reference, checkIn: selectedBooking.checkIn }); }} className="min-h-11 rounded-xl border border-red-200 px-5 py-3 text-sm font-semibold text-red-700">Cancel reservation</button>}
             </div>}
@@ -933,7 +976,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 void handleSubmitReschedule(event);
               }}
             >
-              <h3 className="text-lg font-semibold text-neutral">Reschedule Booking</h3>
+              <h3 className="text-lg font-semibold text-neutral">Reschedule {selectedRecordName}</h3>
 
               <div className="rounded-lg bg-neutral/5 p-4 space-y-2 text-sm">
                 <p><span className="text-neutral/70">Booking Mode:</span> <span className="font-semibold text-neutral capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Unknown"}</span></p>
@@ -963,6 +1006,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 value={rescheduleForm.checkIn}
                 onChange={date => { setRescheduleForm(current => ({ ...current, checkIn: date })); setRescheduleFormError(null); }}
                 minDate={minRescheduleDate}
+                maxDate={rescheduleAvailability.maxBookingDate}
                 originalDate={manilaDateKey(selectedBooking.startDatetime)}
                 onMonthChange={setRescheduleCalendarMonth}
                 month={rescheduleCalendarMonth}

@@ -9,6 +9,7 @@ import NotificationStatusFilters, { notificationMatchesFilter, notificationStatu
 import { createClient } from "@/lib/supabase/client";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
+import { formatNotificationText } from "@/lib/notification-text";
 
 type NotificationItem = {
   notification_id: string;
@@ -188,10 +189,10 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
                         notificationStatusClass(item.is_read)
                       }`}
                     >
-                      <p className="font-semibold text-neutral">{item.title}</p>
+                      <p className="font-semibold text-neutral">{formatNotificationText(item.title)}</p>
                       <span className="text-[10px] font-medium text-neutral/60">{item.is_read ? "Read" : "Unread"}</span>
                       {item.message ? (
-                        <p className="mt-1 text-neutral/70">{item.message}</p>
+                        <p className="mt-1 text-neutral/70">{formatNotificationText(item.message)}</p>
                       ) : null}
                       <p className="mt-1 text-[11px] text-neutral/50">
                         {formatNotificationTime(item.created_at)}

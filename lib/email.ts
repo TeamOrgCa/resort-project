@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import type { BillingBreakdown } from "@/lib/booking/billing-breakdown";
 import { getEmailBranding } from "@/lib/server/email-branding";
 import { createBillingPdf, billingPdfFilename, type BillingPdfInput } from "@/lib/server/billing-pdf";
+import { EMAIL_OTP_EXPIRY_MINUTES } from "@/lib/auth/email-expiry";
 
 interface ReservationEmailBase {
   guestEmail: string;
@@ -289,6 +290,20 @@ const sendMail = async ({
     return false;
   }
 };
+
+export const sendStaffOtpEmail = async ({ email, code }: { email: string; code: string }) => sendMail({
+  to: email,
+  subject: `Your ${appName} staff verification code`,
+  text: [`Your staff verification code is: ${code}`, `This code expires in ${EMAIL_OTP_EXPIRY_MINUTES} minutes and can only be used once.`, "Return to the staff sign-in page in the same browser to enter it. Never share this code.", "If you did not try to sign in, ignore this email and contact the resort administrator."].join("\n\n"),
+  html: `<h2 style="margin:0 0 20px;font-size:28px;line-height:1.25">Staff verification code</h2><p>Enter this code on the staff sign-in page in the same browser:</p><p style="margin:24px 0;padding:20px;background:#F8F4EC;border:1px solid #E9DFD3;border-radius:12px;text-align:center;font-size:32px;letter-spacing:6px;font-weight:700;color:#A9442B">${escapeHtml(code)}</p><p><strong>This code expires in ${EMAIL_OTP_EXPIRY_MINUTES} minutes and can only be used once.</strong> Sign in again to request a new code after it expires.</p><p>Never share this code. If you did not try to sign in, ignore this email and contact the resort administrator.</p>`,
+});
+
+export const sendPasswordResetEmail = async ({ email, resetUrl }: { email: string; resetUrl: string }) => sendMail({
+  to: email,
+  subject: `Reset your ${appName} password`,
+  text: [`We received a request to reset your ${appName} password.`, "Open this secure link to choose a new password:", resetUrl, `This link expires in ${EMAIL_OTP_EXPIRY_MINUTES} minutes and can only be used once. Request a new reset email if it expires.`, "If you did not request this, ignore this email. Your password will stay the same."].join("\n\n"),
+  html: `<h2 style="margin:0 0 20px;font-size:28px;line-height:1.25">Reset your password</h2><p>We received a request to reset your ${escapeHtml(appName)} password. Select the button below to choose a new password.</p><p style="margin:28px 0"><a href="${escapeHtml(resetUrl)}" style="display:inline-block;padding:14px 24px;background:#A9442B;color:#FFFFFF;text-decoration:none;border-radius:28px;font-weight:700;text-align:center">Reset password</a></p><p><strong>This link expires in ${EMAIL_OTP_EXPIRY_MINUTES} minutes and can only be used once.</strong> Request a new reset email if it expires.</p><p>If the button does not work, copy and open this link:</p><p style="word-break:break-all"><a href="${escapeHtml(resetUrl)}" style="color:#A9442B;text-decoration:underline;word-break:break-all">${escapeHtml(resetUrl)}</a></p><p>If you did not request this, ignore this email. Your password will stay the same.</p>`,
+});
 
 export const sendGuestConfirmationEmail = async ({ email, guestName, confirmationUrl }: { email: string; guestName: string; confirmationUrl: string }) => sendMail({
   to: email,

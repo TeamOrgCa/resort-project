@@ -94,3 +94,24 @@ test("legacy receipts explicitly label missing payment metadata without inventin
   await mail.sendPaymentReceiptEmail({...billing,paymentMethod:undefined,paymentReference:undefined,paidAt:null});
   const message=messages.at(-1);assert.match(message.text,/Payment method: Not recorded/);assert.match(message.text,/Payment reference: Not recorded/);assert.match(message.text,/Paid at \(Philippine time\): Not recorded/);
 });
+
+test("staff codes and password resets use branded emails with five-minute, one-use instructions", async () => {
+  for (const [send, payload, title, expected] of [
+    ["sendStaffOtpEmail", { email: base.guestEmail, code: "12345678" }, "Staff verification code", "12345678"],
+    ["sendPasswordResetEmail", { email: base.guestEmail, resetUrl: "https://resort.example/auth/confirm/staff?token_hash=sample&type=recovery&expires=123" }, "Reset your password", "Reset password"],
+  ]) {
+    assert.equal(await mail[send](payload), true);
+    const message = messages.at(-1), dom = new JSDOM(message.html);
+    try {
+      assert.equal(dom.window.document.querySelector("h2").textContent, title);
+      assert.match(dom.window.document.body.textContent, /expires in 5 minutes and can only be used once/);
+      assert.match(message.text, /expires in 5 minutes and can only be used once/);
+      assert.ok(dom.window.document.body.textContent.includes(expected));
+      assert.ok(dom.window.document.querySelector('td[bgcolor="#A9442B"]'));
+      if (payload.resetUrl) {
+        const links = [...dom.window.document.querySelectorAll("a")].filter(a => a.textContent.includes("Reset password") || a.textContent.includes("token_hash"));
+        assert.equal(links.length, 2); assert.ok(links.every(a => a.href === payload.resetUrl));
+      }
+    } finally { dom.window.close(); }
+  }
+});

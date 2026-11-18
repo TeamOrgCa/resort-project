@@ -16,7 +16,7 @@ function harness({staff=true,permission=true}={}){
   "@/lib/server/role-permissions":{staffHasPermission:async()=>permission},
   "@/lib/supabase/admin":{createAdminClient:()=>({from(table){
    reads++;const predicates=[];
-   const q={select:()=>q,limit:()=>q,
+   const q={select:()=>q,limit:()=>q,maybeSingle:async()=>({data:{setting_value:45},error:null}),
     in:(key,values)=>{predicates.push(row=>values.includes(row[key]));return q;},
     eq:(key,value)=>{predicates.push(row=>row[key]===value);return q;},
     neq:(key,value)=>{filters.push([key,value]);predicates.push(row=>row[key]!==value);return q;},
@@ -32,6 +32,7 @@ function harness({staff=true,permission=true}={}){
 test("public availability includes every active hold and booking, strips identifiers and includes next-month maintenance",async()=>{
  const h=harness({staff:false});const response=await h.get("");const data=await response.json();
  assert.equal(response.status,200);assert.equal(response.headers.get("cache-control"),"no-store");assert.equal(h.authChecks(),0);
+ assert.equal(data.maximumAdvanceBookingDays,45); assert.match(data.maxBookingDate,/^\d{4}-\d{2}-\d{2}$/);
  assert.equal(data.reservations.length,3);assert.equal(data.reservations[0].start_datetime,rows[0].start_datetime);
  assert.deepEqual(Object.keys(data.reservations[0]).sort(),["end_datetime","start_datetime"]);
  assert.equal(data.blockedDates[0].start_date,"2027-07-01");assert.equal(h.filters.length,0);

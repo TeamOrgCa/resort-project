@@ -37,6 +37,8 @@ export type EditDetail = {
   packageRates: PackageRates; packageTimes?: PackageTimes;
   canApproveLateReschedule?: boolean;
   canRescheduleException?: boolean;
+  canReduceServices?: boolean;
+  canChangeAccommodation?: boolean;
 };
 export const moneyRound = (n: number) => Math.round(n * 100) / 100;
 

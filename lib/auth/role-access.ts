@@ -33,6 +33,7 @@ export const ADMIN_PERMISSIONS: readonly Permission[] = ["dashboard", "reservati
 
 export function isAdminReadOnlyRequest(role: StaffRole, path: string, method: string): boolean {
   if (role !== "admin" || ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return false;
+  if (path === "/api/admin/analytics/feedback/moderate" && method.toUpperCase() === "POST") return false;
   const fullAccessPaths = ["/api/admin/users", "/api/admin/permissions", "/api/admin/settings", "/api/admin/booking-policy", "/api/admin/catalog", "/api/admin/payment-accounts", "/api/admin/auth"];
   return !fullAccessPaths.some(prefix => path === prefix || path.startsWith(`${prefix}/`));
 }
@@ -68,6 +69,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/refunds")) return "transactions";
   if (path === "/api/admin/transactions/guest-report") return "reports";
   if (path.startsWith("/api/admin/transactions/")) return "transactions";
+  if (path === "/api/admin/analytics/feedback/moderate") return "analytics";
   if (path.startsWith("/api/admin/analytics/feedback") && method === "PATCH") return "feedback_archive";
   if (path.startsWith("/api/admin/analytics")) return "analytics";
   if (path.startsWith("/api/admin/reports")) return "reports";

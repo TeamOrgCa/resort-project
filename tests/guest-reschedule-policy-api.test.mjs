@@ -34,6 +34,7 @@ function harness({ booked = reservation, user = { id: "guest" }, conflict = fals
       from: () => { const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: booked, error: null }) }; return q; } }) },
     "@/lib/supabase/admin": { createAdminClient: () => admin },
     "@/lib/server/package-rates": { loadPackageRates: async () => ({ version: 1, rates: legacyRates }), PackageRatesError: class extends Error {} },
+    "@/lib/server/advance-booking": { checkAdvanceBooking: async () => null },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async (...args) => { overlaps.push(args); return { conflict, error: null }; } },
     "@/lib/notifications": { NOTIFICATION_AUDIENCES: { reservation: [] }, createNotifications: async body => { notifications.push(body); if (notificationFails) throw new Error("Notification unavailable"); return { error: null }; } },
   });

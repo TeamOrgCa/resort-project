@@ -14,6 +14,7 @@ type BookingDateCalendarProps = {
   title?: string;
   description?: string;
   minDate?: string;
+  maxDate?: string;
   initialDate?: string;
   visibleMonth?: string;
   minimumDateReason?: string;
@@ -27,7 +28,7 @@ type BookingDateCalendarProps = {
 };
 
 export default function BookingDateCalendar({ value, onChange, title = "Booking date", description = "Choose a date in Philippine time.",
-  minDate, initialDate, visibleMonth, minimumDateReason = "Before the earliest selectable date", getUnavailableReason, getDateHint, onMonthChange, disabled = false, disabledReason,
+  minDate, maxDate, initialDate, visibleMonth, minimumDateReason = "Before the earliest selectable date", getUnavailableReason, getDateHint, onMonthChange, disabled = false, disabledReason,
   emptyLabel = "Select a booking date.", footnote,
 }: BookingDateCalendarProps) {
   const titleId = useId();
@@ -38,6 +39,10 @@ export default function BookingDateCalendar({ value, onChange, title = "Booking 
   const days = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
   const moveMonth = (direction: number) => {
     const next = new Date(Date.UTC(year, monthNumber - 1 + direction, 1)).toISOString().slice(0, 7);
+    // An asynchronously loaded limit may put the visible month outside the
+    // window. Always allow navigation back toward the valid dates.
+    if (direction > 0 && maxDate && next > maxDate.slice(0, 7)) return;
+    if (direction < 0 && minDate && next < minDate.slice(0, 7)) return;
     setMonth(next); onMonthChange?.(next);
   };
 
@@ -49,14 +54,14 @@ export default function BookingDateCalendar({ value, onChange, title = "Booking 
     <div className="mb-3 flex items-center gap-2">
       <button type="button" aria-label="Previous month" disabled={disabled || Boolean(minDate && month <= minDate.slice(0, 7))} onClick={() => moveMonth(-1)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"><ManageIcon name="arrow" className="h-5 w-5 rotate-180" /></button>
       <p aria-live="polite" className="min-w-0 flex-1 text-center text-sm font-semibold text-neutral sm:text-lg">{formatManilaDate(`${month}-01`, { month: "long", year: "numeric" })}</p>
-      <button type="button" aria-label="Next month" disabled={disabled} onClick={() => moveMonth(1)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><ManageIcon name="arrow" className="h-5 w-5" /></button>
+      <button type="button" aria-label="Next month" disabled={disabled || Boolean(maxDate && month >= maxDate.slice(0, 7))} onClick={() => moveMonth(1)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral hover:bg-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"><ManageIcon name="arrow" className="h-5 w-5" /></button>
     </div>
     <div className="grid grid-cols-7 gap-1 sm:gap-2">
       {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(day => <span key={day} className="py-2 text-center text-xs font-semibold text-neutral/60">{day}</span>)}
       {Array.from({ length: firstDay }, (_, index) => <span key={`empty-${index}`} aria-hidden="true" />)}
       {Array.from({ length: days }, (_, index) => {
         const date = `${month}-${String(index + 1).padStart(2, "0")}`;
-        const reason = disabled && disabledReason ? disabledReason : minDate && date < minDate ? minimumDateReason : getUnavailableReason?.(date) ?? null;
+        const reason = disabled && disabledReason ? disabledReason : minDate && date < minDate ? minimumDateReason : maxDate && date > maxDate ? `Beyond the advance booking limit (${maxDate})` : getUnavailableReason?.(date) ?? null;
         const hint = !reason ? getDateHint?.(date) : undefined;
         const selected = date === value;
         return <button key={date} type="button" data-date={date} disabled={disabled || Boolean(reason)} aria-pressed={selected}

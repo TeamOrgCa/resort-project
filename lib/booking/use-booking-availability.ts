@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ReservedWindow } from "./availability";
+import { DEFAULT_ADVANCE_BOOKING_DAYS, maximumBookingDate } from "./advance-window";
 
 export type BlockedDateRange = import("./maintenance").MaintenanceWindow;
 type Availability = { key: string; reservations: ReservedWindow[]; blockedDates: BlockedDateRange[]; error: string | null };
@@ -10,6 +11,9 @@ export function useBookingAvailability(months: string[], enabled: boolean, exclu
   const key = [...new Set(months.filter(month => /^\d{4}-\d{2}$/.test(month)))].sort().join(",");
   const requestKey = `${key}|${excludeReservationId ?? ""}`;
   const [snapshot, setSnapshot] = useState<Availability | null>(null);
+  // The booking window is global, independent of the requested month. Retain
+  // its last known limit while a new month loads, refreshes or fails.
+  const [maxBookingDate, setMaxBookingDate] = useState<string>();
   const [revision, setRevision] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const refresh = useCallback(() => { setSnapshot(null); setRevision(value => value + 1); }, []);
@@ -29,10 +33,11 @@ export function useBookingAvailability(months: string[], enabled: boolean, exclu
           if (!response.ok || !Array.isArray(body.reservations) || !Array.isArray(body.blockedDates)) {
             throw new Error("Unable to load available dates. Please retry.");
           }
-          return body as { reservations: ReservedWindow[]; blockedDates: BlockedDateRange[] };
+          return body as { reservations: ReservedWindow[]; blockedDates: BlockedDateRange[]; maxBookingDate?: string };
         }));
         if (active && !current.signal.aborted) {
           setSnapshot({ key: requestKey, reservations: results.flatMap(result => result.reservations), blockedDates: results.flatMap(result => result.blockedDates), error: null });
+          setMaxBookingDate(results.map(result => result.maxBookingDate ?? maximumBookingDate(DEFAULT_ADVANCE_BOOKING_DAYS)).sort()[0]);
           setNow(Date.now());
         }
       } catch {
@@ -49,6 +54,6 @@ export function useBookingAvailability(months: string[], enabled: boolean, exclu
   return {
     ready: Boolean(ready), error: snapshot?.key === requestKey ? snapshot.error : null,
     reservations: ready ? snapshot.reservations : [], blockedDates: ready ? snapshot.blockedDates : [],
-    now, refresh,
+    maxBookingDate, now, refresh,
   };
 }

@@ -1,3 +1,4 @@
+import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { LegalPolicyError, requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 import { parseServiceSelections, serviceQuantityError } from "@/lib/booking/service-quantity";
 import { saveGuestBookingPhone, GuestBookingPhoneError } from "@/lib/server/guest-booking-phone";
@@ -196,6 +197,10 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+
+    const advanceIssue = await checkAdvanceBooking(payload.startDatetime);
+    if (advanceIssue) return NextResponse.json({ success: false, message: advanceIssue }, { status: 400 });
+
 
     const { conflict: overlapReservation, error: overlapError } = await checkReservationOverlap(
       payload.startDatetime,

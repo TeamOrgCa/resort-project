@@ -1,0 +1,2 @@
+export const EMAIL_OTP_EXPIRY_SECONDS = 300;
+export const EMAIL_OTP_EXPIRY_MINUTES = 5;

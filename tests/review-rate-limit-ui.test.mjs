@@ -11,7 +11,14 @@ const button = (c, label) => [...c.querySelectorAll("button")].find(e => e.textC
 async function value(el, text) { await act(async () => { Object.getOwnPropertyDescriptor(el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype, "value").set.call(el, text); el.dispatchEvent(new window.Event("input", { bubbles: true })); }); }
 test("review rate-limit errors appear in a popup with the retry time and retain the written review", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, options) => options?.method === "POST" ? Response.json({ error: "Wait 10 minutes between reviews.", retryAfter: 600, code: "REVIEW_RATE_LIMITED" }, { status: 429, headers: { "Retry-After": "600" } }) : String(_url).includes("/eligibility") ? Response.json({ eligible: true, reservations: [] }) : Response.json({ reviews: [] });
+  let submittedReview;
+  globalThis.fetch = async (_url, options) => {
+    if (options?.method === "POST") {
+      submittedReview = JSON.parse(options.body.get("review"));
+      return Response.json({ error: "Wait 10 minutes between reviews.", retryAfter: 600, code: "REVIEW_RATE_LIMITED" }, { status: 429, headers: { "Retry-After": "600" } });
+    }
+    return String(_url).includes("/eligibility") ? Response.json({ eligible: true, reservations: [] }) : Response.json({ reviews: [] });
+  };
   const Component = loadTsModule("app/reviews/page.tsx", {
     "@/components/Navigation": () => null, "@/components/Footer": () => null, "next/image": () => null,
     "next/link": ({ href, children }) => createElement("a", { href }, children),
@@ -26,12 +33,13 @@ test("review rate-limit errors appear in a popup with the retry time and retain 
     assert.match(container.textContent, /maximum of 3 reviews in 24 hours/);
     await act(async () => container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
     const dialog = document.querySelector('[role="alertdialog"]'); assert.ok(dialog); assert.match(dialog.textContent, /Try again after/); assert.match(dialog.textContent, /Philippine time/);
+    assert.equal("reservation_id" in submittedReview, false);
     assert.equal(container.querySelector("textarea").value, text);
     await act(async () => dialog.querySelector("button").click()); assert.equal(document.querySelector('[role="alertdialog"]'), null);
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; }
 });
 
-test("review form blocks guests until a completed stay exists and lists eligible stays", async () => {
+test("review form still requires a completed stay and opens without a stay selector", async () => {
   const originalFetch = globalThis.fetch; let eligible = false;
   globalThis.fetch = async url => String(url).includes("/eligibility") ? Response.json({ eligible, message: "Complete a resort stay before submitting a review.", reservations: eligible ? [{reservation_id:"completed",reference_number:"MV-COMPLETED",end_datetime:"2026-11-13T08:00:00Z"}] : [] }) : Response.json({ reviews: [] });
   const Component = loadTsModule("app/reviews/page.tsx", { "@/components/Navigation": () => null, "@/components/Footer": () => null, "next/image": () => null, "next/link": ({ href, children }) => createElement("a", { href }, children) }).default;
@@ -41,8 +49,9 @@ test("review form blocks guests until a completed stay exists and lists eligible
     await act(async () => button(container, "Write a Review").click());
     assert.equal(container.querySelector("form"), null); assert.match(container.querySelector('[role="alert"]').textContent, /Complete a resort stay/);
     eligible = true; await act(async () => button(container, "Write a Review").click());
-    assert.ok(container.querySelector("form")); assert.match(container.querySelector("#review-reservation").textContent, /General feedback/);
-    assert.equal(container.querySelector("#review-reservation").value, "");
-    assert.match(container.textContent,/Only guests with a completed stay/);assert.match(container.querySelector("#review-reservation").textContent,/MV-COMPLETED/);
+    assert.ok(container.querySelector("form"));
+    assert.equal(container.querySelector("#review-reservation"), null);
+    assert.doesNotMatch(container.textContent, /Completed stay \(optional\)/);
+    assert.match(container.textContent,/Only guests with a completed stay/);
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; }
 });

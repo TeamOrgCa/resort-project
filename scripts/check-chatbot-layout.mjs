@@ -19,22 +19,29 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client");
 const Chat = loadTsModule("components/ChatBotMars.tsx", {
   "@/components/content/SiteContent": { useSiteContent: () => ({ "chatbot.faqs": Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`Custom question ${i + 1} about the resort and services?`, "Approved answer."])) }) },
-  "next/image": { __esModule: true, default: ({ alt }) => createElement("span", null, alt) },
+  "next/image": { __esModule: true, default: props => createElement("img", props) },
 }).default;
 const container = document.createElement("div"); document.body.append(container);
 const root = createRoot(container), fixtures = new Map();
 const originalFetch = globalThis.fetch;
-globalThis.fetch = async () => Response.json({ reply: "Additional services currently offered:\n- Extra mattress: PHP 300.00\n".repeat(18) + "long-text-".repeat(80) });
+let completeReply;
+globalThis.fetch = () => new Promise(resolve => { completeReply = resolve; });
 await act(async () => root.render(createElement(Chat)));
 await act(async () => container.querySelector('[aria-label="Open ChatBot Mars"]').click());
 await act(async () => [...container.querySelectorAll("button")].find(el => el.textContent === "Show me services").click());
+fixtures.set("thinking", container.innerHTML);
+await act(async () => completeReply(Response.json({ reply: "Additional services currently offered:\n- Extra mattress: PHP 300.00\n".repeat(18) + "long-text-".repeat(80) })));
 fixtures.set("conversation", container.innerHTML);
 await act(async () => [...container.querySelectorAll("button")].find(el => el.textContent === "Talk to a resort employee").click());
 fixtures.set("support", container.innerHTML);
 await act(async () => root.unmount()); dom.window.close(); globalThis.fetch = originalFetch;
 const css = (await postcss([tailwind()]).process(readFileSync("app/globals.css", "utf8"), { from: "app/globals.css" })).css;
 const server = createServer((request, response) => {
-  const state = new URL(request.url, "http://localhost").searchParams.get("state");
+  const url = new URL(request.url, "http://localhost");
+  if (/^\/chatbot-icon\/(?:mars_chatbot|chatbotmars_(?:waving|thinking|approved))\.png$/.test(url.pathname)) {
+    response.setHeader("Content-Type", "image/png"); response.end(readFileSync(resolve("public", url.pathname.slice(1)))); return;
+  }
+  const state = url.searchParams.get("state");
   response.setHeader("Content-Type", "text/html");
   response.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body data-state="${state}"><main style="height:2000px">Resort page</main>${fixtures.get(state) ?? ""}</body></html>`);
 });
@@ -75,16 +82,17 @@ try {
     const result = await send("Runtime.evaluate", { expression: `JSON.stringify((()=>{
       const panel=document.querySelector('section'), log=document.querySelector('[role="log"]'), rail=document.querySelector('[aria-label="FAQ shortcuts"]'), input=document.getElementById('chatbot-message'), send=input.form.querySelector('button'), r=panel.getBoundingClientRect(), l=log.getBoundingClientRect(), f=input.getBoundingClientRect(), b=send.getBoundingClientRect(), chips=[...rail.children];
       log.scrollTop=log.scrollHeight; rail.scrollLeft=rail.scrollWidth;
-      return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,logHeight:l.height,railHeight:rail.getBoundingClientRect().height,singleRow:new Set(chips.map(el=>el.getBoundingClientRect().top)).size===1,railScrolls:rail.scrollLeft>0,logScrolls:log.scrollTop>0,inputVisible:f.top>=l.bottom && f.bottom<=r.bottom && b.right<=r.right,controls:chips.every(el=>el.getBoundingClientRect().height>=44),pageOverflow:document.documentElement.scrollWidth>innerWidth,pageScroll:scrollY};
+      const emotes=[...log.querySelectorAll('img')];
+      return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,logHeight:l.height,railHeight:rail.getBoundingClientRect().height,singleRow:new Set(chips.map(el=>el.getBoundingClientRect().top)).size===1,railScrolls:rail.scrollLeft>0,logScrolls:log.scrollHeight<=log.clientHeight+1||log.scrollTop>0,inputVisible:f.top>=l.bottom && f.bottom<=r.bottom && b.right<=r.right,controls:chips.every(el=>el.getBoundingClientRect().height>=44),pageOverflow:document.documentElement.scrollWidth>innerWidth,pageScroll:scrollY,compactEmotes:emotes.length>0&&emotes.every(img=>{const e=img.getBoundingClientRect(),bubble=img.nextElementSibling.getBoundingClientRect();return img.complete&&img.naturalWidth>0&&e.width>0&&e.width<=40&&e.height<=40&&e.right<=bubble.left+1;})};
     })())`, returnByValue: true });
     const m = JSON.parse(result.result.value);
-    if (m.left < 0 || m.right > width + 1 || m.top < 0 || m.bottom > height + 1 || m.logHeight < height * .3 || m.railHeight > 80 || !m.singleRow || !m.railScrolls || !m.logScrolls || !m.inputVisible || !m.controls || m.pageOverflow || m.pageScroll) failures.push({ width, height, state, ...m });
+    if (m.left < 0 || m.right > width + 1 || m.top < 0 || m.bottom > height + 1 || m.logHeight < height * .3 || m.railHeight > 80 || !m.singleRow || !m.railScrolls || !m.logScrolls || !m.inputVisible || !m.controls || !m.compactEmotes || m.pageOverflow || m.pageScroll) failures.push({ width, height, state, ...m });
     if (width === 390 && state === "conversation") {
       const shot = await send("Page.captureScreenshot", { format: "png" }); writeFileSync(join(preview, `${width}x${height}.png`), Buffer.from(shot.data, "base64"));
     }
   }
   if (failures.length) throw Error(JSON.stringify(failures, null, 2));
-  console.log(`Passed ${sizes.length * fixtures.size} Chromium layouts with 40 FAQs: one scrollable chip row, readable conversation, visible composer, 44px touch targets, and no page overflow.`);
+  console.log(`Passed ${sizes.length * fixtures.size} Chromium layouts with 40 FAQs: compact emotes without text overlap, one scrollable chip row, readable conversation, visible composer, 44px touch targets, and no page overflow.`);
 } finally {
   if (send && socket?.readyState === WebSocket.OPEN) await send("Browser.close").catch(() => {});
   socket?.close(); browser.kill(); server.close();

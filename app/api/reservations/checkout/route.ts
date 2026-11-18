@@ -1,3 +1,4 @@
+import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { LegalPolicyError, requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 import { parseServiceSelections, serviceQuantityError } from "@/lib/booking/service-quantity";
 import { sendOcrPaymentEmails } from "@/lib/server/ocr-payment-emails";
@@ -267,6 +268,10 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+
+    const advanceIssue = await checkAdvanceBooking(payload.startDatetime);
+    if (advanceIssue) return NextResponse.json({ success: false, message: advanceIssue }, { status: 400 });
+
 
     if (!payload.payment.proofPath.startsWith(`${user.id}/`) || payload.payment.proofPath.includes("..")) {
       return NextResponse.json({ success: false, message: "Invalid payment proof path." }, { status: 400 });
@@ -660,8 +665,8 @@ export async function POST(request: Request) {
         actorId: user.id,
         guestId: user.id,
         staffRoles: NOTIFICATION_AUDIENCES.checkout,
-        title: manualReview ? "Reservation payment submitted" : "Reservation confirmed",
-        message: manualReview ? `Reservation ${reservation.reference_number} is awaiting payment verification by staff.` : `Reservation ${reservation.reference_number} was confirmed after automatic OCR payment approval.`,
+        title: manualReview ? "Reservation payment submitted" : "Payment approved",
+        message: manualReview ? `Reservation ${reservation.reference_number} is awaiting payment verification by staff.` : `Your payment for reservation ${reservation.reference_number} has been approved. Your reservation is confirmed.`,
         entityType: "payment",
         entityId: payment.payment_id,
         guestActionUrl: "/manage",

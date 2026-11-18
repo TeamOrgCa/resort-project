@@ -268,11 +268,11 @@ test("analytics retries failures and aborts stale data and feedback after date c
 });
 
 
-test("staff can settle a reservation balance in cash, acknowledge receipt and see the issued receipt",async()=>{
- for(const billingError of [null,"Billing emails are disabled in Configuration"]){
+test("cashiers can settle active unpaid and partial bookings, retry safely and see the issued receipt",async()=>{
+ for(const initialPaid of [0,600]) for(const billingError of [null,"Billing emails are disabled in Configuration"]){
  let saved=false,fail=true;const posted=[];
  const client={auth:{getUser:async()=>({data:{user:{id:"admin"}}})},from:table=>{
-   const result=()=>({error:null,data:table==="staff_users"?{role:"staff",is_active:true}:table==="role_permissions"?{permissions:["transactions","payment_entry"]}:table==="transactions"?[{transaction_id:"txn",reservation_id:"booking",total_amount:3000,paid_amount:saved?3000:600,balance:saved?0:2400,overpaid_amount:0,status:saved?"paid":"partial",updated_at:"2026-10-15T01:00:00Z"}]:table==="reservations"?[{reservation_id:"booking",reference_number:"MV-CASH",booking_type:"online",status:"confirmed"}]:table==="receipts"&&saved?[{receipt_id:"receipt",payment_id:"cash",receipt_number:"RCPT-CASH",issued_at:"2026-10-15T01:00:00Z",is_active:true}]:[]});
+   const result=()=>({error:null,data:table==="staff_users"?{role:"cashier",is_active:true}:table==="role_permissions"?{permissions:["transactions","payment_entry"]}:table==="transactions"?[{transaction_id:"txn",reservation_id:"booking",total_amount:3000,paid_amount:saved?3000:initialPaid,balance:saved?0:3000-initialPaid,overpaid_amount:0,status:saved?"paid":initialPaid?"partial":"unpaid",updated_at:"2026-10-15T01:00:00Z"}]:table==="reservations"?[{reservation_id:"booking",reference_number:"MV-CASH",booking_type:"online",status:saved||initialPaid?"confirmed":"pending"}]:table==="receipts"&&saved?[{receipt_id:"receipt",payment_id:"cash",receipt_number:"RCPT-CASH",issued_at:"2026-10-15T01:00:00Z",is_active:true}]:[]});
    const q={select:()=>q,eq:()=>q,in:()=>q,order:()=>q,limit:()=>q,range:async(from,to)=>{const response=result();return{...response,data:response.data.slice(from,to+1)};},maybeSingle:async()=>result(),then:(resolve,reject)=>Promise.resolve(result()).then(resolve,reject)};return q;
  }};
  const h=await mount({filename:"app/admin/(portal)/transactions/page.tsx",extraMocks:{"@/lib/supabase/client":{createClient:()=>client}},fetcher:(url,options)=>{
@@ -283,17 +283,47 @@ test("staff can settle a reservation balance in cash, acknowledge receipt and se
  try{
    await click(h.container.querySelector('button[aria-haspopup="menu"]'));
    await click(button(document.body,"Settle payment"));const modal=h.container.querySelector('[role="dialog"]');
-   assert.match(modal.textContent,/Cash \(staff only\)/);assert.equal(modal.querySelector('input[type="number"]').value,"2400.00");
+   assert.match(modal.textContent,/Cash \(staff only\)/);assert.equal(modal.querySelector('input[type="number"]').value,(3000-initialPaid).toFixed(2));
    assert.equal(button(modal,"Record payment and issue receipt").disabled,true);
    await click(modal.querySelector('input[type="checkbox"]'));await click(button(modal,"Record payment and issue receipt"));assert.match(modal.textContent,/same cash reference/);
    fail=false;await click(button(modal,"Record payment and issue receipt"));assert.equal(posted[0].paymentReference,posted[1].paymentReference);
-   assert.equal(posted[1].paymentMethod,"cash");assert.equal(posted[1].cashReceived,true);assert.equal(posted[1].expectedBalance,2400);
+   assert.equal(posted[1].paymentMethod,"cash");assert.equal(posted[1].cashReceived,true);assert.equal(posted[1].expectedBalance,3000-initialPaid);
    assert.equal(h.container.querySelector('[role="dialog"]'),null);assert.match(h.container.querySelector('[role="status"]').textContent,/RCPT-CASH/);
    if(billingError)assert.match(h.container.querySelector('[role="status"]').textContent,/Email notice: Billing emails are disabled/);
    else assert.match(h.container.querySelector('[role="status"]').textContent,/Receipt email: sent. Invoice email: sent/);
    await click(h.container.querySelector('button[aria-haspopup="menu"]'));
-   assert.equal(button(document.body,"Settle payment").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
+   assert.equal(button(document.body,"No balance due").disabled,true);await click(button(h.container,"Issued Receipts"));assert.match(h.container.textContent,/RCPT-CASH/);
  }finally{await h.close();} }
+});
+
+test("unpaid ledger explains closed bookings and opens existing payment review without collecting twice",async()=>{
+ for(const [status,hasProof,canApprove,label] of [
+  ["expired",false,true,"Booking expired"], ["cancelled",false,true,"Booking cancelled"],
+  ["rejected",false,true,"Booking rejected"], ["completed",false,true,"Booking completed"],
+  ["no_show",false,true,"Booking no show"], ["payment_submitted",true,true,"Review payment"],
+  ["payment_submitted",true,false,"Review payment"], ["confirmed",true,true,"Review payment"],
+ ]){
+  const signed=[];
+  const payment={payment_id:"proof",reservation_id:"booking",reference_number:"PAY-EXISTING",amount:600,payment_type:"downpayment",status:"pending",proof_path:"guest/proof.png",ocr_status:"not_applicable"};
+  const client={auth:{getUser:async()=>({data:{user:{id:"cashier"}}})},storage:{from:()=>({createSignedUrl:async(path)=>{signed.push(path);return{data:{signedUrl:"https://example.com/proof.png"},error:null};}})},from:table=>{
+   const result=()=>({error:null,data:table==="staff_users"?{role:"cashier",is_active:true}:table==="role_permissions"?{permissions:["transactions","payment_entry",...(canApprove?["payment_approval"]:[])]}:
+    table==="transactions"?[{transaction_id:"txn",reservation_id:"booking",total_amount:3000,paid_amount:0,balance:3000,status:"unpaid",updated_at:"2026-11-18T01:00:00Z"}]:
+    table==="reservations"?[{reservation_id:"booking",reference_number:"MV-UNPAID",status,booking_type:"online"}]:table==="payments"&&hasProof?[payment]:[]});
+   const q={select:()=>q,eq:()=>q,in:()=>q,order:()=>q,range:async(from,to)=>{const r=result();return{...r,data:r.data.slice(from,to+1)};},maybeSingle:async()=>result(),then:(yes,no)=>Promise.resolve(result()).then(yes,no)};return q;
+  }};
+  const h=await mount({filename:"app/admin/(portal)/transactions/page.tsx",extraMocks:{"@/lib/supabase/client":{createClient:()=>client}}});
+  try{
+   assert.match(h.container.querySelector("thead").textContent,/Booking status/);
+   await click(h.container.querySelector('button[aria-haspopup="menu"]'));
+   const action=button(document.body,label);assert.ok(action);assert.equal(action.disabled,!(hasProof&&canApprove));
+   if(hasProof&&canApprove){
+    await click(action);const modal=h.container.querySelector('[role="dialog"]');
+    assert.match(modal.textContent,/Review payment PAY-EXISTING/);assert.match(modal.textContent,/MV-UNPAID/);
+    assert.equal(button(modal,"Approve").disabled,true,"Proof must still be inspected before approval");
+    assert.deepEqual(signed,["guest/proof.png"]);assert.equal(h.requests.length,0,"Opening review must not record a second payment");
+   }
+  }finally{await h.close();}
+ }
 });
 
 test("cashier selects active catalog methods, supplies transfer evidence and retries without uploading or crediting twice",async()=>{

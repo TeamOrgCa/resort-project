@@ -156,3 +156,26 @@ test("audit failure rolls back archive and a reservation still accepts only its 
   assert.equal((await one("select archived_at from public.reviews")).archived_at, null);
   await db.exec(migration); assert.equal((await one("select count(*)::int n from public.review_submission_log")).n, 1);
 });
+
+test("photo reviews stay private until an active administrator approves; guests, managers and stale decisions cannot publish them", async () => {
+  await db.exec(readFileSync("docs/review-attachment-moderation-migration.sql", "utf8"));
+  await db.exec(readFileSync("docs/review-attachment-moderation-migration.sql", "utf8"));
+  await db.exec("create policy fixture_guest_insert on reviews for insert to authenticated with check(guest_id=auth.uid());set role authenticated");
+  const review = await one("insert into public.reviews(guest_id,title,review_text,image_path,is_approved) values($1,'Pool photo',$2,$3,true) returning *", [guest,text,guest + "/photo.png"]);
+  await db.exec("reset role");
+  assert.equal(review.is_approved,false,"Direct JWT inserts cannot bypass attachment moderation");
+  await db.exec("set role anon"); assert.equal((await one("select count(*)::int n from reviews")).n,0); await db.exec("reset role");
+  const moderate = (approved, version = review.updated_at) => one("select public.moderate_guest_review($1,$2,'Photo inspected by administrator',$3) result", [review.review_id,approved,version]);
+  await assert.rejects(()=>db.query("update reviews set is_approved=true where review_id=$1",[review.review_id]),e=>e.code==="42501");
+  await assert.rejects(()=>moderate(true),e=>e.code==="42501");
+  await auth(staff); await db.exec("update role_permissions set permissions=array['analytics','feedback_archive']");
+  await assert.rejects(()=>moderate(true),e=>e.code==="42501");
+  await db.exec("update staff_users set role='admin'");
+  await moderate(true);
+  await assert.rejects(()=>moderate(true),e=>e.code==="40001");
+  await auth(guest); await db.query("update public.reviews set review_text=review_text||' Updated details.' where review_id=$1",[review.review_id]);
+  assert.equal((await one("select is_approved from reviews")).is_approved,false,"Changing approved photo feedback queues it again");
+  await auth(staff); const current=await one("select * from reviews"); await moderate(false,current.updated_at);
+  assert.ok((await one("select archived_at from reviews")).archived_at);
+  assert.equal((await one("select count(*)::int n from audit_logs where action like '%guest review attachment'")).n,2);
+});
