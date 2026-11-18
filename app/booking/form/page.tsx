@@ -2,6 +2,7 @@
 
 import BookingGuide from "@/components/booking/BookingGuide";
 import BookingProgress from "@/components/booking/BookingProgress";
+import GuestCountInput from "@/components/ui/GuestCountInput";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -375,11 +376,10 @@ function BookingFormContent() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Adults</label>
-                      <input
-                        type="number"
+                      <GuestCountInput
                         name="adultCount"
                         value={formData.adultCount}
-                        onChange={handleInputChange}
+                        onValueChange={adultCount => setFormData(current => ({ ...current, adultCount }))}
                         min="1"
                         max={MAX_GUESTS}
                         step="1"
@@ -389,11 +389,10 @@ function BookingFormContent() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Children</label>
-                      <input
-                        type="number"
+                      <GuestCountInput
                         name="childCount"
                         value={formData.childCount}
-                        onChange={handleInputChange}
+                        onValueChange={childCount => setFormData(current => ({ ...current, childCount }))}
                         min="0"
                         max={MAX_GUESTS - 1}
                         step="1"
@@ -409,14 +408,14 @@ function BookingFormContent() {
                       : `Enter at least one adult and no more than ${MAX_GUESTS} guests in total.`}
                   </p>
                   <fieldset disabled={catalogLoading} className="mt-6 min-w-0">
-                    <legend className="mb-2 text-sm font-semibold text-neutral">Room Type *</legend>
-                    <p className="mb-4 text-sm text-neutral/65">Choose a room to include in your booking. Select a photo or room name to choose it.</p>
-                    {catalogLoading && <p role="status" className="text-sm text-neutral/60">Loading available rooms...</p>}
+                    <legend className="mb-2 text-sm font-semibold text-neutral">Accommodation Type *</legend>
+                    <p className="mb-4 text-sm text-neutral/65">Choose an accommodation to include in your booking. Select a photo or accommodation name to choose it.</p>
+                    {catalogLoading && <p role="status" className="text-sm text-neutral/60">Loading available accommodations...</p>}
                     <div className="grid gap-4 sm:grid-cols-2">
                       {units.map(room => <UnitSelectionCard key={room.id} unit={room} selected={formData.roomType === room.id}
                         disabled={catalogLoading} onSelect={() => { setFormData(current => ({ ...current, roomType: room.id })); setFormError(null); }} />)}
                     </div>
-                    {!catalogLoading && !catalogError && units.length === 0 && <p role="status" className="rounded-xl bg-base p-4 text-sm text-neutral/70">No rooms are available for booking right now. Please contact the resort.</p>}
+                    {!catalogLoading && !catalogError && units.length === 0 && <p role="status" className="rounded-xl bg-base p-4 text-sm text-neutral/70">No accommodations are available for booking right now. Please contact the resort.</p>}
                   </fieldset>
                 </div>
 

@@ -29,7 +29,7 @@ function redirectToStaffLogin(request: NextRequest, supabaseResponse: NextRespon
 function redirectToGuestLogin(request: NextRequest, supabaseResponse: NextResponse, replaced = false, deactivated = false) {
   const url = request.nextUrl.clone()
   url.pathname = '/auth/login'
-  url.searchParams.set('redirect', request.nextUrl.pathname)
+  url.searchParams.set('redirect', request.nextUrl.pathname + request.nextUrl.search)
   if (replaced) url.searchParams.set('reason', 'session-replaced')
   if (deactivated) url.searchParams.set('reason', 'account-deactivated')
   const response = NextResponse.redirect(url)

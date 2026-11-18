@@ -6,10 +6,10 @@ const id = "33333333-3333-4333-8333-333333333333", guest = "guest", service = "4
 const version = "a".repeat(64);
 const reservation = { reservation_id: id, guest_id: guest, reference_number: "MV-TEST", status: "confirmed", booking_mode: "day",
   start_datetime: "2027-06-14T08:00:00+08:00", end_datetime: "2027-06-14T16:00:00+08:00", adult_count: 22, child_count: 0 };
-function harness({ authenticated = true, owned = true, full = false, locked = null, refunds = [], rpcError = null, notifyFails = false, emailSent = true, committedTotal = 8150, maxQuantity = 10000 } = {}) {
+function harness({ authenticated = true, owned = true, full = false, locked = null, refunds = [], rpcError = null, notifyFails = false, emailSent = true, committedTotal = 8150, maxQuantity = 10000, units = [], catalogUnits = [], canChangeDetails = true } = {}) {
   const calls = [], reads = [], emails = [];
-  const loaded = { reservation, services: [{ service_id: service, quantity: 2, price_at_time: 100 }], catalogServices: [{ service_id: service, name: "Table", is_active: false, price: 999, max_quantity:maxQuantity }],
-    bill: { total_amount: 8600, paid_amount: full ? 8600 : 1720, status: full ? "paid" : "partial" }, lockedReason: locked, canChangeDetails: true,
+  const loaded = { reservation, units, catalogUnits, services: [{ service_id: service, quantity: 2, price_at_time: 100 }], catalogServices: [{ service_id: service, name: "Table", is_active: false, price: 999, max_quantity:maxQuantity }],
+    bill: { total_amount: 8600, paid_amount: full ? 8600 : 1720, status: full ? "paid" : "partial" }, lockedReason: locked, canChangeDetails,
     version, snapshot: { fixture: "server snapshot" }, packageRates: legacyRates };
   const routes = loadTsModule("app/api/reservations/edit/route.ts", {
     "@/lib/supabase/server": { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: authenticated ? { id: guest } : null }, error: null }) },
@@ -65,4 +65,13 @@ test("saved guest service changes email a revised statement while failed and unc
 
 test("guest service edits reject exceeding a lowered cap before the bill RPC or any email",async()=>{
   const h=harness({maxQuantity:1});const response=await h.post({adultCount:22,services:[{serviceId:service,quantity:3}],expectedTotal:8700});assert.equal(response.status,400);assert.match((await response.json()).message,/maximum quantity of 2/);assert.equal(h.calls.length,0);assert.equal(h.emails.length,0);
+});
+
+test("guest accommodation edits retain package pricing, email the revised statement and reject inactive or checked-in changes",async()=>{
+  const unit="66666666-6666-4666-8666-666666666666", next="77777777-7777-4777-8777-777777777777";
+  const options={units:[{unit_id:unit,quantity:1,price_per_night:999}],catalogUnits:[{unit_id:unit,is_active:true,archived_at:null},{unit_id:next,is_active:true,archived_at:null}]};
+  const h=harness(options);const response=await h.post({adultCount:22,services:[{serviceId:service,quantity:2}],unitId:next,expectedTotal:8600});
+  assert.equal(response.status,200);assert.equal(h.calls[0].args.p_patch.unitId,next);assert.equal(h.calls[0].args.p_patch.packageDelta,0);assert.equal(h.emails.length,1);
+  const during=harness({...options,canChangeDetails:false});assert.equal((await during.post({unitId:next})).status,409);assert.equal(during.calls.length,0);
+  const unavailable=harness({...options,catalogUnits:[{unit_id:next,is_active:false,archived_at:null}]});assert.equal((await unavailable.post({unitId:next})).status,409);assert.equal(unavailable.calls.length,0);
 });

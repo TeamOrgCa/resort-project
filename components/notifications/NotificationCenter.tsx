@@ -6,15 +6,19 @@ import NotificationAlerts from "./NotificationAlerts";
 import type { User } from "@supabase/supabase-js";
 import { SESSION_CHANGE_EVENT, SESSION_CHANGE_STORAGE_KEY } from "@/lib/auth/session-events";
 import { usePathname } from "next/navigation";
+import { notificationActionUrl } from "@/lib/notification-links";
+import { formatNotificationText } from "@/lib/notification-text";
 
 export type NotificationItem = {
   recipient_id: string;
   notification_id: string; title: string; message: string | null; action_url: string | null;
   is_read: boolean; created_at: string;
+  entity_type?: string | null; entity_id?: string | null;
 };
 type Feed = { key: string; items: NotificationItem[]; error: string | null };
 type Center = {
   user: User | null;
+  identityReady: boolean;
   notifications: NotificationItem[]; loading: boolean; error: string | null;
   refresh: () => void; markAllRead: () => Promise<void>; markingRead: boolean;
   markRead: (id: string) => Promise<void>;
@@ -25,7 +29,7 @@ type Center = {
 const Context = createContext<Center | null>(null);
 export const useNotificationCenter = () => useContext(Context);
 const inactiveCenter: Center = {
-  user: null, notifications: [], loading: false, error: null,
+  user: null, identityReady: false, notifications: [], loading: false, error: null,
   refresh: () => {}, markAllRead: async () => {}, markRead: async () => {}, markingRead: false,
   pauseAlerts: () => () => {}, popupsEnabled: true, setPopupsEnabled: async () => {},
   savingPreference: false, preferenceError: null,
@@ -51,6 +55,7 @@ export default function NotificationCenter({ children }: { children: ReactNode }
 function ActiveNotificationCenter({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
   const [account, setAccount] = useState<ReturnType<typeof accountFromUser>>(null);
+  const [identityReady, setIdentityReady] = useState(false);
   const [savingPreference, setSavingPreference] = useState(false);
   const [preferenceError, setPreferenceError] = useState<{ key: string; message: string } | null>(null);
   const savingPreferenceRef = useRef(false);
@@ -74,7 +79,7 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true, lookup = 0;
-    const acceptUser = (user: User | null) => {
+    const acceptUser = (user: User | null, ready = true) => {
       if (!active || identity.current.changing) return;
       const nextId = user?.id ?? "";
       if (identity.current.id !== nextId || !nextId) {
@@ -84,17 +89,18 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
         readRevision.current++;
       }
       setAccount(accountFromUser(user));
+      setIdentityReady(ready);
     };
     const syncAccount = async () => {
       if (!active || identity.current.changing) return;
       const request = ++lookup, generation = identity.current.generation;
       try {
         const { data: { user }, error } = await supabase.auth.getUser();
-        if (active && request === lookup && generation === identity.current.generation) acceptUser(error ? null : user);
+        if (active && request === lookup && generation === identity.current.generation) acceptUser(error ? null : user, !error || error.name === "AuthSessionMissingError");
       } catch {
         // Fail closed: cached account notifications must not survive an
         // identity check that cannot establish the signed-in user.
-        if (active && request === lookup && generation === identity.current.generation) acceptUser(null);
+        if (active && request === lookup && generation === identity.current.generation) acceptUser(null, false);
       }
     };
     void syncAccount();
@@ -106,7 +112,7 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
       lookup++;
       identity.current = { id: "", generation: identity.current.generation + 1,
         changing: (event as CustomEvent).detail === "changing" };
-      setAccount(null); setFeed(null); readRevision.current++;
+      setAccount(null); setIdentityReady(false); setFeed(null); readRevision.current++;
       if (!identity.current.changing) void syncAccount();
     };
     const onStorage = (event: StorageEvent) => {
@@ -148,15 +154,16 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
           identity.current.id = authError ? "" : user?.id ?? "";
           identity.current.generation++;
           setFeed(null); setAccount(accountFromUser(authError ? null : user));
+          setIdentityReady(!authError || authError.name === "AuthSessionMissingError");
           return;
         }
         // Recipient filtering and the existing row policies enforce account/role access.
         const { data, error } = await supabase.from("notifications")
-          .select("notification_id, recipient_id, title, message, action_url, is_read, created_at")
+          .select("notification_id, recipient_id, title, message, action_url, is_read, created_at, entity_type, entity_id")
           .eq("recipient_id", key)
           .order("created_at", { ascending: false }).limit(30);
         if (error) throw error;
-        if (currentAccount() && revisionAtStart === readRevision.current) setFeed({ key, items: ((data ?? []) as NotificationItem[]).filter(item => item.recipient_id === key), error: null });
+        if (currentAccount() && revisionAtStart === readRevision.current) setFeed({ key, items: ((data ?? []) as NotificationItem[]).filter(item => item.recipient_id === key).map(item => ({ ...item, title: formatNotificationText(item.title), message: item.message ? formatNotificationText(item.message) : item.message, action_url: notificationActionUrl(item) })), error: null });
         else if (currentAccount()) queued = true;
       } catch {
         if (currentAccount()) setFeed(current => ({ key, items: current?.key === key ? current.items : [], error: "Unable to load notifications. Please try again." }));
@@ -216,7 +223,7 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
     } finally { saving.current = false; setMarkingRead(false); }
   };
 
-  return <Context.Provider value={{ user: account?.user ?? null, notifications, loading: Boolean(key && feed?.key !== key), error: feed?.key === key ? feed.error : null, refresh, markAllRead: () => markNotificationsRead(), markRead: id => markNotificationsRead(id), markingRead, pauseAlerts,
+  return <Context.Provider value={{ user: account?.user ?? null, identityReady, notifications, loading: Boolean(key && feed?.key !== key), error: feed?.key === key ? feed.error : null, refresh, markAllRead: () => markNotificationsRead(), markRead: id => markNotificationsRead(id), markingRead, pauseAlerts,
     popupsEnabled: account?.popupsEnabled ?? true, setPopupsEnabled, savingPreference, preferenceError: preferenceError?.key === key ? preferenceError.message : null }}>
     {children}
     <NotificationAlerts key={`${key}:${identity.current.generation}`} items={!key || paused || account?.popupsEnabled === false ? [] : pending.slice(0, 3)} remaining={Math.max(pending.length - 3, 0)}

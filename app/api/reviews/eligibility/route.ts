@@ -13,5 +13,5 @@ export async function GET() {
   const { data, error } = await client.from("reservations").select("reservation_id,reference_number,end_datetime").eq("guest_id", user.id).eq("status", "completed").order("end_datetime", { ascending: false }).limit(100);
   if (error) return NextResponse.json({ message: "Unable to load your reservations. Please retry." }, { status: 503, headers });
   const reservations = data ?? [];
-  return NextResponse.json({ eligible: reservations.length > 0, message: reservations.length ? "You can review your completed stay. Linking a completed reservation is optional." : REVIEW_COMPLETED_STAY_REQUIRED, reservations }, { headers });
+  return NextResponse.json({ eligible: reservations.length > 0, message: reservations.length ? "You can review your completed stay." : REVIEW_COMPLETED_STAY_REQUIRED, reservations }, { headers });
 }

@@ -33,6 +33,8 @@ const saveButton = c => c.querySelector('button[type="submit"]');
 async function submit(c) {
   await value(field(c, "Reason", "textarea"), "Guest requested a new date by phone");
   await act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  const confirm=[...document.querySelectorAll('[role="alertdialog"] button')].find(button=>button.textContent==="Confirm changes");
+  if(confirm) await click(confirm);
 }
 async function mount({ detail = fixture(), availability = () => ({ reservations: [], blockedDates: [] }) } = {}) {
   const originalFetch = globalThis.fetch, requests = [], saved = []; let savedCount = 0;
@@ -79,7 +81,7 @@ test("whole-day B and its original fixed times stay locked when changing dates",
   const detail=fixture();Object.assign(detail.reservation,{booking_mode:"whole_day",start_datetime:"2027-06-14T18:00:00+08:00",end_datetime:"2027-06-15T16:00:00+08:00"});
   const h=await mount({detail});
   try {
-    const {c}=h;assert.match(field(c,"Booked package","input").value,/Variant B/);
+    const {c}=h;assert.match(field(c,"Booked package","input").value,/Whole Day \u2013 Overnight/);
     assert.equal(field(c,"Whole-day variant"),undefined);
     await click(day(c,"2027-06-20"));await submit(c);
     assert.equal(h.saved[0].bookingMode,"whole_day");
@@ -166,4 +168,21 @@ test("checked-in stays enable guest counts while keeping accommodation and dates
     assert.equal(h.saved[0].adultCount,22); assert.equal(h.saved[0].expectedTotal,8850);
     assert.equal(h.saved[0].startDatetime,"2027-06-14T00:00:00.000Z");
   } finally {await h.close();}
+});
+
+test("manager can reduce and remove booked services and change accommodation during a stay, with bill confirmation",async()=>{
+ const service="22222222-2222-4222-8222-222222222222",unit="33333333-3333-4333-8333-333333333333";
+ const detail=fixture();Object.assign(detail,{canChangeDetails:false,canReduceServices:true,canChangeAccommodation:true,
+  services:[{service_id:service,quantity:2,price_at_time:100}],catalogServices:[{service_id:service,name:"Tables",price:500,is_active:true,max_quantity:5}]});
+ detail.catalogUnits.push({unit_id:unit,name:"Family accommodation",is_active:true,archived_at:null});
+ const h=await mount({detail});
+ try{
+  const c=h.c;const quantity=c.querySelector('[aria-label="Quantity for Tables"]');assert.equal(quantity.min,"1");await value(quantity,"1");
+  const checkbox=c.querySelector('fieldset input[type="checkbox"]');assert.equal(checkbox.disabled,false);await click(checkbox);
+  await value(field(c,"Accommodation"),unit);await value(field(c,"Reason","textarea"),"Unused services returned and accommodation changed");
+  await act(async()=>c.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
+  assert.equal(h.saved.length,0);const confirm=document.querySelector('[role="alertdialog"]');assert.match(confirm.textContent,/8,400/);
+  await click([...confirm.querySelectorAll("button")].find(button=>button.textContent==="Confirm changes"));
+  assert.deepEqual(h.saved[0].services,[]);assert.equal(h.saved[0].unitId,unit);assert.equal(h.saved[0].expectedTotal,8400);
+ }finally{await h.close();}
 });

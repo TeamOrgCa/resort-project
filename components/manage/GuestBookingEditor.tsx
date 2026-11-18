@@ -1,5 +1,7 @@
 "use client";
 
+import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
+import GuestCountInput from "@/components/ui/GuestCountInput";
 import { serviceQuantityLimit } from "@/lib/booking/service-quantity";
 
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +17,8 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
   reservationId: string; onSaved: (result: GuestEditResult) => void; onBusyChange: (busy: boolean) => void;
 }) {
   const [detail, setDetail] = useState<GuestEditDetail | null>(null);
+  const [unitId, setUnitId] = useState<string | null | undefined>(undefined);
+  const [confirming, setConfirming] = useState(false);
   const [counts, setCounts] = useState({ adultCount: 1, childCount: 0 });
   const [services, setServices] = useState<{ serviceId: string; quantity: number }[]>([]);
   const [newService, setNewService] = useState(""), [quantity, setQuantity] = useState("1");
@@ -29,6 +33,7 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
       if (controller.signal.aborted) return;
       if (!data.reservation || !data.bill || !Array.isArray(data.services) || !Array.isArray(data.catalogServices) || !data.packageRates) throw new Error("Booking details are incomplete. Please retry.");
       const next = data as GuestEditDetail;
+      setUnitId(next.units?.length === 1 ? next.units[0].unit_id : next.units ? null : undefined);
       setDetail(next); setCounts({ adultCount: next.reservation.adult_count, childCount: next.reservation.child_count });
       setServices(next.services.map(service => ({ serviceId: service.service_id, quantity: service.quantity })));
       setNewService(""); setQuantity("1"); setStale(false); setError(null);
@@ -40,6 +45,8 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
   if (loading) return <LoadingState title="Loading your booking and payment records..." description="Checking your guests, services and remaining balance." />;
   if (!detail) return <div><p role="alert" className="rounded-xl border-2 border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p><button type="button" onClick={refresh} className="mt-3 min-h-11 rounded-lg border px-4 py-2">Retry booking details</button></div>;
   const r = detail.reservation;
+  const isReservation = r.status?.toLowerCase() === "confirmed";
+  const recordName = isReservation ? "reservation" : "booking";
   let preview: ReturnType<typeof previewReservationEdit> | null = null, previewError: string | null = null;
   if (isValidGuestCounts(counts.adultCount, counts.childCount)) {
     try { preview = previewReservationEdit(r, detail.bill, detail.services, detail.catalogServices,
@@ -47,13 +54,12 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
     catch (cause) { previewError = cause instanceof Error ? cause.message : "Unable to calculate the bill."; }
   }
   const choices = detail.catalogServices.filter(service => service.is_active || detail.services.some(old => old.service_id === service.service_id));
-  const unchanged = counts.adultCount === r.adult_count && counts.childCount === r.child_count && services.length === detail.services.length
+  const unchanged = (unitId === (detail.units?.length === 1 ? detail.units[0].unit_id : detail.units ? null : undefined)) && counts.adultCount === r.adult_count && counts.childCount === r.child_count && services.length === detail.services.length
     && services.every(service => detail.services.some(old => old.service_id === service.serviceId && old.quantity === service.quantity));
-  const edit = preview ? parseGuestBookingEdit({ ...counts, services, expectedTotal: preview.total, version: detail.version }) : null;
+  const edit = preview ? parseGuestBookingEdit({ ...counts, ...(unitId !== undefined ? { unitId } : {}), services, expectedTotal: preview.total, version: detail.version }) : null;
   const restriction = edit ? guestEditRestriction(detail, edit) : null;
 
-  async function save(event: React.FormEvent) {
-    event.preventDefault();
+  async function save() {
     if (!detail || !edit || saving.current || unchanged || stale) return;
     if (restriction) { setError(restriction); return; }
     saving.current = true; setBusy(true); onBusyChange(true); setError(null);
@@ -63,19 +69,20 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
       if (!response.ok || !data.success) { if (response.status === 409) setStale(true); throw new Error(data.message ?? "Unable to save your booking changes."); }
       onSaved(data as GuestEditResult);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save your booking changes."); }
-    finally { saving.current = false; setBusy(false); onBusyChange(false); }
+    finally { saving.current = false; setBusy(false); onBusyChange(false); setConfirming(false); }
   }
 
-  return <form onSubmit={event => void save(event)} className="min-w-0 space-y-5">
-    <div><h3 className="text-lg font-semibold text-neutral">Edit booking</h3><p className="mt-1 text-sm text-neutral/70">Review the recalculated bill before saving. Your package and schedule stay fixed; use Reschedule to request another date.</p></div>
+  return <form onSubmit={event => { event.preventDefault(); if (!restriction && !unchanged) setConfirming(true); }} className="min-w-0 space-y-5">
+    <div><h3 className="text-lg font-semibold text-neutral">Edit {recordName}</h3><p className="mt-1 text-sm text-neutral/70">Review the recalculated bill before saving. Your package and schedule stay fixed; use Reschedule to request another date.</p></div>
     {detail.lockedReason && <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{detail.lockedReason}</p>}
     <fieldset disabled={busy || Boolean(detail.lockedReason) || stale} className="min-w-0 space-y-5">
+      {detail.catalogUnits && <label className="block text-sm font-medium text-neutral">Accommodation type<select aria-label="Accommodation type" className={inputClass} value={unitId ?? ""} disabled={!detail.canChangeAccommodation} onChange={event => setUnitId(event.target.value || null)}><option value="" disabled>Select accommodation</option>{detail.catalogUnits.filter(unit => unit.unit_id === unitId || unit.is_active && !unit.archived_at).map(unit => <option key={unit.unit_id} value={unit.unit_id} disabled={!unit.is_active || Boolean(unit.archived_at)}>{unit.name}</option>)}</select><span className="mt-1 block text-xs text-neutral/65">Change before check-in. The private package rate stays the same.</span></label>}
       <section className="rounded-xl border border-neutral/10 bg-base p-4">
         <h4 className="font-semibold text-neutral">Number of guests</h4>
         <p className="mt-1 text-sm text-neutral/65">At least one adult; up to {MAX_GUESTS} guests. Guest counts can be changed before check-in. Any extra-person charges will be recalculated using your booked rates.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="text-sm font-medium text-neutral">Adults<input type="number" aria-label="Adults" min={1} max={MAX_GUESTS} step={1} required disabled={!detail.canChangeGuests} className={inputClass} value={counts.adultCount} onChange={event => setCounts({ ...counts, adultCount: Number(event.target.value) })} /></label>
-          <label className="text-sm font-medium text-neutral">Children<input type="number" aria-label="Children" min={0} max={MAX_GUESTS - 1} step={1} required disabled={!detail.canChangeGuests} className={inputClass} value={counts.childCount} onChange={event => setCounts({ ...counts, childCount: Number(event.target.value) })} /></label>
+          <label className="text-sm font-medium text-neutral">Adults<GuestCountInput aria-label="Adults" min={1} max={MAX_GUESTS} step={1} required disabled={!detail.canChangeGuests} className={inputClass} value={counts.adultCount} onValueChange={adultCount => setCounts({ ...counts, adultCount })} /></label>
+          <label className="text-sm font-medium text-neutral">Children<GuestCountInput aria-label="Children" min={0} max={MAX_GUESTS - 1} step={1} required disabled={!detail.canChangeGuests} className={inputClass} value={counts.childCount} onValueChange={childCount => setCounts({ ...counts, childCount })} /></label>
         </div>
         {!isValidGuestCounts(counts.adultCount, counts.childCount) && <p role="alert" className="mt-3 text-sm font-medium text-red-700">Include at least one adult and no more than {MAX_GUESTS} guests in total.</p>}
       </section>
@@ -107,7 +114,8 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
       {preview.overpaid > 0 && <p className="mt-3">Excess paid: {currency(preview.overpaid)}. After saving, request an excess refund in the Refunds tab. Money is not refunded automatically.</p>}
     </section>}
     {(error || previewError || restriction) && <p role="alert" className="rounded-xl border-2 border-red-200 bg-red-50 p-4 text-sm text-red-800">{error ?? previewError ?? restriction}</p>}
-    {stale && <button type="button" disabled={busy} onClick={refresh} className="min-h-11 rounded-lg border px-4 py-2 text-sm font-semibold">Reload booking and bill</button>}
-    <button type="submit" disabled={busy || stale || !edit || unchanged || Boolean(restriction)} className="min-h-12 w-full rounded-xl bg-primary px-5 py-3 font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">{busy ? "Saving..." : "Save Booking Changes"}</button>
+    {stale && <button type="button" disabled={busy} onClick={refresh} className="min-h-11 rounded-lg border px-4 py-2 text-sm font-semibold">Reload {recordName} and bill</button>}
+    <button type="submit" disabled={busy || stale || !edit || unchanged || Boolean(restriction)} className="min-h-12 w-full rounded-xl bg-primary px-5 py-3 font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">{busy ? "Saving..." : isReservation ? "Save Reservation Changes" : "Save Booking Changes"}</button>
+    <ConfirmationDialog isOpen={confirming} title={`Confirm ${recordName} changes`} message={`Save your accommodation, guest counts and services?\nNew total: ${currency(preview?.total ?? 0)}\nRemaining balance: ${currency(preview?.balance ?? 0)}${preview?.overpaid ? `\nExcess paid: ${currency(preview.overpaid)}. Refunds must be requested separately.` : ""}`} confirmText="Confirm changes" isConfirming={busy} onConfirm={() => void save()} onCancel={() => setConfirming(false)} />
   </form>;
 }

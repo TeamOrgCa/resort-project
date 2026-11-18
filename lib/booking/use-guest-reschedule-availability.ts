@@ -1,11 +1,13 @@
 "use client";
 
+
 import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "./availability";
 import { manilaDateKey } from "./manila-date";
 import { moveReservationToDate } from "./reservation-edit";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "./start-time";
 import { useBookingAvailability } from "./use-booking-availability";
+import { advanceBookingIssue } from "./advance-window";
 
 export function useGuestRescheduleAvailability(start: string, end: string, month: string, selectedDate: string, enabled: boolean) {
   const duration = Date.parse(end) - Date.parse(start);
@@ -38,6 +40,7 @@ export function useGuestRescheduleAvailability(start: string, end: string, month
       new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) return "Choose a valid date.";
     if (!(duration > 0)) return "Unable to determine the original booking times. Contact the resort.";
     if (date === manilaDateKey(start)) return "Current reservation date";
+    if (availability.maxBookingDate) { const issue = advanceBookingIssue(date, availability.maxBookingDate); if (issue) return issue; }
     const moved = moveReservationToDate({ start_datetime: start, end_datetime: end }, date);
     if (!isBookingStartAllowed(moved.startDatetime, availability.now)) return BOOKING_LEAD_MESSAGE;
     if (!availability.ready) return availability.error ?? (requireReady ? "Loading available dates..." : null);

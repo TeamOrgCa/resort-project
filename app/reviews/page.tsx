@@ -23,7 +23,7 @@ export default function Reviews() {
   const [showForm, setShowForm] = useState(false);
   const [checkingEligibility, setCheckingEligibility] = useState(false);
   const [eligibilityMessage, setEligibilityMessage] = useState<string | null>(null);
-  const [guestReservations, setGuestReservations] = useState<{ reservation_id: string; reference_number: string; end_datetime: string }[]>([]);
+  const [submissionMessage, setSubmissionMessage] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,6 @@ export default function Reviews() {
     title: "",
     review: "",
     wouldRecommend: true,
-    reservationId: "",
   });
 
   useEffect(() => () => {
@@ -138,7 +137,6 @@ export default function Reviews() {
         title: formData.title,
         review_text: formData.review,
         would_recommend: formData.wouldRecommend,
-        reservation_id: formData.reservationId || null,
       }));
       if (reviewImage) payload.set("image", reviewImage);
       const response = await fetch("/api/reviews/create", {
@@ -154,6 +152,8 @@ export default function Reviews() {
         );
       }
 
+      const result = await response.json();
+      setSubmissionMessage(result.message ?? "Your review has been submitted successfully");
       setSubmitted(true);
       setShowForm(false);
       setReviewImage(null);
@@ -178,7 +178,7 @@ export default function Reviews() {
       const response = await fetch("/api/reviews/eligibility", { cache: "no-store" });
       const data = await response.json();
       if (!response.ok || !data.eligible) { setEligibilityMessage(data.message ?? "Sign in with an active guest account to submit a review."); return; }
-      setGuestReservations(data.reservations ?? []); setShowForm(true);
+      setShowForm(true);
     } catch { setEligibilityMessage("Unable to check review access. Please try again."); }
     finally { setCheckingEligibility(false); }
   }
@@ -214,14 +214,14 @@ export default function Reviews() {
             </svg>
           </div>
           <h1 className="text-4xl font-bold text-neutral mb-4">Thank You!</h1>
-          <p className="text-xl text-neutral/70 mb-8">Your review has been submitted successfully</p>
+          <p className="text-xl text-neutral/70 mb-8">{submissionMessage}</p>
 
           <div className="booking-summary bg-base p-4 sm:p-8 rounded-2xl mb-8">
             <p className="text-neutral/80">
               We appreciate you taking the time to share your experience. Your feedback helps us improve our services 
               and helps future guests make informed decisions. Your review and any attached photo have been submitted.
             </p>
-            <p className="mt-3 text-sm text-neutral/70">{REVIEW_SUBMISSION_HELP}</p>
+            <p className="mt-3 text-sm text-neutral/70">{REVIEW_SUBMISSION_HELP} Reviews with an attached photo require administrator approval before publication.</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4">
@@ -446,16 +446,6 @@ export default function Reviews() {
                       <Image src={imagePreview} alt="Your selected review photo" width={480} height={320} unoptimized className="max-h-60 w-full rounded-lg object-contain" />
                       <div className="mt-3 flex items-center justify-between gap-3"><span className="min-w-0 truncate text-xs text-neutral/60">{reviewImage?.name}</span><button type="button" onClick={() => { setReviewImage(null); setImagePreview(null); setError(null); }} className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">Remove photo</button></div>
                     </div>}
-                  </div>
-
-                  {/* Only completed stays are eligible for linking. */}
-                  <div>
-                    <label htmlFor="review-reservation" className="block text-sm font-medium text-neutral/70 mb-2">Completed stay (optional)</label>
-                    <select id="review-reservation"
-                      value={formData.reservationId}
-                      onChange={(e) => setFormData({ ...formData, reservationId: e.target.value })}
-                      className="w-full px-4 py-3 rounded-lg border border-neutral/20 bg-white text-black focus:border-primary focus:outline-none"
-                    ><option value="">General feedback about my completed stay</option>{guestReservations.map(stay => <option key={stay.reservation_id} value={stay.reservation_id}>{stay.reference_number} — {new Date(stay.end_datetime).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</option>)}</select>
                   </div>
 
                   {/* Would Recommend */}

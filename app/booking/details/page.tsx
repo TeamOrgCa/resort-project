@@ -207,8 +207,8 @@ function BookingDetailsContent() {
                       <p>
                         End: <span className="font-semibold text-neutral">{endDateTime?.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
                       </p>
-                      <p>Mode: <span className="font-semibold text-neutral">{bookingDraft.bookingMode === "whole_day" ? `Whole-Day (${bookingDraft.wholeDayVariant === "day_to_night" ? "Variant A" : "Variant B"})` : bookingDraft.bookingMode.replace("_", " ")}</span></p>
-                      <p>Room: <span className="font-semibold text-neutral">{bookingDraft.roomName}</span></p>
+                      <p>Mode: <span className="font-semibold text-neutral">{bookingDraft.bookingMode === "whole_day" ? bookingDraft.wholeDayVariant === "day_to_night" ? "Whole Day – Daytime" : "Whole Day – Overnight" : { day: "Day", night: "Night", custom: "Custom" }[bookingDraft.bookingMode]}</span></p>
+                      <p>Accommodation: <span className="font-semibold text-neutral">{bookingDraft.roomName}</span></p>
                       <p>Duration: <span className="font-semibold text-neutral">{durationHours === null ? "Unavailable" : `${durationHours.toLocaleString("en-PH", { maximumFractionDigits: 2 })} ${durationHours === 1 ? "hr" : "hrs"}`}</span></p>
                       <p>Adults: <span className="font-semibold text-neutral">{bookingDraft.adultCount}</span></p>
                       <p>Children: <span className="font-semibold text-neutral">{bookingDraft.childCount}</span></p>

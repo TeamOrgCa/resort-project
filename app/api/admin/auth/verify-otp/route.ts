@@ -7,6 +7,7 @@ import { DEVICE_COOKIE, isDeviceId, loginError } from "@/lib/server/login-access
 import { completeStaffLogin } from "@/lib/server/staff-login";
 import { getAuthSessionId } from "@/lib/auth/auth-session";
 import { EMAIL_INPUT_ERROR, isValidLoginEmail } from "@/lib/validation/email";
+import { STAFF_OTP_COOKIE, staffOtpCookieOptions, validateStaffOtpChallenge } from "@/lib/server/email-auth";
 
 export async function POST(request: Request) {
   try {
@@ -18,8 +19,14 @@ export async function POST(request: Request) {
       return loginError("Enter the verification code from your email.", 400);
     }
 
-    const supabase = await createClient();
     if (!email.endsWith("@gmail.com")) return loginError("OTP is only required for Gmail staff accounts.", 400);
+    const cookieStore = await cookies();
+    if (!validateStaffOtpChallenge(cookieStore.get(STAFF_OTP_COOKIE)?.value, email)) {
+      const response = loginError("This verification code has expired. Sign in again to request a new code. Codes are valid for 5 minutes.", 401);
+      response.cookies.set(STAFF_OTP_COOKIE, "", { ...staffOtpCookieOptions, maxAge: 0 });
+      return response;
+    }
+    const supabase = await createClient();
 
     const { data, error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
     if (error || !data.user) return loginError("The verification code is invalid or expired.", 401);
@@ -27,7 +34,6 @@ export async function POST(request: Request) {
     if (!authSessionId) return loginError("Unable to verify the login session.", 401);
 
     const admin = createAdminClient();
-    const cookieStore = await cookies();
     const existingDevice = cookieStore.get(DEVICE_COOKIE)?.value;
     const deviceId = isDeviceId(existingDevice) ? existingDevice : crypto.randomUUID();
     const finish = (response: NextResponse) => {
@@ -41,7 +47,9 @@ export async function POST(request: Request) {
       return response;
     };
 
-    return completeStaffLogin({ admin, supabase, user: data.user, authSessionId, email, deviceId, finish });
+    const response = await completeStaffLogin({ admin, supabase, user: data.user, authSessionId, email, deviceId, finish });
+    response.cookies.set(STAFF_OTP_COOKIE, "", { ...staffOtpCookieOptions, maxAge: 0 });
+    return response;
   } catch {
     return loginError("Unable to verify the login code.", 500);
   }

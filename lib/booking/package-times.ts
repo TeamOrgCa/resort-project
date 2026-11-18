@@ -16,7 +16,7 @@ export const DEFAULT_PACKAGE_TIMES: PackageTimes = {
 export const PACKAGE_TIME_KEYS = ["day", "night", "day_to_night", "night_to_day"] as const;
 export type PackageTimeKey = typeof PACKAGE_TIME_KEYS[number];
 export const PACKAGE_TIME_NAMES: Record<PackageTimeKey, string> = {
-  day: "Day swimming", night: "Night swimming", day_to_night: "Whole day — Variant A", night_to_day: "Whole day — Variant B",
+  day: "Day swimming", night: "Night swimming", day_to_night: "Whole Day – Daytime", night_to_day: "Whole Day – Overnight",
 };
 export const packageTimeSlot = (times: PackageTimes, key: PackageTimeKey): PackageTimeSlot =>
   key === "day" || key === "night" ? times[key] : times.whole_day[key];

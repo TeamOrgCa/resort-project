@@ -5,6 +5,7 @@ import { getAllSettings, updateSettings } from "@/lib/settings/settingsService";
 import type { SettingValue, SettingsUpdate } from "@/lib/settings/types";
 import { isContentImageUrl } from "@/lib/settings/public-content";
 import { validFaqs, validFacebookChatUrl } from "@/lib/chatbot/config";
+import { ADVANCE_BOOKING_KEY } from "@/lib/booking/advance-window";
 
 const isSettingValue = (value: unknown): value is SettingValue =>
   typeof value === "string" ||
@@ -20,6 +21,7 @@ const parseUpdates = (value: unknown): SettingsUpdate[] | null => {
   const updates = value as Array<{ key?: unknown; value?: unknown }>;
   if (updates.some((item) => !item || typeof item.key !== "string" || !item.key.trim() || !settingKeys.has(item.key.trim()) || !isSettingValue(item.value))) return null;
   if (updates.some((item) => {
+    if (item.key === ADVANCE_BOOKING_KEY) return typeof item.value !== "number" || !Number.isSafeInteger(item.value) || item.value < 0 || item.value > 3650;
     if (item.key === "chatbot.faqs") return !validFaqs(item.value);
     if (item.key === "chatbot.facebook_chat_url") return !validFacebookChatUrl(item.value);
     const definition = settingDefinitions.find((definition) => definition.key === String(item.key).trim());

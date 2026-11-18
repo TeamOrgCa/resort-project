@@ -10,6 +10,8 @@ import NotificationStatusFilters, { notificationMatchesFilter, notificationStatu
 import { createPortal } from "react-dom";
 import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
 import { beginSessionChange } from "@/lib/auth/session-events";
+import { formatNotificationText } from "@/lib/notification-text";
+import { notificationActionUrl } from "@/lib/notification-links";
 
 type NotificationItem = {
   notification_id: string;
@@ -18,6 +20,8 @@ type NotificationItem = {
   action_url: string | null;
   is_read: boolean;
   created_at: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
 };
 
 type GuestProfile = {
@@ -112,7 +116,7 @@ export default function UserMenu() {
     try {
       const { data, error } = await supabase
       .from("notifications")
-      .select("notification_id, title, message, action_url, is_read, created_at")
+        .select("notification_id, title, message, action_url, is_read, created_at, entity_type, entity_id")
       .eq("recipient_role", "guest")
       .eq("recipient_id", activeUser.id)
       .order("created_at", { ascending: false })
@@ -325,10 +329,10 @@ export default function UserMenu() {
                           notificationStatusClass(item.is_read)
                         }`}
                       >
-                        <p className="font-semibold text-neutral">{item.title}</p>
+                        <p className="font-semibold text-neutral">{formatNotificationText(item.title)}</p>
                         <span className="text-[10px] font-medium text-neutral/60">{item.is_read ? "Read" : "Unread"}</span>
                         {item.message ? (
-                          <p className="mt-1 text-neutral/70">{item.message}</p>
+                          <p className="mt-1 text-neutral/70">{formatNotificationText(item.message)}</p>
                         ) : null}
                         <p className="mt-1 text-[11px] text-neutral/50">
                           {formatNotificationTime(item.created_at)}
@@ -336,11 +340,12 @@ export default function UserMenu() {
                       </div>
                     );
 
-                    if (item.action_url) {
+                    const href = notificationActionUrl(item);
+                    if (href) {
                       return (
                         <a
                           key={item.notification_id}
-                          href={item.action_url}
+                          href={href}
                           onClick={() => { void markAllNotificationsRead(item.notification_id); setIsOpen(false); }}
                           className="block"
                         >

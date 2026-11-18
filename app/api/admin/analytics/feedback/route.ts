@@ -15,12 +15,13 @@ export async function GET(request: Request) {
     if (!await staffHasPermission(staff.supabase, staff.staffUser.role, "analytics")) return json({ message: "Analytics permission required." }, 403);
     const params = new URL(request.url).searchParams, status = params.get("status") ?? "active";
     const page = Number(params.get("page") ?? 0), search = (params.get("search") ?? "").trim();
-    if (!["active", "archived", "all"].includes(status) || !Number.isSafeInteger(page) || page < 0 || page > 100000 || search.length > 200) return json({ message: "Invalid feedback filters." }, 400);
+    if (!["active", "pending", "archived", "all"].includes(status) || !Number.isSafeInteger(page) || page < 0 || page > 100000 || search.length > 200) return json({ message: "Invalid feedback filters." }, 400);
     const window = reportWindow(parseReportPeriod(params.get("period")), { startDate: params.get("startDate") ?? "", endDate: params.get("endDate") ?? "" });
     const admin = createAdminClient();
-    let query = admin.from("reviews").select("review_id, public_display_name, overall_rating, cleanliness_rating, service_rating, amenities_rating, value_rating, title, review_text, would_recommend, is_approved, created_at, archived_at, archive_reason, image_path", { count: "exact" })
+    let query = admin.from("reviews").select("review_id, public_display_name, overall_rating, cleanliness_rating, service_rating, amenities_rating, value_rating, title, review_text, would_recommend, is_approved, created_at, updated_at, archived_at, archive_reason, image_path", { count: "exact" })
       .gte("created_at", window.start.toISOString()).lt("created_at", window.end.toISOString());
     if (status === "active") query = query.is("archived_at", null);
+    if (status === "pending") query = query.is("archived_at", null).eq("is_approved", false);
     if (status === "archived") query = query.not("archived_at", "is", null);
     if (search) query = query.ilike("review_text", `%${search.replace(/[\\%_]/g, "\\$&")}%`);
     const { data, error, count } = await query.order("created_at", { ascending: false }).order("review_id", { ascending: false }).range(page * 10, page * 10 + 9);
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
     }
     return json({ success: true, rows: rows.map(({ image_path, ...row }) => ({ ...row, image_url: image_path ? urls.get(image_path) ?? null : null })),
       total: count ?? 0, page, pageSize: 10, startDate: window.startDate, endDate: window.endDate,
-      canArchive: await staffHasPermission(staff.supabase, staff.staffUser.role, "feedback_archive") });
+      canModerate: staff.staffUser.role === "admin", canArchive: await staffHasPermission(staff.supabase, staff.staffUser.role, "feedback_archive") });
   } catch (error) {
     return json({ message: error instanceof InvalidDateRangeError ? error.message : "Unable to load guest feedback. Please retry." }, error instanceof InvalidDateRangeError ? 400 : 500);
   }

@@ -57,6 +57,8 @@ test("guest photo uploads use generated owned paths, validated content and the r
   assert.match(h.uploads[0].path, new RegExp(`^${guestId}/[0-9a-f-]{36}\\.png$`));
   assert.equal(h.uploads[0].options.contentType, "image/png"); assert.equal(h.uploads[0].options.upsert, false);
   assert.equal(h.inserts[0].image_path, h.uploads[0].path); assert.equal(h.inserts[0].guest_id, guestId);
+  assert.equal(h.inserts[0].is_approved, false);
+  assert.match((await response.json()).message, /administrator approval/);
   assert.equal(h.removals.length, 0);
 });
 
@@ -82,6 +84,7 @@ test("text-only reviews remain supported and clients cannot attach a forged stor
     const request = json ? new Request("http://localhost", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(details) }) : multipart(null, details);
     assert.equal((await h.post(request)).status, 201);
     assert.equal(h.inserts[0].image_path, undefined); assert.equal(h.inserts[0].guest_id, guestId);
+    assert.equal(h.inserts[0].is_approved, true);
     assert.equal(h.adminCalls(), 0);
   }
 });

@@ -158,6 +158,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/server/role-permissions": { staffHasPermission: async () => permitted },
     "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: client, staffUser: { role: "admin" } }), createAuditLog: async () => true },
+    "@/lib/server/advance-booking": { checkAdvanceBooking: async () => null },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict, error: null }) },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { reservation: [] } },
   });

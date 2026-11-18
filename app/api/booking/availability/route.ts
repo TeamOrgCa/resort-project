@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { staffHasPermission } from "@/lib/server/role-permissions";
+import { loadAdvanceBookingWindow } from "@/lib/server/advance-booking";
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
 
   try {
     const admin = createAdminClient();
+    const advanceWindow = await loadAdvanceBookingWindow(admin);
     let query = admin.from("reservations")
       .select("start_datetime, end_datetime, status, payment_deadline_at")
       .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"])
@@ -57,7 +59,7 @@ export async function GET(request: Request) {
       new Date(reservation.payment_deadline_at).getTime() > now
     ).map(({ start_datetime, end_datetime }) => ({ start_datetime, end_datetime }));
 
-    return NextResponse.json({ reservations, blockedDates: blocks ?? [] }, {
+    return NextResponse.json({ reservations, blockedDates: blocks ?? [], ...advanceWindow }, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

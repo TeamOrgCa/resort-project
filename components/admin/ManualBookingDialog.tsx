@@ -1,4 +1,5 @@
 "use client";
+import { advanceBookingIssue } from "@/lib/booking/advance-window";
 
 import { serviceQuantityError, serviceQuantityLimit } from "@/lib/booking/service-quantity";
 
@@ -106,6 +107,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
 
   const packageIssue = (date: string, mode: PackageMode, variant: WholeDayVariant = "day_to_night"): string | null => {
     if (!date) return "Choose a booking date.";
+    if (availability.maxBookingDate) { const issue = advanceBookingIssue(date, availability.maxBookingDate); if (issue) return issue; }
     if (!availability.ready) return availability.error ?? "Loading available dates...";
     const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date, wholeDayVariant: variant });
     if ("error" in window || !window.startDatetime || !window.endDatetime) return "Invalid booking schedule.";
@@ -201,7 +203,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
             <div className="min-w-0 space-y-3">
               {!availability.ready && !availability.error && <p role="status" className="text-sm text-neutral/70">Loading available dates...</p>}
               {availability.error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
-              <BookingDateCalendar value={form.bookingDate} onChange={chooseDate} onMonthChange={setCalendarMonth} minDate={manilaDateKey(new Date(availability.now))} minimumDateReason="Past date"
+              <BookingDateCalendar value={form.bookingDate} onChange={chooseDate} onMonthChange={setCalendarMonth} minDate={manilaDateKey(new Date(availability.now))} maxDate={availability.maxBookingDate} minimumDateReason="Past date"
                 getUnavailableReason={dateIssue} disabled={isSaving}
                 getDateHint={date => !packageIssue(date, "day") && !packageIssue(date, "night") ? "Day / Night" : !packageIssue(date, "day") ? "Day only" : !packageIssue(date, "night") ? "Night only" : "Whole day only"}
                 footnote="Only packages whose scheduled start time has not passed can be booked. Times are Philippine time; availability is checked again before saving." />

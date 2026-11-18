@@ -3,6 +3,8 @@
 import { createPortal } from "react-dom";
 import { useEffect, useEffectEvent, useSyncExternalStore } from "react";
 import type { NotificationItem } from "./NotificationCenter";
+import { formatNotificationText } from "@/lib/notification-text";
+import { notificationActionUrl } from "@/lib/notification-links";
 
 const compactQuery = "(max-width: 639px), (max-height: 500px)";
 const compactSnapshot = () => typeof window.matchMedia === "function" && window.matchMedia(compactQuery).matches;
@@ -23,19 +25,19 @@ function NotificationAlert({ item, onDismiss, compact, remaining, onDismissAll }
     return () => window.clearTimeout(timer);
   }, [item.notification_id]);
 
-  const href = item.action_url?.startsWith("/") && !item.action_url.startsWith("//") ? item.action_url : null;
+  const href = notificationActionUrl(item);
   return <article role="status" className={`pointer-events-auto rounded-2xl border border-neutral/15 border-l-4 border-l-primary bg-white shadow-xl [overflow-wrap:anywhere] ${compact ? "p-2" : "p-4"}`}>
     <div className={`flex items-start ${compact ? "gap-2" : "gap-3"}`}>
       <span className={`flex shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ${compact ? "mt-1 h-8 w-8" : "h-10 w-10"}`} aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
       </span>
-      <div className="min-w-0 flex-1">{!compact && <p className="text-xs font-semibold uppercase tracking-wide text-primary">New notification</p>}<h2 title={item.title} className={`text-sm font-semibold ${compact ? "line-clamp-2 pt-1 leading-5" : "mt-1"}`}>{item.title}</h2></div>
+      <div className="min-w-0 flex-1">{!compact && <p className="text-xs font-semibold uppercase tracking-wide text-primary">New notification</p>}<h2 title={formatNotificationText(item.title)} className={`text-sm font-semibold ${compact ? "line-clamp-2 pt-1 leading-5" : "mt-1"}`}>{formatNotificationText(item.title)}</h2></div>
       <button type="button" aria-label={`Dismiss notification: ${item.title}`} onClick={() => onDismiss(item.notification_id)} title="Dismiss notification"
         className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-neutral/60 hover:bg-neutral/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${compact ? "" : "-mr-2 -mt-2"}`}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true"><path strokeLinecap="round" d="m6 6 12 12M18 6 6 18" /></svg>
       </button>
     </div>
-    {!compact && item.message && <p tabIndex={0} className="mt-3 max-h-32 overflow-y-auto overscroll-contain whitespace-pre-line text-sm leading-relaxed text-neutral/80">{item.message}</p>}
+    {!compact && item.message && <p tabIndex={0} className="mt-3 max-h-32 overflow-y-auto overscroll-contain whitespace-pre-line text-sm leading-relaxed text-neutral/80">{formatNotificationText(item.message)}</p>}
     {compact ? <div className="flex min-h-11 items-center justify-between gap-2">
       {href ? <a href={href} onClick={() => onDismiss(item.notification_id)} className="inline-flex min-h-11 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">View details<span className="sr-only">: {item.title}</span></a>
         : <p className="min-w-0 text-xs text-neutral/65">Saved in notifications</p>}

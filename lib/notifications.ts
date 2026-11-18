@@ -1,4 +1,6 @@
 import { tryCreateAdminClient } from "@/lib/supabase/admin";
+import { formatNotificationText } from "@/lib/notification-text";
+import { notificationActionUrl, ocularVisitDetailsUrl } from "@/lib/notification-links";
 
 export type NotificationStaffRole = "admin" | "staff" | "cashier";
 
@@ -51,8 +53,8 @@ export async function createNotifications(options: NotificationOptions): Promise
 
   const common = {
     actor_id: options.actorId,
-    title: options.title,
-    message: options.message ?? null,
+    title: formatNotificationText(options.title),
+    message: options.message ? formatNotificationText(options.message) : options.message ?? null,
     entity_type: options.entityType ?? null,
     entity_id: options.entityId ?? null,
   };
@@ -61,7 +63,7 @@ export async function createNotifications(options: NotificationOptions): Promise
       ...common,
       recipient_role: "guest" as const,
       recipient_id: options.guestId,
-      action_url: options.guestActionUrl ?? null,
+      action_url: options.entityType === "ocular_visit" ? ocularVisitDetailsUrl(options.entityId) : notificationActionUrl({ action_url: options.guestActionUrl ?? null, entity_type: options.entityType, entity_id: options.entityId }),
     }] : []),
     ...recipients.map(({ id, role }) => ({
       ...common,

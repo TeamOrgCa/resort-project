@@ -11,6 +11,7 @@ import { createNotifications } from "@/lib/notifications";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
 import { emailUpdatedBillingStatement } from "@/lib/server/billing-email";
+import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 
 type Context = { params: Promise<{ id: string }> };
 const fail = (message: string, status: number) => NextResponse.json({ success: false, message }, { status });
@@ -29,6 +30,8 @@ export async function GET(_request: Request, context: Context) {
     void _snapshot;
     const canApproveLateReschedule = canEdit && await staffHasPermission(staff.supabase, staff.staffUser.role, "reschedule_approval");
     return NextResponse.json({ success: true, ...publicDetail, canEdit, canApproveLateReschedule,
+      canReduceServices: canEdit && !detail.lockedReason && (detail.canChangeDetails || staff.staffUser.role === "staff"),
+      canChangeAccommodation: canEdit && !detail.lockedReason && (detail.canChangeDetails || staff.staffUser.role === "staff"),
       canRescheduleException: canApproveLateReschedule && Boolean(detail.lateRescheduleEligible) });
   } catch (error) { return fail(error instanceof Error ? error.message : "Unable to load reservation.", 500); }
 }
@@ -60,7 +63,8 @@ export async function PATCH(request: Request, context: Context) {
     const oldUnit = detail.units.length === 1 && detail.units[0].quantity === 1 ? detail.units[0].unit_id : null;
     const unitChanged = edit.unitId !== oldUnit;
     const changed = detailsChanged(detail.reservation, edit);
-    if ((scheduleChanged || unitChanged) && !detail.canChangeDetails && !lateAuthorized) return fail("The stay has started. You can update guest counts, add services and update notes; the schedule and accommodation are locked.", 409);
+    const manager = staff.staffUser.role === "staff";
+    if ((scheduleChanged || (unitChanged && !manager)) && !detail.canChangeDetails && !lateAuthorized) return fail("The stay has started. Schedule changes are locked; accommodation changes require a manager.", 409);
     if (lateAuthorized && !detail.canChangeDetails && (unitChanged || edit.adultCount !== detail.reservation.adult_count || edit.childCount !== detail.reservation.child_count)) return fail("A late exception may move the booked schedule; existing accommodation and guest counts must be retained.", 400);
     if (changed) {
       if (scheduleChanged && !isBookingStartAllowed(edit.startDatetime, now)) return fail(BOOKING_LEAD_MESSAGE, 400);
@@ -68,13 +72,15 @@ export async function PATCH(request: Request, context: Context) {
       if (!window.valid) return fail(window.message ?? "Invalid booking window.", 400);
     }
     if (scheduleChanged) {
+      const advanceIssue = await checkAdvanceBooking(edit.startDatetime);
+      if (advanceIssue) return fail(advanceIssue, 400);
       const { conflict, error } = await checkReservationOverlap(edit.startDatetime, edit.endDatetime, detail.reservation.guest_id, id);
       if (error) return fail("Unable to check booking availability. Please retry.", 503);
       if (conflict) return fail("These dates or times are already reserved or closed for maintenance. Choose another schedule.", 409);
     }
     if (unitChanged && (detail.units.length > 1 || detail.units.some(u => u.quantity !== 1))) return fail("Reservations with multiple accommodations require individual billing review.", 400);
     if (unitChanged && (!edit.unitId || !detail.catalogUnits.some(u => u.unit_id === edit.unitId && u.is_active && !u.archived_at))) return fail("Choose an available accommodation.", 400);
-    if (!detail.canChangeDetails && detail.services.some(s => (edit.services.find(e => e.serviceId === s.service_id)?.quantity ?? 0) < s.quantity)) return fail("Services already booked during a stay cannot be removed or reduced.", 400);
+    if (!manager && !detail.canChangeDetails && detail.services.some(s => (edit.services.find(e => e.serviceId === s.service_id)?.quantity ?? 0) < s.quantity)) return fail("Reducing or removing services during a stay requires a manager.", 400);
     const quantityError = serviceQuantityError(edit.services, detail.catalogServices, detail.services);
     if (quantityError) return fail(quantityError, 400);
     const preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, edit, detail.packageRates, now);

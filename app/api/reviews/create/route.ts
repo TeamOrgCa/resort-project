@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
         review_text: review_text.trim(),
         public_display_name: publicDisplayName || "Verified Guest",
         would_recommend: would_recommend ?? true,
-        is_approved: true, // Auto-approve for now (can be changed to false for moderation)
+        is_approved: !uploadedPath,
         ...(uploadedPath ? { image_path: uploadedPath } : {}),
       })
       .select()
@@ -222,7 +222,7 @@ export async function POST(request: NextRequest) {
       guestId: user.id,
       staffRoles: NOTIFICATION_AUDIENCES.review,
       title: "Review submitted",
-      message: "Thanks for sharing your experience.",
+      message: newReview.is_approved ? "Thanks for sharing your experience." : "Your review with a photo is awaiting administrator approval before publication.",
       entityType: "review",
       entityId: newReview.review_id,
       guestActionUrl: "/reviews",
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        message: "Review submitted successfully!",
+        message: newReview.is_approved ? "Review submitted successfully!" : "Review submitted. Your review and photo will be published after administrator approval.",
         review: newReview,
       },
       { status: 201 }

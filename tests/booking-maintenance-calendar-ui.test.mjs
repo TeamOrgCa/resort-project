@@ -78,14 +78,47 @@ test("selected Day, Night and both Whole Day variants disable only their own con
   await act(async()=>day('07').click());
   await act(async()=>mode('Whole-Day').click());
   assert.equal(day('05').disabled,false); assert.equal(day('06').disabled,true); assert.equal(day('07').disabled,false);
-  await act(async()=>mode('Variant B').click());
+  await act(async()=>mode('Whole Day \u2013 Overnight').click());
   assert.equal(day('05').disabled,false); assert.equal(day('06').disabled,false); assert.equal(day('07').disabled,true);
   assert.equal(mode('Whole-Day').getAttribute('aria-pressed'),'true');
-  await act(async()=>mode('Variant A').click());
+  await act(async()=>mode('Whole Day \u2013 Daytime').click());
   await act(async()=>day('05').click());
   const next=[...c.querySelectorAll("button")].find(button=>/Continue.*Booking|Continue.*Details|Book.*Stay|Continue/i.test(button.textContent));
   assert.ok(next);assert.equal(next.disabled,false);
   await act(async()=>next.click());
   assert.equal(selected[0][0],"whole_day");assert.equal(selected[0][1],date+"T06:00:00.000Z");
+ }finally{await act(async()=>root.unmount());c.remove();globalThis.fetch=saved;}
+});
+
+test("guest booking respects the configured date boundary and ocular scheduling writes only after confirmation",async()=>{
+ const saved=globalThis.fetch,posted=[];
+ const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Manila",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+ const [y,m]=today.split("-").map(Number),month=new Date(Date.UTC(y,m,1)).toISOString().slice(0,7);
+ globalThis.fetch=async(url,options)=>{
+  if(options?.method==="POST"){posted.push({url,body:JSON.parse(options.body)});return Response.json({success:true,ocularVisit:{reference:"OV-CONFIRMED"}});}
+  return url.startsWith("/api/ocular-time-slots")?Response.json({slots:[{start_time:"10:00",end_time:"11:00"}]}):Response.json({reservations:[],blockedDates:[],maxBookingDate:month+"-06"});
+ };
+ const Component=loadTsModule("app/booking/page.tsx",{
+  "next/link":({children,href})=>createElement("a",{href},children),"next/image":({src,alt})=>createElement("img",{src,alt}),
+  "next/navigation":{useRouter:()=>({push:()=>{}})},"@/components/Navigation":()=>null,"@/components/Footer":()=>null,
+  "@/lib/booking/use-package-rates":{usePackageRates:()=>({schedule:{version:1,rates:legacyRates},error:null})},
+  "@/lib/stores/booking-store":{useBookingStore:selector=>selector({setBookingWindow:()=>{},setBookingDraft:()=>{},resetBookingDraft:()=>{}})},
+ }).default;
+ const c=document.createElement("div");document.body.append(c);const root=createRoot(c);
+ const button=(scope,text)=>[...scope.querySelectorAll("button")].find(el=>el.textContent.trim()===text);
+ const click=el=>act(async()=>{assert.ok(el);assert.equal(el.disabled,false);el.click();});
+ try{
+  await act(async()=>root.render(createElement(Component)));await click(c.querySelector('[aria-label="Next month"]'));
+  assert.equal(c.querySelector(`[aria-label^="${month}-06:"]`).disabled,false);
+  assert.equal(c.querySelector(`[aria-label^="${month}-07:"]`).disabled,true);
+  assert.match(c.querySelector(`[aria-label^="${month}-07:"]`).title,/Bookings are available only through/);
+  assert.equal(c.querySelector('[aria-label="Next month"]').disabled,true);
+  await click(button(c,"Ocular Visit"));await click(button(c.querySelector('[data-booking-guide="dates-calendar"]'),"5"));
+  await click(c.querySelector('[data-booking-guide="ocular-times"] button:not(:disabled)'));
+  await click(button(c,"Schedule Visit"));assert.equal(posted.length,0);
+  const confirm=document.querySelector('[role="alertdialog"]');assert.match(confirm.textContent,/Confirm ocular visit/);
+  await click(button(confirm,"Cancel"));assert.equal(posted.length,0);
+  await click(button(c,"Schedule Visit"));await click(button(document.querySelector('[role="alertdialog"]'),"Confirm schedule"));
+  assert.equal(posted.length,1);assert.equal(posted[0].url,"/api/ocular-visits");assert.equal(posted[0].body.scheduledDate,month+"-05");assert.match(c.textContent,/OV-CONFIRMED/);
  }finally{await act(async()=>root.unmount());c.remove();globalThis.fetch=saved;}
 });

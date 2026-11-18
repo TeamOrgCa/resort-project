@@ -85,7 +85,7 @@ export default function PhilippineAddressFields({ value, onChange }: {
 
   const fieldClass = "w-full px-4 py-3 border border-neutral/20 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-neutral/5 disabled:opacity-60";
   return <fieldset className="space-y-4">
-    <legend className="mb-2 text-sm font-medium text-neutral">Address *</legend>
+    <legend className="mb-2 text-sm font-medium text-neutral">Address</legend>
     <div className="grid gap-4 md:grid-cols-2">
       <div>
         <label htmlFor="province" className="mb-2 block text-sm font-medium text-neutral">Province*</label>

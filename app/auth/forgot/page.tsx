@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 function ForgotPasswordContent() {
   const searchParams = useSearchParams();
@@ -23,18 +22,15 @@ function ForgotPasswordContent() {
     setError("");
     setStatus("sending");
 
-    const supabase = createClient();
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-      redirectTo: `${window.location.origin}${isStaff ? "/auth/confirm/staff" : "/auth/confirm"}`,
-    });
-
-    if (resetError) {
-      setError(resetError.message || "Unable to send reset link.");
+    try {
+      const response = await fetch("/api/auth/forgot-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim().toLowerCase(), staff: isStaff }) });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || "Unable to send reset link.");
+      setStatus("sent");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to send reset link. Please try again.");
       setStatus("idle");
-      return;
     }
-
-    setStatus("sent");
   };
 
   return (
@@ -56,6 +52,7 @@ function ForgotPasswordContent() {
             {status === "sent" ? (
               <div className="bg-secondary/10 border border-secondary/30 text-neutral px-4 py-3 rounded-lg">
                 If an account exists for {email.trim() || "your email"}, a reset link has been sent.
+                <p className="mt-2">The link expires in 5 minutes and can only be used once.</p>
               </div>
             ) : null}
 

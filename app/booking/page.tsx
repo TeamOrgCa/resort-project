@@ -1,9 +1,11 @@
 "use client";
 
+import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
+import { DEFAULT_ADVANCE_BOOKING_DAYS, maximumBookingDate, advanceBookingIssue } from "@/lib/booking/advance-window";
 import BookingGuide from "@/components/booking/BookingGuide";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
@@ -49,6 +51,9 @@ export default function Booking() {
   const [bookingRef, setBookingRef] = useState("");
   const [currentMonth, setCurrentMonth] = useState(() => manilaCalendarDate(manilaDateKey(new Date())));
   const [visitScheduled, setVisitScheduled] = useState(false);
+  const ocularSaving = useRef(false);
+  const [confirmOcular, setConfirmOcular] = useState(false);
+  const [maxBookingDate, setMaxBookingDate] = useState(() => maximumBookingDate(DEFAULT_ADVANCE_BOOKING_DAYS));
   const [ocularSubmitting, setOcularSubmitting] = useState(false);
   const [ocularError, setOcularError] = useState<string | null>(null);
   const [reservedWindows, setReservedWindows] = useState<ReservedWindow[]>([]);
@@ -99,8 +104,9 @@ export default function Booking() {
       try {
         const response = await fetch(`/api/booking/availability?month=${month}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Availability request failed.");
-        const result = (await response.json()) as { reservations: ReservedWindow[]; blockedDates: MaintenanceWindow[] };
+        const result = (await response.json()) as { reservations: ReservedWindow[]; blockedDates: MaintenanceWindow[]; maxBookingDate?: string };
         if (!active || currentRequest !== requestId) return;
+        setMaxBookingDate(result.maxBookingDate ?? maximumBookingDate(DEFAULT_ADVANCE_BOOKING_DAYS));
         setReservedWindows(result.reservations);
         setBlockedDateRanges(result.blockedDates);
         setAvailabilityError(false);
@@ -130,6 +136,8 @@ export default function Booking() {
       setStayError("Please select a booking date.");
       return;
     }
+    const advanceIssue = advanceBookingIssue(toDateKey(selectedStayDate), maxBookingDate);
+    if (advanceIssue) { setStayError(advanceIssue); return; }
     const selectedCustomEndDate =
       bookingMode === "custom"
         ? parseLocalDateValue(customEndDate || formatDateForStore(selectedStayDate))
@@ -226,7 +234,7 @@ export default function Booking() {
   };
 
   const packageAvailable = (date: Date, mode: BookingMode, variant: WholeDayVariant = "day_to_night") => {
-    if (!packageSchedule) return false;
+    if (!packageSchedule || advanceBookingIssue(toDateKey(date), maxBookingDate)) return false;
     const window = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: mode, date: toDateKey(date), wholeDayVariant: variant });
     return typeof window.startDatetime === "string" && typeof window.endDatetime === "string" &&
       isBookingStartAllowed(window.startDatetime, now) &&
@@ -240,12 +248,13 @@ export default function Booking() {
   });
 
   const isDateBooked = (date: Date) => {
+    if (advanceBookingIssue(toDateKey(date), maxBookingDate)) return true;
     if (bookingMode !== "custom") return !packageAvailable(date, bookingMode, wholeDayVariant);
     const { day, night, whole } = dateAvailability(date);
     return !day && !night && !whole;
   };
 
-  const selectedModeLabel = bookingMode === "whole_day" ? `Whole Day (Variant ${wholeDayVariant === "day_to_night" ? "A" : "B"})` : bookingMode === "night" ? "Night" : bookingMode === "custom" ? "Custom" : "Day";
+  const selectedModeLabel = bookingMode === "whole_day" ? wholeDayVariant === "day_to_night" ? "Whole Day – Daytime" : "Whole Day – Overnight" : bookingMode === "night" ? "Night" : bookingMode === "custom" ? "Custom" : "Day";
 
   const isDateSelected = (date: Date) => {
     if (!selectedStayDate) return false;
@@ -293,6 +302,13 @@ export default function Booking() {
       return;
     }
 
+    setConfirmOcular(true);
+  };
+
+  const submitOcular = async () => {
+    if (ocularSaving.current || !selectedDate || !selectedTime) return;
+    if (!isOcularSlotStartAllowed(toDateKey(selectedDate), selectedTime.split("-")[0])) { setConfirmOcular(false); setOcularError(BOOKING_LEAD_MESSAGE); return; }
+    ocularSaving.current = true;
     setOcularSubmitting(true);
     setOcularError(null);
 
@@ -327,11 +343,12 @@ export default function Booking() {
     } catch {
       setOcularError("Unable to schedule ocular visit right now. Please try again.");
     } finally {
-      setOcularSubmitting(false);
+      ocularSaving.current = false; setOcularSubmitting(false); setConfirmOcular(false);
     }
   };
 
   const nextMonth = () => {
+    if (bookingType === "stay" && toDateKey(currentMonth).slice(0, 7) >= maxBookingDate.slice(0, 7)) return;
     setSelectedStayDate(null);
     setCurrentMonth(manilaMonthDate(currentMonth, 1));
   };
@@ -597,7 +614,7 @@ export default function Booking() {
                     onClick={() => { setWholeDayVariant("day_to_night"); setStayError(null); if (selectedStayDate && !packageAvailable(selectedStayDate, "whole_day", "day_to_night")) setSelectedStayDate(null); }}
                     className={`rounded-lg border px-4 py-3 text-sm text-left disabled:cursor-not-allowed disabled:opacity-40 ${wholeDayVariant === "day_to_night" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
                   >
-                    <p className="font-semibold text-neutral">Variant A</p>
+                    <p className="font-semibold text-neutral">Whole Day – Daytime</p>
                     <p className="text-neutral/70">{formatPackageTimeSlot((packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES).whole_day.day_to_night)}</p>
                   </button>
                   <button
@@ -606,7 +623,7 @@ export default function Booking() {
                     onClick={() => { setWholeDayVariant("night_to_day"); setStayError(null); if (selectedStayDate && !packageAvailable(selectedStayDate, "whole_day", "night_to_day")) setSelectedStayDate(null); }}
                     className={`rounded-lg border px-4 py-3 text-sm text-left disabled:cursor-not-allowed disabled:opacity-40 ${wholeDayVariant === "night_to_day" ? "border-primary bg-white" : "border-neutral/20 bg-white/60"}`}
                   >
-                    <p className="font-semibold text-neutral">Variant B</p>
+                    <p className="font-semibold text-neutral">Whole Day – Overnight</p>
                     <p className="text-neutral/70">{formatPackageTimeSlot((packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES).whole_day.night_to_day)}</p>
                   </button>
                 </div>
@@ -690,7 +707,7 @@ export default function Booking() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <button type="button" onClick={nextMonth} aria-label="Next month" className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
+                    <button type="button" onClick={nextMonth} disabled={bookingType === "stay" && toDateKey(currentMonth).slice(0, 7) >= maxBookingDate.slice(0, 7)} aria-label="Next month" className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
                       <svg className="w-6 h-6 text-neutral" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
@@ -698,7 +715,7 @@ export default function Booking() {
                   </div>
                 </div>
 
-                {bookingType === "stay" && <p className="mb-4 text-sm text-neutral/70" aria-live="polite">Showing dates available for {selectedModeLabel}. Unavailable dates are disabled.</p>}
+                {bookingType === "stay" && <p className="mb-4 text-sm text-neutral/70" aria-live="polite">Showing dates available for {selectedModeLabel}, through {maxBookingDate}. Unavailable dates are disabled.</p>}
                 <div className="mb-6">
                   <h3 className="text-lg sm:text-2xl font-semibold text-neutral text-center mb-2">
                     {monthNames[currentMonth.getUTCMonth()]} {currentMonth.getUTCFullYear()}
@@ -750,7 +767,8 @@ export default function Booking() {
                     const isBooked = isDateBooked(date);
                     const noRemainingStarts = PACKAGE_TIME_KEYS.every(key => !isBookingStartAllowed(
                       `${toDateKey(date)}T${packageTimeSlot(packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES,key).start}:00+08:00`,now));
-                    const unavailableLabel = isMaintenance ? "Closed for maintenance" : noRemainingStarts ? "No remaining start times" : !day && !night && !whole ? "Fully booked" : `Unavailable for ${selectedModeLabel}`;
+                    const advanceIssue = advanceBookingIssue(toDateKey(date), maxBookingDate);
+                    const unavailableLabel = advanceIssue ?? (isMaintenance ? "Closed for maintenance" : noRemainingStarts ? "No remaining start times" : !day && !night && !whole ? "Fully booked" : `Unavailable for ${selectedModeLabel}`);
                     const isSelected = isDateSelected(date);
 
                       return (
@@ -878,7 +896,7 @@ export default function Booking() {
                           <label className="text-sm text-neutral/70">Mode</label>
                           <p className="text-lg font-semibold text-neutral">
                             {bookingMode === "whole_day"
-                              ? `Whole-Day (${wholeDayVariant === "day_to_night" ? "Variant A" : "Variant B"})`
+                              ? wholeDayVariant === "day_to_night" ? "Whole Day – Daytime" : "Whole Day – Overnight"
                               : bookingMode.charAt(0).toUpperCase() + bookingMode.slice(1)}
                           </p>
                           {validSummaryWindow && !isBookingStartAllowed(validSummaryWindow.startDatetime, now) && (
@@ -958,7 +976,7 @@ export default function Booking() {
                     </button>
 
                     <p className="text-xs text-neutral/60 text-center mt-4">
-                      This is free of charge but requires approval.
+                      This is free of charge
                     </p>
                   </>
                 )}
@@ -1046,6 +1064,7 @@ export default function Booking() {
         </div>
       </section>
 
+      <ConfirmationDialog isOpen={confirmOcular} title="Confirm ocular visit" message={`Schedule your visit on ${selectedDate ? formatManilaDate(selectedDate) : ""} at ${formatTimeSlot(selectedTime)} (Philippine time)? The available slot will be confirmed immediately.`} confirmText="Confirm schedule" isConfirming={ocularSubmitting} onConfirm={() => void submitOcular()} onCancel={() => setConfirmOcular(false)} />
       <Footer />
     </div>
   );

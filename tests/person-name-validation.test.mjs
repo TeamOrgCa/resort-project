@@ -67,7 +67,8 @@ test("walk-in creation rejects invalid first, last and middle names before datab
 function profileApi({ authenticated = true, active = true } = {}) {
   const db = catalogDatabase({ guests: [{ id: "guest", first_name: "Maria", is_active: active }, { id: "other", first_name: "Other Guest", is_active: true }] });
   db.auth = { getUser: async () => ({ data: { user: authenticated ? { id: "guest" } : null }, error: null }) };
-  const { PATCH } = loadTsModule("app/api/auth/me/route.ts", { "@/lib/supabase/server": { createClient: async () => db } });
+  const { PATCH } = loadTsModule("app/api/auth/me/route.ts", { "@/lib/server/advance-booking": { checkAdvanceBooking: async () => null },
+    "@/lib/supabase/server": { createClient: async () => db } });
   return { db, patch: (body = guest) => PATCH(new Request("http://localhost/api/auth/me", { method: "PATCH", body: JSON.stringify(body) })) };
 }
 

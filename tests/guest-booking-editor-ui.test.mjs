@@ -9,7 +9,7 @@ globalThis.window = dom.window; globalThis.document = dom.window.document; globa
 const { createRoot } = await import("react-dom/client"); after(() => dom.window.close());
 const Component = loadTsModule("components/manage/GuestBookingEditor.tsx").default;
 const service = "44444444-4444-4444-8444-444444444444", extra = "55555555-5555-4555-8555-555555555555";
-const detail = { reservation: { reservation_id: "booking", booking_mode: "day", adult_count: 22, child_count: 0, start_datetime: "2027-06-14T08:00:00+08:00", end_datetime: "2027-06-14T16:00:00+08:00" },
+const detail = { reservation: { reservation_id: "booking", status: "confirmed", booking_mode: "day", adult_count: 22, child_count: 0, start_datetime: "2027-06-14T08:00:00+08:00", end_datetime: "2027-06-14T16:00:00+08:00" },
   services: [{ service_id: service, quantity: 2, price_at_time: 100 }], catalogServices: [{ service_id: service, name: "Table", price: 999, is_active: false }, { service_id: extra, name: "Karaoke", price: 500, is_active: true }],
   bill: { total_amount: 8600, paid_amount: 1720, status: "partial" }, version: "a".repeat(64), packageRates: legacyRates, lockedReason: null, canChangeGuests: true, canReduceServices: true };
 const button = (c, text) => [...c.querySelectorAll("button")].find(button => button.textContent.trim() === text);
@@ -26,13 +26,15 @@ async function mount({ loaded = detail, fetcher = async () => Response.json({ su
 test("partial-payment edits preview headcount charges and allow reducing/removing every service before saving", async () => {
   let posted; const h = await mount({ fetcher: async (_url, options) => { posted = JSON.parse(options.body); return Response.json({ success: true, totalAmount: 8150 }); } });
   try {
-    assert.equal(button(h.c, "Save Booking Changes").disabled, true);
+    assert.equal(button(h.c, "Save Reservation Changes").disabled, true);
     await input(h.c.querySelector('[aria-label="Adults"]'), 20);
     await input(h.c.querySelector('[aria-label="Quantity for Table"]'), 1);
     assert.match(h.c.querySelector('[aria-label="Updated bill preview"]').textContent, /8,250/);
     await click(h.c.querySelector('[aria-label="Remove Table"]')); assert.match(h.c.textContent, /Services are optional/);
     assert.match(h.c.querySelector('[aria-label="Updated bill preview"]').textContent, /8,150/);
-    await click(button(h.c, "Save Booking Changes"));
+    await click(button(h.c, "Save Reservation Changes"));
+    assert.equal(posted,undefined,"No write before confirmation");
+    await click(button(document.body,"Confirm changes"));
     assert.deepEqual(posted, { adultCount: 20, childCount: 0, services: [], version: detail.version, expectedTotal: 8150 });
     assert.deepEqual(h.busy, [true, false]); assert.equal(h.saved[0].totalAmount, 8150);
     assert.equal(h.c.querySelector('input[type="date"]'), null); assert.equal(h.c.textContent.includes("Change package"), false);
@@ -45,8 +47,8 @@ test("full-payment and during-stay restrictions retain additions and expose acti
     assert.equal(h.c.querySelector('[aria-label="Remove Table"]').disabled, true);
     assert.equal(h.c.querySelector('[aria-label="Quantity for Table"]').min, "2");
     await input(h.c.querySelector('[aria-label="Adults"]'), 31); assert.match(h.c.querySelector('[role="alert"]').textContent, /no more than 30/);
-    assert.equal(button(h.c, "Save Booking Changes").disabled, true);
-    await input(h.c.querySelector('[aria-label="Adults"]'), 21); assert.equal(button(h.c, "Save Booking Changes").disabled, false);
+    assert.equal(button(h.c, "Save Reservation Changes").disabled, true);
+    await input(h.c.querySelector('[aria-label="Adults"]'), 21); assert.equal(button(h.c, "Save Reservation Changes").disabled, false);
     assert.match(h.c.textContent, /Excess paid/);
     await input(h.c.querySelector('[aria-label="New service"]'), extra); await click(button(h.c, "Add Service"));
     assert.equal(h.c.querySelector('[aria-label="Remove Karaoke"]').disabled, false);
@@ -59,10 +61,24 @@ test("full-payment and during-stay restrictions retain additions and expose acti
 test("stale billing blocks retries until reload and repeated clicks submit just one request", async () => {
   let finish, posts = 0; const h = await mount({ fetcher: async () => { posts++; return new Promise(resolve => { finish = () => resolve(Response.json({ message: "Bill changed. Reload." }, { status: 409 })); }); } });
   try {
-    await click(h.c.querySelector('[aria-label="Remove Table"]')); const save = button(h.c, "Save Booking Changes");
-    await act(async () => { save.click(); save.click(); }); assert.equal(posts, 1);
+    await click(h.c.querySelector('[aria-label="Remove Table"]')); const save = button(h.c, "Save Reservation Changes");
+    await act(async () => { save.click(); save.click(); }); assert.equal(posts, 0);
+    await act(async()=>{ const confirm=button(document.body,"Confirm changes");confirm.click();confirm.click(); }); assert.equal(posts,1);
     await act(async () => finish()); assert.match(h.c.querySelector('[role="alert"]').textContent, /Bill changed/);
-    assert.equal(button(h.c, "Save Booking Changes").disabled, true); await click(button(h.c, "Reload booking and bill"));
+    assert.equal(button(h.c, "Save Reservation Changes").disabled, true); await click(button(h.c, "Reload reservation and bill"));
     assert.equal(h.c.querySelector('[aria-label="Quantity for Table"]').value, "2"); assert.equal(h.c.querySelector('[role="alert"]'), null);
   } finally { await h.close(); }
+});
+
+test("guest accommodation changes require confirmation and send the selected accommodation",async()=>{
+ const unit="66666666-6666-4666-8666-666666666666";let posted;
+ const loaded={...detail,units:[{unit_id:unit,quantity:1}],catalogUnits:[{unit_id:unit,name:"Cottage",is_active:true,archived_at:null},{unit_id:extra,name:"Family accommodation",is_active:true,archived_at:null}],canChangeAccommodation:true};
+ const h=await mount({loaded,fetcher:async(_url,options)=>{posted=JSON.parse(options.body);return Response.json({success:true});}});
+ try{
+  await input(h.c.querySelector('[aria-label="Accommodation type"]'),extra);await click(button(h.c,"Save Reservation Changes"));
+  assert.equal(posted,undefined);await click(button(document.body,"Cancel"));assert.equal(posted,undefined);
+  await click(button(h.c,"Save Reservation Changes"));await click(button(document.body,"Confirm changes"));assert.equal(posted.unitId,extra);assert.equal(posted.expectedTotal,8600);
+ }finally{await h.close();}
+ const locked=await mount({loaded:{...loaded,canChangeAccommodation:false}});
+ try{assert.equal(locked.c.querySelector('[aria-label="Accommodation type"]').disabled,true);}finally{await locked.close();}
 });

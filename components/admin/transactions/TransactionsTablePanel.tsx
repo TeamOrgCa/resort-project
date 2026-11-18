@@ -12,6 +12,7 @@ interface TransactionsTablePanelProps {
   filters?: AdminTableFilter[];
   actions?: string[];
   rowActions?: string[];
+  getRowActionLabel?: (action: string, row: AdminTableRow) => string;
   onAction?: (action: string, rows: AdminTableRow[]) => void | Promise<void>;
   onRowAction?: (action: string, row: AdminTableRow) => void | Promise<void>;
   isLoading?: boolean;
@@ -28,6 +29,7 @@ export default function TransactionsTablePanel({
   filters,
   actions,
   rowActions,
+  getRowActionLabel,
   onAction,
   onRowAction,
   isLoading = false,
@@ -45,6 +47,7 @@ export default function TransactionsTablePanel({
       filters={filters}
       actions={actions}
       rowActions={rowActions}
+      getRowActionLabel={getRowActionLabel}
       onAction={onAction}
       onRowAction={onRowAction}
       isActionDisabled={(action, matchingRows) => isLoading || (!action.startsWith("Refresh") && (hasError || (action.startsWith("Export") && matchingRows.length === 0)))}

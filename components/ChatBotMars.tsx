@@ -4,34 +4,46 @@ import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSiteContent } from "@/components/content/SiteContent";
 import { configuredFaqs, validFacebookChatUrl } from "@/lib/chatbot/config";
+import { CHAT_GREETING, readChatHistory, saveChatHistory, type ChatMessage } from "@/lib/chatbot/history";
+import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
+import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 
-type ChatMessage = {
-  role: "assistant" | "user";
-  content: string;
-  supportLink?: { label: string; url: string };
-};
+function MarsEmote({ emote }: { emote: NonNullable<ChatMessage["emote"]> }) {
+  return <Image src={`/chatbot-icon/chatbotmars_${emote}.png`} alt="" aria-hidden="true" width={40} height={40} sizes="(max-width: 639px) 32px, 40px" className="h-8 w-8 shrink-0 object-contain sm:h-10 sm:w-10" />;
+}
 
 const CHATBOT_ENABLED = true;
 const quickQuestions = ["Show me services", "How do I book?", "What are your swimming rates?", "How do payments work?", "Can I reschedule?"];
 
 export default function ChatBotMars() {
+  const account = useNotificationCenter();
+  // Wait for verified identity so private replies never enter anonymous history.
+  if (account && !account.identityReady) return null;
+  const owner = account?.user?.id ?? "anonymous";
+  return <MarsConversation key={owner} owner={owner} />;
+}
+
+function MarsConversation({ owner }: { owner: string }) {
   const settings = useSiteContent();
   const faqQuestions = [...new Set([...quickQuestions, ...Object.keys(configuredFaqs(settings))])];
   const [showSupportForm, setShowSupportForm] = useState(false);
   const [supportReason, setSupportReason] = useState("");
   const [supportReference, setSupportReference] = useState("");
   const [open, setOpen] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content:
-        "Hi, I’m ChatBot Mars. I can help with booking steps, rates, payments, and resort policies. What would you like to know?",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => readChatHistory(owner));
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const active = useRef(true);
+  const pendingRequest = useRef<AbortController | null>(null);
+
+  useEffect(() => { saveChatHistory(owner, messages); }, [owner, messages]);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; pendingRequest.current?.abort(); };
+  }, []);
 
   useEffect(() => {
     const transcript = messagesRef.current;
@@ -58,9 +70,11 @@ export default function ChatBotMars() {
 
   const sendMessage = async (question: string) => {
     const trimmedInput = question.trim();
-    if (!trimmedInput || loading) {
+    if (!trimmedInput || loading || pendingRequest.current) {
       return;
     }
+    const controller = new AbortController();
+    pendingRequest.current = controller;
 
     setInput("");
     setMessages((currentMessages) => [
@@ -72,13 +86,15 @@ export default function ChatBotMars() {
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: trimmedInput, history: messages.slice(1).slice(-8) }),
+        body: JSON.stringify({ message: trimmedInput, history: messages.slice(1).slice(-8).map(({ role, content }) => ({ role, content })) }),
       });
 
       const data = await response.json();
+      if (!active.current || controller.signal.aborted) return;
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to get a reply.");
@@ -88,6 +104,7 @@ export default function ChatBotMars() {
         ...currentMessages,
         {
           role: "assistant",
+          emote: !data.reply || data.notified === false ? "thinking" : "approved",
           ...(data.supportLink?.url && validFacebookChatUrl(data.supportLink.url) ? { supportLink: data.supportLink } : {}),
           content:
             data.reply ||
@@ -95,16 +112,19 @@ export default function ChatBotMars() {
         },
       ]);
     } catch (error) {
+      if (!active.current || controller.signal.aborted) return;
       setMessages((currentMessages) => [
         ...currentMessages,
         {
           role: "assistant",
+          emote: "thinking",
           content:
             error instanceof Error ? error.message : "Sorry, I’m having trouble connecting right now. Please try again in a moment.",
         },
       ]);
     } finally {
-      setLoading(false);
+      if (pendingRequest.current === controller) pendingRequest.current = null;
+      if (active.current && !controller.signal.aborted) setLoading(false);
     }
   };
 
@@ -123,28 +143,34 @@ export default function ChatBotMars() {
       {open && (
         <section aria-label="ChatBot Mars conversation" className="pointer-events-auto flex h-full max-h-[42rem] w-full max-w-96 min-w-0 flex-col overflow-hidden rounded-3xl border border-white/20 bg-neutral/95 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl">
           <div className="flex shrink-0 items-center justify-between border-b border-white/10 bg-linear-to-r from-primary to-secondary px-4 py-2 text-base">
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-base/70 [@media(max-height:500px)]:hidden">MarVille Assistant</p>
-              <h2 className="text-xl font-bold text-base">ChatBot Mars</h2>
+            <div className="min-w-0">
+              <p className="truncate text-[10px] uppercase tracking-[0.18em] text-base/70 sm:text-xs [@media(max-height:500px)]:hidden">MarVille Assistant</p>
+              <h2 className="truncate text-lg font-bold text-base sm:text-xl">ChatBot Mars</h2>
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="min-h-11 rounded-full bg-base/15 px-3 py-1 text-sm font-semibold text-base transition hover:bg-base/25"
-              aria-label="Close ChatBot Mars"
-            >
-              Close
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <button type="button" aria-label="Clear chat history" title="Clear chat history" disabled={loading || messages.length < 2}
+                onClick={() => setConfirmClear(true)}
+                className="min-h-11 rounded-full px-3 py-1 text-sm font-semibold text-base transition hover:bg-base/15 disabled:opacity-40">Clear</button>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="min-h-11 rounded-full bg-base/15 px-3 py-1 text-sm font-semibold text-base transition hover:bg-base/25"
+                aria-label="Close ChatBot Mars"
+              >
+                Close
+              </button>
+            </div>
           </div>
 
           <div ref={messagesRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4" role="log" aria-label="Chat messages" aria-live="polite" aria-busy={loading}>
             {messages.map((message, index) => (
               <div
                 key={`${message.role}-${index}`}
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex items-start gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
+                {message.role === "assistant" && message.emote && <MarsEmote emote={message.emote} />}
                 <div
-                  className={`max-w-[90%] wrap-anywhere rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  className={`min-w-0 max-w-[90%] wrap-anywhere rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     message.role === "user"
                       ? "bg-primary text-base"
                       : "bg-white/10 text-white"
@@ -157,7 +183,8 @@ export default function ChatBotMars() {
             ))}
 
             {loading && (
-              <div className="flex justify-start">
+              <div className="flex items-start justify-start gap-2">
+                <MarsEmote emote="thinking" />
                 <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm text-white/70">
                   Typing...
                 </div>
@@ -231,6 +258,22 @@ export default function ChatBotMars() {
           <span className="block text-lg font-bold text-base">ChatBot Mars</span>
         </span>
       </button>}
+      <ConfirmationDialog
+        isOpen={confirmClear}
+        title="Clear chat history?"
+        message="This will remove this conversation from this browser. This cannot be undone."
+        confirmText="Clear chat"
+        cancelText="Keep chat"
+        onCancel={() => setConfirmClear(false)}
+        onConfirm={() => {
+          setMessages([CHAT_GREETING]);
+          setInput("");
+          setShowSupportForm(false);
+          setSupportReason("");
+          setSupportReference("");
+          setConfirmClear(false);
+        }}
+      />
     </div>
   );
 }

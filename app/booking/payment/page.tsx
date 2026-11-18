@@ -272,7 +272,7 @@ function PaymentContent() {
     if (hasVerifiedDownpayment || paidAmount > 0) setPayOption("full");
   }, [hasVerifiedDownpayment, paidAmount]);
 
-  const roomName = bookingDraft.roomName || "Selected Room";
+  const roomName = bookingDraft.roomName || "Selected accommodation";
   const costSummary = buildBookingCostSummary(bookingDraft);
   const totalAmount = bookingDraft.total || 0;
   const downPayment = downPaymentAmount(totalAmount);
@@ -525,7 +525,7 @@ function PaymentContent() {
                 </span>
               </div>
               {!isBalancePayment && <div className="flex justify-between">
-                <span className="text-neutral/70">Room Type</span>
+                <span className="text-neutral/70">Accommodation Type</span>
                 <span className="font-semibold text-neutral">{successRoomName}</span>
               </div>}
               {!isBalancePayment && <div className="flex justify-between">
