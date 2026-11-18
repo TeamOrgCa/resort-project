@@ -5,9 +5,10 @@ import { createClient } from "@/lib/supabase/client";
 import NotificationAlerts from "./NotificationAlerts";
 import type { User } from "@supabase/supabase-js";
 import { SESSION_CHANGE_EVENT, SESSION_CHANGE_STORAGE_KEY } from "@/lib/auth/session-events";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { notificationActionUrl } from "@/lib/notification-links";
 import { formatNotificationText } from "@/lib/notification-text";
+import { customerAccountUser, isCustomerAccountPage } from "@/lib/auth/customer-access";
 
 export type NotificationItem = {
   recipient_id: string;
@@ -49,10 +50,26 @@ export default function NotificationCenter({ children }: { children: ReactNode }
   // or recovery screen. Unmount the active feed to retire requests and timers.
   const authenticationPage = !pathname || /^\/(auth|staff)(\/|$)/.test(pathname) || /^\/admin\/login(\/|$)/.test(pathname);
   if (authenticationPage) return <Context.Provider value={inactiveCenter}>{children}</Context.Provider>;
-  return <ActiveNotificationCenter>{children}</ActiveNotificationCenter>;
+  const customerView = !/^\/admin(?:\/|$)/.test(pathname);
+  return <ActiveNotificationCenter key={customerView ? "customer" : "staff"} customerView={customerView}>
+    {customerView && isCustomerAccountPage(pathname) ? <CustomerAccountGate>{children}</CustomerAccountGate> : children}
+  </ActiveNotificationCenter>;
 }
 
-function ActiveNotificationCenter({ children }: { children: ReactNode }) {
+// Also guard cached client navigation and account switches in another tab.
+// Guest pages must not mount and query a staff session while identity is loading.
+function CustomerAccountGate({ children }: { children: ReactNode }) {
+  const center = useNotificationCenter();
+  const router = useRouter();
+  const ready = center?.identityReady, user = center?.user;
+  useEffect(() => {
+    if (ready && !user) router.replace("/");
+  }, [ready, user, router]);
+  if (!ready || !user) return <p role="status" className="p-6 text-center">Checking guest account access...</p>;
+  return children;
+}
+
+function ActiveNotificationCenter({ children, customerView }: { children: ReactNode; customerView: boolean }) {
   const supabase = useMemo(() => createClient(), []);
   const [account, setAccount] = useState<ReturnType<typeof accountFromUser>>(null);
   const [identityReady, setIdentityReady] = useState(false);
@@ -70,7 +87,7 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
   const key = account?.id ?? "";
   const notifications = useMemo(() => key && feed?.key === key ? feed.items : [], [key, feed]);
   const dismissedIds = useMemo(() => new Set(key ? [...dismissedInSession(key), ...(dismissed[key] ?? [])] : []), [key, dismissed]);
-  const pending = notifications.filter(item => !item.is_read && !dismissedIds.has(item.notification_id));
+  const pending = useMemo(() => notifications.filter(item => !item.is_read && !dismissedIds.has(item.notification_id)), [notifications, dismissedIds]);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   const pauseAlerts = useCallback(() => {
     setPaused(value => value + 1);
@@ -96,7 +113,8 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
       const request = ++lookup, generation = identity.current.generation;
       try {
         const { data: { user }, error } = await supabase.auth.getUser();
-        if (active && request === lookup && generation === identity.current.generation) acceptUser(error ? null : user, !error || error.name === "AuthSessionMissingError");
+        const visibleUser = error ? null : customerView ? await customerAccountUser(supabase, user) : user;
+        if (active && request === lookup && generation === identity.current.generation) acceptUser(visibleUser, !error || error.name === "AuthSessionMissingError");
       } catch {
         // Fail closed: cached account notifications must not survive an
         // identity check that cannot establish the signed-in user.
@@ -106,7 +124,17 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
     void syncAccount();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       lookup++;
-      acceptUser(session?.user ?? null);
+      if (session?.user?.id === identity.current.id && identity.current.id && !identity.current.changing) {
+        // Recheck refreshed tokens without unmounting an unchanged guest's form.
+        void syncAccount();
+        return;
+      }
+      identity.current.id = "";
+      identity.current.generation++;
+      setAccount(null); setIdentityReady(false); setFeed(null); readRevision.current++;
+      // Do not expose the raw shared session before its account type is checked.
+      if (session?.user) void syncAccount();
+      else acceptUser(null);
     });
     const onSessionChange = (event: Event) => {
       lookup++;
@@ -133,7 +161,7 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", onFocus); window.removeEventListener("pageshow", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [supabase]);
+  }, [supabase, customerView]);
 
   useEffect(() => {
     if (!key) return;
@@ -145,18 +173,21 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
       if (loading) { queued = true; return; }
       loading = true;
       const revisionAtStart = readRevision.current;
+      let identityVerified = false;
       try {
         // Cookies may have changed in a server route or another tab without a
         // Supabase event. Verify identity before each refresh, not just at mount.
         const { data: { user }, error: authError } = await supabase.auth.getUser();
+        const visibleUser = authError ? null : customerView ? await customerAccountUser(supabase, user) : user;
         if (!currentAccount()) return;
-        if (authError || user?.id !== key) {
-          identity.current.id = authError ? "" : user?.id ?? "";
+        if (authError || visibleUser?.id !== key) {
+          identity.current.id = visibleUser?.id ?? "";
           identity.current.generation++;
-          setFeed(null); setAccount(accountFromUser(authError ? null : user));
+          setFeed(null); setAccount(accountFromUser(visibleUser));
           setIdentityReady(!authError || authError.name === "AuthSessionMissingError");
           return;
         }
+        identityVerified = true;
         // Recipient filtering and the existing row policies enforce account/role access.
         const { data, error } = await supabase.from("notifications")
           .select("notification_id, recipient_id, title, message, action_url, is_read, created_at, entity_type, entity_id")
@@ -166,7 +197,10 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
         if (currentAccount() && revisionAtStart === readRevision.current) setFeed({ key, items: ((data ?? []) as NotificationItem[]).filter(item => item.recipient_id === key).map(item => ({ ...item, title: formatNotificationText(item.title), message: item.message ? formatNotificationText(item.message) : item.message, action_url: notificationActionUrl(item) })), error: null });
         else if (currentAccount()) queued = true;
       } catch {
-        if (currentAccount()) setFeed(current => ({ key, items: current?.key === key ? current.items : [], error: "Unable to load notifications. Please try again." }));
+        if (currentAccount() && !identityVerified) {
+          identity.current.id = ""; identity.current.generation++;
+          setAccount(null); setIdentityReady(false); setFeed(null); readRevision.current++;
+        } else if (currentAccount()) setFeed(current => ({ key, items: current?.key === key ? current.items : [], error: "Unable to load notifications. Please try again." }));
       } finally { loading = false; if (currentAccount() && queued) { queued = false; void load(); } }
     };
     void load();
@@ -183,13 +217,18 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
       active = false; window.clearInterval(interval); void supabase.removeChannel(channel);
       window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [supabase, key, revision]);
+  }, [supabase, key, revision, customerView]);
 
-  const dismiss = (ids: string[]) => {
+  const dismiss = useCallback((ids: string[]) => {
     const next = [...new Set([...dismissedInSession(key), ...dismissedIds, ...ids])].slice(-200);
     setDismissed(current => ({ ...current, [key]: [...new Set([...(current[key] ?? []), ...next])].slice(-200) }));
     try { sessionStorage.setItem(storageKey(key), JSON.stringify(next)); } catch { /* Dismiss still works when browser storage is unavailable. */ }
-  };
+  }, [key, dismissedIds]);
+  useEffect(() => {
+    // Staff can have a large unread backlog. Keep only its newest three as
+    // popups; the rest stay unread in the bell rather than cycling onto screen.
+    if (!customerView && key && pending.length > 3) dismiss(pending.slice(3).map(item => item.notification_id));
+  }, [customerView, key, pending, dismiss]);
   const setPopupsEnabled = async (enabled: boolean) => {
     if (!account || identity.current.id !== key || identity.current.changing || savingPreferenceRef.current || account.popupsEnabled === enabled) return;
     const generation = identity.current.generation;
@@ -226,7 +265,7 @@ function ActiveNotificationCenter({ children }: { children: ReactNode }) {
   return <Context.Provider value={{ user: account?.user ?? null, identityReady, notifications, loading: Boolean(key && feed?.key !== key), error: feed?.key === key ? feed.error : null, refresh, markAllRead: () => markNotificationsRead(), markRead: id => markNotificationsRead(id), markingRead, pauseAlerts,
     popupsEnabled: account?.popupsEnabled ?? true, setPopupsEnabled, savingPreference, preferenceError: preferenceError?.key === key ? preferenceError.message : null }}>
     {children}
-    <NotificationAlerts key={`${key}:${identity.current.generation}`} items={!key || paused || account?.popupsEnabled === false ? [] : pending.slice(0, 3)} remaining={Math.max(pending.length - 3, 0)}
+    <NotificationAlerts key={`${key}:${identity.current.generation}`} items={!key || paused || account?.popupsEnabled === false ? [] : pending.slice(0, 3)} remaining={customerView ? Math.max(pending.length - 3, 0) : 0}
       onDismiss={id => dismiss([id])} onDismissAll={() => dismiss(pending.map(item => item.notification_id))} />
   </Context.Provider>;
 }

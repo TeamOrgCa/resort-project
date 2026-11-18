@@ -28,6 +28,7 @@ import { createClient } from "@/lib/supabase/client";
 import { CALENDAR_COLORS, CALENDAR_LEGEND_KEYS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
 import { useCalendarAppearance } from "@/components/admin/use-calendar-appearance";
 import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
+import { focusCalendarNotification } from "@/lib/booking/calendar-notification-focus";
 
 type Reservation = {
   reservation_id: string;
@@ -132,8 +133,8 @@ const addDaysUtc = addDays;
 const formatTime = (value: string) => new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-export default function ReservationCalendar({ initialReservationId, initialDate, openNew = false, initialAccess }: {
-  initialReservationId?: string; initialDate?: string; openNew?: boolean;
+export default function ReservationCalendar({ initialReservationId, initialDate, highlightOnly = false, initialTargetError, openNew = false, initialAccess }: {
+  initialReservationId?: string; initialDate?: string; highlightOnly?: boolean; initialTargetError?: string; openNew?: boolean;
   initialAccess?: { role: StaffRole; permissions: string[] };
 }) {
   const { schedule: packageSchedule } = usePackageRates();
@@ -189,16 +190,17 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const calendarView = useRef<HTMLDivElement>(null);
   const [newBooking, setNewBooking] = useState<{ id?: string; reference?: string; date: string } | null>(null);
   const [highlightCreated, setHighlightCreated] = useState<string | null>(null);
+  const [notificationFocusId, setNotificationFocusId] = useState<string | null>(() => highlightOnly ? initialReservationId ?? null : null);
   const [creationToast, setCreationToast] = useState<string | null>(null);
   const [highlightMatches, setHighlightMatches] = useState(false);
   const [showColorSettings, setShowColorSettings] = useState(false);
   const [isManualBookingOpen, setIsManualBookingOpen] = useState(openNew);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(() => initialReservationId ? { id: initialReservationId, kind: "reservation", date: initialDate ?? "", label: "Reservation details", reservationId: initialReservationId } : null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(() => initialReservationId && !highlightOnly ? { id: initialReservationId, kind: "reservation", date: initialDate ?? "", label: "Reservation details", reservationId: initialReservationId } : null);
   const [now, setNow] = useState(() => Date.now());
   const hasActiveFilters = Boolean(searchTerm.trim() || attentionFilter !== "all" || entryFilter !== "all");
-  const clearFilters = () => { setSearchTerm(""); setAttentionFilter("all"); setEntryFilter("all"); setHighlightMatches(false); };
+  const clearFilters = () => { setSearchTerm(""); setAttentionFilter("all"); setEntryFilter("all"); setHighlightMatches(false); setNotificationFocusId(null); };
   useEffect(() => {
     if (selectedEvent?.reservationId) appearance.markViewed(selectedEvent.reservationId);
   }, [selectedEvent?.reservationId, appearance]);
@@ -417,6 +419,24 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       return map;
     }, {});
   }, [eventsByDay, searchTerm, attentionFilter, entryFilter]);
+  const notificationDate = initialDate ?? calendarEvents.find(event => event.reservationId === notificationFocusId)?.date;
+  const visibleMonth = dateKey(month).slice(0, 7);
+  useEffect(() => {
+    if (!notificationFocusId || !notificationDate) return;
+    const timer = window.setTimeout(() => {
+      setSelectedDay(notificationDate);
+      if (visibleMonth !== notificationDate.slice(0, 7)) setMonth(manilaCalendarDate(notificationDate));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [notificationFocusId, notificationDate, visibleMonth]);
+  useEffect(() => {
+    if (!notificationFocusId || !notificationDate || selectedDay !== notificationDate || isLoading) return;
+    const timer = window.setTimeout(() => {
+      if (calendarView.current) focusCalendarNotification(calendarView.current, notificationFocusId, notificationDate,
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [notificationFocusId, notificationDate, selectedDay, isLoading, mobileView]);
   const matchingDates = Object.keys(filteredEventsByDay).sort().join(",");
   useEffect(() => {
     if (isLoading) return;
@@ -489,8 +509,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const checkoutBlocked = checkoutBalance === undefined || checkoutBalance > 0 || Boolean(selectedReservation && (signals[selectedReservation.reservation_id]?.payment || signals[selectedReservation.reservation_id]?.reschedule));
   const selectedFlags = selectedReservation ? reservationAttention(selectedReservation, signals[selectedReservation.reservation_id]) : [];
   const flagCount = (flag: AttentionFlag) => new Set(calendarEvents.filter(event => event.flags?.includes(flag)).map(event => event.reservationId ?? event.id)).size;
-  const openEvent = (event: CalendarEvent) => { setSelectedEvent(event); setArrivalConfirmed(false); setDepartureConfirmed(false); setCheckInError(null); };
-  const changeMonth = (offset: number) => { const next = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + offset, 1, 4)); setMonth(next); setSelectedDay(dateKey(next)); };
+  const openEvent = (event: CalendarEvent) => { setNotificationFocusId(null); setSelectedEvent(event); setArrivalConfirmed(false); setDepartureConfirmed(false); setCheckInError(null); };
+  const changeMonth = (offset: number) => { setNotificationFocusId(null); const next = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + offset, 1, 4)); setMonth(next); setSelectedDay(dateKey(next)); };
   const recordArrival = async () => {
     if (!selectedReservation || !arrivalConfirmed || attendanceSubmitting.current) return;
     attendanceSubmitting.current = true;
@@ -526,6 +546,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     : mobileView === "Month" ? day.getUTCMonth() === month.getUTCMonth() : true)
     .filter(day => (filteredEventsByDay[dateKey(day)] ?? []).length > 0);
   const moveMobilePeriod = (offset: number) => {
+    setNotificationFocusId(null);
     if (mobileView !== "Week") { changeMonth(offset); return; }
     const next = addDays(manilaCalendarDate(selectedDay), offset * 7);
     setSelectedDay(dateKey(next));
@@ -534,7 +555,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const openMaintenance = () => { if (!canManageMaintenance) return; setBlockError(null); setShowBlockForm(true); };
   const renderEvent = (event: CalendarEvent) => {
     const style = eventStyles[event.kind], reservation = reservations.find(row => row.reservation_id === event.reservationId);
-    return <button key={event.id} type="button" onClick={() => openEvent(event)} style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) || (createdBlockId && event.id.startsWith(`${createdBlockId}:`)) ? "calendar-match-pulse" : ""}`}>
+    return <button key={event.id} type="button" onClick={() => openEvent(event)} style={eventAppearance(event)} data-calendar-event={event.id} data-notification-target={event.reservationId === notificationFocusId || undefined} data-needs-attention={Boolean(event.flags?.length)} className={`block min-h-14 w-full min-w-0 rounded-md border-l-[3px] px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${event.reservationId === notificationFocusId ? "calendar-notification-target" : ""} ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) || (createdBlockId && event.id.startsWith(`${createdBlockId}:`)) ? "calendar-match-pulse" : ""}`}>
       <span className="block text-[10px] font-medium opacity-75">{reservation ? `${formatTime(reservation.start_datetime)} - ${formatTime(reservation.end_datetime)}` : style.label} ? {titleCase(event.status ?? "scheduled")}</span>
       <span className="mt-0.5 block break-words text-xs font-semibold">{event.label}{unviewedDot(event)}</span>
       <span className="mt-0.5 block whitespace-normal text-[10px] opacity-75">{style.label} | {event.reference}</span>
@@ -570,6 +591,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     {cancellationMessage && <p role="status" className="mb-4 rounded-xl bg-green-50 p-4 text-sm text-green-900">{cancellationMessage}</p>}
     {blockError && <div role="alert" className="fixed left-1/2 top-5 z-[110] w-[min(90vw,32rem)] -translate-x-1/2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 shadow-xl">{blockError}<button type="button" aria-label="Dismiss maintenance error" onClick={() => setBlockError(null)} className="ml-3 underline">Dismiss</button></div>}
     {blockMessage && <p role="status" className="mb-4 rounded-xl bg-orange-50 p-4 text-sm">{blockMessage}</p>}
+    {initialTargetError && <p role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{initialTargetError}</p>}
     {error && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error} {reservations.length > 0 && "Previously loaded data is shown; flags may be out of date."}<button type="button" onClick={() => setRefreshKey(key => key + 1)} className="ml-2 min-h-11 underline">Retry calendar</button></div>}
     {showBlockForm && <RecordDialog variant="admin" title="Add maintenance block" reference="Resort maintenance" busy={blockBusy} onClose={() => { if (!blockBusy) setShowBlockForm(false); }}>
       <form className="grid gap-4 sm:grid-cols-2" onSubmit={event => { event.preventDefault(); void saveBlock(); }}>
@@ -587,14 +609,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     <div className="hidden gap-4 md:grid md:grid-cols-3">{[{ label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" }, { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" }, { label: "Needs attention", value: attentionCount, detail: "No-shows, cancellations and pending refunds" }].map(metric => <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-neutral/50">{metric.label}</p>{isLoading ? <Skeleton className="mt-2 h-9 w-14" /> : <p className="mt-2 text-3xl font-semibold text-neutral">{error ? "-" : metric.value}</p>}<p className="mt-1 text-xs text-neutral/50">{metric.detail}</p></div>)}</div>
     <section aria-label="Calendar filters" className="@container my-4 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm">
       <div className="grid grid-cols-1 items-end gap-3 @sm:grid-cols-[minmax(0,1fr)_auto] @3xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-      <label className="min-w-0 text-xs font-medium text-neutral/65">Search bookings<input type="search" value={searchTerm} onChange={event => setSearchTerm(event.target.value)} placeholder="Guest or booking reference" className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm" /></label>
+      <label className="min-w-0 text-xs font-medium text-neutral/65">Search bookings<input type="search" value={searchTerm} onChange={event => { setNotificationFocusId(null); setSearchTerm(event.target.value); }} placeholder="Guest or booking reference" className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm" /></label>
       <div className="grid min-w-0 gap-3 @sm:order-3 @sm:col-span-2 @sm:grid-cols-2 @3xl:contents">
-      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-2">Type or status<select aria-label="Filter calendar by type or status" value={entryFilter} onChange={event => setEntryFilter(event.target.value as CalendarEntryFilter)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
+      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-2">Type or status<select aria-label="Filter calendar by type or status" value={entryFilter} onChange={event => { setNotificationFocusId(null); setEntryFilter(event.target.value as CalendarEntryFilter); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
         <option value="all">All types and statuses</option>
         <optgroup label="Entry type">{calendarTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>
         <optgroup label="Status">{calendarStatusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>
       </select></label>
-      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-3">Attention<select aria-label="Filter calendar entries" value={attentionFilter} onChange={event => setAttentionFilter(event.target.value as typeof attentionFilter)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
+      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-3">Attention<select aria-label="Filter calendar entries" value={attentionFilter} onChange={event => { setNotificationFocusId(null); setAttentionFilter(event.target.value as typeof attentionFilter); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
         <option value="all">All attention levels</option><option value="attention">Needs attention ({attentionCount})</option>{(Object.keys(ATTENTION_LABELS) as AttentionFlag[]).map(flag => <option key={flag} value={flag}>{ATTENTION_LABELS[flag]} ({flagCount(flag)})</option>)}
       </select></label>
       </div>
@@ -617,7 +639,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     <section aria-label="Desktop reservation calendar" aria-busy={isLoading} className="hidden overflow-x-auto rounded-2xl border border-neutral/10 bg-white shadow-sm md:block">
       <div className="flex items-center justify-between gap-4 border-b border-neutral/10 p-4"><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Month view calendar</p><h2 className="mt-1 text-xl font-semibold text-neutral">{monthLabel}</h2></div><div className="flex gap-2">
         <button type="button" onClick={() => changeMonth(-1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Previous month">&larr;</button>
-        <button type="button" onClick={() => { setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-xs font-semibold hover:bg-base">Today</button>
+        <button type="button" onClick={() => { setNotificationFocusId(null); setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-xs font-semibold hover:bg-base">Today</button>
         <button type="button" onClick={() => changeMonth(1)} className="min-h-11 rounded-xl border border-neutral/15 px-3 text-sm hover:bg-base" aria-label="Next month">&rarr;</button>
       </div></div>
         <div className="grid min-w-[70rem] grid-cols-7 border-b border-neutral/10 bg-base text-[10px] font-semibold uppercase tracking-wide text-neutral/50">{weekDays.map((day) => <div key={day} className="border-r border-neutral/10 px-2 py-3 last:border-r-0">{day.slice(0, 3)}</div>)}</div>
@@ -632,7 +654,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             const availability = availabilityByDay[dayKey];
             const maintenanceBlocked = (eventsByDay[dayKey] ?? []).some((event) => event.kind === "maintenance");
             const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked && !availability?.day && !availability?.night && !availability?.whole ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : availability?.whole ? "Whole day available" : "Fully booked";
-            return <div key={dayKey} className={`min-h-28 min-w-0 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
+            return <div key={dayKey} data-calendar-date={dayKey} className={`${notificationFocusId && dayKey === notificationDate ? "calendar-notification-date" : ""} min-h-28 min-w-0 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
               {dayReservation && !isLoading ? (
                 <button type="button" onClick={() => openEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getUTCDate()}</button>
               ) : (
@@ -657,8 +679,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                       <button
                         type="button"
                         onClick={() => openEvent(event)}
-                        style={eventAppearance(event)} data-calendar-event={event.id} data-needs-attention={Boolean(event.flags?.length)}
-                        className={`block w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) || (createdBlockId && event.id.startsWith(`${createdBlockId}:`)) ? "calendar-match-pulse" : ""}`}
+                        style={eventAppearance(event)} data-calendar-event={event.id} data-notification-target={event.reservationId === notificationFocusId || undefined} data-needs-attention={Boolean(event.flags?.length)}
+                        className={`block w-full rounded-md border-l-2 px-2 py-1 text-left text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${event.reservationId === notificationFocusId ? "calendar-notification-target" : ""} ${highlightMatches || (highlightCreated && event.reservationId === highlightCreated) || (createdBlockId && event.id.startsWith(`${createdBlockId}:`)) ? "calendar-match-pulse" : ""}`}
                         title={`${style.label}: ${event.label}${event.flags?.length ? `. Needs attention: ${event.flags.map(flag => ATTENTION_LABELS[flag]).join(", ")}` : ""}`}
                       >
                         <span className="block text-[9px] font-normal opacity-75">{style.label}</span>
@@ -699,10 +721,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         <div role="group" aria-label="Mobile calendar view" className="flex min-w-0 gap-1">{(["Week", "Month", "Agenda"] as const).map(view => <button key={view} type="button" aria-pressed={mobileView === view} onClick={() => setMobileView(view)} className={`inline-flex min-h-11 items-center gap-1 rounded-full border px-1.5 text-[10px] font-semibold ${mobileView === view ? "border-primary text-primary" : "border-transparent bg-white text-neutral"}`}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" className="h-3 w-3 shrink-0" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2" /><path d="M5 1v4m6-4v4M2 7h12" /></svg>{view}</button>)}</div>
         <button type="button" onClick={() => moveMobilePeriod(1)} aria-label="Next calendar period" className="flex min-h-11 min-w-9 items-center justify-center rounded-full bg-white text-primary">&rsaquo;</button>
       </div>
-      <div className="my-3"><button type="button" onClick={() => { setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 px-1 text-xs font-medium text-neutral/65">Today</button></div>
+      <div className="my-3"><button type="button" onClick={() => { setNotificationFocusId(null); setMonth(manilaCalendarDate(today)); setSelectedDay(today); }} className="min-h-11 px-1 text-xs font-medium text-neutral/65">Today</button></div>
       {mobileView === "Week" && <p className="mb-3 text-xs text-neutral/65">{formatManilaDate(weekStart, { month: "short", day: "numeric" })} - {formatManilaDate(addDays(weekEnd, -1), { month: "short", day: "numeric" })}</p>}
       <div aria-label="Mobile calendar entries" className="space-y-1 rounded-xl bg-white p-1.5">
-        {isLoading ? <AdminCardsSkeleton label="Loading bookings..." /> : mobileDays.map(day => <section key={dateKey(day)} aria-label={`Bookings for ${dateKey(day)}`} className="rounded-xl p-1">
+        {isLoading ? <AdminCardsSkeleton label="Loading bookings..." /> : mobileDays.map(day => <section key={dateKey(day)} aria-label={`Bookings for ${dateKey(day)}`} data-calendar-date={dateKey(day)} className={`rounded-xl p-1 ${notificationFocusId && dateKey(day) === notificationDate ? "calendar-notification-date" : ""}`}>
           <h3 className={`mb-1.5 text-xs font-bold ${dateKey(day) === today ? "text-primary" : "text-neutral"}`}>{formatManilaDate(day, { weekday: "short" })}<span className="ml-2">{mobileView === "Agenda" ? formatManilaDate(day, { month: "short", day: "numeric" }) : day.getUTCDate()}</span>{dateKey(day) === today && <span className="ml-2 text-[10px] font-medium">Today</span>}</h3>
           <div className="space-y-1">{(filteredEventsByDay[dateKey(day)] ?? []).map(renderEvent)}</div>
         </section>)}

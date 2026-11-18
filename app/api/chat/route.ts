@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { customerAccountUser } from "@/lib/auth/customer-access";
 import { loadPackageRates } from "@/lib/server/package-rates";
 import { configuredFaqs, exactFaqAnswer, wantsHumanSupport } from "@/lib/chatbot/config";
 import { loadChatbotSettings, requestHumanSupport } from "@/lib/server/chatbot-support";
@@ -62,7 +63,8 @@ export async function POST(req: NextRequest) {
       const previous = history.filter(turn => turn.role === "user").at(-1)?.content;
       const safeMessage = safetyResponse ? "Human support requested for an account or privacy concern. Sensitive details omitted." : message;
       const reason = previous && !getSafetyResponse(previous, true) ? `${safeMessage}\nPrevious question: ${previous}` : safeMessage;
-      return NextResponse.json(await requestHumanSupport(supabase, error ? null : user, reason, settings));
+      const guest = error ? null : await customerAccountUser(supabase, user);
+      return NextResponse.json(await requestHumanSupport(supabase, guest, reason, settings));
     }
     const faqs = configuredFaqs(settings);
     const approvedAnswer = exactFaqAnswer(message, faqs);
@@ -90,11 +92,12 @@ export async function POST(req: NextRequest) {
 
     let bookings: GuestBooking[] | null = null;
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (!userError && user) {
+    const guest = userError ? null : await customerAccountUser(supabase, user);
+    if (guest) {
       const { data, error } = await supabase
         .from("reservations")
         .select("reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at")
-        .eq("guest_id", user.id)
+        .eq("guest_id", guest.id)
         .order("created_at", { ascending: false })
         .limit(10);
       if (!error) bookings = (data ?? []) as GuestBooking[];
@@ -103,7 +106,7 @@ export async function POST(req: NextRequest) {
     const genAI = new GoogleGenerativeAI(geminiApiKey);
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
-      systemInstruction: `${instructionForGuestBookings(bookings, Boolean(user && !userError), schedule?.rates ?? null, schedule?.times, JSON.stringify({ approvedFaqs: faqs, contact: { address: settings["resort.address"], phones: settings["resort.contact_numbers"], email: settings["resort.email"], social: settings["resort.social_links"] } }))}\n\nThe reference contains current administrator-approved FAQs and contact details. Use the approved answers for general questions, including paraphrases. If the approved reference does not answer a question, say that the information is unavailable and direct the guest to the current contact channels. Never use prior chat answers as a source for missing facts. Live package rates, private booking facts and safety rules take priority.`,
+      systemInstruction: `${instructionForGuestBookings(bookings, Boolean(guest), schedule?.rates ?? null, schedule?.times, JSON.stringify({ approvedFaqs: faqs, contact: { address: settings["resort.address"], phones: settings["resort.contact_numbers"], email: settings["resort.email"], social: settings["resort.social_links"] } }))}\n\nThe reference contains current administrator-approved FAQs and contact details. Use the approved answers for general questions, including paraphrases. If the approved reference does not answer a question, say that the information is unavailable and direct the guest to the current contact channels. Never use prior chat answers as a source for missing facts. Live package rates, private booking facts and safety rules take priority.`,
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens: MAX_OUTPUT_TOKENS,

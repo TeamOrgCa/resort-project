@@ -12,6 +12,7 @@ import { useNotificationCenter } from "@/components/notifications/NotificationCe
 import { beginSessionChange } from "@/lib/auth/session-events";
 import { formatNotificationText } from "@/lib/notification-text";
 import { notificationActionUrl } from "@/lib/notification-links";
+import { customerAccountUser } from "@/lib/auth/customer-access";
 
 type NotificationItem = {
   notification_id: string;
@@ -88,13 +89,20 @@ export default function UserMenu() {
 
   useEffect(() => {
     if (hasNotificationCenter) return;
-    let active = true, authChanged = false;
-    void supabase.auth.getUser().then(({ data: { user } }) => {
-      if (active && !authChanged) setUser(user);
-    }).catch(() => { if (active) setUser(null); });
+    let active = true, lookup = 0;
+    const sync = async () => {
+      const request = ++lookup;
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        const guest = error ? null : await customerAccountUser(supabase, user);
+        if (active && request === lookup) setUser(guest);
+      } catch { if (active && request === lookup) setUser(null); }
+    };
+    void sync();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      authChanged = true;
-      if (active) setUser(session?.user ?? null);
+      lookup++;
+      setUser(null);
+      if (session?.user) void sync();
     });
     return () => { active = false; subscription.unsubscribe(); };
   }, [supabase, hasNotificationCenter]);

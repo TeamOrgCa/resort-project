@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { useNotificationCenter } from "@/components/notifications/NotificationCenter";
 import { formatNotificationText } from "@/lib/notification-text";
+import { notificationActionUrl } from "@/lib/notification-links";
 
 type NotificationItem = {
   notification_id: string;
@@ -18,6 +19,8 @@ type NotificationItem = {
   action_url: string | null;
   is_read: boolean;
   created_at: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
 };
 
 export default function AdminNotifications({ role }: { role: StaffRole }) {
@@ -57,7 +60,7 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
 
     const { data } = await supabase
       .from("notifications")
-      .select("notification_id, title, message, action_url, is_read, created_at")
+      .select("notification_id, title, message, action_url, is_read, created_at, entity_type, entity_id")
       .eq("recipient_role", role)
       .eq("recipient_id", activeUserId)
       .order("created_at", { ascending: false })
@@ -200,11 +203,12 @@ export default function AdminNotifications({ role }: { role: StaffRole }) {
                     </div>
                   );
 
-                  if (item.action_url) {
+                  const href = notificationActionUrl(item);
+                  if (href) {
                     return (
                       <a
                         key={item.notification_id}
-                        href={item.action_url}
+                        href={href}
                         className="block"
                         onClick={() => { void markAllNotificationsRead(item.notification_id); setIsOpen(false); }}
                       >

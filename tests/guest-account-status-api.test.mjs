@@ -28,15 +28,39 @@ test("status changes reject malformed values and preserve SQL authorization/conf
     const r=await api({error:{code,message:"Rejected"}}).patch({isActive:false,expectedActive:true});assert.equal(r.status,status);
   }
 });
-function sessions({active=true,guest=true,profileError=null}={}) {
+function sessions({active=true,guest=true,profileError=null,staffRole=null}={}) {
   let cookieOptions;const signouts=[];
   const token="header."+Buffer.from(JSON.stringify({session_id:sessionId})).toString("base64url")+".signature";
   const client={auth:{getUser:async()=>({data:{user:{id:guestId}}}),getSession:async()=>({data:{session:{access_token:token}}}),signOut:async({scope})=>{signouts.push(scope);cookieOptions?.cookies.setAll([{name:"guest-auth",value:"",options:{maxAge:0,path:"/"}}]);return {error:null};}},
-    from:table=>{const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:table==="staff_users"?null:guest?{is_active:active,active_session_id:sessionId}:null,error:profileError})};return q;}};
+    from:table=>{const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:table==="staff_users"?(staffRole?{id:guestId,role:staffRole,is_active:active,active_session_id:sessionId}:null):guest?{is_active:active,active_session_id:sessionId}:null,error:profileError})};return q;}};
   const middleware=loadTsModule("lib/supabase/middleware.ts",{"@supabase/ssr":{createServerClient:(_url,_key,options)=>{cookieOptions=options;return client;}}}).updateSession;
   const status=loadTsModule("app/api/auth/session-status/route.ts",{"@/lib/supabase/server":{createClient:async()=>client}}).GET;
-  return {signouts,status,middleware:path=>middleware(new NextRequest("http://localhost"+path))};
+  return {signouts,status,middleware:(path,method="GET")=>middleware(new NextRequest("http://localhost"+path,{method}))};
 }
+
+test("all staff roles browse public pages but cannot use guest pages or APIs, even with a guest profile",async()=>{
+  for(const staffRole of ["admin","staff","cashier"]){
+    const h=sessions({staffRole});
+    for(const path of ["/","/about","/booking","/booking/details","/reviews","/api/reviews","/api/reservations/availability"]){
+      assert.equal((await h.middleware(path)).status,200,path);
+    }
+    for(const path of ["/manage","/manage?tab=bookings","/profile","/booking/form","/booking/payment"]){
+      const response=await h.middleware(path);assert.equal(response.status,307,path);assert.equal(response.headers.get("location"),"http://localhost/");
+    }
+    for(const [path,method]of [["/api/auth/me","GET"],["/api/auth/me","PATCH"],["/api/reservations/create","POST"],["/api/reservations/payment","POST"],["/api/reservations/reschedule","POST"],["/api/ocular-visits","POST"],["/api/reviews/create","POST"],["/api/reviews/eligibility","GET"]]){
+      const response=await h.middleware(path,method);assert.equal(response.status,403,path);assert.equal((await response.json()).code,"GUEST_ACCOUNT_REQUIRED");
+    }
+    assert.equal(h.signouts.length,0,"browsing never destroys the staff portal session");
+    const status=await h.status();assert.deepEqual(await status.json(),{kind:"staff",status:"active"});
+  }
+});
+
+test("guest access fails closed when staff identity cannot be verified",async()=>{
+  const h=sessions({profileError:Error("Unavailable")});
+  assert.equal((await h.middleware("/manage")).status,503);
+  assert.equal((await h.middleware("/api/reservations/create","POST")).status,503);
+  assert.equal(h.signouts.length,0);
+});
 test("inactive guests are blocked on protected APIs and pages with their auth cookies cleared",async()=>{
   const h=sessions({active:false});
   const result=await h.middleware("/api/reservations/create");assert.equal(result.status,403);assert.equal((await result.json()).code,"ACCOUNT_DEACTIVATED");assert.match(result.headers.get("set-cookie"),/guest-auth=;/);
