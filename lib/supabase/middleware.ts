@@ -4,6 +4,7 @@ import { apiPermission, getDefaultRouteForRole, hasPermission, isAdminReadOnlyRe
 import { STAFF_SESSION_COOKIE, type StaffRole } from '@/lib/auth/staff-auth'
 import { getAuthSessionId } from '@/lib/auth/auth-session'
 import { DEACTIVATED_GUEST_MESSAGE } from '@/lib/auth/guest-access'
+import { customerAccountUser, isCustomerAccountApi, isCustomerAccountPage } from '@/lib/auth/customer-access'
 
 const STAFF_LOGIN_PATH = '/staff/login'
 
@@ -72,11 +73,22 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const path = request.nextUrl.pathname
-  const isGuestPage = path.startsWith('/booking/form') || path.startsWith('/booking/payment') || path.startsWith('/manage') || path === '/profile'
-  const isGuestApi = (path.startsWith('/api/reservations/') && !path.startsWith('/api/reservations/availability')) ||
-    path.startsWith('/api/ocular-visits') || path === '/api/reviews/create' || (path === '/api/reviews' && request.method !== 'GET') || path === '/api/auth/me'
+  const isGuestPage = isCustomerAccountPage(path)
+  const isGuestApi = isCustomerAccountApi(path, request.method)
   if (isGuestPage || isGuestApi) {
     if (!user) return isGuestApi ? NextResponse.json({ code: 'UNAUTHORIZED', message: 'Unauthorized.' }, { status: 401 }) : redirectToGuestLogin(request, supabaseResponse)
+    try {
+      if (!await customerAccountUser(supabase, user)) {
+        const message = 'Staff accounts can browse the website but cannot use guest account features.'
+        const response = isGuestApi
+          ? NextResponse.json({ code: 'GUEST_ACCOUNT_REQUIRED', message, error: message }, { status: 403 })
+          : NextResponse.redirect(new URL('/', request.url))
+        copyCookies(supabaseResponse, response)
+        return response
+      }
+    } catch {
+      return new NextResponse('Unable to verify account access.', { status: 503 })
+    }
     const { data: guest, error: guestError } = await supabase.from('guests')
       .select('active_session_id, is_active').eq('id', user.id).maybeSingle<{ active_session_id: string | null; is_active: boolean }>()
     if (guestError) return new NextResponse('Unable to verify session.', { status: 503 })

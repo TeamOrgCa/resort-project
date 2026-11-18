@@ -20,7 +20,7 @@ async function confirmMaintenanceIfOpen() {
   const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Confirm maintenance block");
   if (confirm) await click(confirm);
 }
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, paidReview = false } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, paidReview = false, calendarProps = {} } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
@@ -102,7 +102,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
   }
   const Component = loadTsModule("components/admin/ReservationCalendar.tsx", mocks).default;
   const c = document.createElement("div"); document.body.append(c); const root = createRoot(c);
-  await act(async()=>root.render(createElement(Component, { initialAccess })));
+  await act(async()=>root.render(createElement(Component, { initialAccess, ...calendarProps })));
   return { c, calls, tables, close:async()=>{ await act(async()=>root.unmount()); c.remove(); globalThis.fetch=saved; } };
 }
 test("calendar reads all workflow signals, distinguishes bookings and confirms and filters the mobile day agenda", async () => {
@@ -249,6 +249,46 @@ test("search and filters scroll to the full calendar, briefly pulse matching eve
     assert.match(h.c.textContent, /No entries match your search and filters/);
     assert.equal(h.c.querySelector(".calendar-match-pulse"), null);
   } finally { await h.close(); window.HTMLElement.prototype.scrollIntoView = original; }
+});
+
+test("notification links scroll to the visible target card and keep its black outline after the old pulse timeout", async () => {
+  const original = window.HTMLElement.prototype.scrollIntoView;
+  const originalRects = window.HTMLElement.prototype.getClientRects;
+  const scrolls = [];
+  window.HTMLElement.prototype.getClientRects = function () { return this.closest('[aria-label="Desktop reservation calendar"]') ? [{}] : []; };
+  window.HTMLElement.prototype.scrollIntoView = function (options) { scrolls.push({ event: this.dataset.calendarEvent, options }); };
+  try {
+    for (const target of [id, "pending"]) {
+      const h = await mount({ calendarProps: { initialReservationId: target, initialDate: day, highlightOnly: true } });
+      try {
+        assert.equal(document.querySelector('[role="dialog"]'), null);
+        await act(async () => new Promise(resolve => setTimeout(resolve, 150)));
+        assert.equal(scrolls.at(-1).event, `${target}:${day}`);
+        assert.equal(scrolls.at(-1).options.block, "center");
+        assert.equal(document.activeElement.dataset.calendarEvent, `${target}:${day}`);
+        assert.ok(h.c.querySelector(`[data-calendar-date="${day}"].calendar-notification-date`));
+        const matches = h.c.querySelectorAll(".calendar-notification-target");
+        assert.ok(matches.length > 0);
+        for (const match of matches) assert.ok(match.getAttribute("data-calendar-event").startsWith(`${target}:`));
+        assert.equal(h.c.querySelector('input[type="search"]').value, "");
+        if (target === id) {
+          await act(async () => new Promise(resolve => setTimeout(resolve, 2500)));
+          assert.ok(h.c.querySelector(".calendar-notification-target"));
+        }
+        await input(h.c.querySelector('input[type="search"]'), "MV-CONFIRMED");
+        assert.equal(h.c.querySelector(".calendar-notification-target"), null);
+      } finally { await h.close(); }
+    }
+  } finally { window.HTMLElement.prototype.scrollIntoView = original; window.HTMLElement.prototype.getClientRects = originalRects; }
+});
+
+test("missing notification targets explain the problem without highlighting an unrelated reservation", async () => {
+  const h = await mount({ calendarProps: { highlightOnly: true, initialTargetError: "This booking or reservation is no longer available, or you do not have access to it." } });
+  try {
+    assert.match(h.c.querySelector('[role="alert"]').textContent, /no longer available/);
+    assert.equal(h.c.querySelector(".calendar-match-pulse"), null);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+  } finally { await h.close(); }
 });
 
 test("admins cannot manage maintenance or other operational actions even with forged grants", async () => {

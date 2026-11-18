@@ -10,7 +10,9 @@ test("saved, confirmed and rescheduled reservation links retain their correct en
     const expected = `/manage?tab=bookings&${parameter}=record-id`;
     assert.equal(notificationActionUrl(item), expected);
     assert.equal(notificationActionUrl({ ...item, action_url: expected }), expected, "normalizing twice preserves the target");
-    assert.equal(notificationActionUrl({ ...item, action_url: "/admin/reservations" }), "/admin/reservations");
+    const staffLink = entity_type === "payment" ? "/admin/reservations" : `/admin/reservations?${entity_type === "reservation" ? "reservation" : "reschedule"}=record-id&highlight=1`;
+    assert.equal(notificationActionUrl({ ...item, action_url: "/admin/reservations" }), staffLink);
+    assert.equal(notificationActionUrl({ ...item, action_url: staffLink }), staffLink);
     assert.equal(notificationActionUrl({ ...item, action_url: "/reviews" }), "/reviews");
   }
 });
@@ -41,6 +43,6 @@ test("new ocular notifications link the guest to their visit and retain the staf
     saved.length = 0;
     await createNotifications({ actorId: "guest", guestId: "guest", staffRoles: ["staff"], title, entityType, entityId: "record-id", guestActionUrl: "/manage", staffActionUrl: "/admin/reservations" });
     assert.equal(saved.find(row => row.recipient_role === "guest").action_url, `/manage?tab=bookings&${parameter}=record-id`);
-    assert.equal(saved.find(row => row.recipient_role === "staff").action_url, "/admin/reservations");
+    assert.equal(saved.find(row => row.recipient_role === "staff").action_url, entityType === "payment" ? "/admin/reservations" : `/admin/reservations?${entityType === "reservation" ? "reservation" : "reschedule"}=record-id&highlight=1`);
   }
 });

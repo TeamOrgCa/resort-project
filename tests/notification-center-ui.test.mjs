@@ -62,6 +62,23 @@ test("legacy currency precision is corrected in popups and both notification men
   }
 });
 
+test("manager notification popups and bell entries focus the matching booking, reservation or reschedule", async () => {
+  for (const [entity_type, parameter, title] of [["reservation", "reservation", "Booking saved"], ["reservation", "reservation", "Reservation confirmed"], ["reservation_reschedule", "reschedule", "Reservation rescheduled"]]) {
+    const h = await mount({ menus: "admin", staffRole: "staff", rows: [row("target", { title, entity_type, entity_id: "record-id", action_url: "/admin/reservations" })] });
+    try {
+      const href = `/admin/reservations?${parameter}=record-id&highlight=1`;
+      assert.equal(alerts().querySelector("a").getAttribute("href"), href);
+      await click(h.container.querySelector('[aria-label="Open admin notifications"]'));
+      const link = h.container.querySelector('[aria-label="Recent notifications"] a');
+      assert.equal(link.getAttribute("href"), href);
+      link.addEventListener("click", event => event.preventDefault());
+      await act(async () => link.click());
+      assert.equal(h.state.rows[0].is_read, true);
+      assert.deepEqual(h.calls.writes[0].filters, [["recipient_id", "guest"], ["notification_id", ["target"]]]);
+    } finally { await h.close(); }
+  }
+});
+
 function compactViewport(initial = true) {
   const original = window.matchMedia;
   const listeners = new Set();
@@ -71,10 +88,10 @@ function compactViewport(initial = true) {
     restore: () => { if (original) window.matchMedia = original; else delete window.matchMedia; }, listeners };
 }
 
-async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true, preferences = {}, deferRead = null, staffRole = "admin", pathname = "/" } = {}) {
+async function mount({ rows = [row("first")], userId = "guest", menus = null, clearStorage = true, preferences = {}, deferRead = null, staffRole = "admin", pathname = menus === "admin" ? "/admin" : "/", staffIds = [] } = {}) {
   if (clearStorage) sessionStorage.clear();
-  const state = { rows, readError: false, writeError: false, defer: deferRead, preferenceError: false, deferPreference: null, deferUser: null, rawRows: false };
-  const calls = { reads: [], writes: [], preferenceWrites: [], authReads: 0, subscriptions: 0, unsubscribed: 0, removed: [], intervals: [], cleared: [] };
+  const state = { rows, readError: false, writeError: false, defer: deferRead, preferenceError: false, deferPreference: null, deferUser: null, rawRows: false, roleError: false, deferRole: null };
+  const calls = { reads: [], writes: [], preferenceWrites: [], authReads: 0, subscriptions: 0, unsubscribed: 0, removed: [], intervals: [], cleared: [], redirects: [] };
   let activeUser = userId;
   const user = id => id ? { id, email: `${id}@example.com`, user_metadata: { notification_popups_enabled: preferences[id] } } : null;
   let authChanged;
@@ -98,7 +115,12 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
       const filters = []; let update;
       const q = { select: () => q, eq: (key, value) => { filters.push([key, value]); return q; }, in: (key, value) => { filters.push([key, value]); return q; },
         order: () => q, limit: () => q, update: value => { update = value; return q; },
-        maybeSingle: async () => ({ data: { first_name: "Test", last_name: "Guest" }, error: null }),
+        maybeSingle: async () => {
+          if (table !== "staff_users") return { data: { first_name: "Test", last_name: "Guest" }, error: null };
+          const id = filters.find(([key]) => key === "id")?.[1];
+          const result = { data: staffIds.includes(id) ? { id, role: staffRole } : null, error: state.roleError ? Error("Role lookup failed") : null };
+          return state.deferRole ? state.deferRole(result) : result;
+        },
         then(resolve, reject) {
           const recipient = filters.find(([key]) => key === "recipient_id")?.[1];
           if (update) {
@@ -116,11 +138,12 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
     channel(name) { const channel = { name, on(_event, filter, callback) { channel.filter = filter; channel.callback = callback; return channel; }, subscribe() { return channel; } }; channels.push(channel); return channel; },
     removeChannel: async channel => { calls.removed.push(channel.name); },
   };
-  const cache = new Map(), mocks = { "@/lib/supabase/client": { createClient: () => client }, "next/navigation": { usePathname: () => pathname } };
+  const router = { replace: path => calls.redirects.push(path) };
+  const cache = new Map(), mocks = { "@/lib/supabase/client": { createClient: () => client }, "next/navigation": { usePathname: () => pathname, useRouter: () => router } };
   const { default: Center, useNotificationCenter } = loadTsModule("components/notifications/NotificationCenter.tsx", mocks, cache);
   function Probe() {
     const center = useNotificationCenter();
-    return el("div", null, el("p", { "data-feed": true }, center.notifications.map(item => `${item.notification_id}:${item.is_read}`).join(",")),
+    return el("div", null, el("p", { "data-identity": true }, center.identityReady ? center.user?.id ?? "anonymous" : "checking"), el("p", { "data-feed": true }, center.notifications.map(item => `${item.notification_id}:${item.is_read}`).join(",")),
       el("p", { "data-error": true }, center.error), el("button", { onClick: center.refresh }, "Refresh feed"), el("button", { onClick: center.markAllRead }, "Read feed"));
   }
   let menu;
@@ -140,6 +163,92 @@ async function mount({ rows = [row("first")], userId = "guest", menus = null, cl
     close: async () => { await act(async () => root.unmount()); container.remove(); window.setInterval = originalSetInterval; window.clearInterval = originalClearInterval; },
   };
 }
+
+test("staff sessions appear signed out on public pages and keep notifications inside the portal", async () => {
+  for (const role of ["admin", "staff", "cashier"]) {
+    const h = await mount({ menus: "guest", userId: "employee", staffIds: ["employee"], staffRole: role, rows: [row("staff-only", { recipient_id: "employee" })] });
+    try {
+      assert.equal(h.container.querySelector('[aria-label="Open user menu"]'), null);
+      assert.match(h.container.textContent, /Sign In/);
+      assert.equal(h.container.querySelector("[data-identity]").textContent, "anonymous");
+      assert.equal(alerts(), null); assert.equal(h.calls.reads.length, 0); assert.equal(h.channels.length, 0);
+      await h.navigate("/admin/reservations");
+      assert.equal(h.container.querySelector("[data-identity]").textContent, "employee");
+      assert.match(alerts().textContent, /Booking update staff-only/);
+      await h.navigate("/booking");
+      assert.equal(h.container.querySelector("[data-identity]").textContent, "anonymous");
+      assert.equal(alerts(), null);
+      assert.equal(h.container.querySelector('[aria-label="Open user menu"]'), null);
+      await h.focus(); await h.poll();
+      assert.equal(h.container.querySelector("[data-identity]").textContent, "anonymous");
+    } finally { await h.close(); }
+  }
+});
+
+test("cached guest pages do not mount for staff and an account switch retires an already-open guest page", async () => {
+  const h = await mount({ pathname: "/manage", menus: "guest", staffIds: ["employee"] });
+  try {
+    assert.equal(h.container.querySelector("[data-identity]").textContent, "guest");
+    await h.auth("employee");
+    assert.equal(h.container.querySelector("[data-identity]"), null);
+    assert.equal(h.container.querySelector('[aria-label="Open user menu"]'), null);
+    assert.deepEqual(h.calls.redirects, ["/"]);
+  } finally { await h.close(); }
+  const initialStaff = await mount({ pathname: "/booking/form", menus: "guest", userId: "employee", staffIds: ["employee"] });
+  try {
+    assert.equal(initialStaff.container.querySelector("[data-identity]"), null);
+    assert.equal(initialStaff.calls.reads.length, 0);
+    assert.deepEqual(initialStaff.calls.redirects, ["/"]);
+  } finally { await initialStaff.close(); }
+});
+
+test("refreshing the same guest session preserves the mounted form during role verification", async () => {
+  const h = await mount({ pathname: "/booking/form" }); const releases = [];
+  try {
+    const page = h.container.querySelector("[data-identity]");
+    h.state.deferRole = result => new Promise(resolve => releases.push(() => resolve(result)));
+    await h.auth("guest");
+    assert.equal(h.container.querySelector("[data-identity]"), page);
+    assert.equal(page.textContent, "guest");
+    h.state.deferRole = null;
+    await act(async () => releases.forEach(release => release()));
+    assert.equal(h.container.querySelector("[data-identity]"), page);
+    assert.deepEqual(h.calls.redirects, []);
+  } finally { await h.close(); }
+});
+
+test("cross-tab staff sign-in hides guest account details before role verification completes", async () => {
+  const h = await mount({ menus: "guest", staffIds: ["employee"] }); const releases = [];
+  try {
+    h.state.deferRole = result => new Promise(resolve => releases.push(() => resolve(result)));
+    await h.auth("employee");
+    assert.equal(alerts(), null);
+    assert.equal(h.container.querySelector('[aria-label="Open user menu"]'), null);
+    assert.equal(h.container.querySelector("[data-identity]").textContent, "checking");
+    h.state.deferRole = null;
+    await act(async () => releases.forEach(release => release()));
+    assert.equal(h.container.querySelector("[data-identity]").textContent, "anonymous");
+    assert.equal(h.container.querySelector("[data-feed]").textContent, "");
+    await h.auth("guest");
+    assert.ok(h.container.querySelector('[aria-label="Open user menu"]'));
+    h.serverAuth("employee"); await h.focus();
+    assert.equal(h.container.querySelector('[aria-label="Open user menu"]'), null);
+    assert.equal(alerts(), null);
+  } finally { await h.close(); }
+});
+
+test("role lookup errors do not expose a raw staff session as a customer", async () => {
+  const h = await mount({ menus: "guest", staffIds: ["employee"] });
+  try {
+    h.state.roleError = true;
+    await h.auth("employee");
+    assert.equal(h.container.querySelector('[aria-label="Open user menu"]'), null);
+    assert.equal(alerts(), null);
+    assert.equal(h.container.querySelector("[data-identity]").textContent, "checking");
+    h.state.roleError = false; await h.focus();
+    assert.equal(h.container.querySelector("[data-identity]").textContent, "anonymous");
+  } finally { await h.close(); }
+});
 
 test("authentication screens never load account notifications even when another tab has a session", async () => {
   for (const pathname of ["/staff/login", "/admin/login", "/admin/login/", "/auth/login", "/auth/register", "/auth/forgot", "/auth/reset", "/auth/confirm/complete", "/staff/change-password", "/staff/no-access", null]) {
@@ -265,6 +374,61 @@ test("popups expire independently after five seconds without refreshes resetting
   finally { await reloaded.close(); }
 });
 
+test("all staff roles show only the newest three backlog popups and retain the rest unread in the bell", async () => {
+  for (const staffRole of ["admin", "staff", "cashier"]) {
+    const h = await mount({ menus: "admin", staffRole, rows: Array.from({ length: 8 }, (_, i) => row(String(i + 1))) });
+    try {
+      assert.equal(alerts().querySelectorAll("article").length, 3);
+      assert.doesNotMatch(alerts().textContent, /more waiting|Booking update 4/);
+      await click(alerts().querySelector('[aria-label="Dismiss notification: Booking update 1"]'));
+      assert.equal(alerts().querySelectorAll("article").length, 2);
+      assert.doesNotMatch(alerts().textContent, /Booking update 4/);
+      await h.focus(); await h.poll();
+      assert.equal(alerts().querySelectorAll("article").length, 2, "refreshes do not revive the suppressed backlog");
+      h.state.rows.unshift(row("new")); await h.emit();
+      assert.equal(alerts().querySelectorAll("article").length, 3);
+      assert.match(alerts().textContent, /Booking update new/);
+      await click(button(alerts(), "Dismiss all"));
+      assert.equal(alerts(), null);
+      await h.focus(); assert.equal(alerts(), null);
+      await click(h.container.querySelector('[aria-label="Open admin notifications"]'));
+      const list = h.container.querySelector('[aria-label="Recent notifications"]');
+      assert.equal(list.querySelectorAll("a").length, 9);
+      assert.match(list.textContent, /Booking update 8/);
+      assert.ok(h.state.rows.every(item => !item.is_read));
+      assert.equal(h.calls.writes.length, 0);
+    } finally { await h.close(); }
+  }
+});
+
+test("staff backlog popups stop after the visible three expire, including after a reload", async () => {
+  const originalSetTimeout = window.setTimeout, originalClearTimeout = window.clearTimeout;
+  const timers = new Map(); let nextId = 0;
+  window.setTimeout = (callback, delay) => { const id = ++nextId; timers.set(id, { callback, delay }); return id; };
+  window.clearTimeout = id => timers.delete(id);
+  const rows = Array.from({ length: 10 }, (_, i) => row(String(i)));
+  let h;
+  try {
+    h = await mount({ menus: "admin", rows });
+    assert.equal(alerts().querySelectorAll("article").length, 3);
+    await act(async () => {
+      for (const [id, timer] of [...timers]) if (timer.delay === 5000) { timers.delete(id); timer.callback(); }
+    });
+    assert.equal(alerts(), null);
+    await h.poll(); assert.equal(alerts(), null);
+    assert.equal(h.calls.writes.length, 0);
+    await h.close(); h = await mount({ menus: "admin", rows, clearStorage: false });
+    assert.equal(alerts(), null);
+    assert.equal(h.container.querySelector("[data-feed]").textContent.split(",").length, 10);
+    h.state.rows.unshift(row("fresh")); await h.emit();
+    assert.equal(alerts().querySelectorAll("article").length, 1);
+    assert.match(alerts().textContent, /Booking update fresh/);
+  } finally {
+    if (h) await h.close();
+    window.setTimeout = originalSetTimeout; window.clearTimeout = originalClearTimeout;
+  }
+});
+
 test("mobile guest and staff alerts show one compact banner while full notifications remain available", async () => {
   const viewport = compactViewport();
   try {
@@ -274,11 +438,11 @@ test("mobile guest and staff alerts show one compact banner while full notificat
         rows: [row("one", { message }), row("two"), row("three"), row("four")] });
       try {
         assert.equal(alerts().querySelectorAll("article").length, 1, role);
-        assert.match(alerts().textContent, /\+3 more/);
+        assert.match(alerts().textContent, role === "guest" ? /\+3 more/ : /\+2 more/);
         assert.equal(alerts().textContent.includes(message), false);
         assert.equal(alerts().querySelector("a").getAttribute("href"), "/manage");
         await click(alerts().querySelector('[aria-label="Dismiss notification: Booking update one"]'));
-        assert.match(alerts().textContent, /Booking update two/); assert.match(alerts().textContent, /\+2 more/);
+        assert.match(alerts().textContent, /Booking update two/); assert.match(alerts().textContent, role === "guest" ? /\+2 more/ : /\+1 more/);
         const open = h.container.querySelector(role === "guest" ? '[aria-label="Open user menu"]' : '[aria-label="Open admin notifications"]');
         await click(open); assert.equal(alerts(), null);
         assert.ok(document.body.textContent.includes(message), "the tray retains the full text even after popup dismissal");

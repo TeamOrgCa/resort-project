@@ -20,7 +20,7 @@ const panel = () => document.querySelector('[role="dialog"][aria-label="Your acc
 const button = (container, text) => [...container.querySelectorAll("button")].find(el => el.textContent.trim() === text);
 async function click(el) { assert.ok(el); assert.equal(el.disabled, false); await act(async () => el.click()); }
 
-async function mount({ rows = notifications, anonymous = false } = {}) {
+async function mount({ rows = notifications, anonymous = false, staff = false } = {}) {
   const state = { loadError: false, readError: false, serverLogout: true, localLogoutError: false, reset: 0 };
   const calls = { reads: [], updates: [], signouts: [], fetches: [], auth: 0 };
   let authChange;
@@ -32,7 +32,7 @@ async function mount({ rows = notifications, anonymous = false } = {}) {
       const filters = []; let update;
       const q = { select: () => q, eq: (key, value) => { filters.push([key, value]); return q; }, order: () => q, limit: () => q,
         update: data => { update = data; return q; }, in: (key, value) => { filters.push([key, value]); return q; },
-        maybeSingle: async () => ({ data: { first_name: "Test", last_name: "Guest" }, error: null }),
+        maybeSingle: async () => ({ data: table === "staff_users" ? (staff ? { id: user.id } : null) : { first_name: "Test", last_name: "Guest" }, error: null }),
         then(resolve, reject) {
           if (update) calls.updates.push({ table, update, filters }); else calls.reads.push({ table, filters });
           return Promise.resolve({ data: update ? null : rows, error: (update ? state.readError : state.loadError) ? new Error("Unavailable") : null }).then(resolve, reject);
@@ -52,6 +52,16 @@ async function mount({ rows = notifications, anonymous = false } = {}) {
   return { container, trigger, state, calls, authChange: (...args) => act(async () => authChange(...args)),
     close: async () => { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; } };
 }
+
+test("standalone guest menu treats a staff session as signed out without logging out the portal", async () => {
+  const h = await mount({ staff: true });
+  try {
+    assert.equal(h.trigger(), null);
+    assert.match(h.container.textContent, /Sign In/);
+    assert.equal(h.calls.signouts.length, 0);
+    assert.equal(h.calls.reads.length, 0);
+  } finally { await h.close(); }
+});
 
 test("long notifications scroll independently below visible account actions in a portal", async () => {
   const h = await mount();

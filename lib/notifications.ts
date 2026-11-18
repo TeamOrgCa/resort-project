@@ -69,7 +69,7 @@ export async function createNotifications(options: NotificationOptions): Promise
       ...common,
       recipient_role: role,
       recipient_id: id,
-      action_url: options.staffActionUrl ?? null,
+      action_url: notificationActionUrl({ action_url: options.staffActionUrl ?? null, entity_type: options.entityType, entity_id: options.entityId }),
     })),
   ];
 

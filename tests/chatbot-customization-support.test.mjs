@@ -20,11 +20,12 @@ test("human support uses the configured Facebook page and rejects unsafe redirec
   assert.equal(config.wantsHumanSupport("Can I speak to a real person about my booking?"), true);
 });
 
-function harness({ signedIn = true, notifyFails = false, settingsFail = false, services = [{ name: "Extra mattress", price: 300 }], servicesFail = false, faqs = settings["chatbot.faqs"] } = {}) {
-  const notifications = [], prompts = [], filters = [];
+function harness({ signedIn = true, staff = false, notifyFails = false, settingsFail = false, services = [{ name: "Extra mattress", price: 300 }], servicesFail = false, faqs = settings["chatbot.faqs"] } = {}) {
+  const notifications = [], prompts = [], filters = [], tables = [];
   const client = { auth: { getUser: async () => ({ data: { user: signedIn ? { id: "guest" } : null }, error: null }) }, from(table) {
+    tables.push(table);
     const predicates = [];
-    const result = () => ({ data: table === "guests" ? { first_name: "Ana", middle_name: "Reyes", last_name: "Santos", is_active: true }
+    const result = () => ({ data: table === "staff_users" ? (staff ? { id: "guest" } : null) : table === "guests" ? { first_name: "Ana", middle_name: "Reyes", last_name: "Santos", is_active: true }
       : predicates.some(([key, value]) => key === "reference_number" && value !== "SR-OWNBOOK1") ? null : { reference_number: "SR-OWNBOOK1" }, error: null });
     const q = { select: () => q, eq: (key, value) => { predicates.push([key, value]); filters.push([key, value]); return q; }, order: () => q, limit: async () => ({ data: [], error: null }), maybeSingle: async () => result(), then: (resolve, reject) => Promise.resolve({ data: table === "services" ? services : [], error: servicesFail ? Error("Offline") : null }).then(resolve, reject) }; return q;
   } };
@@ -43,8 +44,22 @@ function harness({ signedIn = true, notifyFails = false, settingsFail = false, s
       "@google/generative-ai": { GoogleGenerativeAI: class { getGenerativeModel(options) { prompts.push(options); return { generateContent: async () => ({ response: { text: () => "Please follow the saved food policy." } }) }; } } },
     });
   } finally { if (oldKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = oldKey; }
-  return { notifications, prompts, filters, post: async (message, extras = {}) => route.POST(new Request("http://localhost/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message, ...extras }) })) };
+  return { notifications, prompts, filters, tables, post: async (message, extras = {}) => route.POST(new Request("http://localhost/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message, ...extras }) })) };
 }
+
+test("staff browsing the website receive public chat context without guest profile or reservation access", async () => {
+  const h = harness({ staff: true });
+  await h.post("Are outside meals allowed at the resort?");
+  assert.equal(h.tables.includes("reservations"), false);
+  assert.equal(h.tables.includes("guests"), false);
+  const anonymous = harness({ signedIn: false });
+  await anonymous.post("Are outside meals allowed at the resort?");
+  assert.equal(h.prompts[0].systemInstruction, anonymous.prompts[0].systemInstruction);
+  await h.post("I need human support about SR-OWNBOOK1");
+  assert.equal(h.notifications[0].actorId, null);
+  assert.match(h.notifications[0].message, /Website visitor \(not signed in\)/);
+  assert.equal(h.tables.includes("guests"), false);
+});
 
 test("general service requests describe the resort offerings instead of chatbot capabilities or paid extras", async () => {
   const guardrails = loadTsModule("lib/chatbot/guardrails.ts");
