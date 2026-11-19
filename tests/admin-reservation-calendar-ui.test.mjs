@@ -20,7 +20,7 @@ async function confirmMaintenanceIfOpen() {
   const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Confirm maintenance block");
   if (confirm) await click(confirm);
 }
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, paidReview = false, calendarProps = {} } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, paidReview = false, calendarProps = {}, emptyCalendar = false } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
@@ -31,6 +31,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     staff_users: { role, is_active: true }, role_permissions: { permissions }, ocular_visits: [], walk_in_guests: [],
     units: [{unit_id:"unit",name:"Resort",capacity:30}], services: [],
   };
+  if (emptyCalendar) { data.reservations = []; data.payments = []; data.reservation_reschedules = []; data.refund_requests = []; data.transactions = []; }
   if (ended) { data.reservations[0].start_datetime = new Date(Date.now() - 3600000).toISOString(); data.reservations[0].end_datetime = new Date(Date.now() - 1000).toISOString(); }
   if (arrived) data.reservations[0].checked_in_at = new Date().toISOString();
   if (fullyPaid) { data.payments = []; data.reservation_reschedules = []; data.transactions[0].balance = 0; }
@@ -116,6 +117,17 @@ test("calendar reads all workflow signals, distinguishes bookings and confirms a
     await click(button(h.c,"Agenda")); assert.match(agenda().textContent,/MV-CANCELLED/);
     await click(button(h.c,"Next month") ?? h.c.querySelector('[aria-label="Next month"]'));
     assert.match(agenda().textContent,/No entries match/);
+  } finally { await h.close(); }
+});
+
+test("an empty staff calendar labels past dates separately and leaves future swimming dates available", async () => {
+  const h = await mount({ emptyCalendar: true });
+  try {
+    const desktop = h.c.querySelector('[aria-label="Desktop reservation calendar"]');
+    assert.doesNotMatch(desktop.textContent, /Fully booked/);
+    const past = [...desktop.querySelectorAll("[data-calendar-date]")].find(cell => cell.dataset.calendarDate < day);
+    assert.ok(past); assert.match(past.textContent, /Past date/);
+    assert.match(desktop.querySelector(`[data-calendar-date="${tomorrow}"]`).textContent, /Day and night available/);
   } finally { await h.close(); }
 });
 

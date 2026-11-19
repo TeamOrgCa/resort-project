@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import StaffDialogShell from "@/components/admin/users/StaffDialogShell";
 import type { StaffUserFormValues } from "@/components/admin/users/types";
 import type { StaffRole } from "@/lib/auth/staff-auth";
-import { isValidStaffEmail, STAFF_EMAIL_ERROR } from "@/lib/auth/staff-email";
+import { isValidStaffEmailForRole, staffEmailError, staffEmailSuffix, staffEmailUsername } from "@/lib/auth/staff-email";
 import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 interface CreateStaffDialogProps {
@@ -28,8 +28,10 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
   const [nameError, setNameError] = useState("");
   const emailInput = useRef<HTMLInputElement>(null);
   const emailHelpId = useId();
+  const suffix = staffEmailSuffix(role);
+  const emailMessage = staffEmailError(role);
+  const fullEmail = `${email.trim().toLowerCase()}${suffix}`;
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!isOpen) {
       return;
@@ -43,7 +45,6 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
     setIsActive(true);
     setEmailError("");
   }, [isOpen]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -51,9 +52,9 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
     const normalizedName = normalizePersonName(fullName);
     if (!normalizedName) { setNameError(PERSON_NAME_ERROR); return; }
     setNameError("");
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!isValidStaffEmail(normalizedEmail)) {
-      setEmailError(STAFF_EMAIL_ERROR);
+    const normalizedEmail = fullEmail;
+    if (!isValidStaffEmailForRole(normalizedEmail, role)) {
+      setEmailError(emailMessage);
       emailInput.current?.focus();
       return;
     }
@@ -96,31 +97,47 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
 
           <label className="space-y-2">
             <span className="block text-sm font-medium text-neutral">Email</span>
-            <input
-              type="email"
-              ref={emailInput}
-              value={email}
-              onChange={(event) => {
-                setEmail(event.target.value);
-                if (emailError) setEmailError(isValidStaffEmail(event.target.value.trim()) ? "" : STAFF_EMAIL_ERROR);
-              }}
-              onBlur={() => {
-                const normalizedEmail = email.trim().toLowerCase();
-                setEmail(normalizedEmail);
-                setEmailError(normalizedEmail && !isValidStaffEmail(normalizedEmail) ? STAFF_EMAIL_ERROR : "");
-              }}
-              onInvalid={(event) => { event.preventDefault(); setEmailError(STAFF_EMAIL_ERROR); emailInput.current?.focus(); }}
-              required
-              maxLength={254}
-              autoComplete="email"
-              inputMode="email"
-              aria-invalid={Boolean(emailError)}
-              aria-describedby={emailHelpId}
-              className={`w-full rounded-xl border px-3 py-2.5 text-black focus:border-primary focus:outline-none ${emailError ? "border-red-500" : "border-neutral/20"}`}
-              placeholder="alex@example.com"
-            />
+            <span className={`flex min-w-0 overflow-hidden rounded-xl border bg-white focus-within:border-primary ${emailError ? "border-red-500" : "border-neutral/20"}`}>
+              <input
+                type="text"
+                aria-label="Email username"
+                ref={emailInput}
+                value={email}
+                onChange={(event) => {
+                  const username = staffEmailUsername(event.target.value, role);
+                  setEmail(username);
+                  if (emailError) setEmailError(isValidStaffEmailForRole(`${username}${suffix}`, role) ? "" : emailMessage);
+                }}
+                onBlur={() => {
+                  const username = staffEmailUsername(email, role);
+                  setEmail(username);
+                  setEmailError(username && !isValidStaffEmailForRole(`${username}${suffix}`, role) ? emailMessage : "");
+                }}
+                onPaste={(event) => {
+                  const pasted = event.clipboardData.getData("text");
+                  if (!pasted.includes("@")) return;
+                  event.preventDefault();
+                  const username = staffEmailUsername(pasted, role);
+                  setEmail(username);
+                  setEmailError(username.length <= 64 && isValidStaffEmailForRole(`${username}${suffix}`, role) ? "" : emailMessage);
+                }}
+                onInvalid={(event) => { event.preventDefault(); setEmailError(emailMessage); emailInput.current?.focus(); }}
+                required
+                maxLength={64}
+                pattern={String.raw`[^@\s]+`}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                inputMode="email"
+                aria-invalid={Boolean(emailError)}
+                aria-describedby={emailHelpId}
+                className="min-w-0 flex-1 px-3 py-2.5 text-black focus:outline-none"
+                placeholder="alex.mendoza"
+              />
+              <span aria-hidden="true" className="flex shrink-0 items-center border-l border-neutral/10 bg-base px-2 text-xs text-neutral/75 sm:text-sm">{suffix}</span>
+            </span>
             <span id={emailHelpId} role={emailError ? "alert" : undefined} className={`block text-xs ${emailError ? "text-red-700" : "text-neutral/60"}`}>
-              {emailError || "Use a complete email address, including its domain, such as alex@example.com."}
+              {emailError || `Enter only the part before @. The full address will be ${email ? fullEmail : `alex.mendoza${suffix}`}.`}
             </span>
           </label>
         </div>
@@ -130,7 +147,12 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
             <span className="block text-sm font-medium text-neutral">Role</span>
             <select
               value={role}
-              onChange={(event) => setRole(event.target.value as StaffRole)}
+              onChange={(event) => {
+                const nextRole = event.target.value as StaffRole;
+                setRole(nextRole);
+                setEmail(staffEmailUsername(email, nextRole));
+                setEmailError("");
+              }}
               className="admin-field w-full"
             >
               {roleOptions.map((option) => (

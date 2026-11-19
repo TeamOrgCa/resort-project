@@ -33,7 +33,7 @@ async function mount({ tabs = ["Guest Report"], fetcher, filename = "components/
     return Response.json({ success: true, report: makeReport(params.get("tab")) });
   };
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
-  const { default: Panel } = loadTsModule(filename, { "@/components/content/SiteContent": { useSiteContent: () => ({ "resort.name": "Test Resort" }), contentText: (content, key) => content[key] }, ...extraMocks });
+  const { default: Panel } = loadTsModule(filename, { "@/components/content/SiteContent": { useSiteContent: () => ({ "resort.name": "Test Resort" }), contentText: (content, key) => content[key] }, "next/link": { __esModule: true, default: ({ children, ...props }) => createElement("a", props, children) }, ...extraMocks });
   await act(async () => { root.render(createElement(Panel, { tabs })); });
   return { container, requests, downloads, printed: () => printed, printedCharts: () => printedCharts, async close() {
     await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke;
@@ -190,10 +190,11 @@ test("report and guest charts switch between line, bar, pie and progress without
 
 function makeAnalytics() {
   const base = makeReport("Guest Report", 1);
+  const comparison = { startDate: "2026-09-28", endDate: "2026-09-30", observedThrough: "2026-10-03T01:00:00Z", format: "count", points: [{ label: "Oct 1", current: 10, previous: 5 }, { label: "Oct 2", current: 20, previous: 10 }, { label: "Oct 3", current: null, previous: null }] };
   return {
-    booking: { ...base, trendTitle: "Reservations created over time", splitTitle: "Booking sources", tableTitle: "Reservations by date", rows: Array.from({ length: 30 }, (_, i) => ({ id: `a-${i}`, periodLabel: `Day ${i}`, periodStart: `2026-10-${String(i + 1).padStart(2, "0")}T00:00:00Z`, bookings: String(i + 1) })) },
-    revenue: { ...base, trendTitle: "Actual verified collections over time", splitTitle: "Actual collections by payment type", tableTitle: "Collection estimate", metrics: [{ label: "Actual collections", value: 2000, format: "money", help: "Before refunds" }], note: "Historical average only. No statistical confidence score.", trend: [{ label: "Oct 1", value: 2000 }], split: [{ label: "Downpayments", value: 2000 }], rows: [{ id: "forecast", periodLabel: "Oct 4, 2026", projectedBookings: "2", projectedRevenue: "\u20b12000.00", evidence: "2 verified payments / 3 calendar days", method: "Historical daily average" }] },
-    performance: { ...base, trendTitle: "Logged activity over time", splitTitle: "Status of payments submitted in this period", tableTitle: "Tasks to check", metrics: [{ label: "Payments awaiting review", value: 1, format: "count", help: "Submitted within these dates" }], rows: [{ id: "pending", signal: "Review pending payments", value: "1", meaning: "Open Transactions" }] },
+    booking: { ...base, trendTitle: "Booking demand versus previous period", splitTitle: "Booking sources", tableTitle: "Booking source performance", comparison, metrics: [{ label: "Confirmed or completed", value: 66.67, format: "percent", help: "Current status share" }], insights: [{ title: "Demand movement", description: "Bookings grew 100% against matching elapsed dates." }], rows: Array.from({ length: 30 }, (_, i) => ({ id: `a-${i}`, source: `Channel ${i}`, current: String(i + 1), previous: "1", change: "New activity", confirmationRate: "50%", cancellationRate: "10%" })) },
+    revenue: { ...base, trendTitle: "Collections versus previous period", splitTitle: "Collection mix", tableTitle: "Collection forecast scenarios", comparison: { ...comparison, format: "money" }, metrics: [{ label: "Actual collections", value: 2000, format: "money", help: "Before refunds" }, { label: "Typical daily forecast error", value: 0, displayValue: "Not enough history", format: "money", help: "Need a held-out check" }], note: "Day-of-week average. Not a confidence interval.", trend: [{ label: "Oct 1", value: 2000 }], split: [{ label: "Downpayments", value: 2000 }], forecastPoints: [{ label: "2026-10-04", value: 300 }], insights: [{ title: "Evidence behind the estimate", description: "Zero days count in the average." }], rows: [{ id: "forecast", scenario: "Recent daily pattern", projectedRevenue: "\u20b12000.00", evidence: "56 completed calendar days", method: "Day-of-week average" }] },
+    performance: { ...base, trendTitle: "Payment resolution versus previous period", splitTitle: "Age of all currently pending payments", tableTitle: "Payment backlog and follow-up", comparison: { ...comparison, format: "percent", points: [{ label: "Oct 1", current: 50, previous: null }, { label: "Oct 2", current: 0, previous: 75 }] }, trendFormat: "percent", metrics: [{ label: "Payment resolution rate", value: 50, format: "percent", help: "Created within these dates" }], split: [{ label: "Under 24 hours", value: 1 }], insights: [{ title: "Oldest unresolved payment", description: "Review pending proof.", href: "/admin/transactions?tab=payments", action: "Review payment queue" }], rows: [{ id: "pending", age: "Under 24 hours", pending: "1", amount: "\u20b1500.00", meaning: "Open Transactions" }] },
   };
 }
 
@@ -219,16 +220,29 @@ const feedbackFixture = { sampleSize: 10, startDate: "2026-10-01", endDate: "202
 test("analytics chart units, all tabs, filtered exports, print, refresh and feedback analysis work", async () => {
   const h = await mount({ filename: "app/admin/(portal)/analytics/page.tsx", fetcher: (_url, options) => Response.json(options?.method === "POST" ? { success: true, sentiment: feedbackFixture } : { success: true, reports: makeAnalytics() }) });
   try {
-    assert.doesNotMatch(h.container.textContent, /\u20b1/); assert.equal(h.container.querySelectorAll('select[aria-label$="chart type"]').length, 2);
+    assert.doesNotMatch(h.container.textContent, /\u20b1/); assert.equal(h.container.querySelectorAll('select[aria-label$="chart type"]').length, 1);
+    assert.match(h.container.textContent, /66.67%/); assert.match(h.container.textContent, /Bookings grew 100%/);
+    assert.ok(h.container.querySelector('svg[aria-label="Selected and previous period comparison"]'));
+    assert.match(h.container.textContent, /No observation/);
     await value(h.container.querySelector('select[aria-label$="chart type"]'), "bar"); assert.ok(h.container.querySelector("svg rect"));
     await click(button(h.container, "Export CSV")); assert.equal((await h.downloads[0].blob.text()).split("\r\n").length, 31);
-    await value(h.container.querySelector('input[aria-label="Search records..."]'), "Day 29");
+    await value(h.container.querySelector('input[aria-label="Search records..."]'), "Channel 29");
     await click(button(h.container, "Export CSV")); assert.equal((await h.downloads[1].blob.text()).split("\r\n").length, 2);
     await click(button(h.container, "Print report")); await act(async () => new Promise(resolve => setTimeout(resolve, 180)));
-    assert.match(h.printed(), /Analytics: Bookings/); assert.match(h.printed(), /Day 29/); assert.doesNotMatch(h.printed(), /Day 28/);
-    assert.deepEqual(h.printedCharts(), ["Bar chart", "Pie chart"]);
-    await click(button(h.container, "Collection forecast")); assert.match(h.container.textContent, /\u20b1/); assert.match(h.container.textContent, /Historical average only/); assert.equal(button(h.container, "Run Forecast"), undefined);
-    await click(button(h.container, "Operations")); assert.doesNotMatch(h.container.textContent, /\u20b1/); assert.match(h.container.textContent, /Tasks to check/);
+    assert.match(h.printed(), /Analytics: Bookings/); assert.match(h.printed(), /Channel 29/); assert.doesNotMatch(h.printed(), /Channel 28/);
+    assert.deepEqual(h.printedCharts(), ["Line graph", "Line graph", "Bar chart"]);
+    assert.match(h.printed(), /Bookings grew 100%/); assert.match(h.printed(), /66.67%/);
+    await click(button(h.container, "Collection forecast")); assert.match(h.container.textContent, /\u20b1/); assert.match(h.container.textContent, /Day-of-week average/);
+    assert.match(h.container.textContent, /Not enough history/);
+    assert.ok([...h.container.querySelectorAll("h3")].some(el => el.textContent === "Estimated daily collections"));
+    await click(button(h.container, "Print report")); await act(async () => new Promise(resolve => setTimeout(resolve, 180)));
+    assert.match(h.printed(), /Not enough history/); assert.match(h.printed(), /2026-10-04/);
+    assert.deepEqual(h.printedCharts(), ["Line graph", "Line graph", "Bar chart", "Line graph"]); assert.equal(button(h.container, "Run Forecast"), undefined);
+    await click(button(h.container, "Operations")); assert.match(h.container.textContent, /Payment backlog and follow-up/);
+    assert.match(h.container.textContent, /50%/);
+    assert.equal(h.container.querySelector('a[href="/admin/transactions?tab=payments"]').textContent, "Review payment queue");
+    const ageChart = [...h.container.querySelectorAll("article")].find(el => el.querySelector("h3")?.textContent === "Age of all currently pending payments");
+    assert.doesNotMatch(ageChart.textContent, /50%|75%|\u20b1/);
     await click(button(h.container, "Guest feedback")); assert.equal(button(h.container, "Export CSV"), undefined);
     await click(button(h.container, "Analyze feedback")); assert.match(h.container.textContent, /80%/); assert.match(h.container.textContent, /Friendly staff/);
     await value(h.container.querySelector('select[aria-label$="chart type"]'), "bar"); assert.ok(h.container.querySelector("svg rect"));

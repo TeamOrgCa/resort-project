@@ -37,12 +37,13 @@ test("staff creation, edits and password resets require confirmation and cancell
     await click(button(container, "Add account"));
     let form = document.querySelector('[role="dialog"] form');
     await value(form.querySelector('input[placeholder="Alex Mendoza"]'), "New Manager");
-    await value(form.querySelector('input[type="email"]'), "new@example.com");
+    await value(form.querySelector('input[aria-label="Email username"]'), "new");
     await value(form.querySelector('input[type="password"]'), "temporary123");
     await submit(); assert.equal(writes.length, 0);
+    assert.match(document.querySelector('[role="alertdialog"]').textContent, /new@marvilleresort.com/);
     assert.doesNotMatch(document.querySelector('[role="alertdialog"]').textContent, /temporary123/);
     await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    assert.ok(document.querySelector('[role="dialog"]')); assert.equal(form.querySelector('input[type="email"]').value, "new@example.com");
+    assert.ok(document.querySelector('[role="dialog"]')); assert.equal(form.querySelector('input[aria-label="Email username"]').value, "new");
     await submit(); await confirm("Confirm create account"); assert.equal(writes.length, 1); assert.equal(writes[0].method, "POST");
     await click(button(container, "Edit"));
     form = document.querySelector('[role="dialog"] form');
@@ -115,10 +116,11 @@ test("staff table disables active admin status actions and keeps other statuses 
   };
   const noop = () => null;
   const Component = loadTsModule("app/admin/(portal)/users/page.tsx", {
-    "@/components/admin/AdminTablePreview": props => createElement("div", null, props.rows.map(row => createElement("button", {
-      key: row.id, "data-id": row.id, disabled: props.isRowActionDisabled("Toggle Status", row),
-      onClick: () => props.onRowAction("Toggle Status", row),
-    }, props.getRowActionLabel("Toggle Status", row)))),
+    "@/components/admin/AdminTablePreview": props => createElement("div", null, props.rows.map(row => createElement("div", { key: row.id },
+      createElement("button", { "data-id": row.id, disabled: props.isRowActionDisabled("Toggle Status", row), onClick: () => props.onRowAction("Toggle Status", row) }, props.getRowActionLabel("Toggle Status", row)),
+      createElement("button", { "data-id": `${row.id}-reset`, disabled: props.isRowActionDisabled("Reset Password", row), onClick: () => props.onRowAction("Reset Password", row) }, "Reset Password"),
+      createElement("button", { "data-id": `${row.id}-force-reset`, onClick: () => props.onRowAction("Reset Password", row) }, "Direct action"),
+    ))),
     "@/components/admin/users/CreateStaffDialog": noop,
     "@/components/admin/users/EditStaffDialog": noop,
     "@/components/admin/users/ResetPasswordDialog": noop,
@@ -132,6 +134,14 @@ test("staff table disables active admin status actions and keeps other statuses 
       const button = container.querySelector(`[data-id="${id}"]`); assert.equal(button.disabled, true);
       await act(async () => button.click());
     }
+    assert.equal(writes.length, 0);
+    for (const id of ["peer", "self", "inactive"]) {
+      assert.equal(container.querySelector(`[data-id="${id}-reset"]`).disabled, true);
+      await act(async () => container.querySelector(`[data-id="${id}-force-reset"]`).click());
+      assert.equal(document.querySelector('[role="dialog"]'), null);
+      assert.match(container.querySelector('[role="alert"]').textContent, /Admin passwords cannot be reset/);
+    }
+    for (const id of ["manager", "cashier"]) assert.equal(container.querySelector(`[data-id="${id}-reset"]`).disabled, false);
     assert.equal(writes.length, 0);
     for (const id of ["inactive", "manager", "cashier"]) assert.equal(container.querySelector(`[data-id="${id}"]`).disabled, false);
     await act(async () => container.querySelector('[data-id="manager"]').click());

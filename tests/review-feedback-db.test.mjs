@@ -51,8 +51,22 @@ before(async () => {
 after(async () => { await db?.close(); });
 beforeEach(async () => {
   await db.exec("reset role;truncate public.reviews,public.review_submission_log,public.audit_logs,public.reservations,storage.objects;update public.guests set is_active=true;update public.role_permissions set permissions=array['analytics'];update public.staff_users set is_active=true");
+  await db.exec(readFileSync("docs/review-content-limits-migration.sql", "utf8"));
+  await db.exec(readFileSync("docs/review-content-limits-migration.sql", "utf8"));
   await auth(guest);
   await db.query("insert into public.reservations values($1,$2,'completed')",[completed,guest]);
+});
+
+test("database submission checks enforce title 5-100 and description 20-1000 without bypassing quotas", async () => {
+  for (const [title, content] of [["Four", text], ["x".repeat(101), text], ["Valid", "x".repeat(19)], ["Valid", "x".repeat(1001)], ["   x   ", text]]) {
+    await assert.rejects(() => one("select public.review_submission_status($1,$2)", [title, content]), e => e.code === "22023");
+    await assert.rejects(() => insert(title, content), e => e.code === "22023");
+  }
+  for (const [title, content] of [["Valid", "x".repeat(20)], ["x".repeat(100), "x".repeat(1000)]]) {
+    assert.equal((await one("select public.review_submission_status($1,$2) result", [title, content])).result.allowed, true);
+    assert.ok((await insert(title, content)).review_id);
+    await db.exec("truncate public.reviews,public.review_submission_log");
+  }
 });
 
 test("reviews require a completed stay and linked reservations must be owned and completed", async () => {

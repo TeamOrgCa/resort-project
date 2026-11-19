@@ -4,7 +4,7 @@ import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications
 import { createAdminClient } from "@/lib/supabase/admin";
 import { contentImageExtension } from "@/lib/settings/content-images";
 import { REVIEW_IMAGE_BUCKET, REVIEW_IMAGE_MAX_BYTES, REVIEW_IMAGE_HELP } from "@/lib/reviews/images";
-import { REVIEW_COMPLETED_STAY_REQUIRED, reviewRetrySeconds } from "@/lib/reviews/submission-policy";
+import { REVIEW_COMPLETED_STAY_REQUIRED, reviewContentError, reviewRetrySeconds } from "@/lib/reviews/submission-policy";
 
 export async function POST(request: NextRequest) {
   let uploadedPath: string | null = null;
@@ -112,21 +112,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate title and review length
-    if (typeof title !== "string" || title.trim().length === 0 || title.trim().length > 200) {
-      return NextResponse.json(
-        { error: "Enter a review title between 1 and 200 characters." },
-        { status: 400 }
-      );
-    }
-
-    if (typeof review_text !== "string" || review_text.trim().length < 50 || review_text.trim().length > 5000) {
-      return NextResponse.json(
-        {
-          error: "Review text must be between 50 and 5,000 characters long.",
-        },
-        { status: 400 }
-      );
-    }
+    const contentError = reviewContentError(title, review_text);
+    if (contentError) return NextResponse.json({ error: contentError }, { status: 400 });
+    if (typeof title !== "string" || typeof review_text !== "string") return NextResponse.json({ error: "Enter valid review details." }, { status: 400 });
 
     if (would_recommend != null && typeof would_recommend !== "boolean") {
       return NextResponse.json({ error: "Choose whether you would recommend the resort." }, { status: 400 });

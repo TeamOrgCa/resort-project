@@ -50,6 +50,10 @@ test("review form still requires a completed stay and opens without a stay selec
     assert.equal(container.querySelector("form"), null); assert.match(container.querySelector('[role="alert"]').textContent, /Complete a resort stay/);
     eligible = true; await act(async () => button(container, "Write a Review").click());
     assert.ok(container.querySelector("form"));
+    assert.equal(container.querySelector('input[placeholder="Summarize your experience"]').minLength, 5);
+    assert.equal(container.querySelector('input[placeholder="Summarize your experience"]').maxLength, 100);
+    assert.equal(container.querySelector("textarea").minLength, 20);
+    assert.equal(container.querySelector("textarea").maxLength, 1000);
     assert.equal(container.querySelector("#review-reservation"), null);
     assert.doesNotMatch(container.textContent, /Completed stay \(optional\)/);
     assert.match(container.textContent,/Only guests with a completed stay/);

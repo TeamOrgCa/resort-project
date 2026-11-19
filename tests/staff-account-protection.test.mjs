@@ -58,6 +58,55 @@ test("an admin cannot be demoted first to bypass disable protection", async () =
   }
 });
 
+function passwordHarness({ role = "admin", id = targetId, active = true, allowed = true, missing = false, readError = false, authError = false } = {}) {
+  const database = catalogDatabase({ staff_users: missing ? [] : [{ ...profile, id, role, is_active: active }] });
+  const authWrites = [], audits = [];
+  database.auth = { admin: { updateUserById: async (id, values) => { authWrites.push({ id, values }); return { error: authError ? { message: "Auth unavailable" } : null }; } } };
+  if (readError) database.from = () => { const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: null, error: { message: "Read unavailable" } }) }; return q; };
+  const { POST } = loadTsModule("app/api/admin/users/[staffId]/password/route.ts", {
+    "@/lib/server/admin-audit": {
+      requireAdminStaff: async () => allowed ? { staffUser: { id: actorId, role: "admin" } } : null,
+      createAuditLog: async (_actor, event) => { audits.push(event); return true; },
+    },
+    "@/lib/supabase/admin": { tryCreateAdminClient: () => database },
+  });
+  return { database, authWrites, audits, reset: (password = "temporary123") => POST(
+    new Request("http://localhost/api/admin/users/" + id + "/password", { method: "POST", body: JSON.stringify({ password }) }),
+    { params: Promise.resolve({ staffId: id }) },
+  ) };
+}
+
+test("user management cannot reset active or inactive admin passwords, including the acting admin", async () => {
+  for (const id of [targetId, actorId]) for (const active of [true, false]) {
+    const h = passwordHarness({ id, active });
+    const response = await h.reset();
+    assert.equal(response.status, 403);
+    assert.match((await response.json()).message, /Admin passwords cannot be reset/);
+    assert.deepEqual(h.authWrites, []); assert.deepEqual(h.database.writes, []); assert.deepEqual(h.audits, []);
+  }
+});
+
+test("password reset checks fail closed for missing profiles, read failures, invalid input and denied access", async () => {
+  for (const [options, expected] of [[{ missing: true }, 404], [{ readError: true }, 503], [{ allowed: false }, 401], [{ role: "unexpected-role" }, 403]]) {
+    const h = passwordHarness(options); assert.equal((await h.reset()).status, expected);
+    assert.deepEqual(h.authWrites, []); assert.deepEqual(h.database.writes, []); assert.deepEqual(h.audits, []);
+  }
+  const invalid = passwordHarness({ role: "staff" }); assert.equal((await invalid.reset("short")).status, 400);
+  assert.deepEqual(invalid.authWrites, []);
+});
+
+test("manager and cashier resets still revoke sessions, require a password change and create an audit entry", async () => {
+  for (const role of ["staff", "cashier"]) {
+    const h = passwordHarness({ role }); assert.equal((await h.reset()).status, 200);
+    assert.deepEqual(h.authWrites, [{ id: targetId, values: { password: "temporary123" } }]);
+    const staff = h.database.tables.staff_users[0];
+    assert.equal(staff.active_session_id, null); assert.equal(staff.must_change_password, true);
+    assert.match(staff.last_logout_at, /\+08:00$/); assert.equal(h.audits[0].action, "Password reset");
+  }
+  const failed = passwordHarness({ role: "cashier", authError: true });
+  assert.equal((await failed.reset()).status, 500); assert.deepEqual(failed.database.writes, []); assert.deepEqual(failed.audits, []);
+});
+
 test("admin profiles can still be edited and inactive admins reactivated", async () => {
   for (const is_active of [true, false]) {
     const h = harness({ target: { is_active } });

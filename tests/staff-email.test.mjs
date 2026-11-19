@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
-const { isValidStaffEmail } = loadTsModule("lib/auth/staff-email.ts");
-const valid = { fullName: "Alex Mendoza", email: "alex@example.com", role: "staff", password: "secret123", isActive: true };
+const { isValidStaffEmail, isValidStaffEmailForRole, staffEmailSuffix, staffEmailUsername } = loadTsModule("lib/auth/staff-email.ts");
+const valid = { fullName: "Alex Mendoza", email: "alex@marvilleresort.com", role: "staff", password: "secret123", isActive: true };
 const invalidEmails = ["plainaddress", "alex@localhost", "alex@", "@example.com", "alex@@example.com", "alex @example.com", "alex@example .com",
   ".alex@example.com", "alex.@example.com", "alex..m@example.com", "alex@example..com", "alex@-example.com", "alex@example-.com",
   "alex@exam_ple.com", "alex@example.c", "alex@example.123", "alex@example.com.", "alex@" + "a".repeat(64) + ".com", "a".repeat(65) + "@example.com"];
@@ -49,15 +49,40 @@ test("staff creation rejects malformed emails before accessing account creation 
 });
 
 test("valid staff creation normalizes email and preserves role, password-change and audit workflows", async () => {
-  const h = harness(); const response = await h.post({ ...valid, email: " Alex.Mendoza+cashier@Example.COM.PH ", role: "cashier" });
-  assert.equal(response.status, 201); assert.equal(h.calls.created[0].email, "alex.mendoza+cashier@example.com.ph");
-  assert.equal(h.calls.profiles[0].values.email, "alex.mendoza+cashier@example.com.ph"); assert.equal(h.calls.profiles[0].values.role, "cashier");
+  const h = harness(); const response = await h.post({ ...valid, email: " Alex.Mendoza+cashier@MarVilleResort.COM ", role: "cashier" });
+  assert.equal(response.status, 201); assert.equal(h.calls.created[0].email, "alex.mendoza+cashier@marvilleresort.com");
+  assert.equal(h.calls.profiles[0].values.email, "alex.mendoza+cashier@marvilleresort.com"); assert.equal(h.calls.profiles[0].values.role, "cashier");
   assert.equal(h.calls.profiles[0].values.must_change_password, true); assert.equal(h.calls.audits.length, 1);
 });
 
 test("authorization and duplicate-account checks remain enforced and wildcard characters stay literal", async () => {
   const denied = harness({ allowed: false }); assert.equal((await denied.post()).status, 401); assert.equal(denied.calls.admin, 0);
   const duplicate = harness({ existing: { id: "old-staff" } }); assert.equal((await duplicate.post()).status, 409); assert.equal(duplicate.calls.created.length, 0);
-  const literal = harness(); assert.equal((await literal.post({ ...valid, email: "alex_mendoza%tag@example.com" })).status, 201);
-  assert.equal(literal.calls.searches[0].value, "alex\\_mendoza\\%tag@example.com");
+  const literal = harness(); assert.equal((await literal.post({ ...valid, email: "alex_mendoza%tag@marvilleresort.com" })).status, 201);
+  assert.equal(literal.calls.searches[0].value, "alex\\_mendoza\\%tag@marvilleresort.com");
+});
+
+
+test("role suffixes are fixed and full-address paste only strips the matching suffix", () => {
+  for (const role of ["staff", "cashier", "admin"]) {
+    const suffix = role === "admin" ? "@gmail.com" : "@marvilleresort.com";
+    assert.equal(staffEmailSuffix(role), suffix);
+    assert.equal(isValidStaffEmailForRole("alex" + suffix, role), true);
+    assert.equal(isValidStaffEmailForRole("alex" + suffix + ".evil.com", role), false);
+    assert.equal(staffEmailUsername(" Alex.Mendoza" + suffix.toUpperCase() + " ", role), "alex.mendoza");
+  }
+  assert.equal(staffEmailUsername("alex@gmail.com", "cashier"), "alex@gmail.com", "Wrong-domain paste is not silently reassigned to another mailbox");
+});
+
+test("creation enforces role domains on direct API requests before privileged account creation", async () => {
+  for (const [role, email] of [["staff", "alex@gmail.com"], ["cashier", "alex@gmail.com"], ["admin", "alex@marvilleresort.com"], ["admin", "alex@example.com"], ["staff", "alex@team.marvilleresort.com"], ["cashier", "alex@marvilleresort.com.evil.com"]]) {
+    const h = harness(), response = await h.post({ ...valid, role, email });
+    assert.equal(response.status, 400); assert.equal((await response.json()).field, "email");
+    assert.equal(h.calls.admin, 0); assert.deepEqual(h.calls.created, []);
+  }
+  for (const role of ["staff", "cashier", "admin"]) {
+    const h = harness(), email = role === "admin" ? "admin@gmail.com" : "staff@marvilleresort.com";
+    assert.equal((await h.post({ ...valid, role, email })).status, 201);
+    assert.equal(h.calls.created[0].email, email); assert.equal(h.calls.profiles[0].values.role, role);
+  }
 });
