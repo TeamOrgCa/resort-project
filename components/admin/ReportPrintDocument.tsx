@@ -7,7 +7,7 @@ import { reportConfig } from "@/lib/reports/config";
 import type { ChartType } from "./ReportChart";
 import PrintableReportChart, { type PrintChartData } from "./PrintableReportChart";
 
-export type ReportPrintSnapshot = { tab: string; report: ReportData; columns: AdminTableColumn[]; rows: ReportRow[]; resort: string; trendTitle?: string; splitTitle?: string; chartFormat?: "money" | "count" | "percent"; charts?: { title: string; points: { label: string; value: number }[]; format: "money" | "count" | "percent"; type: ChartType }[] };
+export type ReportPrintSnapshot = { tab: string; report: ReportData; columns: AdminTableColumn[]; rows: ReportRow[]; resort: string; trendTitle?: string; splitTitle?: string; chartFormat?: "money" | "count" | "percent"; charts?: { title: string; points: { label: string; value: number | null }[]; format: "money" | "count" | "percent"; type: ChartType }[] };
 export default function ReportPrintDocument({ snapshot, onDone }: { snapshot: ReportPrintSnapshot; onDone: () => void }) {
   useEffect(() => {
     window.addEventListener("afterprint", onDone);
@@ -26,7 +26,7 @@ export default function ReportPrintDocument({ snapshot, onDone }: { snapshot: Re
     <p>{report.startDate} through {report.endDate} · Philippine time</p>
     <p>Generated: {new Date(report.generatedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</p>
     <p>{report.note}</p>
-    <dl>{report.metrics.map(metric => <div key={metric.label}><dt>{metric.label}</dt><dd>{metric.format === "money" ? money.format(metric.value) : metric.value.toLocaleString("en-PH")} — {metric.help}</dd></div>)}</dl>
+    <dl>{report.metrics.map(metric => <div key={metric.label}><dt>{metric.label}</dt><dd>{metric.displayValue ?? (metric.format === "money" ? money.format(metric.value) : `${metric.value.toLocaleString("en-PH")}${metric.format === "percent" ? "%" : ""}`)} — {metric.help}</dd></div>)}</dl>
     <div className="admin-print-charts">{charts.map((chart, index) => <PrintableReportChart key={index} chart={chart} />)}</div>
     <p>Table: {rows.length} matching records. Summary covers the full date range.</p>
     <table><thead><tr>{columns.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id}>{columns.map(column => <td key={column.key}>{row[column.key] ?? "—"}</td>)}</tr>)}</tbody></table>

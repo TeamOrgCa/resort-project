@@ -194,6 +194,10 @@ export default function AdminUsersPage() {
     if (!selectedStaff) {
       return;
     }
+    if (selectedStaff.role === "admin") {
+      setPasswordError("Admin passwords cannot be reset through user management.");
+      return;
+    }
     if (!await confirm({ title: "Reset staff password?", confirmText: "Confirm password reset", message: `Replace the password for ${selectedStaff.email} with the new temporary password? Their current password will stop working.` })) return;
 
     setPasswordError("");
@@ -239,6 +243,10 @@ export default function AdminUsersPage() {
     }
 
     if (action === "Reset Password") {
+      if (staffRecord.role === "admin") {
+        showToast("error", "Admin passwords cannot be reset through user management. The account owner must use password recovery or change their own password.");
+        return;
+      }
       setSelectedStaff(staffRecord);
       setPasswordError("");
       setIsPasswordOpen(true);
@@ -310,24 +318,27 @@ export default function AdminUsersPage() {
         {pageError && activeTab === "Staff Accounts" ? <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{pageError}</div> : null}
 
         {activeTab === "Staff Accounts" && (
-          <AdminTablePreview
-            title="Staff Accounts"
-            isLoading={isLoading}
-            columns={usersColumns}
-            rows={tableRows}
-            defaultSort={{ key: "createdAt", direction: "desc" }}
-            filters={[
-              { key: "role", label: "Role", options: ["Admin", "Manager", "Cashier"] },
-              { key: "status", label: "Status", options: ["Active", "Deactivated"] },
-            ]}
-            actions={["Add Staff User"]}
-            onAction={() => setIsCreateOpen(true)}
-            rowActions={["Edit", "Toggle Status", "Reset Password"]}
-            getRowActionLabel={(action, row) => (action === "Toggle Status" ? (row.status === "Active" ? "Disable" : "Enable") : action)}
-            isRowActionDisabled={(action, row) => isEditing || (action === "Toggle Status" && row.role === "Admin" && row.status === "Active")}
-            onRowAction={(action: string, row) => handleRowAction(action, row as StaffUserTableRow)}
-            sortable
-          />
+          <>
+            <p className="mb-4 text-sm text-neutral/65">Admin accounts cannot be disabled or have their passwords reset here.</p>
+            <AdminTablePreview
+              title="Staff Accounts"
+              isLoading={isLoading}
+              columns={usersColumns}
+              rows={tableRows}
+              defaultSort={{ key: "createdAt", direction: "desc" }}
+              filters={[
+                { key: "role", label: "Role", options: ["Admin", "Manager", "Cashier"] },
+                { key: "status", label: "Status", options: ["Active", "Deactivated"] },
+              ]}
+              actions={["Add Staff User"]}
+              onAction={() => setIsCreateOpen(true)}
+              rowActions={["Edit", "Toggle Status", "Reset Password"]}
+              getRowActionLabel={(action, row) => (action === "Toggle Status" ? (row.status === "Active" ? "Disable" : "Enable") : action)}
+              isRowActionDisabled={(action, row) => isEditing || (row.role === "Admin" && (action === "Reset Password" || (action === "Toggle Status" && row.status === "Active")))}
+              onRowAction={(action: string, row) => handleRowAction(action, row as StaffUserTableRow)}
+              sortable
+            />
+          </>
         )}
 
         {activeTab === "Role Permission Matrix" && <RolePermissionsEditor />}

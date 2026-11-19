@@ -805,7 +805,7 @@ export default function Booking() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-neutral/20 rounded"></div>
-                        <span className="text-sm text-neutral/70">Fully booked</span>
+                        <span className="text-sm text-neutral/70">Fully booked / Unavailable</span>
                       </div>
                       <div className="flex items-center gap-2"><div className="h-4 w-4 rounded bg-gray-500" style={{ backgroundColor: "#6A7282" }} /><span className="text-sm text-neutral/70">Closed for maintenance</span></div>
                       <div className="flex items-center gap-2">

@@ -19,11 +19,8 @@ import { ATTENTION_LABELS, calendarBookingKind, reservationAttention, type Atten
 import { hasPermission, type Permission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { formatManilaDate, manilaCalendarDate, manilaDateKey } from "@/lib/booking/manila-date";
+import { calendarAvailability } from "@/lib/booking/calendar-availability";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
-import { buildBookingWindow } from "@/lib/booking/policy";
-import { isStaffBookingWindowAllowed } from "@/lib/booking/start-time";
-import { maintenanceOverlaps } from "@/lib/booking/maintenance";
-import { isWindowAvailable } from "@/lib/booking/availability";
 import { createClient } from "@/lib/supabase/client";
 import { CALENDAR_COLORS, CALENDAR_LEGEND_KEYS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
 import { useCalendarAppearance } from "@/components/admin/use-calendar-appearance";
@@ -481,24 +478,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     const start = startOfMonthGrid(month);
     return Array.from({ length: 42 }, (_, index) => addDays(start, index));
   }, [month]);
-  const availabilityByDay = useMemo(() => {
-    const activeReservations = reservations.filter((reservation) =>
-      ["pending", "payment_submitted", "confirmed", "reschedule_requested"].includes(reservation.status) &&
-      !(reservation.status === "pending" && reservation.payment_deadline_at &&
-        new Date(reservation.payment_deadline_at).getTime() <= now)
-    );
-    return Object.fromEntries(calendarDays.map((date) => {
-      const key = dateKey(date);
-      const isAvailable = (mode: "day" | "night" | "whole_day", wholeDayVariant: "day_to_night" | "night_to_day" = "day_to_night") => {
-        const window = buildBookingWindow({ bookingMode: mode, date: key, wholeDayVariant, packageTimes: packageSchedule?.times });
-        if (typeof window.startDatetime !== "string" || typeof window.endDatetime !== "string") return false;
-        if (!isStaffBookingWindowAllowed(window.startDatetime, window.endDatetime, now)) return false;
-        if (maintenanceBlocks.some((block) => block.status === "active" && maintenanceOverlaps(window.startDatetime!, window.endDatetime!, block))) return false;
-        return isWindowAvailable(window.startDatetime, window.endDatetime, activeReservations);
-      };
-      return [key, { day: isAvailable("day"), night: isAvailable("night"), whole: isAvailable("whole_day") || isAvailable("whole_day", "night_to_day") }];
-    })) as Record<string, { day: boolean; night: boolean; whole: boolean }>;
-  }, [calendarDays, maintenanceBlocks, now, reservations, packageSchedule]);
+  const availabilityByDay = useMemo(() => Object.fromEntries(calendarDays.map(date => {
+    const key = dateKey(date);
+    return [key, calendarAvailability(key, reservations, maintenanceBlocks, now, packageSchedule?.times)];
+  })), [calendarDays, maintenanceBlocks, now, reservations, packageSchedule]);
   const monthLabel = formatManilaDate(month, { month: "long", year: "numeric" });
   const today = manilaDateKey(new Date(now));
   const upcomingCount = new Set(calendarEvents.filter(event => event.reservationId && event.date >= today && !["cancelled", "rejected", "completed", "no_show"].includes(event.status ?? "")).map(event => event.reservationId)).size;
@@ -652,8 +635,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
             const isCurrentMonth = day.getUTCMonth() === month.getUTCMonth();
             const isToday = dayKey === today;
             const availability = availabilityByDay[dayKey];
-            const maintenanceBlocked = (eventsByDay[dayKey] ?? []).some((event) => event.kind === "maintenance");
-            const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : maintenanceBlocked && !availability?.day && !availability?.night && !availability?.whole ? "Maintenance blocked" : availability?.day && availability?.night ? "Day and night available" : availability?.day ? "Day available · Night booked" : availability?.night ? "Night available · Day booked" : availability?.whole ? "Whole day available" : "Fully booked";
+            const availabilityLabel = isLoading ? "Checking availability..." : error ? "Availability unavailable" : availability?.label ?? "Availability unavailable";
             return <div key={dayKey} data-calendar-date={dayKey} className={`${notificationFocusId && dayKey === notificationDate ? "calendar-notification-date" : ""} min-h-28 min-w-0 border-b border-r border-neutral/10 p-2 transition-colors hover:bg-primary/5 ${isCurrentMonth ? "bg-white" : "bg-base/50"}`}>
               {dayReservation && !isLoading ? (
                 <button type="button" onClick={() => openEvent(dayReservation)} aria-label={`View reservation details for ${dayKey}`} className={`mb-2 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary ${isToday ? "bg-neutral text-base" : isCurrentMonth ? "text-neutral" : "text-neutral/30"}`}>{day.getUTCDate()}</button>

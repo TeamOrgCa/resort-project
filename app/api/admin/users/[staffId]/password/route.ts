@@ -32,7 +32,7 @@ export async function POST(request: Request, context: { params: Promise<{ staffI
     }
 
     const { staffId } = await context.params;
-    const payload = parsePayload(await request.json());
+    const payload = parsePayload(await request.json().catch(() => null));
 
     if (!payload) {
       return NextResponse.json({ success: false, message: "Invalid password payload." }, { status: 400 });
@@ -48,6 +48,18 @@ export async function POST(request: Request, context: { params: Promise<{ staffI
         },
         { status: 503 }
       );
+    }
+
+    const { data: target, error: targetError } = await adminSupabase.from("staff_users")
+      .select("id, role").eq("id", staffId).maybeSingle();
+    if (targetError) {
+      return NextResponse.json({ success: false, message: "Unable to verify the target staff account. Try again." }, { status: 503 });
+    }
+    if (!target) {
+      return NextResponse.json({ success: false, message: "Staff user not found." }, { status: 404 });
+    }
+    if (target.role !== "staff" && target.role !== "cashier") {
+      return NextResponse.json({ success: false, message: "Admin passwords cannot be reset through user management. The account owner must use password recovery or change their own password." }, { status: 403 });
     }
 
     const { error: updateAuthError } = await adminSupabase.auth.admin.updateUserById(staffId, {

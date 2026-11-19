@@ -2,16 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
-function analytics(tables = {}) {
+function analytics(tables = {}, failTable = null) {
   const calls = [];
   const client = { from(table) {
-    const filters = []; let verifiedRange = null;
+    const filters = []; const fields = []; let verifiedRange = null;
     const query = { select: () => query, order: () => query,
-      eq: (key, value) => { filters.push(row => row[key] === value); return query; },
-      gte: (key, value) => { filters.push(row => row[key] >= value); return query; },
-      lt: (key, value) => { filters.push(row => row[key] < value); return query; },
+      eq: (key, value) => { fields.push([key, value]); filters.push(row => row[key] === value); return query; },
+      gte: (key, value) => { filters.push(row => Date.parse(row[key]) >= Date.parse(value)); return query; },
+      lt: (key, value) => { filters.push(row => Date.parse(row[key]) < Date.parse(value)); return query; },
       or: value => { verifiedRange = [value.match(/verified_at.gte.([^,]+)/)[1], value.match(/verified_at.lt.([^,)]+)/)[1]]; return query; },
-      range: async (from, to) => { calls.push({ table, from, to, verifiedRange }); return { data: (tables[table] ?? []).filter(row => filters.every(filter => filter(row)) && (!verifiedRange || (row.verified_at ?? row.created_at) >= verifiedRange[0] && (row.verified_at ?? row.created_at) < verifiedRange[1])).slice(from, to + 1), error: null }; },
+      range: async (from, to) => { calls.push({ table, from, to, verifiedRange, fields }); if (table === failTable) return { data: null, error: { message: "Database unavailable" } }; return { data: (tables[table] ?? []).filter(row => filters.every(filter => filter(row)) && (!verifiedRange || Date.parse(row.verified_at ?? row.created_at) >= Date.parse(verifiedRange[0]) && Date.parse(row.verified_at ?? row.created_at) < Date.parse(verifiedRange[1]))).slice(from, to + 1), error: null }; },
     }; return query;
   } };
   const { generateAnalytics } = loadTsModule("lib/server/analytics.ts", { "@/lib/supabase/admin": { createAdminClient: () => client } });
@@ -19,48 +19,132 @@ function analytics(tables = {}) {
 }
 const payment = (amount, extras = {}) => ({ amount, status: "verified", payment_type: "downpayment", created_at: "2026-10-01T01:00:00Z", verified_at: "2026-10-02T01:00:00Z", ...extras });
 
-test("analytics includes public collections in totals and estimates while keeping booking counts private", async () => {
-  const h = analytics({ payments: [payment(600)], public_access_sales: [
+const range = { startDate: "2026-10-01", endDate: "2026-10-03" };
+const now = new Date("2026-10-03T16:00:00Z");
+const reservation = (id, date, status = "confirmed", extras = {}) => ({ reservation_id: id, created_at: date, start_datetime: "2026-10-10T00:00:00Z", booking_type: "online", status, ...extras });
+
+test("analytics counts received public and private collections on the correct Philippine dates", async () => {
+  const h = analytics({ payments: [payment(4500, { created_at: "2026-09-01T00:00:00Z" }), payment(1500, { verified_at: null }), payment(800, { status: "pending" }), payment(4000, { verified_at: "2026-10-03T16:00:00Z" })], public_access_sales: [
     { sale_id: "public", access_type: "room", amount: 300, paid_at: "2026-09-30T16:00:00Z" },
     { sale_id: "boundary", access_type: "swimming", amount: 9999, paid_at: "2026-10-03T16:00:00Z" },
   ] });
-  const reports = await h.generateAnalytics("Custom", { startDate: "2026-10-01", endDate: "2026-10-03" });
-  assert.equal(reports.revenue.metrics[0].value, 900);
-  assert.equal(reports.revenue.metrics[1].value, 300);
-  assert.equal(reports.revenue.metrics[2].value, 300);
+  const reports = await h.generateAnalytics("Custom", range, now);
+  assert.equal(reports.revenue.metrics[0].value, 6300);
   assert.equal(reports.revenue.split.find(point => point.label === "Room usage").value, 300);
-  assert.equal(reports.revenue.trend.reduce((sum, point) => sum + point.value, 0), 900);
-  assert.equal(reports.booking.metrics[0].value, 0);
+  assert.equal(reports.revenue.trend.reduce((sum, point) => sum + point.value, 0), 6300);
+  assert.equal(reports.revenue.split.reduce((sum, point) => sum + point.value, 0), 6300, "Future estimates never enter the received collections mix");
+  assert.equal(reports.booking.metrics[0].value, 0, "Public access does not create reservations");
   assert.match(reports.revenue.note, /public collections use the server-recorded paid-at date/);
-});
-test("analytics uses verification dates, legacy fallback and selected calendar days for forecasts", async () => {
-  const h = analytics({ payments: [payment(4500, { created_at: "2026-09-01T00:00:00Z" }), payment(1500, { verified_at: null }), payment(800, { status: "pending" }), payment(4000, { verified_at: "2026-10-04T01:00:00Z" })], reservations: [{ booking_type: "online", created_at: "2026-10-01T01:00:00Z" }, { booking_type: "walk_in", created_at: "2026-10-02T01:00:00Z" }, { booking_type: null, created_at: "2026-10-03T01:00:00Z" }] });
-  const reports = await h.generateAnalytics("Custom", { startDate: "2026-10-01", endDate: "2026-10-03" }, new Date("2026-10-03T01:00:00Z"));
-  assert.equal(reports.revenue.metrics[0].value, 6000); assert.equal(reports.revenue.metrics[1].value, 2000); assert.equal(reports.revenue.metrics[2].value, 2000);
-  assert.equal(reports.revenue.trend.reduce((sum, p) => sum + p.value, 0), 6000);
-  assert.equal(reports.revenue.split.reduce((sum, p) => sum + p.value, 0), 6000, "A pie must not mix future estimates with historical collections");
-  assert.equal(reports.revenue.rows[0].projectedBookings, "1"); assert.match(reports.revenue.rows[0].periodLabel, /Oct 4, 2026/);
-  assert.match(reports.revenue.note, /3 calendar days/); assert.match(reports.revenue.note, /no statistical confidence/);
-  assert.equal(reports.booking.split.find(p => p.label === "Unspecified").value, 1);
-  assert.deepEqual(reports.booking.split.map(p => p.label), ["Online booking", "Offline booking", "Unspecified"]);
-  assert.equal(reports.performance.metrics[0].value, 1); assert.equal(reports.performance.metrics[1].value, 3);
-  assert.equal(reports.performance.split.reduce((sum, p) => sum + p.value, 0), 3);
+  assert.equal(reports.revenue.forecastPoints.length, 3);
+  assert.equal(reports.revenue.forecastPoints[0].label, "2026-10-04");
+  assert.equal(reports.revenue.metrics[1].value, 337.5, "6300 / 56 completed days, multiplied by 3 only once");
+  assert.equal(reports.revenue.metrics[2].displayValue, "Not enough history");
+  assert.match(reports.revenue.note, /not statistical confidence intervals/);
 });
 
-test("weekly and monthly forecasts are not multiplied twice and use actual calendar lengths", async () => {
-  const weekly = await analytics({ payments: [payment(28000)] }).generateAnalytics("Weekly", undefined, new Date("2026-10-13T01:00:00Z"));
-  assert.equal(weekly.revenue.metrics[1].value, 1000); assert.equal(weekly.revenue.metrics[2].value, 7000);
-  const monthly = await analytics({ payments: [payment(18300, { created_at: "2024-03-15T01:00:00Z", verified_at: "2024-03-15T01:00:00Z" })] }).generateAnalytics("Monthly", undefined, new Date("2024-03-31T01:00:00Z"));
-  assert.equal(monthly.revenue.metrics[1].value, 100); assert.equal(monthly.revenue.metrics[2].value, 3000);
-  assert.match(monthly.revenue.rows[0].evidence, /183 calendar days/); assert.equal(new Set(monthly.booking.trend.map(p => p.label)).size, 6);
+test("booking analysis compares equal elapsed durations and separates source, outcomes and lead time", async () => {
+  const h = analytics({ reservations: [
+    reservation("current-1", "2026-10-01T01:00:00Z"),
+    reservation("current-2", "2026-10-02T01:00:00Z", "completed", { booking_type: "walk_in" }),
+    reservation("current-3", "2026-10-03T00:00:00Z", "cancelled", { booking_type: null }),
+    reservation("future", "2026-10-03T08:00:00Z"),
+    reservation("prior", "2026-09-28T01:00:00Z", "confirmed"),
+    reservation("prior-after-cutoff", "2026-09-30T08:00:00Z", "no_show"),
+  ] });
+  const report = (await h.generateAnalytics("Custom", range, new Date("2026-10-03T01:00:00Z"))).booking;
+  assert.equal(report.metrics[0].value, 3); assert.match(report.metrics[0].help, /200%/);
+  assert.equal(report.metrics[1].value, 66.67); assert.equal(report.metrics[2].value, 33.33);
+  assert.equal(report.comparison.points.reduce((sum, p) => sum + (p.previous ?? 0), 0), 1);
+  assert.equal(report.comparison.points.reduce((sum, p) => sum + (p.current ?? 0), 0), 3);
+  assert.equal(report.comparison.startDate, "2026-09-28"); assert.equal(report.comparison.endDate, "2026-09-30");
+  assert.equal(report.rows.find(row => row.source === "Offline booking").confirmationRate, "100%");
+  assert.deepEqual(report.rows.map(row => row.source), ["Online booking", "Offline booking"]);
+  assert.deepEqual(report.split.map(point => point.label), ["Online booking", "Offline booking"]);
+  assert.equal(report.split.reduce((sum, point) => sum + point.value, 0), 2);
+  assert.match(report.insights.find(item => item.title === "Channel contribution").description, /50% of bookings with a recorded source/);
+  assert.match(report.note, /overall totals include every booking/);
+  assert.match(report.insights.find(item => item.title === "Booking lead time").description, /8 calendar days/);
+  assert.match(report.note, /newer bookings have had less time/i);
+  assert.match(report.note, /not occupancy rates/);
 });
 
-test("analytics paginates all sources and returns honest empty estimates", async () => {
-  const h = analytics({ reservations: Array.from({ length: 1001 }, () => ({ booking_type: "online", created_at: "2026-10-01T01:00:00Z" })) });
-  const reports = await h.generateAnalytics("Custom", { startDate: "2026-10-01", endDate: "2026-10-03" });
-  assert.equal(reports.booking.metrics[0].value, 1001); assert.ok(h.calls.some(c => c.from === 1000));
-  assert.equal(reports.revenue.metrics[2].value, 0); assert.match(reports.revenue.note, /No received payments/);
-  const invalid = analytics(); await assert.rejects(invalid.generateAnalytics("Custom", { startDate: "2026-02-30", endDate: "2026-03-01" })); assert.equal(invalid.calls.length, 0);
+test("zero prior activity is labelled honestly and unobserved dates remain gaps", async () => {
+  const report = (await analytics({ reservations: [reservation("new", "2026-10-01T01:00:00Z")] }).generateAnalytics("Custom", range, new Date("2026-10-01T02:00:00Z"))).booking;
+  assert.match(report.metrics[0].help, /previous period had none/); assert.doesNotMatch(report.metrics[0].help, /Infinity|100%/);
+  assert.equal(report.comparison.points[0].previous, 0);
+  assert.equal(report.comparison.points[1].current, null);
+  assert.equal(report.comparison.points[2].previous, null);
+  const future = await analytics().generateAnalytics("Custom", { startDate: "2026-10-10", endDate: "2026-10-12" }, now);
+  assert.ok(future.booking.comparison.points.every(p => p.current === null && p.previous === null));
+  assert.match(future.booking.note, /dates have not started/);
+  assert.equal(future.booking.metrics[1].displayValue, "No bookings");
+});
+
+test("operations analyses submission outcomes, valid verification times and ALL pending backlog ages", async () => {
+  const h = analytics({ payments: [
+    payment(500, { payment_id: "valid", created_at: "2026-10-01T01:00:00Z", verified_at: "2026-10-01T03:00:00Z" }),
+    payment(500, { payment_id: "legacy", verified_at: null }),
+    payment(500, { payment_id: "bad-clock", verified_at: "2026-09-30T01:00:00Z" }),
+    payment(100, { payment_id: "rejected", status: "rejected" }),
+    payment(200, { payment_id: "fresh", status: "pending", created_at: "2026-10-03T15:00:00Z" }),
+    payment(300, { payment_id: "day-old", status: "pending", created_at: "2026-10-02T16:00:00Z" }),
+    payment(400, { payment_id: "three-days", status: "pending", created_at: "2026-09-30T16:00:00Z" }),
+    payment(1000, { payment_id: "old", status: "pending", created_at: "2026-08-01T01:00:00Z" }),
+    payment(500, { payment_id: "prior-done", created_at: "2026-09-28T01:00:00Z" }),
+    payment(600, { payment_id: "prior-pending", status: "pending", created_at: "2026-09-29T01:00:00Z" }),
+  ], public_access_sales: [{ sale_id: "public", access_type: "swimming", amount: 9000, paid_at: "2026-10-02T01:00:00Z" }] });
+  const report = (await h.generateAnalytics("Custom", range, now)).performance;
+  assert.equal(report.metrics[0].value, 57.14, "4 resolved out of 7 submitted in the selected period");
+  assert.equal(report.metrics[1].value, 2, "Legacy and negative verification durations are excluded");
+  assert.equal(report.metrics[2].value, 2500, "Includes old pending submissions outside the filter, excludes public receipts");
+  assert.deepEqual(report.rows.map(row => row.pending), ["1", "1", "3"]);
+  assert.deepEqual(report.split.map(p => p.value), [1, 1, 3]);
+  assert.match(report.insights[0].description, /7.14 percentage points/);
+  assert.equal(report.insights[1].href, "/admin/transactions?tab=payments");
+  assert.equal(report.comparison.format, "percent");
+  assert.equal(report.comparison.points[2].current, 0, "Submissions with none resolved is measured zero");
+  assert.ok(h.calls.every(call => call.table !== "audit_logs"), "Audit activity counts must not masquerade as productivity");
+});
+
+test("empty operations is unavailable rather than a fake zero performance measure", async () => {
+  const reports = await analytics().generateAnalytics("Custom", range, now);
+  assert.equal(reports.performance.metrics[0].displayValue, "No submissions");
+  assert.equal(reports.performance.metrics[1].displayValue, "Not available");
+  assert.ok(reports.performance.comparison.points.every(p => p.current === null));
+  assert.equal(reports.revenue.metrics[1].value, 0);
+  assert.equal(reports.revenue.metrics[2].displayValue, "Not enough history");
+  assert.match(reports.revenue.insights[1].description, /No received payments/);
+});
+
+test("forecasts use 56 complete days and seven or thirty future days without unfinished-day leakage", async () => {
+  const reference = new Date("2026-10-13T01:00:00Z");
+  const completeEnd = Date.parse("2026-10-12T16:00:00Z");
+  const payments = Array.from({ length: 56 }, (_, i) => payment(100, { payment_id: `history-${i}`, created_at: new Date(completeEnd - (56 - i) * 86400000).toISOString(), verified_at: new Date(completeEnd - (56 - i) * 86400000).toISOString() }));
+  payments.push(payment(1000000, { payment_id: "unfinished-day", created_at: "2026-10-13T00:00:00Z", verified_at: "2026-10-13T00:00:00Z" }));
+  for (const [period, days] of [["Weekly", 7], ["Monthly", 30]]) {
+    const report = (await analytics({ payments }).generateAnalytics(period, undefined, reference)).revenue;
+    assert.equal(report.forecastPoints.length, days); assert.equal(report.metrics[1].value, 100 * days);
+    assert.equal(report.metrics[2].value, 0); assert.equal(report.metrics[2].displayValue, undefined, "This zero is a measured perfect held-out match");
+    assert.match(report.metrics[1].help, /Day-of-week average/);
+    assert.equal(report.forecastPoints[0].label, "2026-10-14");
+    assert.ok(report.metrics[0].value > 1000000, "Today's actual collections are still included");
+  }
+});
+
+test("analytics paginates all queried sources, propagates database errors and validates ranges before querying", async () => {
+  const h = analytics({
+    reservations: Array.from({ length: 1001 }, (_, i) => reservation(`r-${i}`, "2026-10-01T01:00:00Z")),
+    payments: Array.from({ length: 1001 }, (_, i) => payment(1, { payment_id: `verified-${i}` })).concat(Array.from({ length: 1001 }, (_, i) => payment(2, { payment_id: `pending-${i}`, status: "pending" }))),
+    public_access_sales: Array.from({ length: 1001 }, (_, i) => ({ sale_id: `sale-${i}`, amount: 3, paid_at: "2026-10-01T01:00:00Z", access_type: "swimming" })),
+  });
+  const reports = await h.generateAnalytics("Custom", range, now);
+  assert.equal(reports.booking.metrics[0].value, 1001);
+  assert.equal(reports.revenue.metrics[0].value, 4004);
+  assert.equal(reports.performance.metrics[2].value, 2002);
+  for (const table of ["reservations", "payments", "public_access_sales"]) assert.ok(h.calls.some(c => c.table === table && c.from === 1000));
+  assert.ok(h.calls.some(c => c.table === "payments" && c.from === 1000 && c.fields.some(([key, value]) => key === "status" && value === "pending")));
+  await assert.rejects(analytics({}, "payments").generateAnalytics("Custom", range, now), /Database unavailable/);
+  const invalid = analytics(); await assert.rejects(invalid.generateAnalytics("Custom", { startDate: "2026-02-30", endDate: "2026-03-01" }, now)); assert.equal(invalid.calls.length, 0);
 });
 
 function route({ active = true, allowed = true, reviews = [], modelResult } = {}) {

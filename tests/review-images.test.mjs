@@ -117,6 +117,20 @@ test("multiple attachments and invalid review details fail without uploads", asy
   assert.equal(h.adminCalls(), 0);
 });
 
+test("review title and description enforce the new trimmed boundaries before any photo upload", async () => {
+  for (const [title, review_text] of [["x".repeat(5), "x".repeat(20)], ["x".repeat(100), "x".repeat(1000)], ["  Hello  ", "  " + "x".repeat(20) + "  "]]) {
+    const h = harness();
+    assert.equal((await h.post(multipart(null, { ...payload, title, review_text }))).status, 201);
+    assert.equal(h.inserts[0].title, title.trim());
+    assert.equal(h.inserts[0].review_text, review_text.trim());
+  }
+  for (const details of [{ title: "Four" }, { title: "x".repeat(101) }, { title: "    x    " }, { review_text: "x".repeat(19) }, { review_text: "x".repeat(1001) }, { review_text: " ".repeat(30) }]) {
+    const h = harness();
+    assert.equal((await h.post(multipart(photo(), { ...payload, ...details }))).status, 400);
+    assert.equal(h.uploads.length, 0); assert.equal(h.inserts.length, 0);
+  }
+});
+
 test("failed upload does not save a review and failed review creation removes only the new photo", async () => {
   const failedUpload = harness({ uploadError: { message: "Upload failed" } });
   assert.equal((await failedUpload.post(multipart())).status, 503); assert.equal(failedUpload.inserts.length, 0);

@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { REVIEW_IMAGE_HELP, REVIEW_IMAGE_MAX_BYTES, REVIEW_IMAGE_MIME_TYPES } from "@/lib/reviews/images";
-import { REVIEW_SUBMISSION_HELP, reviewRetrySeconds } from "@/lib/reviews/submission-policy";
+import { REVIEW_SUBMISSION_HELP, REVIEW_TITLE_MIN_LENGTH, REVIEW_TITLE_MAX_LENGTH, REVIEW_TEXT_MIN_LENGTH, REVIEW_TEXT_MAX_LENGTH, reviewContentError, reviewRetrySeconds } from "@/lib/reviews/submission-policy";
 import FormErrorDialog from "@/components/ui/FormErrorDialog";
 
 type ReviewItem = {
@@ -122,6 +122,8 @@ export default function Reviews() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting.current) return;
+    const contentError = reviewContentError(formData.title, formData.review);
+    if (contentError) { setError(contentError); setErrorOpen(true); return; }
     submitting.current = true;
     setLoading(true);
     setError(null);
@@ -418,8 +420,10 @@ export default function Reviews() {
                       placeholder="Summarize your experience"
                       className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       required
-                      maxLength={200}
+                      minLength={REVIEW_TITLE_MIN_LENGTH}
+                      maxLength={REVIEW_TITLE_MAX_LENGTH}
                     />
+                    <p className="text-xs text-neutral/60 mt-2">5 to 100 characters</p>
                   </div>
 
                   {/* Review Text */}
@@ -432,10 +436,10 @@ export default function Reviews() {
                       placeholder="Share details about your stay..."
                       className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
                       required
-                      minLength={50}
-                      maxLength={5000}
+                      minLength={REVIEW_TEXT_MIN_LENGTH}
+                      maxLength={REVIEW_TEXT_MAX_LENGTH}
                     ></textarea>
-                    <p className="text-xs text-neutral/60 mt-2">Minimum 50 characters</p>
+                    <p className="text-xs text-neutral/60 mt-2">20 to 1,000 characters</p>
                   </div>
 
                   <div>
