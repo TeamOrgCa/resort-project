@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/server/admin-audit";
 import { staffHasPermission } from "@/lib/server/role-permissions";
+import { maintenancePeriodError } from "@/lib/booking/maintenance";
 
 const validDate = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
@@ -30,16 +31,18 @@ export async function POST(request: Request) {
   if (!staff || staff.staffUser.role !== "staff" || !await staffHasPermission(staff.supabase, staff.staffUser.role, "edit_reservation")) return NextResponse.json({ message: "Manager reservation-edit permission required." }, { status: 403 });
   const body = await request.json().catch(() => null);
   if (!body || typeof body.name !== "string" || typeof body.reason !== "string" ||
-      !validDate(body.startDate) || !validDate(body.endDate) || body.endDate < body.startDate ||
+      !validDate(body.startDate) || !validDate(body.endDate) ||
       !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.startTime ?? "") || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.endTime ?? "") ||
       body.name.trim().length < 1 || body.name.length > 120 || body.reason.trim().length < 1 || body.reason.length > 2000) {
     return NextResponse.json({ message: "Enter a name, internal reason, and valid start/end dates and times." }, { status: 400 });
   }
-  const start = `${body.startDate}T${body.startTime}:00+08:00`;
+  if (body.endDate < body.startDate) return NextResponse.json({ message: "The end date cannot be before the start date." }, { status: 400 });
+  const start = `${body.startDate}T${body.allDay === true ? "00:00" : body.startTime}:00+08:00`;
   const end = body.allDay === true ? new Date(Date.parse(`${body.endDate}T00:00:00+08:00`) + 86_400_000).toISOString() : `${body.endDate}T${body.endTime}:00+08:00`;
-  if (Date.parse(end) <= Date.parse(start)) return NextResponse.json({ message: "End must be after start (Philippine time)." }, { status: 400 });
+  const periodError = maintenancePeriodError(start, end);
+  if (periodError) return NextResponse.json({ message: periodError }, { status: 400 });
   const { data: blockId, error } = await staff.supabase.rpc("create_timed_maintenance_block", {
-    p_name: body.name.trim(), p_reason: body.reason.trim(), p_start: body.allDay === true ? `${body.startDate}T00:00:00+08:00` : start, p_end: end,
+    p_name: body.name.trim(), p_reason: body.reason.trim(), p_start: start, p_end: end,
   });
   if (error) return NextResponse.json({ message: error.message }, { status: error.code === "23P01" ? 409 : 400 });
 

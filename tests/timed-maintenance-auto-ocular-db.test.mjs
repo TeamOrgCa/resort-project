@@ -39,6 +39,8 @@ before(async () => {
   await db.exec(migration); await db.exec(migration);
   const managerOnly = readFileSync("docs/manager-only-maintenance-migration.sql", "utf8");
   await db.exec(managerOnly); await db.exec(managerOnly);
+  const dateValidation = readFileSync("docs/maintenance-date-validation-migration.sql", "utf8");
+  await db.exec(dateValidation); await db.exec(dateValidation);
   const legacy = await one("select start_datetime,end_datetime from maintenance_blocks");
   assert.equal(legacy.start_datetime.toISOString(), "2030-01-01T16:00:00.000Z");
   assert.equal(legacy.end_datetime.toISOString(), "2030-01-03T16:00:00.000Z");
@@ -54,6 +56,46 @@ const block = async (start = "2035-01-05T10:00:00+08:00", end = "2035-01-05T12:0
   one("select create_timed_maintenance_block('Internal title','Confidential repair',$1,$2) id", [start, end]);
 const visit = async (owner = guest, reference = "OV-TEST", date = "2035-01-05") =>
   one("select save_confirmed_ocular_visit($1,$2,$3,$4) result", [owner, date, slot, reference]);
+
+test("direct maintenance RPCs reject backdating without writing records or notifications", async () => {
+  await actor(manager);
+  await assert.rejects(db.exec(`select create_timed_maintenance_block('Repair','Internal',
+    (((clock_timestamp() at time zone 'Asia/Manila')::date-1)::timestamp at time zone 'Asia/Manila'),
+    clock_timestamp()+interval '1 hour')`), /past date/);
+  await assert.rejects(db.exec(`select create_timed_maintenance_block('Repair','Internal',
+    clock_timestamp()-interval '2 hours',clock_timestamp()-interval '1 hour')`), /past date|end time.*future/);
+  assert.equal((await one("select count(*)::int n from maintenance_blocks")).n, 0);
+  assert.equal((await one("select count(*)::int n from notifications")).n, 0);
+  assert.equal((await one("select count(*)::int n from audit_logs")).n, 0);
+  await db.exec(`select create_timed_maintenance_block('Today','Internal',
+    (((clock_timestamp() at time zone 'Asia/Manila')::date)::timestamp at time zone 'Asia/Manila'),
+    (((clock_timestamp() at time zone 'Asia/Manila')::date+1)::timestamp at time zone 'Asia/Manila'))`);
+  assert.equal((await one("select count(*)::int n from maintenance_blocks")).n, 1);
+});
+
+test("maintenance date/time ordering is enforced for RPCs and direct writes, including equal times and updates", async () => {
+  await actor(manager);
+  for (const [start, end] of [
+    ["2035-01-06T09:00+08", "2035-01-05T11:00+08"],
+    ["2035-01-05T09:00+08", "2035-01-05T08:00+08"],
+    ["2035-01-05T09:00+08", "2035-01-05T09:00+08"],
+  ]) {
+    await assert.rejects(block(start, end), /valid maintenance/);
+    await assert.rejects(db.query(`insert into maintenance_blocks(name,reason,start_date,end_date,start_datetime,end_datetime)
+      values('Repair','Internal','2035-01-05','2035-01-06',$1,$2)`, [start, end]), /end date and time must be later/);
+  }
+  assert.equal((await one("select count(*)::int n from maintenance_blocks")).n, 0);
+  assert.equal((await one("select count(*)::int n from notifications")).n, 0);
+  const result = await block("2035-01-05T22:00+08", "2035-01-06T06:00+08");
+  await assert.rejects(db.query("update maintenance_blocks set end_datetime=start_datetime where block_id=$1", [result.id]), /end date and time must be later/);
+  assert.equal((await one("select end_datetime from maintenance_blocks where block_id=$1", [result.id])).end_datetime.toISOString(), "2035-01-05T22:00:00.000Z");
+  // An unchanged historical period can still be released after validation is installed.
+  await db.exec("alter table maintenance_blocks disable trigger validate_new_maintenance_period");
+  await db.query("update maintenance_blocks set start_date='2000-01-05',end_date='2000-01-06',start_datetime='2000-01-05T22:00+08',end_datetime='2000-01-06T06:00+08' where block_id=$1", [result.id]);
+  await db.exec("alter table maintenance_blocks enable trigger validate_new_maintenance_period");
+  await db.query("select release_maintenance_block($1)", [result.id]);
+  assert.equal((await one("select status from maintenance_blocks where block_id=$1", [result.id])).status, "released");
+});
 
 test("PHT intervals permit adjacent bookings but reject actual overlap, invalid intervals and overlapping maintenance", async () => {
   await actor(manager); await block();

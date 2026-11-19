@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import StaffDialogShell from "@/components/admin/users/StaffDialogShell";
+import PasswordInput from "@/components/ui/PasswordInput";
 import type { StaffUserFormValues } from "@/components/admin/users/types";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { isValidStaffEmailForRole, staffEmailError, staffEmailSuffix, staffEmailUsername } from "@/lib/auth/staff-email";
@@ -103,7 +104,10 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
                 aria-label="Email username"
                 ref={emailInput}
                 value={email}
+                onKeyDown={(event) => { if (event.key === "@") event.preventDefault(); }}
+                onBeforeInput={(event) => { if ((event.nativeEvent as InputEvent).data?.includes("@")) event.preventDefault(); }}
                 onChange={(event) => {
+                  if (event.target.value.includes("@")) return;
                   const username = staffEmailUsername(event.target.value, role);
                   setEmail(username);
                   if (emailError) setEmailError(isValidStaffEmailForRole(`${username}${suffix}`, role) ? "" : emailMessage);
@@ -115,9 +119,12 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
                 }}
                 onPaste={(event) => {
                   const pasted = event.clipboardData.getData("text");
+                  const username = staffEmailUsername(pasted, role);
+                  if (username.includes("@") || username.length > 64) {
+                    event.preventDefault(); setEmail(""); setEmailError(emailMessage); return;
+                  }
                   if (!pasted.includes("@")) return;
                   event.preventDefault();
-                  const username = staffEmailUsername(pasted, role);
                   setEmail(username);
                   setEmailError(username.length <= 64 && isValidStaffEmailForRole(`${username}${suffix}`, role) ? "" : emailMessage);
                 }}
@@ -165,8 +172,10 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
 
           <label className="space-y-2">
             <span className="block text-sm font-medium text-neutral">Temporary Password</span>
-            <input
-              type="password"
+            <PasswordInput
+              aria-label="Temporary password"
+              autoComplete="new-password"
+              disabled={isSubmitting}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               minLength={8}
