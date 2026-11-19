@@ -190,6 +190,53 @@ test("transaction tables show and search registered and walk-in guest names acro
   } finally { await h.close(); }
 });
 
+test("transaction details let cashiers settle payable bills and disable settlement for settled, closed or pending-proof records", async () => {
+  const timestamp = new Date().toISOString();
+  const cases = [
+    { status: "pending", balance: 1000, payable: true },
+    { status: "confirmed", balance: 700, payable: true },
+    { status: "confirmed", balance: 0 },
+    { status: "confirmed", balance: -50 },
+    { status: "confirmed", balance: 700, proof: true },
+    ...["cancelled", "expired", "completed", "no_show", "payment_submitted"].map(status => ({ status, balance: 700 })),
+  ];
+  for (const item of cases) {
+    const db = dashboardDatabase({
+      staff_users: [{ id: "staff", role: "cashier", is_active: true }], role_permissions: [{ role: "cashier", permissions: ["transactions", "payment_entry"] }],
+      transactions: [{ transaction_id: "t", reservation_id: "r", total_amount: 1000, paid_amount: 1000 - item.balance, balance: item.balance, overpaid_amount: 0, status: item.balance > 0 ? "partial" : "paid", updated_at: timestamp }],
+      reservations: [{ reservation_id: "r", reference_number: "MV-SETTLE", status: item.status }],
+      payments: item.proof ? [{ payment_id: "proof", reservation_id: "r", reference_number: "PAY-PENDING", amount: 100, payment_type: "downpayment", status: "pending", ocr_status: "needs_review", created_at: timestamp, paid_at: timestamp, proof_path: null }] : [],
+    });
+    const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } } });
+    try {
+      await act(async () => h.container.querySelector("tbody tr").click());
+      const modal = document.querySelector('[aria-label="Transaction Details"]'); assert.ok(modal);
+      const settle = button(modal, "Settle payment"); assert.ok(settle);
+      assert.equal(settle.disabled, !item.payable, JSON.stringify(item));
+      if (item.payable) {
+        await click(settle);
+        assert.equal(document.querySelector('[aria-label="Transaction Details"]'), null);
+        const payment = document.querySelector('[role="dialog"]'); assert.match(payment.textContent, /Record payment/);
+        assert.equal(payment.querySelector("select").value, "r");
+        assert.equal(payment.querySelector('input[type="number"]').value, item.balance.toFixed(2));
+      } else if (item.proof) assert.match(modal.textContent, /Payment proof is awaiting review/);
+    } finally { await h.close(); }
+  }
+});
+
+test("view-only transaction details do not offer payment collection", async () => {
+  for (const role of ["admin", "cashier"]) {
+    const db = dashboardDatabase({ staff_users: [{ id: "staff", role, is_active: true }], role_permissions: [{ role: "cashier", permissions: ["transactions"] }],
+      transactions: [{ transaction_id: "t", reservation_id: "r", total_amount: 1000, paid_amount: 0, balance: 1000, status: "unpaid", updated_at: new Date().toISOString() }],
+      reservations: [{ reservation_id: "r", reference_number: "MV-READONLY", status: "pending" }] });
+    const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } } });
+    try {
+      await act(async () => h.container.querySelector("tbody tr").click());
+      assert.equal(button(document.querySelector('[aria-label="Transaction Details"]'), "Settle payment"), undefined);
+    } finally { await h.close(); }
+  }
+});
+
 test("printed receipts use guest names, payment purpose and method names while preserving historical amounts", async () => {
   const originalPrint = window.print;
   for (const walkIn of [false, true]) {
@@ -221,6 +268,11 @@ test("printed receipts use guest names, payment purpose and method names while p
       assert.match(receipt.textContent, /Booking Total at Payment: ₱200\.00/);
       assert.match(receipt.textContent, /Balance After Payment: ₱150\.00/);
       await click(button(receipt, "Print receipt")); assert.match(printed, /RCPT-TEST/);
+      await click(button(receipt, "Close")); printed = "";
+      await click(h.container.querySelector('button[aria-haspopup="menu"]'));
+      await click(button(document.querySelector('[role="menu"]'), "Print"));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 200)); });
+      assert.match(printed, /RCPT-TEST/, "The ledger Print action prints the branded document automatically");
       assert.ok(db.calls.some(call => call.table === "payment_methods"));
     } finally { await h.close(); window.print = originalPrint; }
   }
@@ -273,7 +325,7 @@ test("record links select the intended tab and older pending requests are not lo
   const h = await mount({ filename: "app/admin/(portal)/records/page.tsx", params: "?tab=reschedules", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } } });
   try {
     assert.match(h.container.textContent, /MV-REQUEST/); assert.ok(db.calls.some(c => c.table === "reservation_reschedules" && c.from === 1000));
-    const status = [...h.container.querySelectorAll("label")].find(l => l.textContent.startsWith("Status"))?.querySelector("select"); await value(status, "Pending"); assert.equal(h.container.querySelectorAll("tbody tr").length, 1);
+    const status = [...h.container.querySelectorAll("label")].find(l => l.textContent.startsWith("Status"))?.querySelector("select"); await value(status, "Legacy pending"); assert.equal(h.container.querySelectorAll("tbody tr").length, 1);
     await h.navigate("?tab=ocular"); assert.match(h.container.querySelector("tbody").textContent, /MV-VISIT/);
   } finally { await h.close(); }
 });

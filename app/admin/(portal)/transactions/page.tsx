@@ -470,8 +470,20 @@ export default function AdminTransactionsPage() {
     {label:"Amount Paid",value:formatCurrency(Number(sale.amount))},{label:"Collection Total",value:formatCurrency(Number(sale.amount))},{label:"Balance After Payment",value:formatCurrency(0)}]});
 
   const pendingPaymentFor = (transaction: TransactionRow) => payments.find(payment => payment.reservation_id === transaction.reservation_id && payment.status === "pending");
-  const canSettleTransaction = (transaction: TransactionRow) => canRecordPayments && Number(transaction.balance ?? 0) > 0
+  const canSettleTransaction = (transaction: TransactionRow) => canRecordPayments && Number.isFinite(Number(transaction.balance)) && Number(transaction.balance ?? 0) > 0
     && ["pending", "confirmed"].includes(transaction.reservation_status ?? "") && !pendingPaymentFor(transaction);
+  const viewedTransaction = transactions.find(transaction => transaction.transaction_id === viewDetails?.transactionId);
+  const canSettleViewedTransaction = Boolean(viewedTransaction && !isLoading && !fetchError && canSettleTransaction(viewedTransaction));
+  const settlementMessage = !viewedTransaction ? "" : isLoading || fetchError ? "Refresh the ledger before recording a payment."
+    : Number(viewedTransaction.balance ?? 0) <= 0 ? "No outstanding balance to settle."
+    : pendingPaymentFor(viewedTransaction) ? "Payment proof is awaiting review. Resolve it before collecting another payment."
+    : !["pending", "confirmed"].includes(viewedTransaction.reservation_status ?? "") ? "This booking or reservation is no longer open for payment collection."
+    : "Record payment against this reservation's outstanding balance.";
+  const settleViewedTransaction = () => {
+    if (!canSettleViewedTransaction || !viewedTransaction) return;
+    setViewDetails(null);
+    setPaymentReservationId(viewedTransaction.reservation_id);
+  };
   const paymentActionLabel = (row: AdminTableRow) => {
     const transaction = transactions.find(item => item.transaction_id === row.id);
     if (!transaction) return "No balance due";
@@ -506,6 +518,7 @@ export default function AdminTransactionsPage() {
 
     setViewDetails({
       title: "Transaction Details",
+      transactionId: row.id,
       fields: [
         { label: "Reservation Ref", value: row.reference ?? "-" },
         { label: "Booking Type", value: row.bookingType ?? "-" },
@@ -1035,7 +1048,9 @@ export default function AdminTransactionsPage() {
         }}
       />
 
-      {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)} /> : null}
+      {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)}
+        onSettlePayment={viewedTransaction && canRecordPayments ? settleViewedTransaction : undefined}
+        canSettlePayment={canSettleViewedTransaction} settlementMessage={settlementMessage} /> : null}
 
       {showPublicPayment&&<PublicAccessPaymentDialog methods={paymentMethods} onClose={()=>setShowPublicPayment(false)} onSaved={(sale,message)=>{
         setShowPublicPayment(false);setPaymentMessage(`${message} Receipt ${sale.receipt_number}.`);setCollectionSource("public");setDatePreset("today");setRefreshRevision(n=>n+1);openPublicReceipt(sale);

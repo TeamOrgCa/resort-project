@@ -55,8 +55,8 @@ function ResetPasswordContent() {
   const handleReset = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!password || password.length < 6 || password.length > 128) {
-      setError("Password must be between 6 and 128 characters.");
+    if (!password || password.length < 8 || password.length > 128) {
+      setError("Password must be between 8 and 128 characters.");
       return;
     }
 
@@ -130,10 +130,15 @@ function ResetPasswordContent() {
                   id="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  aria-describedby="password-requirements"
                   required
                   className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="••••••••"
                 />
+                <p id="password-requirements" className="mt-2 text-sm text-neutral/70">Use 8 to 128 characters.</p>
               </div>
 
               <div>
@@ -145,6 +150,9 @@ function ResetPasswordContent() {
                   id="confirmPassword"
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
                   required
                   className="w-full px-4 py-3 border border-neutral/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="••••••••"

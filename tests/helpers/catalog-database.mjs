@@ -21,6 +21,7 @@ export function catalogDatabase(seed = {}) {
         ilike(key, pattern) { const term = pattern.slice(1, -1).replace(/\\(.)/g, "$1").toLowerCase(); filters.push((row) => String(row[key] ?? "").toLowerCase().includes(term)); return query; },
         order(key, options) { orders.push({ key, ascending: options?.ascending ?? true }); return query; },
         range(from, to) { range = [from, to]; return query; },
+        overrideTypes() { return query; },
         insert(record) { operation = "insert"; values = record; return query; },
         update(record) { operation = "update"; values = record; return query; },
         async maybeSingle() { const result = await execute(); return { ...result, data: result.data?.[0] ?? null }; },

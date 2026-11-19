@@ -103,6 +103,7 @@ test("guest booking respects the configured date boundary and ocular scheduling 
   "next/navigation":{useRouter:()=>({push:()=>{}})},"@/components/Navigation":()=>null,"@/components/Footer":()=>null,
   "@/lib/booking/use-package-rates":{usePackageRates:()=>({schedule:{version:1,rates:legacyRates},error:null})},
   "@/lib/stores/booking-store":{useBookingStore:selector=>selector({setBookingWindow:()=>{},setBookingDraft:()=>{},resetBookingDraft:()=>{}})},
+  "@/lib/supabase/client":{createClient:()=>({auth:{getUser:async()=>({data:{user:{id:"guest"}},error:null})},from:()=>{const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:null,error:null})};return q;}})},
  }).default;
  const c=document.createElement("div");document.body.append(c);const root=createRoot(c);
  const button=(scope,text)=>[...scope.querySelectorAll("button")].find(el=>el.textContent.trim()===text);

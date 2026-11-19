@@ -20,7 +20,7 @@ async function confirmMaintenanceIfOpen() {
   const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Confirm maintenance block");
   if (confirm) await click(confirm);
 }
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, paidReview = false, calendarProps = {}, emptyCalendar = false } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, ocularGuestDetails = true, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, paidReview = false, calendarProps = {}, emptyCalendar = false } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
@@ -36,7 +36,10 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
   if (arrived) data.reservations[0].checked_in_at = new Date().toISOString();
   if (fullyPaid) { data.payments = []; data.reservation_reschedules = []; data.transactions[0].balance = 0; }
   if (paidReview) data.transactions[1].paid_amount = 600;
-  if (includeOcular) data.ocular_visits = [{ visit_id:"ocular",reference_number:"MV-OCULAR",guest_id:"guest",scheduled_date:day,status:ocularStatus }];
+  if (includeOcular) {
+    data.ocular_visits = [{ visit_id:"ocular",reference_number:"MV-OCULAR",guest_id:"ocular-guest",scheduled_date:day,status:ocularStatus }];
+    if (ocularGuestDetails) data.guests.push({ id: "ocular-guest", first_name: "Ana", last_name: "Santos", email: "ana@example.com", phone_number: "09171234567" });
+  }
   if (mixedEntries) {
     for (const [key, status, attendance] of [
       ["awaiting", "pending", {}], ["checked-in", "confirmed", { checked_in_at: day + "T08:00:00+08:00" }],
@@ -506,6 +509,29 @@ test("checked-in reservations expose checkout only after full settlement and com
       assert.match(dialog.textContent, /Checked out:.*Stay completed/); assert.equal(button(dialog, "Check out and complete stay"), undefined);
     } finally { await h.close(); }
   }
+});
+
+test("ocular calendar entries, previews and details show the correct guest's name and contact information", async () => {
+  const h = await mount({ includeOcular: true, ocularStatus: "confirmed", emptyCalendar: true });
+  try {
+    const entry = agenda().querySelector('[data-calendar-event="ocular"]');
+    assert.match(entry.textContent, /Ana Santos/);
+    const desktop = h.c.querySelector('[aria-label="Desktop reservation calendar"] [data-calendar-event="ocular"]').parentElement;
+    assert.match(desktop.textContent, /Ana Santos/); assert.match(desktop.textContent, /ana@example.com/); assert.match(desktop.textContent, /09171234567/);
+    await click(entry);
+    const details = document.querySelector('[aria-label="Ocular guest details"]');
+    assert.match(details.textContent, /Ana Santos/); assert.match(details.textContent, /ana@example.com/); assert.match(details.textContent, /09171234567/);
+    assert.doesNotMatch(details.textContent, /Test Guest|guest@example.com/);
+  } finally { await h.close(); }
+});
+
+test("ocular visit details remain accessible when the guest profile is unavailable", async () => {
+  const h = await mount({ includeOcular: true, ocularGuestDetails: false });
+  try {
+    await click(agenda().querySelector('[data-calendar-event="ocular"]'));
+    assert.match(document.querySelector('[aria-label="Ocular guest details"]').textContent, /Guest details unavailable/);
+    assert.match(document.querySelector('[role="dialog"]').textContent, /MV-OCULAR/);
+  } finally { await h.close(); }
 });
 
 test("ocular visits have no approval controls and authorized staff can record attendance", async () => {

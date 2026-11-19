@@ -9,12 +9,14 @@ test("permission updates reject incompatible refund roles and the retired cashie
     "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => ({ upsert: async rows => { writes.push(rows); return { error: null }; } }) }) },
   });
   const put = roles => PUT(new Request("http://localhost", { method: "PUT", body: JSON.stringify({ roles }) }));
-  for (const [role, permission] of [["cashier", "refund_approval"], ["cashier", "refund_verify"], ["staff", "refund_payout"], ["cashier", "refund_review"]]) {
+  for (const [role, permission] of [["cashier", "refund_approval"], ["cashier", "refund_verify"], ["staff", "refund_payout"], ["cashier", "refund_review"], ["cashier", "feedback_moderation"]]) {
     assert.equal((await put([{ role, permissions: [permission] }])).status, 400);
   }
   assert.equal(writes.length, 0);
   assert.equal((await put([{ role: "staff", permissions: ["transactions", "refund_approval", "refund_verify"] }, { role: "cashier", permissions: ["transactions", "refund_payout"] }])).status, 200);
   assert.equal(writes.length, 1);
+  assert.equal((await put([{ role: "staff", permissions: ["analytics", "feedback_moderation"] }])).status, 200);
+  assert.deepEqual(writes[1][0].permissions, ["analytics", "feedback_moderation"]);
 });
 
 test("refund responses expose actions only to their required role even if every grant is supplied", async () => {

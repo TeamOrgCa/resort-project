@@ -11,7 +11,7 @@ function multipart(file = photo(), details = payload) {
   return new Request("http://localhost/api/reviews/create", { method: "POST", body: form });
 }
 function harness({ authenticated = true, guest = true, active = true, policy = { allowed: true }, policyError = null, insertError = null, uploadError = null, completedStay = true, ownReservation = true, linkedStatus = "completed", reservationError = null, notificationFails = false } = {}) {
-  const uploads = [], removals = [], inserts = [];
+  const uploads = [], removals = [], inserts = [], notifications = [];
   let adminCalls = 0;
   const storage = {
     upload: async (path, bytes, options) => { uploads.push({ path, size: bytes.length, options }); return { error: uploadError }; },
@@ -43,12 +43,13 @@ function harness({ authenticated = true, guest = true, active = true, policy = {
   const { POST } = loadTsModule("app/api/reviews/create/route.ts", {
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/supabase/admin": { createAdminClient: () => { adminCalls++; return { storage: { from: bucket => { assert.equal(bucket, "review-images"); return storage; } } }; } },
-    "@/lib/notifications": { createNotifications: async () => {
+    "@/lib/notifications": { createNotifications: async options => {
+      notifications.push(options);
       if (notificationFails) throw new Error("Notification unavailable");
       return { error: null };
     }, NOTIFICATION_AUDIENCES: { review: [] } },
   });
-  return { post: POST, uploads, removals, inserts, adminCalls: () => adminCalls };
+  return { post: POST, uploads, removals, inserts, notifications, adminCalls: () => adminCalls };
 }
 
 test("guest photo uploads use generated owned paths, validated content and the review's guest", async () => {
@@ -58,7 +59,12 @@ test("guest photo uploads use generated owned paths, validated content and the r
   assert.equal(h.uploads[0].options.contentType, "image/png"); assert.equal(h.uploads[0].options.upsert, false);
   assert.equal(h.inserts[0].image_path, h.uploads[0].path); assert.equal(h.inserts[0].guest_id, guestId);
   assert.equal(h.inserts[0].is_approved, false);
-  assert.match((await response.json()).message, /administrator approval/);
+  assert.match((await response.json()).message, /staff approval/);
+  assert.match(h.notifications[0].message, /Your review.*awaiting staff approval/);
+  assert.equal(h.notifications[0].staffTitle, "Review awaiting approval");
+  assert.match(h.notifications[0].staffMessage, /A guest submitted.*with a photo/);
+  assert.doesNotMatch(h.notifications[0].staffMessage, /Your review/);
+  assert.deepEqual(h.notifications[0].staffRequiredPermissions, ["analytics", "feedback_moderation"]);
   assert.equal(h.removals.length, 0);
 });
 

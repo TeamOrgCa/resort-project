@@ -15,20 +15,23 @@ test("advance window uses Philippine calendar dates, includes midnight and handl
  await assert.rejects(()=>loadAdvanceBookingWindow(client(null,{message:"Offline"})),/Unable to load/);
 });
 
-test("review moderation API is admin-only, requires a valid decision snapshot, and preserves concurrency errors",async()=>{
- const calls=[];let admin=true,error=null;
+test("review moderation API requires Analytics and moderation access, validates snapshots and preserves concurrency errors",async()=>{
+ const calls=[];let active=true,analytics=true,moderation=true,error=null;
  const {POST}=loadTsModule("app/api/admin/analytics/feedback/moderate/route.ts",{
-  "@/lib/server/admin-audit":{requireAdminStaff:async()=>admin?{supabase:{rpc:async(name,args)=>{calls.push({name,args});return{data:{review_id:id},error};}}}:null},
+  "@/lib/server/admin-audit":{requireActiveStaff:async()=>active?{staffUser:{role:"staff"},supabase:{rpc:async(name,args)=>{calls.push({name,args});return{data:{review_id:id},error};}}}:null},
+  "@/lib/server/role-permissions":{staffHasPermission:async(_db,_role,permission)=>permission==="analytics"?analytics:moderation},
  });
  const body={reviewId:id,approve:true,reason:"Photo and text reviewed",expectedUpdatedAt:"2026-11-18T01:00:00Z"};
  const post=overrides=>POST(new Request("http://localhost",{method:"POST",body:JSON.stringify({...body,...overrides})}));
- admin=false;assert.equal((await post({})).status,403);assert.equal(calls.length,0);admin=true;
+ active=false;assert.equal((await post({})).status,403);active=true;
+ analytics=false;assert.equal((await post({})).status,403);analytics=true;
+ moderation=false;assert.equal((await post({})).status,403);moderation=true;assert.equal(calls.length,0);
  for(const invalid of[{approve:"true"},{reason:" "},{expectedUpdatedAt:null},{reviewId:"bad"}])assert.equal((await post(invalid)).status,400);
  assert.equal((await post({})).status,200);assert.equal(calls[0].name,"moderate_guest_review");assert.equal(calls[0].args.p_approve,true);
  for(const [code,status]of[["40001",409],["42501",403],["P0002",404],["PGRST202",503]]){error={code,message:"Review changed"};assert.equal((await post({approve:false})).status,status);}
  const {isAdminReadOnlyRequest,apiPermission}=loadTsModule("lib/auth/role-access.ts");
  assert.equal(isAdminReadOnlyRequest("admin","/api/admin/analytics/feedback/moderate","POST"),false);
- assert.equal(apiPermission("/api/admin/analytics/feedback/moderate","POST"),"analytics");
+ assert.equal(apiPermission("/api/admin/analytics/feedback/moderate","POST"),"feedback_moderation");
  assert.equal(isAdminReadOnlyRequest("admin","/api/admin/reservations/id","PATCH"),true);
 });
 

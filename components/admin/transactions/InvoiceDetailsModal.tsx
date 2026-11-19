@@ -1,6 +1,9 @@
 "use client";
 
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
+import { createPortal } from "react-dom";
+import { usePortalTarget } from "@/lib/use-portal-target";
+import InvoiceDocument from "./InvoiceDocument";
 
 import type { InvoiceViewDetails } from "./types";
 import { formatManilaDate, formatManilaDateTime } from "@/lib/booking/manila-date";
@@ -36,11 +39,17 @@ const toTitleCase = (value: string) =>
     .join(" ");
 
 export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceDetails, onClose }: InvoiceDetailsModalProps) {
+  const portalTarget = usePortalTarget();
+  const canPrint = Boolean(portalTarget && !isLoading && !error && invoiceDetails);
   if (!isOpen) {
     return null;
   }
 
   return (
+    <>
+    {canPrint && invoiceDetails && portalTarget && createPortal(
+      <div id="billing-invoice-print" aria-hidden="true"><InvoiceDocument details={invoiceDetails} /></div>, portalTarget,
+    )}
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true">
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral/10 pb-5">
@@ -48,6 +57,10 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
             <h3 className="text-lg font-semibold text-neutral">Invoice Details</h3>
             <p className="mt-1 text-sm text-neutral/70">Complete invoice, reservation, payment, and billing summary.</p>
           </div>
+          <div className="flex flex-wrap gap-2">
+          <button type="button" className="admin-button-primary" disabled={!canPrint} onClick={() => { if (canPrint) window.print(); }}>
+            Print invoice
+          </button>
           <button
             type="button"
             onClick={onClose}
@@ -55,6 +68,7 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
           >
             Close
           </button>
+          </div>
         </div>
 
         {isLoading && <AdminFormSkeleton label="Loading invoice details..." fields={6} />}
@@ -198,5 +212,6 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
         ) : null}
       </div>
     </div>
+    </>
   );
 }

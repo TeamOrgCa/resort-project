@@ -19,6 +19,7 @@ const fields: Record<string, string> = {
   reason: "Reason", changenote: "Reason for revision", guestcountchanged: "Guest count changed", aftercheckin: "Changed during a checked-in stay",
   fundsreceived: "Funds received and acknowledged", receiptnumber: "Receipt number", previousversion: "Previous version", newversion: "New version",
   payoutverificationnotes: "Transfer verification notes", oldstatus: "Previous status", newstatus: "New status", permissions: "Allowed actions",
+  maxquantity: "Maximum quantity per booking",
 };
 const modules: Record<string, string> = {
   public_access_sale:"Public access", reservation: "Reservations", reservations: "Reservations", reservation_reschedule: "Rescheduling", reservation_reschedules: "Rescheduling",
@@ -57,7 +58,7 @@ export function auditAction(action: string) {
 export function auditSummary(details: Record<string, unknown> | null, labels: Map<string, string>, entityType: string | null): string {
   if (!details || !Object.keys(details).length) return "No additional details were saved for this action.";
   const lines: string[] = [];
-  const label = (key: string) => mapped(fields,canonical(key)) ?? auditTitle(key);
+  const label = (key: string) => entityType === "services" && canonical(key) === "name" ? "Service name" : mapped(fields,canonical(key)) ?? auditTitle(key);
   const format = (key: string, value: unknown): string => {
     if (value === null || value === undefined || value === "") return "Not recorded";
     if (typeof value === "boolean") return canonical(key) === "isactive" ? value ? "Active" : "Deactivated" : value ? "Yes" : "No";

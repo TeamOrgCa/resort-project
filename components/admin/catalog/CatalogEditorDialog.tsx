@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
+import { validateCatalogRecord } from "@/lib/catalog/validation";
 import { isGcashMethod } from "@/lib/booking/gcash-receipt";
-import { catalogResources, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource } from "@/lib/catalog/catalog";
+import { catalogResources, catalogRecordName, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource } from "@/lib/catalog/catalog";
 import CatalogDialog from "./CatalogDialog";
 import ContentImageEditor from "@/components/admin/ContentImageEditor";
 import ServicePhoto from "@/components/booking/ServicePhoto";
@@ -23,18 +25,48 @@ const inputClass = "mt-1.5 w-full rounded-xl border border-neutral/20 bg-white p
 
 export default function CatalogEditorDialog({ resource, record, references, referencesError, busy, error, onClose, onSave }: Props) {
   const definition: CatalogDefinition = catalogResources[resource];
-  const [draft, setDraft] = useState<CatalogRecord>(() => Object.fromEntries(definition.fields.map((field) => [field.key, record?.[field.key] ?? field.defaultValue ?? ""])));
+  const [initialDraft] = useState<CatalogRecord>(() => Object.fromEntries(definition.fields.map((field) => [field.key, record?.[field.key] ?? field.defaultValue ?? ""])));
+  const [draft, setDraft] = useState<CatalogRecord>(initialDraft);
+  const { confirm, confirmation } = useActionConfirmation();
+  const deciding = useRef(false);
+  const [confirming, setConfirming] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const blocked = busy || uploadingImage;
+  const blocked = busy || uploadingImage || confirming;
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const dirty = Boolean(qrFile || fileError) || definition.fields.some(field => String(draft[field.key] ?? "") !== String(initialDraft[field.key] ?? ""));
   const needsReferences = resource === "unit_rates" || resource === "payment_accounts";
   const selectedMethod = references.paymentMethods.find(method => method.payment_method_id === draft.payment_method_id);
   const qrRequired = !selectedMethod || isGcashMethod({ name: selectedMethod.name, type: selectedMethod.type ?? "" });
   const setField = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
 
-  return <CatalogDialog title={`${record ? "Edit" : "Add"} ${definition.singular}`} description={record ? "Update this record, then save your changes." : "Fill in the details below. Fields marked * are required."} busy={blocked} onClose={onClose}>
-    <form onSubmit={(event) => { event.preventDefault(); if (!blocked && !fileError) void onSave(draft, qrFile); }}>
+  async function requestClose() {
+    if (blocked || deciding.current) return;
+    if (!dirty) { onClose(); return; }
+    deciding.current = true; setConfirming(true);
+    try {
+      if (await confirm({ title: "Discard unsaved changes?", message: "Your catalog changes have not been saved. Discard them and close this editor?", confirmText: "Discard changes" })) onClose();
+    } finally { deciding.current = false; setConfirming(false); }
+  }
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (blocked || deciding.current || fileError || (needsReferences && referencesError)) return;
+    let normalized: CatalogRecord;
+    try { normalized = validateCatalogRecord(resource, draft, record ?? undefined); }
+    catch (cause) { setValidationError(cause instanceof Error ? cause.message : "Check the catalog details."); return; }
+    deciding.current = true; setConfirming(true); setValidationError(null);
+    try {
+      if (!await confirm({ title: record ? "Save catalog changes?" : `Add ${definition.singular}?`,
+        message: `Save ${catalogRecordName(resource, normalized, references)} to the business catalog?${record && !isCatalogActive(record) ? " This item will remain archived." : " These details will apply to the active catalog."}`,
+        confirmText: record ? "Confirm save" : "Confirm add" })) return;
+      await onSave(normalized, qrFile);
+    } finally { deciding.current = false; setConfirming(false); }
+  }
+
+  return <CatalogDialog title={`${record ? "Edit" : "Add"} ${definition.singular}`} description={record ? "Update this record, then save your changes." : "Fill in the details below. Fields marked * are required."} busy={busy || uploadingImage} onClose={() => void requestClose()} onBackdrop={() => { if (dirty) void requestClose(); }}>
+    <form onSubmit={save}>
       {record && !isCatalogActive(record) && <p className="mb-5 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">This record is archived. Saving edits keeps it archived; use Restore to make it active again.</p>}
       {resource === "guest_rates" && <p className="mb-5 rounded-xl bg-base px-4 py-3 text-sm text-neutral/70">Only one guest rate can be active. Adding a rate makes it active and archives the previous rate.</p>}
       {needsReferences && referencesError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{referencesError} Close this dialog and refresh the catalog to try again.</p>}
@@ -80,11 +112,12 @@ export default function CatalogEditorDialog({ resource, record, references, refe
           {fileError && <p role="alert" className="mt-2 text-sm text-red-700">{fileError}</p>}
         </div>}
       </fieldset>
-      {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {(validationError || error) && <p role="alert" className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{validationError || error}</p>}
       <div className="mt-6 flex justify-end gap-3 border-t border-neutral/10 pt-5">
-        <button type="button" onClick={onClose} disabled={blocked} className="rounded-xl border border-neutral/20 px-5 py-2.5 text-sm font-medium hover:bg-base disabled:opacity-40">Cancel</button>
+        <button type="button" onClick={() => void requestClose()} disabled={blocked} className="rounded-xl border border-neutral/20 px-5 py-2.5 text-sm font-medium hover:bg-base disabled:opacity-40">Cancel</button>
         <button type="submit" disabled={blocked || Boolean(fileError) || (needsReferences && Boolean(referencesError))} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">{uploadingImage ? "Uploading photo..." : busy ? "Saving..." : record ? "Save changes" : `Add ${definition.singular}`}</button>
       </div>
     </form>
+    {confirmation}
   </CatalogDialog>;
 }

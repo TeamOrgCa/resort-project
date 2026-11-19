@@ -33,7 +33,13 @@ test("admin can edit a slot, save it, and restore both prices and original times
       start.dispatchEvent(new window.Event("input", { bubbles: true }));
     });
     const submit = async () => act(async () => container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    const confirmSave = async () => act(async () => [...document.querySelector('[role="alertdialog"]').querySelectorAll("button")].find(button => button.textContent === "Confirm save").click());
     await submit();
+    assert.equal(writes.length, 0);
+    await act(async () => [...document.querySelector('[role="alertdialog"]').querySelectorAll("button")].find(button => button.textContent === "Keep editing").click());
+    assert.equal(start.value, "11:00");
+    await submit();
+    await confirmSave();
     assert.equal(writes[0].times.day.start, "11:00");
     assert.equal(writes[0].expectedVersion, 7);
     const restore = [...container.querySelectorAll("button")].find(button => button.textContent === "Restore defaults");
@@ -43,6 +49,8 @@ test("admin can edit a slot, save it, and restore both prices and original times
     assert.equal(field("Night swimming end time").value, "06:00");
     assert.equal(field("weekday Day swimming package price").value, "7500");
     await submit();
+    assert.equal(writes.length, 1);
+    await confirmSave();
     assert.deepEqual(writes[1].times, DEFAULT_PACKAGE_TIMES);
     assert.deepEqual(writes[1].rates, legacyRates);
     assert.equal(writes[1].expectedVersion, 9);

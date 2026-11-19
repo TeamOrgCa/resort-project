@@ -1,6 +1,9 @@
 "use client";
 
 import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
+import FormErrorToast from "@/components/ui/FormErrorToast";
+import { createClient } from "@/lib/supabase/client";
+import { customerAccountUser } from "@/lib/auth/customer-access";
 import { DEFAULT_ADVANCE_BOOKING_DAYS, maximumBookingDate, advanceBookingIssue } from "@/lib/booking/advance-window";
 import BookingGuide from "@/components/booking/BookingGuide";
 import Image from "next/image";
@@ -56,6 +59,9 @@ export default function Booking() {
   const [maxBookingDate, setMaxBookingDate] = useState(() => maximumBookingDate(DEFAULT_ADVANCE_BOOKING_DAYS));
   const [ocularSubmitting, setOcularSubmitting] = useState(false);
   const [ocularError, setOcularError] = useState<string | null>(null);
+  const [ocularAuthChecking, setOcularAuthChecking] = useState(false);
+  const ocularAuthCheckingRef = useRef(false);
+  const [ocularToast, setOcularToast] = useState<{ message: string } | null>(null);
   const [reservedWindows, setReservedWindows] = useState<ReservedWindow[]>([]);
   const [blockedDateRanges, setBlockedDateRanges] = useState<MaintenanceWindow[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
@@ -291,6 +297,7 @@ export default function Booking() {
 
   const handleOcularSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (ocularAuthCheckingRef.current || ocularSaving.current) return;
 
     if (!selectedDate || !selectedTime) {
       setOcularError("Please select both date and time for your ocular visit.");
@@ -302,7 +309,23 @@ export default function Booking() {
       return;
     }
 
-    setConfirmOcular(true);
+    ocularAuthCheckingRef.current = true;
+    setOcularAuthChecking(true);
+    try {
+      const supabase = createClient();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !await customerAccountUser(supabase, user)) {
+        setOcularToast({ message: "Please log in first to schedule an ocular visit." });
+        return;
+      }
+      setOcularToast(null);
+      setConfirmOcular(true);
+    } catch {
+      setOcularToast({ message: "Unable to verify your account. Please try again." });
+    } finally {
+      ocularAuthCheckingRef.current = false;
+      setOcularAuthChecking(false);
+    }
   };
 
   const submitOcular = async () => {
@@ -333,6 +356,10 @@ export default function Booking() {
       };
 
       if (!response.ok || !json.success) {
+        if (response.status === 401) {
+          setOcularToast({ message: "Please log in first to schedule an ocular visit." });
+          return;
+        }
         setOcularError(json.message || "Failed to schedule ocular visit.");
         setOcularSubmitting(false);
         return;
@@ -969,10 +996,10 @@ export default function Booking() {
                     <button
                       type="submit"
                       data-booking-guide="ocular-submit"
-                      disabled={!selectedDate || !selectedTime || !selectedOcularTimeAllowed || ocularSubmitting}
+                      disabled={!selectedDate || !selectedTime || !selectedOcularTimeAllowed || ocularSubmitting || ocularAuthChecking}
                       className="w-full bg-accent text-base px-6 py-4 rounded-full font-semibold hover:bg-accent/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
-                      {ocularSubmitting ? "Scheduling..." : "Schedule Visit"}
+                      {ocularSubmitting ? "Scheduling..." : ocularAuthChecking ? "Checking account..." : "Schedule Visit"}
                     </button>
 
                     <p className="text-xs text-neutral/60 text-center mt-4">
@@ -1065,6 +1092,7 @@ export default function Booking() {
       </section>
 
       <ConfirmationDialog isOpen={confirmOcular} title="Confirm ocular visit" message={`Schedule your visit on ${selectedDate ? formatManilaDate(selectedDate) : ""} at ${formatTimeSlot(selectedTime)} (Philippine time)? The available slot will be confirmed immediately.`} confirmText="Confirm schedule" isConfirming={ocularSubmitting} onConfirm={() => void submitOcular()} onCancel={() => setConfirmOcular(false)} />
+      {ocularToast && <FormErrorToast error={ocularToast} onDismiss={() => setOcularToast(null)} dismissLabel="Dismiss ocular visit notification" />}
       <Footer />
     </div>
   );

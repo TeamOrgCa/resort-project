@@ -5,6 +5,15 @@ import {dashboardDatabase} from "./helpers/dashboard-database.mjs";
 const {auditAction,auditSummary}=loadTsModule("lib/admin/audit-presentation.ts");
 const id=n=>`11111111-1111-4111-8111-${String(n).padStart(12,"0")}`;
 
+test("service changes explain the old and new name and maximum quantity without listing unchanged fields", () => {
+  const summary = auditSummary({
+    before: { name: "Extra mattress", max_quantity: 10, price: 300, description: "Foam mattress", is_active: true },
+    after: { name: "Premium mattress", max_quantity: 5, price: 300, description: "Foam mattress", is_active: true },
+  }, new Map(), "services");
+  assert.equal(summary, "Service name: Extra mattress \u2192 Premium mattress\nMaximum quantity per booking: 10 \u2192 5");
+  assert.doesNotMatch(summary, /Price|Description|Account access|max_quantity/);
+});
+
 test("reservation edits explain actual count, service and bill changes without treating omitted fields as deletions",()=>{
   const labels=new Map([[id(4),"Extra mattress"]]);
   const summary=auditSummary({before:{adult_count:20,child_count:2,special_requests:"Original request",start_datetime:"2026-11-13T00:00:00Z"},

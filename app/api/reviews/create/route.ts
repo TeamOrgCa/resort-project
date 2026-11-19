@@ -210,7 +210,10 @@ export async function POST(request: NextRequest) {
       guestId: user.id,
       staffRoles: NOTIFICATION_AUDIENCES.review,
       title: "Review submitted",
-      message: newReview.is_approved ? "Thanks for sharing your experience." : "Your review with a photo is awaiting administrator approval before publication.",
+      message: newReview.is_approved ? "Thanks for sharing your experience." : "Your review with a photo is awaiting staff approval before publication.",
+      staffTitle: newReview.is_approved ? "New guest review" : "Review awaiting approval",
+      staffMessage: newReview.is_approved ? `A guest submitted a published review: "${newReview.title}".` : `A guest submitted "${newReview.title}" with a photo. Review the text and attachment before approving or rejecting publication.`,
+      staffRequiredPermissions: ["analytics", "feedback_moderation"],
       entityType: "review",
       entityId: newReview.review_id,
       guestActionUrl: "/reviews",
@@ -223,7 +226,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        message: newReview.is_approved ? "Review submitted successfully!" : "Review submitted. Your review and photo will be published after administrator approval.",
+        message: newReview.is_approved ? "Review submitted successfully!" : "Review submitted. Your review and photo will be published after staff approval.",
         review: newReview,
       },
       { status: 201 }

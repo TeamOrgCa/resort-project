@@ -1,7 +1,7 @@
 import type { AdminNavItem } from "@/components/admin/types";
 import type { StaffRole } from "./staff-auth";
 
-export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_approval", "refund_payout", "refund_verify", "records", "reports", "analytics", "feedback_archive", "audit", "configuration", "catalog", "users"] as const;
+export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_approval", "refund_payout", "refund_verify", "records", "reports", "analytics", "feedback_archive", "feedback_moderation", "audit", "configuration", "catalog", "users"] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_LABELS: Record<Permission, string> = {
   dashboard: "Dashboard", reservations: "View reservations", create_reservation: "Add reservation",
@@ -12,6 +12,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   refund_approval: "Approve or reject refunds (manager only)", refund_payout: "Record refund payout (cashier only)", refund_verify: "Verify refund payout (manager only)",
   records: "View records", reports: "View and export reports", analytics: "View analytics",
   feedback_archive: "Archive and restore guest feedback (also requires Analytics)",
+  feedback_moderation: "Approve or reject reviews with attachments (also requires Analytics)",
   audit: "View audit log", configuration: "Resort configuration", catalog: "Manage catalog",
   users: "Manage staff and guest accounts (admin only)",
 };
@@ -21,6 +22,7 @@ export function isPermissionAssignable(role: StaffRole, permission: Permission):
   if (["users", "configuration", "catalog"].includes(permission)) return false;
   if (["refund_approval", "refund_verify"].includes(permission) && role !== "staff") return false;
   if (permission === "refund_payout" && role !== "cashier") return false;
+  if (permission === "feedback_moderation" && role !== "staff") return false;
   return PERMISSIONS.includes(permission);
 }
 
@@ -29,7 +31,7 @@ export function hasPermission(role: StaffRole, granted: readonly string[], permi
   return isPermissionAssignable(role, permission) && granted.includes(permission);
 }
 
-export const ADMIN_PERMISSIONS: readonly Permission[] = ["dashboard", "reservations", "transactions", "records", "reports", "analytics", "audit", "users", "configuration", "catalog"];
+export const ADMIN_PERMISSIONS: readonly Permission[] = ["dashboard", "reservations", "transactions", "records", "reports", "analytics", "feedback_moderation", "audit", "users", "configuration", "catalog"];
 
 export function isAdminReadOnlyRequest(role: StaffRole, path: string, method: string): boolean {
   if (role !== "admin" || ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return false;
@@ -69,7 +71,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/refunds")) return "transactions";
   if (path === "/api/admin/transactions/guest-report") return "reports";
   if (path.startsWith("/api/admin/transactions/")) return "transactions";
-  if (path === "/api/admin/analytics/feedback/moderate") return "analytics";
+  if (path === "/api/admin/analytics/feedback/moderate") return "feedback_moderation";
   if (path.startsWith("/api/admin/analytics/feedback") && method === "PATCH") return "feedback_archive";
   if (path.startsWith("/api/admin/analytics")) return "analytics";
   if (path.startsWith("/api/admin/reports")) return "reports";

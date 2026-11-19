@@ -8,9 +8,11 @@ import { CatalogValidationError, validateCatalogRecord } from "@/lib/catalog/val
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PAYMENT_QR_BUCKET, PaymentQrStorageError, readCatalogSave, uploadPaymentQr } from "@/lib/catalog/payment-qr";
 import { isGcashMethod } from "@/lib/booking/gcash-receipt";
+import { catalogDuplicateMessage, isCatalogDuplicate } from "@/lib/catalog/duplicates";
 
 const invalid = (message: string, status = 400) => NextResponse.json({ success: false, message }, { status });
-const failure = (error: unknown) => error instanceof CatalogValidationError ? invalid(error.message) : invalid(error instanceof PaymentQrStorageError ? error.message : "Unable to complete this catalog request. Please try again.", 500);
+class CatalogDuplicateError extends CatalogValidationError {}
+const failure = (error: unknown) => error instanceof CatalogDuplicateError ? invalid(error.message, 409) : error instanceof CatalogValidationError ? invalid(error.message) : invalid(error instanceof PaymentQrStorageError ? error.message : "Unable to complete this catalog request. Please try again.", 500);
 const databaseFailure = (error: { code?: string; message: string }) => {
   if (error.code === "23505") return invalid("A matching record already exists. Update it instead.", 409);
   if (error.code === "23503") return invalid("The linked record is no longer available. Refresh and try again.", 409);
@@ -40,6 +42,17 @@ async function validatePaymentAccount(client: SupabaseClient, record: CatalogRec
   if (!method) throw new CatalogValidationError("Select a valid payment method.");
   if (isGcashMethod(method) && !hasQr) throw new CatalogValidationError("A GCash payment QR image is required. Choose an image before saving or restoring.");
   if (!hasQr && !String(record.account_number ?? "").trim()) throw new CatalogValidationError("Enter the resort receiving account number or upload a payment QR image.");
+}
+
+async function validateDuplicate(client: SupabaseClient, resource: CatalogResource, record: CatalogRecord, excludeId?: string) {
+  const message = catalogDuplicateMessage(resource);
+  if (!message) return;
+  const id = catalogResources[resource].id;
+  const columns = [id, ...(resource === "ocular_time_slots" ? ["start_time", "end_time"] : ["name"])].join(",");
+  // Include archived records and all pages so hidden items cannot be duplicated.
+  const rows = await fetchAllPages<CatalogRecord>((from, to) => client.from(resource)
+    .select(columns).order(id).range(from, to).overrideTypes<CatalogRecord[], { merge: false }>());
+  if (rows.some(row => row[id] !== excludeId && isCatalogDuplicate(resource, record, row))) throw new CatalogDuplicateError(message);
 }
 
 export async function GET(request: Request) {
@@ -100,6 +113,7 @@ export async function POST(request: Request) {
     const definition = catalogResources[resource];
     const record = validateCatalogRecord(resource, body.record);
     const client = createAdminClient();
+    await validateDuplicate(client, resource, record);
     await validateReference(client, resource, record);
     if (resource === "payment_accounts") await validatePaymentAccount(client, record, Boolean(file));
     let qrPath: string | null = null;
@@ -142,6 +156,7 @@ export async function PATCH(request: Request) {
       update = validateCatalogRecord(resource, body.record, existing.data as CatalogRecord);
       await validateReference(client, resource, update, existing.data as CatalogRecord);
     }
+    await validateDuplicate(client, resource, { ...existing.data, ...update }, body.id);
     if (resource === "payment_accounts") await validatePaymentAccount(client, { ...existing.data, ...update }, Boolean(existing.data.qr_image || file));
     let qrPath: string | null = null;
     if (resource === "payment_accounts" && file) {
@@ -153,7 +168,10 @@ export async function PATCH(request: Request) {
       if (qrPath) await client.storage.from(PAYMENT_QR_BUCKET).remove([qrPath]);
       return error ? databaseFailure(error) : invalid("This catalog record no longer exists.", 404);
     }
-    await createAuditLog(staff, { action: `${body.action === "restore" ? "Restored" : "Updated"} ${resource} record`, entityType: resource, entityId: body.id });
+    await createAuditLog(staff, {
+      action: `${body.action === "restore" ? "Restored" : "Updated"} ${resource} record`, entityType: resource, entityId: body.id,
+      details: { before: existing.data, after: data },
+    });
     return NextResponse.json({ success: true, record: data });
   } catch (error) { return failure(error); }
 }

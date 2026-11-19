@@ -3,43 +3,50 @@
 import type { ViewDetailsState } from "./types";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useSiteContent, contentText } from "@/components/content/SiteContent";
 import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
+import ReceiptDocument from "./ReceiptDocument";
 
 interface KeyValueDetailsModalProps {
   details: ViewDetailsState;
   onClose: () => void;
+  onSettlePayment?: () => void;
+  canSettlePayment?: boolean;
+  settlementMessage?: string;
 }
 const receiptFields = new Set(["Receipt No.", "Issued At", "Guest Name", "Billed To", "Reservation Ref", "Payment for", "Payment Method", "Payment Ref", "Paid At", "Amount Paid", "Booking Total at Payment", "Transaction Total at Time", "Balance After Payment", "Contact No.", "Collection Ref", "Access Type", "Collection Total"]);
 
-export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetailsModalProps) {
+export default function KeyValueDetailsModal({ details, onClose, onSettlePayment, canSettlePayment = false, settlementMessage }: KeyValueDetailsModalProps) {
   const readOnly = useAdminReadOnly();
-  const content = useSiteContent();
   const isReceipt = details.kind === "receipt";
   const fields = isReceipt ? details.fields.filter(field => receiptFields.has(field.label)).map(field => ({ ...field,
     label: field.label === "Billed To" ? "Guest Name" : field.label === "Transaction Total at Time" ? "Booking Total at Payment" : field.label,
   })) : details.fields;
   useEffect(() => {
     if (readOnly || !isReceipt || !details.printOnOpen) return;
-    const timer = window.setTimeout(() => window.print(), 150);
-    return () => window.clearTimeout(timer);
+    const logo = document.querySelector<HTMLImageElement>("#billing-receipt-print .receipt-logo img");
+    let printed = false;
+    const print = () => { if (!printed) { printed = true; window.clearTimeout(fallback); window.print(); } };
+    const fallback = window.setTimeout(print, 3000);
+    const timer = window.setTimeout(() => {
+      if (!logo || logo.complete) print();
+      else { logo.addEventListener("load", print, { once: true }); logo.addEventListener("error", print, { once: true }); }
+    }, 150);
+    return () => { printed = true; window.clearTimeout(timer); window.clearTimeout(fallback); logo?.removeEventListener("load", print); logo?.removeEventListener("error", print); };
   }, [details, isReceipt, readOnly]);
 
   const modal = (
     <div id={isReceipt ? "billing-receipt-print" : undefined} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true" aria-label={details.title}>
-      <div className="receipt-document max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
-        {isReceipt && <div className="mb-5 border-b border-neutral/20 pb-4">
-          <h2 className="text-xl font-bold">{contentText(content, "resort.name")}</h2>
-          <p className="mt-1 whitespace-pre-line text-sm">{contentText(content, "resort.address")}</p>
-          <p className="text-sm">{contentText(content, "resort.email")}</p>
-        </div>}
+      {isReceipt ? <ReceiptDocument fields={fields}>
+        {!readOnly && <button type="button" onClick={() => window.print()} className="admin-button-primary">Print receipt</button>}
+        <button type="button" onClick={onClose} className="admin-button-secondary">Close</button>
+      </ReceiptDocument> : <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral/10 pb-5">
           <div>
-            <h3 className="text-lg font-semibold text-neutral">{isReceipt ? "Payment Receipt" : details.title}</h3>
+            <h3 className="text-lg font-semibold text-neutral">{details.title}</h3>
             <p className="receipt-screen-only mt-1 text-sm text-neutral/70">Detailed record view for this billing entry.</p>
           </div>
           <div className="receipt-screen-only flex flex-wrap gap-2">
-            {isReceipt && !readOnly && <button type="button" onClick={() => window.print()} className="admin-button-primary">Print receipt</button>}
+            {onSettlePayment && !readOnly && <button type="button" disabled={!canSettlePayment} onClick={() => { if (canSettlePayment) onSettlePayment(); }} className="admin-button-primary disabled:cursor-not-allowed disabled:opacity-50">Settle payment</button>}
             <button
               type="button"
               onClick={onClose}
@@ -57,7 +64,8 @@ export default function KeyValueDetailsModal({ details, onClose }: KeyValueDetai
             </p>
           ))}
         </div>
-      </div>
+        {onSettlePayment && settlementMessage && <p role="status" className="mt-5 rounded-xl bg-base p-3 text-sm text-neutral/70">{settlementMessage}</p>}
+      </div>}
     </div>
   );
   return isReceipt ? createPortal(modal, document.body) : modal;

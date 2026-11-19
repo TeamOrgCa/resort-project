@@ -46,3 +46,27 @@ test("new ocular notifications link the guest to their visit and retain the staf
     assert.equal(saved.find(row => row.recipient_role === "staff").action_url, entityType === "payment" ? "/admin/reservations" : `/admin/reservations?${entityType === "reservation" ? "reservation" : "reschedule"}=record-id&highlight=1`);
   }
 });
+
+test("review notifications use distinct guest/staff wording and reach only admins and permitted managers", async () => {
+  const saved = [];
+  let managerPermissions = ["analytics", "feedback_moderation"];
+  const { createNotifications } = loadTsModule("lib/notifications.ts", {
+    "@/lib/supabase/admin": { tryCreateAdminClient: () => ({ from: table => {
+      if (table === "notifications") return { insert: async rows => { saved.push(...rows); return { error: null }; } };
+      const result = table === "staff_users" ? [{ id: "admin", role: "admin" }, { id: "manager", role: "staff" }, { id: "cashier", role: "cashier" }]
+        : [{ role: "staff", permissions: managerPermissions }, { role: "cashier", permissions: ["analytics", "feedback_moderation"] }];
+      const q = { select: () => q, in: () => q, eq: () => q, then: (yes, no) => Promise.resolve({ data: result, error: null }).then(yes, no) }; return q;
+    } }) },
+  });
+  await createNotifications({ actorId: "guest", guestId: "guest", staffRoles: ["admin", "staff", "cashier"], title: "Review submitted",
+    message: "Your review with a photo is awaiting staff approval before publication.",
+    staffTitle: "Review awaiting approval", staffMessage: "A guest submitted a photo review. Review the text and attachment.",
+    staffRequiredPermissions: ["analytics", "feedback_moderation"], entityType: "review", entityId: "review", guestActionUrl: "/reviews", staffActionUrl: "/admin/analytics" });
+  assert.deepEqual(saved.map(row => row.recipient_id), ["guest", "admin", "manager"]);
+  assert.match(saved[0].message, /^Your review/);
+  for (const row of saved.slice(1)) { assert.equal(row.title, "Review awaiting approval"); assert.match(row.message, /^A guest/); assert.doesNotMatch(row.message, /Your review/); }
+  saved.length = 0; managerPermissions = ["analytics"];
+  await createNotifications({ actorId: "guest", guestId: "guest", staffRoles: ["admin", "staff"], title: "Review submitted",
+    staffTitle: "Review awaiting approval", staffRequiredPermissions: ["analytics", "feedback_moderation"] });
+  assert.deepEqual(saved.map(row => row.recipient_id), ["guest", "admin"], "Managers stop receiving moderation alerts when permission is removed");
+});

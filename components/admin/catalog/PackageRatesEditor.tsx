@@ -1,7 +1,8 @@
 "use client";
 
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 import { RATE_TIERS, PACKAGE_MODES, PACKAGE_LABELS, parsePackageRates, parsePackageRateSchedule, type PackageRates, type PackageRateSchedule, type RateTier, type PackageMode } from "@/lib/booking/package-rates";
 import { INCLUDED_GUESTS } from "@/lib/booking/guest-count";
 import { DEFAULT_PACKAGE_TIMES, PACKAGE_TIME_KEYS, PACKAGE_TIME_NAMES, packageTimeSlot, parsePackageTimes, type PackageTimes, type PackageTimeKey, type PackageTimeSlot } from "@/lib/booking/package-times";
@@ -11,6 +12,8 @@ const toDraft = (s: PackageRateSchedule) => Object.fromEntries(RATE_TIERS.map(t 
   { baseRate: String(s.rates[t][m].baseRate), addOnPerHead: String(s.rates[t][m].addOnPerHead) }]))])) as Draft;
 
 export default function PackageRatesEditor() {
+  const { confirm, confirmation } = useActionConfirmation();
+  const submitting = useRef(false);
   const [schedule, setSchedule] = useState<PackageRateSchedule | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [defaultRates, setDefaultRates] = useState<PackageRates | null>(null);
@@ -49,22 +52,24 @@ export default function PackageRatesEditor() {
   }
 
   async function save(event: React.FormEvent) {
-    event.preventDefault(); if (!draft || !schedule || busy) return;
+    event.preventDefault(); if (!draft || !schedule || busy || submitting.current) return;
     const rates = parsePackageRates(Object.fromEntries(RATE_TIERS.map(t => [t, Object.fromEntries(PACKAGE_MODES.map(m => [m,
       { baseRate: Number(draft[t][m].baseRate), addOnPerHead: Number(draft[t][m].addOnPerHead) }]))])));
     if (!rates) { setError("Enter positive package prices and non-negative extra-person charges, using up to two decimal places."); return; }
     if (!parsePackageTimes(times)) { setError("Enter valid start and end times for every slot. Each stay must last more than zero and no more than 24 hours."); return; }
-    setBusy(true); setError(null); setMessage(null);
+    submitting.current = true; setBusy(true); setError(null); setMessage(null);
     try {
+      if (!await confirm({ title: "Save package rates?", message: "Apply these package prices and time slots to new bookings? Existing bookings keep their saved rates and schedules.", confirmText: "Confirm save" })) return;
       const response = await fetch("/api/admin/catalog/package-rates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rates, times, expectedVersion: schedule.version }) });
       const result = await response.json(); const parsed = parsePackageRateSchedule(result.schedule);
       if (!response.ok || !parsed) throw new Error(result.message ?? "Unable to save package rates.");
       setSchedule(parsed); setDraft(toDraft(parsed)); setTimes(structuredClone(parsed.times ?? DEFAULT_PACKAGE_TIMES)); setMessage(result.message);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to save package rates."); }
-    finally { setBusy(false); }
+    finally { submitting.current = false; setBusy(false); }
   }
 
   return <form onSubmit={save} className="p-4 sm:p-6">
+    {confirmation}
     <h2 className="text-xl font-semibold text-neutral">Swimming package rates</h2>
     <p className="mt-1 text-sm text-neutral/60">Set weekday and weekend prices for packages covering {INCLUDED_GUESTS} guests, and choose their time slots in Philippine time.</p>
     {error && <div role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700"><p>{error}</p><button type="button" disabled={busy} onClick={() => { setSchedule(null); setDraft(null); setReload(n => n + 1); }} className="mt-2 underline">Reload rates</button></div>}

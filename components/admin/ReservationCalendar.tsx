@@ -389,7 +389,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       id: visit.visit_id,
       kind: "ocular" as const,
       date: visit.scheduled_date,
-      label: `Ocular visit · ${visit.reference_number}`,
+      label: guests[visit.guest_id] ? `${guests[visit.guest_id].first_name} ${guests[visit.guest_id].last_name}`.trim() || `Ocular visit · ${visit.reference_number}` : `Ocular visit · ${visit.reference_number}`,
       reference: visit.reference_number,
       status: visit.status,
       flags: reservationAttention(visit),
@@ -494,6 +494,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const attentionCount = new Set(calendarEvents.filter(event => event.flags?.length).map(event => event.reservationId ?? event.id)).size;
   const selectedReservation = reservations.find(row => row.reservation_id === selectedEvent?.reservationId);
   const selectedOcular = ocularVisits.find(visit => visit.visit_id === selectedEvent?.id);
+  const selectedOcularGuest = selectedOcular ? guests[selectedOcular.guest_id] : undefined;
   const checkoutBalance = selectedReservation ? signals[selectedReservation.reservation_id]?.balance : undefined;
   const checkoutBlocked = checkoutBalance === undefined || checkoutBalance > 0 || Boolean(selectedReservation && (signals[selectedReservation.reservation_id]?.payment || signals[selectedReservation.reservation_id]?.reschedule));
   const selectedFlags = selectedReservation ? reservationAttention(selectedReservation, signals[selectedReservation.reservation_id]) : [];
@@ -662,7 +663,9 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                     ? guests[reservation.guest_id]
                     : reservation?.walk_in_guest_id
                       ? walkInGuests[reservation.walk_in_guest_id]
-                      : null;
+                      : event.kind === "ocular"
+                        ? guests[ocularVisits.find(visit => visit.visit_id === event.id)?.guest_id ?? ""]
+                        : null;
 
                   return (
                     <div key={event.id} className="group relative">
@@ -691,7 +694,11 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                             <p>Status: {titleCase(reservation.status)}</p>
                           </div>
                         ) : event.kind === "ocular" ? (
-                          <p className="mt-2 text-xs text-neutral/70">Status: {titleCase(event.status ?? "pending")}</p>
+                          <div className="mt-2 space-y-1 text-xs text-neutral/70">
+                            <p>{guest?.email || "No email provided"}</p>
+                            <p>{guest?.phone_number || "No phone provided"}</p>
+                            <p>Status: {titleCase(event.status ?? "pending")}</p>
+                          </div>
                         ) : event.kind === "maintenance" ? (
                           <p className="mt-2 text-xs text-neutral/70">Status: {titleCase(event.status ?? "blocked")}</p>
                         ) : null}
@@ -752,7 +759,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         {canReviewPayments && <ReservationPaymentReview key={selectedEvent.reservationId} reservationId={selectedEvent.reservationId} reference={selectedReservation?.reference_number ?? selectedEvent.reference ?? "Reservation"} onBusyChange={setPaymentBusy} onReviewed={() => { setPaymentRevision(value => value + 1); setRefreshKey(key => key + 1); }} />}
         <ReservationEditor key={`${selectedEvent.reservationId}:${paymentRevision}`} reservationId={selectedEvent.reservationId} onBusyChange={setEditorBusy} onSaved={() => setRefreshKey(key => key + 1)} />
         {canCancel && selectedReservation && !selectedReservation.checked_in_at && !["cancelled", "completed", "expired", "rejected", "no_show"].includes(selectedReservation.status) && <button type="button" onClick={() => { setCancelId(selectedEvent.reservationId!); setSelectedEvent(null); }} className="mt-5 min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700">Cancel reservation / review refund</button>}
-      </> : <div className="space-y-3 text-sm"><p>{selectedEvent.label}</p><p>Date: {selectedEvent.date}</p><p>Status: {titleCase(selectedOcular?.status ?? selectedEvent.status ?? "scheduled")}</p><p>{selectedEvent.reference}</p>{blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{blockError}</p>}{selectedOcular && <OcularVisitReview key={selectedOcular.visit_id} visit={selectedOcular} canReview={canReviewOcular} canCancel={isManager && canReviewOcular} onBusyChange={setOcularBusy} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularVisits(rows => rows.map(row => row.visit_id === visit.visit_id ? { ...row, ...visit } : row)); setRefreshKey(value => value + 1); }} />}{canManageMaintenance && selectedEvent.kind === "maintenance" && <button type="button" disabled={blockBusy} onClick={() => void releaseBlock(selectedEvent.id.split(":")[0])} className="min-h-11 rounded-xl border px-3 py-2">Release block</button>}</div>}
+      </> : <div className="space-y-3 text-sm"><p>{selectedEvent.label}</p><p>Date: {selectedEvent.date}</p><p>Status: {titleCase(selectedOcular?.status ?? selectedEvent.status ?? "scheduled")}</p><p>{selectedEvent.reference}</p>{blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">{blockError}</p>}{selectedOcular && <section aria-label="Ocular guest details" className="rounded-xl border border-neutral/10 p-4">
+        <h3 className="font-semibold">Guest details</h3>
+        {selectedOcularGuest ? <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div><dt className="text-neutral/60">Guest name</dt><dd className="font-medium">{`${selectedOcularGuest.first_name} ${selectedOcularGuest.last_name}`.trim() || "Name not provided"}</dd></div>
+          <div><dt className="text-neutral/60">Email address</dt><dd className="break-words">{selectedOcularGuest.email || "No email provided"}</dd></div>
+          <div><dt className="text-neutral/60">Contact number</dt><dd>{selectedOcularGuest.phone_number || "No phone provided"}</dd></div>
+        </dl> : <p className="mt-2 text-neutral/65">Guest details unavailable.</p>}
+      </section>}{selectedOcular && <OcularVisitReview key={selectedOcular.visit_id} visit={selectedOcular} canReview={canReviewOcular} canCancel={isManager && canReviewOcular} onBusyChange={setOcularBusy} onRefresh={() => setRefreshKey(value => value + 1)} onReviewed={visit => { setOcularVisits(rows => rows.map(row => row.visit_id === visit.visit_id ? { ...row, ...visit } : row)); setRefreshKey(value => value + 1); }} />}{canManageMaintenance && selectedEvent.kind === "maintenance" && <button type="button" disabled={blockBusy} onClick={() => void releaseBlock(selectedEvent.id.split(":")[0])} className="min-h-11 rounded-xl border px-3 py-2">Release block</button>}</div>}
     </RecordDialog>}
     {cancelId && <CancellationDialog staff canCancelForResort={isManager && canCancel} reservationId={cancelId} onClose={() => setCancelId(null)} onCancelled={result => {
       setCancellationMessage(result.message + (!result.emailSent ? " In-app alerts were recorded; email delivery could not be confirmed." : ""));

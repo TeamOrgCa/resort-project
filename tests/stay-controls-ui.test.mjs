@@ -47,3 +47,27 @@ test("catalog uses Package rates and Units while hiding the duplicate legacy rat
     await act(async () => button("Package rates").click()); assert.match(container.textContent, /Package rate editor/);
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; }
 });
+
+test("the manager attachment moderation checkbox saves the grant while cashier moderation stays disabled", async () => {
+  const saved = globalThis.fetch, writes = [];
+  globalThis.fetch = async (_url, options) => {
+    if (options?.method === "PUT") { writes.push(JSON.parse(options.body)); return Response.json({ success: true }); }
+    return Response.json({ roles: [{ role: "staff", permissions: ["analytics"] }, { role: "cashier", permissions: ["analytics"] }] });
+  };
+  const Editor = loadTsModule("components/admin/users/RolePermissionsEditor.tsx").default;
+  const c = document.createElement("div"); document.body.append(c); const root = createRoot(c);
+  const button = (container, text) => [...container.querySelectorAll("button")].find(node => node.textContent === text);
+  try {
+    await act(async () => root.render(createElement(Editor)));
+    const manager = c.querySelector('input[aria-label="Manager: Approve or reject reviews with attachments (also requires Analytics)"]');
+    const cashier = c.querySelector('input[aria-label="Cashier: Approve or reject reviews with attachments (also requires Analytics)"]');
+    assert.equal(manager.checked, false); assert.equal(cashier.disabled, true);
+    await act(async () => manager.click());
+    await act(async () => button(c, "Save permissions").click()); assert.equal(writes.length, 0);
+    assert.match(document.querySelector('[role="alertdialog"]').textContent, /Allow: Approve or reject reviews with attachments/);
+    await act(async () => button(document.querySelector('[role="alertdialog"]'), "Confirm save permissions").click());
+    assert.deepEqual(writes[0].roles.find(row => row.role === "staff").permissions, ["analytics", "feedback_moderation"]);
+    assert.deepEqual(writes[0].roles.find(row => row.role === "cashier").permissions, ["analytics"]);
+    assert.equal(manager.checked, true);
+  } finally { await act(async () => root.unmount()); c.remove(); globalThis.fetch = saved; }
+});
