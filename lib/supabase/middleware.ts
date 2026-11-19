@@ -168,7 +168,7 @@ export async function updateSession(request: NextRequest) {
         : await supabase.from('role_permissions').select('permissions').eq('role', staffUser.role).maybeSingle()
       const granted = permissionError || !Array.isArray(permissionRow?.permissions) ? [] : permissionRow.permissions as string[]
       if (isAdminApi && isAdminReadOnlyRequest(staffUser.role, path, request.method)) {
-        return NextResponse.json({ message: 'Administrators have view-only access outside Users, Configuration and Business Catalog.' }, { status: 403 })
+        return NextResponse.json({ message: 'Administrators can manage Users, Configuration and Business Catalog, and moderate review attachments. Other operational actions are view-only.' }, { status: 403 })
       }
       if (apiRequiredPermission && !hasPermission(staffUser.role, granted, apiRequiredPermission)) {
         return NextResponse.json({ message: 'Forbidden.' }, { status: 403 })

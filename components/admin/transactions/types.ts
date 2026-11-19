@@ -197,6 +197,7 @@ export interface ViewField {
 export interface ViewDetailsState {
   title: string;
   fields: ViewField[];
+  transactionId?: string;
   kind?: "receipt";
   printOnOpen?: boolean;
 }

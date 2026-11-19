@@ -223,7 +223,7 @@ export default function Reviews() {
               We appreciate you taking the time to share your experience. Your feedback helps us improve our services 
               and helps future guests make informed decisions. Your review and any attached photo have been submitted.
             </p>
-            <p className="mt-3 text-sm text-neutral/70">{REVIEW_SUBMISSION_HELP} Reviews with an attached photo require administrator approval before publication.</p>
+            <p className="mt-3 text-sm text-neutral/70">{REVIEW_SUBMISSION_HELP} Reviews with an attached photo require staff approval before publication.</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-4">

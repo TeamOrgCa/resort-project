@@ -31,6 +31,12 @@ test("printable receipts render a separate document with branding and historical
     assert.match(markup, /id="billing-receipt-print"/);
     assert.match(markup, /Updated Resort/);
     assert.match(markup, /Payment Receipt/);
+    assert.match(markup, /class="receipt-document receipt-branded"/);
+    assert.match(markup, /aria-label="Receipt details"/);
+    assert.match(markup, /aria-label="Payment summary"/);
+    assert.match(markup, /receipt-balance-row/);
+    assert.match(markup, /Where the Sun Never Sets/);
+    assert.match(markup, /at the time of payment/);
     assert.match(markup, /Print receipt/);
     assert.match(markup, /RCPT-123/);
     assert.doesNotMatch(markup, /Receipt Status|Reservation Status|Payment Status|Archived|Cancelled|Proof Path|private\/path/);
@@ -43,4 +49,22 @@ test("printable receipts render a separate document with branding and historical
     if (originalDocument === undefined) delete globalThis.document;
     else globalThis.document = originalDocument;
   }
+});
+
+test("public access receipts use the same branded document with collection details", () => {
+  const oldDocument = globalThis.document; globalThis.document = { body: {} };
+  try {
+    const Modal = loadTsModule("components/admin/transactions/KeyValueDetailsModal.tsx", {
+      "react-dom": { createPortal: element => element },
+      "@/components/content/SiteContent": { useSiteContent: () => ({}), contentText: (_content, key) => key === "resort.name" ? "MarVille Resort Complex" : "" },
+    }).default;
+    const markup = renderToStaticMarkup(createElement(Modal, { details: { title: "Public Access Receipt", kind: "receipt", fields: [
+      { label: "Guest Name", value: "Ana Santos" }, { label: "Collection Ref", value: "PA-123" },
+      { label: "Access Type", value: "Public swimming" }, { label: "Payment for", value: "Two adult admissions" },
+      { label: "Collection Total", value: "PHP 400.00" }, { label: "Balance After Payment", value: "PHP 0.00" },
+    ] }, onClose() {} }));
+    assert.match(markup, /PA-123/); assert.match(markup, /Public swimming/); assert.match(markup, /Two adult admissions/);
+    assert.match(markup, /Payment summary/); assert.match(markup, /PHP 400\.00/); assert.match(markup, /PHP 0\.00/);
+    assert.doesNotMatch(markup, /Settle payment/);
+  } finally { if (oldDocument === undefined) delete globalThis.document; else globalThis.document = oldDocument; }
 });

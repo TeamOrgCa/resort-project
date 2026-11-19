@@ -29,6 +29,7 @@ before(async () => {
     create unique index one_review_per_reservation on public.reviews(reservation_id) where reservation_id is not null;
     alter table public.reviews enable row level security;
     create table public.audit_logs(user_id uuid,auth_user_id uuid,action text,entity_type text,entity_id uuid,details jsonb);
+    create table public.notifications(recipient_role text,entity_type text,title text,message text);
     create table storage.objects(bucket_id text,name text);alter table storage.objects enable row level security;
     grant usage on schema public,auth,storage to anon,authenticated;
     grant select on public.reviews,storage.objects to anon;
@@ -50,7 +51,7 @@ before(async () => {
 });
 after(async () => { await db?.close(); });
 beforeEach(async () => {
-  await db.exec("reset role;truncate public.reviews,public.review_submission_log,public.audit_logs,public.reservations,storage.objects;update public.guests set is_active=true;update public.role_permissions set permissions=array['analytics'];update public.staff_users set is_active=true");
+  await db.exec("reset role;truncate public.reviews,public.review_submission_log,public.audit_logs,public.reservations,public.notifications,storage.objects;update public.guests set is_active=true;update public.role_permissions set permissions=array['analytics'];update public.staff_users set is_active=true,role='staff'");
   await db.exec(readFileSync("docs/review-content-limits-migration.sql", "utf8"));
   await db.exec(readFileSync("docs/review-content-limits-migration.sql", "utf8"));
   await auth(guest);
@@ -192,4 +193,82 @@ test("photo reviews stay private until an active administrator approves; guests,
   await auth(staff); const current=await one("select * from reviews"); await moderate(false,current.updated_at);
   assert.ok((await one("select archived_at from reviews")).archived_at);
   assert.equal((await one("select count(*)::int n from audit_logs where action like '%guest review attachment'")).n,2);
+});
+
+async function installModerationPermissions() {
+  await db.exec(readFileSync("docs/review-attachment-moderation-migration.sql", "utf8"));
+  const old = readFileSync("docs/admin-read-only-manager-refunds-migration.sql", "utf8");
+  const start = old.indexOf("create or replace function public.guard_admin_operational_write()");
+  await db.exec(old.slice(start, old.indexOf("end $$;", start) + "end $$;".length));
+  await db.exec(`drop trigger if exists guard_admin_operational_write on public.reviews;
+    create trigger guard_admin_operational_write before insert or update or delete on public.reviews for each row execute function public.guard_admin_operational_write();
+    drop trigger if exists guard_admin_operational_write on public.reservations;
+    create trigger guard_admin_operational_write before insert or update or delete on public.reservations for each row execute function public.guard_admin_operational_write();`);
+  const permissions = readFileSync("docs/review-moderation-permissions-migration.sql", "utf8");
+  await db.exec(permissions); await db.exec(permissions);
+}
+const moderatePhoto = (review, approve, version = review.updated_at) => one("select public.moderate_guest_review($1,$2,'Text and photo inspected',$3) result", [review.review_id, approve, version]);
+
+test("admin attachment approval and rejection work with the operational guard installed without granting other writes", async () => {
+  await installModerationPermissions();
+  const review = await one("insert into reviews(guest_id,title,review_text,image_path) values($1,'Photo review',$2,$3) returning *", [guest,text,guest + "/photo.png"]);
+  await auth(staff); await db.exec("update staff_users set role='admin'");
+  await assert.rejects(db.query("update reviews set is_approved=true where review_id=$1", [review.review_id]), e => e.code === "42501");
+  await assert.rejects(db.query("update reviews set review_text='Changed by staff' where review_id=$1", [review.review_id]), e => e.code === "42501");
+  await db.exec("set role authenticated");
+  await moderatePhoto(review, true);
+  await assert.rejects(moderatePhoto(review, true), e => e.code === "40001");
+  await db.exec("reset role");
+  assert.equal((await one("select is_approved from reviews")).is_approved, true);
+  await assert.rejects(db.exec("update reservations set status='cancelled'"), /view-only access/);
+  await assert.rejects(archive(review.review_id), e => e.code === "42501");
+  await auth(guest); await db.query("update reviews set review_text=review_text||' More details.' where review_id=$1", [review.review_id]);
+  const pending = await one("select * from reviews");
+  await auth(staff); await db.exec("set role authenticated");
+  await moderatePhoto(pending, false);
+  await db.exec("reset role");
+  const rejected = await one("select * from reviews");
+  assert.equal(rejected.is_approved, false); assert.ok(rejected.archived_at); assert.equal(rejected.archived_by, staff);
+  assert.equal((await one("select count(*)::int n from audit_logs where action like '%guest review attachment'")).n, 2);
+});
+
+test("manager moderation is opt-in, needs Analytics, rejects revoked sessions and can reject without archive permission", async () => {
+  await installModerationPermissions();
+  const review = await one("insert into reviews(guest_id,title,review_text,image_path) values($1,'Photo review',$2,$3) returning *", [guest,text,guest + "/photo.png"]);
+  await assert.rejects(moderatePhoto(review, true), e => e.code === "42501");
+  await auth(staff);
+  for (const permissions of [[], ["analytics"], ["feedback_moderation"], ["analytics", "feedback_archive"]]) {
+    await db.query("update role_permissions set permissions=$1", [permissions]);
+    await assert.rejects(moderatePhoto(review, true), e => e.code === "42501");
+  }
+  await db.exec("update role_permissions set permissions=array['analytics','feedback_moderation']");
+  await auth(staff, "99999999-9999-4999-8999-999999999999");
+  await assert.rejects(moderatePhoto(review, true), e => e.code === "42501");
+  await auth(staff); await db.exec("update staff_users set is_active=false");
+  await assert.rejects(moderatePhoto(review, true), e => e.code === "42501");
+  await db.exec("update staff_users set is_active=true,role='cashier'; insert into role_permissions values('cashier',array['analytics','feedback_moderation']) on conflict(role) do update set permissions=excluded.permissions");
+  await assert.rejects(moderatePhoto(review, true), e => e.code === "42501");
+  await db.exec("update staff_users set role='staff'");
+  await assert.rejects(archive(review.review_id), e => e.code === "42501");
+  await moderatePhoto(review, true);
+  await auth(guest); await db.query("update reviews set review_text=review_text||' More details.' where review_id=$1", [review.review_id]);
+  const next = await one("select * from reviews");
+  await auth(staff);
+  await assert.rejects(moderatePhoto(next, false, review.updated_at), e => e.code === "40001");
+  await db.exec("set role authenticated"); await moderatePhoto(next, false); await db.exec("reset role");
+  assert.ok((await one("select archived_at from reviews")).archived_at);
+  await assert.rejects(archive(review.review_id, false, (await one("select archived_at from reviews")).archived_at), e => e.code === "42501");
+});
+
+test("moderation migration corrects historical staff review notifications while preserving guest copies", async () => {
+  await db.exec(`insert into notifications values
+    ('admin','review','Review submitted','Your review with a photo is awaiting administrator approval before publication.'),
+    ('staff','review','Review submitted','Thanks for sharing your experience.'),
+    ('guest','review','Review submitted','Your review with a photo is awaiting administrator approval before publication.')`);
+  await installModerationPermissions();
+  const rows = (await db.query("select * from notifications")).rows;
+  assert.equal(rows.find(row => row.recipient_role === "admin").title, "Review awaiting approval");
+  assert.match(rows.find(row => row.recipient_role === "admin").message, /A guest submitted/);
+  assert.equal(rows.find(row => row.recipient_role === "staff").title, "New guest review");
+  assert.match(rows.find(row => row.recipient_role === "guest").message, /^Your review/);
 });

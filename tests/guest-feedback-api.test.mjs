@@ -5,7 +5,7 @@ import { loadTsModule } from "./helpers/load-ts-module.mjs";
 const id = "11111111-1111-4111-8111-111111111111";
 const base = { review_id: id, public_display_name: "Guest", overall_rating: 5, title: "Lovely visit", review_text: "A lovely visit with our family.", is_approved: true, created_at: "2026-10-13T00:00:00Z", archived_at: null, archive_reason: null, image_path: "private/photo.png" };
 const range = "period=Custom&startDate=2026-10-01&endDate=2026-10-31";
-function harness({ active = true, analytics = true, archive = true, rpcError = null } = {}) {
+function harness({ active = true, analytics = true, archive = true, moderation = false, rpcError = null } = {}) {
   const calls = { client: 0, filters: [], rpc: [], signed: [] };
   const admin = { from() {
     const filters = []; let offset;
@@ -20,7 +20,7 @@ function harness({ active = true, analytics = true, archive = true, rpcError = n
   }, storage: { from: () => ({ createSignedUrls: async (paths, ttl) => { calls.signed.push({ paths, ttl }); return { data: paths.map(path => ({ path, signedUrl: "https://example.com/photo", error: null })) }; } }) } };
   const route = loadTsModule("app/api/admin/analytics/feedback/route.ts", {
     "@/lib/server/admin-audit": { requireActiveStaff: async () => active ? { staffUser: { role: "staff" }, supabase: { rpc: async (name, args) => { calls.rpc.push({ name, args }); return { data: { review_id: id }, error: rpcError }; } } } : null },
-    "@/lib/server/role-permissions": { staffHasPermission: async (_db, _role, permission) => permission === "analytics" ? analytics : archive },
+    "@/lib/server/role-permissions": { staffHasPermission: async (_db, _role, permission) => permission === "analytics" ? analytics : permission === "feedback_moderation" ? moderation : archive },
     "@/lib/supabase/admin": { createAdminClient: () => { calls.client++; return admin; } },
   });
   return { calls, get: (query = range) => route.GET(new Request("http://localhost/api/admin/analytics/feedback?" + query)),
@@ -33,6 +33,9 @@ test("feedback reads enforce permission and filters, use Philippine dates and pr
   assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(body.rows.length, 1); assert.equal(body.rows[0].image_path, undefined); assert.equal(body.rows[0].image_url, "https://example.com/photo");
   assert.equal(body.canArchive, false); assert.equal(h.calls.signed[0].ttl, 600);
+  assert.equal(body.canModerate, false);
+  const permitted = await (await harness({ moderation: true, archive: false }).get()).json();
+  assert.equal(permitted.canModerate, true); assert.equal(permitted.canArchive, false);
   assert.equal(h.calls.filters[0][2], "2026-09-30T16:00:00.000Z");
   assert.equal((await (await h.get(range + "&status=archived")).json()).rows[0].review_id, "archived");
   for (const extra of ["&status=unknown", "&page=-1", "&page=1.5", "&search=" + "x".repeat(201)]) assert.equal((await h.get(range + extra)).status, 400);

@@ -25,6 +25,43 @@ test("service catalog persists its maximum and rejects missing, fractional or ex
   assert.equal(validateCatalogRecord("services",{...samples.services,max_quantity:4}).max_quantity,4);
 });
 
+test("catalog creates and edits reject normalized duplicate names, including archived items on later pages", async () => {
+  for (const resource of ["services", "units", "payment_methods"]) {
+    const id = catalogResources[resource].id;
+    const rows = { [resource]: [
+      { [id]: uuid(3), ...samples[resource], name: "Pool   Extra", is_active: false },
+      { [id]: uuid(4), ...samples[resource], name: "Different item", is_active: true },
+    ] };
+    const h = harness(catalogDatabase(rows));
+    for (const name of ["Pool Extra", " POOL EXTRA ", "pool\t extra"]) {
+      const created = await h.request("POST", { resource, record: { ...samples[resource], name } });
+      assert.equal(created.status, 409); assert.match((await created.json()).message, /name already exists/);
+      assert.equal((await h.request("PATCH", { resource, id: uuid(4), record: { name } })).status, 409);
+    }
+    assert.equal(h.database.writes.length, 0); assert.equal(h.audit.length, 0);
+    assert.equal((await h.request("PATCH", { resource, id: uuid(3), record: { name: "POOL EXTRA" } })).status, 200, "Editing the same item is allowed");
+  }
+  const services = Array.from({ length: 1001 }, (_, i) => ({ service_id: uuid(i + 10), ...samples.services, name: `Service ${i}`, is_active: true }));
+  services[1000].name = "Later page service";
+  const h = harness(catalogDatabase({ services }));
+  assert.equal((await h.request("POST", { resource: "services", record: { ...samples.services, name: "later page service" } })).status, 409);
+  assert.equal(h.database.writes.length, 0);
+});
+
+test("ocular time slots reject identical time ranges on create and edit but allow a distinct range", async () => {
+  const h = harness(catalogDatabase({ ocular_time_slots: [
+    { slot_id: uuid(3), start_time: "08:00:00", end_time: "09:00:00", max_capacity: 1, is_active: false },
+    { slot_id: uuid(4), start_time: "10:00:00", end_time: "11:00:00", max_capacity: 1, is_active: true },
+  ] }));
+  const record = { start_time: "08:00", end_time: "09:00", max_capacity: 2 };
+  const duplicate = await h.request("POST", { resource: "ocular_time_slots", record });
+  assert.equal(duplicate.status, 409); assert.match((await duplicate.json()).message, /same start and end times/);
+  assert.equal((await h.request("PATCH", { resource: "ocular_time_slots", id: uuid(4), record })).status, 409);
+  assert.equal(h.database.writes.length, 0); assert.equal(h.audit.length, 0);
+  assert.equal((await h.request("PATCH", { resource: "ocular_time_slots", id: uuid(3), record: { max_capacity: 3 } })).status, 200);
+  assert.equal((await h.request("POST", { resource: "ocular_time_slots", record: { ...record, end_time: "10:00" } })).status, 201);
+});
+
 test("service photos persist through create, replacement, public catalog, and removal", async () => {
   const { request, database, auth } = harness();
   const create = await request("POST", { resource: "services", record: { ...samples.services, image_url: "https://images.example.com/first.jpg" } });
@@ -65,6 +102,29 @@ function harness(database = catalogDatabase(seed())) {
   return { database, audit, auth, request };
 }
 
+test("service edits save the previous and persisted names, quantities and prices in the audit details", async () => {
+  const original = { service_id: uuid(3), ...samples.services, price: 500.25, description: "A comfortable extra", is_active: true };
+  const { request, audit } = harness(catalogDatabase({ services: [original] }));
+  const response = await request("PATCH", {
+    resource: "services", id: uuid(3), record: { name: "Premium mattress", max_quantity: "5", price: "600.50", description: "" },
+  });
+  assert.equal(response.status, 200);
+  const saved = (await response.json()).record;
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].action, "Updated services record");
+  assert.equal(audit[0].entityId, uuid(3));
+  assert.deepEqual(audit[0].details, { before: original, after: saved });
+  assert.equal(audit[0].details.before.name, "Extra mattress");
+  assert.equal(audit[0].details.before.max_quantity, 10);
+  assert.equal(audit[0].details.after.name, "Premium mattress");
+  assert.equal(audit[0].details.after.max_quantity, 5);
+  assert.equal(audit[0].details.after.price, 600.5);
+  assert.equal(audit[0].details.after.description, null);
+  assert.equal((await request("PATCH", { resource: "services", id: uuid(3), record: { max_quantity: 2 } })).status, 200);
+  assert.equal(audit[0].details.after.max_quantity, 5, "Later edits cannot change the previously saved snapshots");
+  assert.equal(audit[1].details.before.max_quantity, 5);
+});
+
 for (const [resource, record] of Object.entries(samples)) {
   test(`${resource}: create, edit, archive, and restore retain the same record`, async () => {
     const { request, database, audit } = harness();
@@ -77,7 +137,9 @@ for (const [resource, record] of Object.entries(samples)) {
     const value = field.kind === "money" ? "555.55" : field.kind === "integer" ? 4 : "Updated name";
     const edited = await request("PATCH", { resource, id, record: { [field.key]: value } });
     assert.equal(edited.status, 200);
-    assert.equal((await edited.json()).record[field.key], field.kind === "money" ? Number(value) : value);
+    const editedRecord = (await edited.json()).record;
+    assert.equal(editedRecord[field.key], field.kind === "money" ? Number(value) : value);
+    assert.deepEqual(audit[1].details, { before: original, after: editedRecord });
     const beforeArchive = database.tables[resource].length;
     const archived = await request("DELETE", undefined, `?resource=${resource}&id=${id}`);
     assert.equal(archived.status, 200);
@@ -87,6 +149,7 @@ for (const [resource, record] of Object.entries(samples)) {
     const restored = await request("PATCH", { resource, id, action: "restore" });
     assert.equal(restored.status, 200);
     const restoredRecord = (await restored.json()).record;
+    assert.deepEqual(audit[3].details, { before: archivedRecord, after: restoredRecord });
     assert.equal(restoredRecord.is_active, true);
     assert.equal(restoredRecord[catalogResources[resource].id], id);
     if (resource === "units") assert.equal(restoredRecord.archived_at, null);

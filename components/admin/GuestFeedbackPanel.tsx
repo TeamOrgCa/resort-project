@@ -62,7 +62,7 @@ export default function GuestFeedbackPanel({ query, revision, onChanged }: { que
     {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}<button type="button" onClick={() => setReload(value => value + 1)} className="ml-2 min-h-11 underline">Retry reviews</button></p>}
     {loading && <AdminCardsSkeleton label="Loading guest reviews..." />}
     {data && <>
-      {!data.canArchive && <p className="text-xs text-neutral/65">Your role can view feedback. Archiving and restoring reviews requires an authorized operational role.</p>}
+      {!data.canArchive && <p className="text-xs text-neutral/65">{data.canModerate ? "You can approve or reject pending reviews with attachments. Archiving or restoring other feedback requires a separate permission." : "Your role can view feedback. Approving, rejecting, archiving or restoring reviews requires the corresponding permission."}</p>}
       <p className="text-xs text-neutral/65">{data.total.toLocaleString("en-PH")} matching reviews. {data.total > 0 && `Page ${page + 1} of ${pages}.`}</p>
       {data.rows.length === 0 && <p className="rounded-xl bg-base p-5 text-sm">No guest reviews match these dates and filters. Try another period or feedback status.</p>}
       <div className="space-y-3">{data.rows.map(review => <article key={review.review_id} className="min-w-0 rounded-xl border border-neutral/15 bg-base p-4 [overflow-wrap:anywhere]">

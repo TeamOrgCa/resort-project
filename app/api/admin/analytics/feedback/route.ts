@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     }
     return json({ success: true, rows: rows.map(({ image_path, ...row }) => ({ ...row, image_url: image_path ? urls.get(image_path) ?? null : null })),
       total: count ?? 0, page, pageSize: 10, startDate: window.startDate, endDate: window.endDate,
-      canModerate: staff.staffUser.role === "admin", canArchive: await staffHasPermission(staff.supabase, staff.staffUser.role, "feedback_archive") });
+      canModerate: await staffHasPermission(staff.supabase, staff.staffUser.role, "feedback_moderation"), canArchive: await staffHasPermission(staff.supabase, staff.staffUser.role, "feedback_archive") });
   } catch (error) {
     return json({ message: error instanceof InvalidDateRangeError ? error.message : "Unable to load guest feedback. Please retry." }, error instanceof InvalidDateRangeError ? 400 : 500);
   }
