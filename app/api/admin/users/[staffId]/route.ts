@@ -6,6 +6,7 @@ import { tryCreateAdminClient } from "@/lib/supabase/admin";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import type { StaffUserRecord } from "@/components/admin/users/types";
 import { normalizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
+import { isValidStaffEmailForRole } from "@/lib/auth/staff-email";
 
 interface UpdateStaffPayload {
   fullName: string;
@@ -80,8 +81,28 @@ export async function PATCH(request: Request, context: { params: Promise<{ staff
       }
     }
 
+    const isOtherAdmin = existingStaff.role === "admin" && existingStaff.id !== staffContext.staffUser.id;
+    if (isOtherAdmin && payload.fullName !== normalizePersonName(existingStaff.full_name)) {
+      return NextResponse.json({ success: false, field: "fullName", message: "Only the account owner can change an admin's name." }, { status: 403 });
+    }
+
+    if (payload.role === "admin" && existingStaff.role !== "admin") {
+      const promotionError = "Only accounts using @gmail.com can be promoted to Admin. Create a separate Gmail admin account for email-code verification.";
+      if (!isValidStaffEmailForRole(existingStaff.email, "admin")) {
+        return NextResponse.json({ success: false, field: "role", message: promotionError }, { status: 403 });
+      }
+      // Verify the actual sign-in address; a profile email alone is not proof.
+      const { data: authData, error: authError } = await adminSupabase.auth.admin.getUserById(staffId);
+      if (authError || !authData.user) {
+        return NextResponse.json({ success: false, message: "Unable to verify the sign-in email. Try again." }, { status: 503 });
+      }
+      if (authData.user.id !== staffId || authData.user.email?.toLowerCase() !== existingStaff.email.toLowerCase()) {
+        return NextResponse.json({ success: false, field: "role", message: promotionError }, { status: 403 });
+      }
+    }
+
     const nextValues = {
-      full_name: payload.fullName,
+      full_name: isOtherAdmin ? existingStaff.full_name : payload.fullName,
       role: payload.role,
       is_active: payload.isActive,
       active_session_id: payload.isActive ? existingStaff.active_session_id : null,
@@ -93,6 +114,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ staff
       .update(nextValues)
       .eq("id", staffId)
       .eq("role", existingStaff.role)
+      .eq("email", existingStaff.email)
       .eq("is_active", existingStaff.is_active)
       .select("id, full_name, email, role, is_active, active_session_id, last_login_at, last_logout_at, created_at, updated_at")
       .maybeSingle<StaffUserRecord>();

@@ -69,8 +69,54 @@ async function editDialog(staffUser) {
     close: async () => { await act(async () => root.unmount()); container.remove(); } };
 }
 
-test("edit dialog protects both peer and current admins while allowing profile edits", async () => {
-  for (const id of ["peer", "self"]) {
+test("role editor prevents non-Gmail staff promotion even if a disabled Admin option is forced", async () => {
+  for (const role of ["staff", "cashier"]) {
+    const h = await editDialog({ ...profile, role, email: "staff@marvilleresort.com" });
+    try {
+      const select = h.container.querySelector("select");
+      assert.equal(select.querySelector('option[value="admin"]').disabled, true);
+      assert.match(h.container.textContent, /Admin access requires a @gmail.com/);
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(select, "admin");
+        select.dispatchEvent(new window.Event("change", { bubbles: true }));
+      });
+      await h.submit(); assert.deepEqual(h.submissions, []);
+      assert.match(h.container.querySelector('[role="alert"]').textContent, /Only accounts using @gmail.com/);
+    } finally { await h.close(); }
+  }
+  const gmail = await editDialog({ ...profile, role: "staff", email: "owner@gmail.com" });
+  try {
+    const select = gmail.container.querySelector("select");
+    assert.equal(select.querySelector('option[value="admin"]').disabled, false);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(select, "admin");
+      select.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    await gmail.submit(); assert.equal(gmail.submissions[0].role, "admin");
+  } finally { await gmail.close(); }
+});
+
+test("reset temporary password has a visibility toggle that never submits the form", async () => {
+  const Component = loadTsModule("components/admin/users/ResetPasswordDialog.tsx").default, submissions = [];
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  try {
+    await act(async () => root.render(createElement(Component, { isOpen: true, isSubmitting: false, error: "", staffEmail: "cashier@marvilleresort.com", onClose() {}, onSubmit: password => submissions.push(password) })));
+    const password = container.querySelector('input[aria-label="Temporary password"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(password, "secret123");
+      password.dispatchEvent(new window.Event("input", { bubbles: true }));
+      container.querySelector('button[aria-label="Show password"]').click();
+    });
+    assert.equal(password.type, "text"); assert.equal(password.value, "secret123"); assert.deepEqual(submissions, []);
+    await act(async () => container.querySelector('button[aria-label="Hide password"]').click());
+    assert.equal(password.type, "password");
+    await act(async () => container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.deepEqual(submissions, ["secret123"]);
+  } finally { await act(async () => root.unmount()); container.remove(); }
+});
+
+test("edit dialog allows the current admin to update their own name with validation", async () => {
+  for (const id of ["self"]) {
     const h = await editDialog({ ...profile, id });
     try {
       assert.equal(h.container.querySelector("select").disabled, true);
@@ -78,6 +124,7 @@ test("edit dialog protects both peer and current admins while allowing profile e
       assert.equal(active.disabled, true); assert.equal(active.checked, true);
       assert.match(h.container.textContent, /Admin accounts cannot be disabled/);
       const name = h.container.querySelector('input:not([type="checkbox"])');
+      assert.equal(name.disabled, false);
       await act(async () => {
         Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(name, "Updated Admin");
         name.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -90,6 +137,25 @@ test("edit dialog protects both peer and current admins while allowing profile e
       });
       assert.equal(name.value, ""); await h.submit();
       assert.equal(h.submissions.length, 1); assert.match(h.container.querySelector('[role="alert"]').textContent, /Names must use letters/);
+    } finally { await h.close(); }
+  }
+});
+
+test("peer admin names stay read-only even if dialog input and submit events are forced", async () => {
+  for (const is_active of [true, false]) {
+    const h = await editDialog({ ...profile, is_active });
+    try {
+      const name = h.container.querySelector('input:not([type="checkbox"])');
+      assert.equal(name.disabled, true);
+      assert.match(h.container.textContent, /Only the account owner can change this admin's name/);
+      const save = [...h.container.querySelectorAll("button")].find(button => button.textContent === "Save Changes");
+      assert.equal(save.disabled, is_active);
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(name, "Forged Name");
+        name.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+      await h.submit();
+      assert.equal(h.submissions[0].fullName, profile.full_name);
     } finally { await h.close(); }
   }
 });
@@ -120,6 +186,8 @@ test("staff table disables active admin status actions and keeps other statuses 
       createElement("button", { "data-id": row.id, disabled: props.isRowActionDisabled("Toggle Status", row), onClick: () => props.onRowAction("Toggle Status", row) }, props.getRowActionLabel("Toggle Status", row)),
       createElement("button", { "data-id": `${row.id}-reset`, disabled: props.isRowActionDisabled("Reset Password", row), onClick: () => props.onRowAction("Reset Password", row) }, "Reset Password"),
       createElement("button", { "data-id": `${row.id}-force-reset`, onClick: () => props.onRowAction("Reset Password", row) }, "Direct action"),
+      createElement("button", { "data-id": `${row.id}-edit`, disabled: props.isRowActionDisabled("Edit", row), onClick: () => props.onRowAction("Edit", row) }, "Edit"),
+      createElement("button", { "data-id": `${row.id}-force-edit`, onClick: () => props.onRowAction("Edit", row) }, "Direct edit"),
     ))),
     "@/components/admin/users/CreateStaffDialog": noop,
     "@/components/admin/users/EditStaffDialog": noop,
@@ -135,6 +203,13 @@ test("staff table disables active admin status actions and keeps other statuses 
       await act(async () => button.click());
     }
     assert.equal(writes.length, 0);
+    for (const id of ["peer", "inactive"]) {
+      assert.equal(container.querySelector(`[data-id="${id}-edit"]`).disabled, true);
+      await act(async () => container.querySelector(`[data-id="${id}-force-edit"]`).click());
+      assert.equal(document.querySelector('[role="dialog"]'), null);
+      assert.match(container.querySelector('[role="alert"]').textContent, /Only the account owner can change an admin's name/);
+    }
+    for (const id of ["self", "manager", "cashier"]) assert.equal(container.querySelector(`[data-id="${id}-edit"]`).disabled, false);
     for (const id of ["peer", "self", "inactive"]) {
       assert.equal(container.querySelector(`[data-id="${id}-reset"]`).disabled, true);
       await act(async () => container.querySelector(`[data-id="${id}-force-reset"]`).click());

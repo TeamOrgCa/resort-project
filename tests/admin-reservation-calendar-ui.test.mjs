@@ -407,6 +407,52 @@ test("maintenance conflicts remain visible and managers without the edit grant c
   finally{await staff.close();}
 });
 
+test("maintenance form limits dates to today onward and rejects bypassed past dates before confirmation", async () => {
+  const h = await mount({ initialAccess: { role: "staff", permissions: ["reservations", "edit_reservation"] } });
+  try {
+    await click(button(h.c, "Add maintenance block"));
+    const dialog = document.querySelector('[role="dialog"]'), inputs = dialog.querySelectorAll("input");
+    assert.equal(inputs[2].min, day); assert.equal(inputs[3].min, day);
+    const yesterday = new Date(Date.parse(day + "T00:00:00Z") - 86400000).toISOString().slice(0, 10);
+    for (const [index, next] of ["Pool maintenance", "Pool repairs", yesterday, tomorrow].entries()) await input(inputs[index], next);
+    await act(async () => dialog.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.match(dialog.querySelector('[role="alert"]').textContent, /past date/);
+    assert.equal(document.querySelector('[role="alertdialog"]'), null);
+    assert.deepEqual(h.calls, []);
+  } finally { await h.close(); }
+});
+
+test("maintenance form enforces chronological dates and times before confirmation and allows overnight work", async () => {
+  const h = await mount({ initialAccess: { role: "staff", permissions: ["reservations", "edit_reservation"] } });
+  try {
+    await click(button(h.c, "Add maintenance block"));
+    const dialog = document.querySelector('[role="dialog"]'), inputs = dialog.querySelectorAll("input");
+    const submit = () => act(async () => dialog.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    for (const [index, next] of ["Pool maintenance", "Pool repairs", tomorrow, day].entries()) await input(inputs[index], next);
+    assert.equal(inputs[2].max, day); assert.equal(inputs[3].min, tomorrow);
+    await submit();
+    assert.match(dialog.querySelector('[role="alert"]').textContent, /end date cannot be before/);
+    assert.equal(document.querySelector('[role="alertdialog"]'), null);
+    await input(inputs[3], tomorrow);
+    await input(inputs[5], "09:00");
+    for (const endTime of ["08:00", "09:00"]) {
+      await input(inputs[6], endTime);
+      assert.equal(inputs[5].max, endTime); assert.equal(inputs[6].min, "09:00");
+      await submit();
+      assert.match(dialog.querySelector('[role="alert"]').textContent, /end date and time must be later/);
+      assert.equal(document.querySelector('[role="alertdialog"]'), null);
+    }
+    assert.deepEqual(h.calls, []);
+    await input(inputs[2], day); await input(inputs[5], "22:00"); await input(inputs[6], "06:00");
+    assert.equal(inputs[5].max, ""); assert.equal(inputs[6].min, "");
+    await submit();
+    assert.ok(document.querySelector('[role="alertdialog"]'));
+    await confirmMaintenanceIfOpen();
+    assert.equal(h.calls.length, 1);
+    assert.deepEqual(h.calls[0].body, { name: "Pool maintenance", reason: "Pool repairs", startDate: day, endDate: tomorrow, startTime: "22:00", endTime: "06:00", allDay: false });
+  } finally { await h.close(); }
+});
+
 test("a manager with payment approval permission can approve a proof inside the calendar without opening Transactions",async()=>{
  const h=await mount({initialAccess:{role:"staff",permissions:["reservations","payment_approval"]}});
  try {

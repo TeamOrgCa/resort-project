@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import StaffDialogShell from "@/components/admin/users/StaffDialogShell";
+import PasswordInput from "@/components/ui/PasswordInput";
 
 interface ResetPasswordDialogProps {
   isOpen: boolean;
@@ -49,8 +50,10 @@ export default function ResetPasswordDialog({
 
         <label className="space-y-2">
           <span className="block text-sm font-medium text-neutral">Temporary Password</span>
-          <input
-            type="password"
+          <PasswordInput
+            aria-label="Temporary password"
+            autoComplete="new-password"
+            disabled={isSubmitting}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             minLength={8}

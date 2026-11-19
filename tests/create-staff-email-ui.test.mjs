@@ -19,7 +19,7 @@ async function mount() {
   const submissions = [];
   const Component = loadTsModule("components/admin/users/CreateStaffDialog.tsx").default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
-  const render = (isOpen = true) => act(async () => root.render(createElement(Component, { isOpen, isSubmitting: false, error: "", onClose() {}, onSubmit: data => submissions.push(data) })));
+  const render = (isOpen = true, isSubmitting = false) => act(async () => root.render(createElement(Component, { isOpen, isSubmitting, error: "", onClose() {}, onSubmit: data => submissions.push(data) })));
   await render();
   await value(container.querySelector('input[placeholder="Alex Mendoza"]'), "Alex Mendoza");
   await value(container.querySelector('input[type="password"]'), "secret123");
@@ -36,7 +36,7 @@ test("invalid staff email stays beside the focused field and cannot submit; a co
     assert.equal(h.email().getAttribute("aria-invalid"), "true");
     const message = document.getElementById(h.email().getAttribute("aria-describedby")); assert.match(message.textContent, /valid email address/);
     assert.equal(message.getAttribute("role"), "alert"); assert.equal(message, h.email().parentElement.nextElementSibling);
-    await value(h.email(), "Alex.Mendoza+desk@MARVILLERESORT.COM"); assert.equal(h.email().getAttribute("aria-invalid"), "false");
+    await value(h.email(), "Alex.Mendoza+desk"); assert.equal(h.email().getAttribute("aria-invalid"), "false");
     await h.submit(); assert.equal(h.submissions.length, 1); assert.equal(h.submissions[0].email, "alex.mendoza+desk@marvilleresort.com");
     assert.equal(h.submissions[0].role, "staff"); assert.equal(h.submissions[0].password, "secret123");
   } finally { await h.close(); }
@@ -104,5 +104,36 @@ test("pasting full addresses preserves valid usernames and rejects wrong domains
     await value(h.container.querySelector("select"), "admin");
     await paste("Owner@GMAIL.COM"); await h.submit();
     assert.equal(h.submissions.at(-1).email, "owner@gmail.com");
+  } finally { await h.close(); }
+});
+
+test("email username rejects typed at-signs and input-event bypasses while preserving its fixed suffix", async () => {
+  const h = await mount();
+  try {
+    await value(h.email(), "alex");
+    await act(async () => {
+      const event = new window.KeyboardEvent("keydown", { key: "@", bubbles: true, cancelable: true });
+      h.email().dispatchEvent(event); assert.equal(event.defaultPrevented, true);
+    });
+    for (const attempt of ["alex@", "alex@something", "alex@gmail.com", "alex@marvilleresort.com"]) {
+      await value(h.email(), attempt); assert.equal(h.email().value, "alex");
+    }
+    await h.submit(); assert.equal(h.submissions[0].email, "alex@marvilleresort.com");
+  } finally { await h.close(); }
+});
+
+test("temporary password can be shown and hidden without submitting, is disabled while saving and resets when reopened", async () => {
+  const h = await mount();
+  const password = () => h.container.querySelector('input[aria-label="Temporary password"]');
+  try {
+    assert.equal(password().type, "password");
+    const toggle = () => h.container.querySelector('button[aria-controls="' + password().id + '"]');
+    await act(async () => toggle().click());
+    assert.equal(password().type, "text"); assert.equal(password().value, "secret123");
+    assert.equal(toggle().getAttribute("aria-label"), "Hide password"); assert.equal(h.submissions.length, 0);
+    await act(async () => toggle().click()); assert.equal(password().type, "password");
+    await h.render(true, true); assert.equal(password().disabled, true); assert.equal(toggle().disabled, true);
+    await h.render(false); await h.render(true);
+    assert.equal(password().type, "password"); assert.equal(password().value, "");
   } finally { await h.close(); }
 });

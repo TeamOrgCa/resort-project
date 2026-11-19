@@ -1,4 +1,14 @@
 import { windowsOverlap } from "./availability";
+import { manilaDateKey } from "./manila-date";
+
+/** Today may include work already underway, but never an already-ended period. */
+export function maintenancePeriodError(start: string, end: string, now = Date.now()): string | null {
+  const first = Date.parse(start), last = Date.parse(end);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last <= first) return "The end date and time must be later than the start date and time (Philippine time).";
+  if (manilaDateKey(start) < manilaDateKey(new Date(now))) return "Maintenance cannot start on a past date (Philippine time).";
+  if (last <= now) return "The maintenance end time must still be in the future (Philippine time).";
+  return null;
+}
 
 export type MaintenanceWindow = {
   start_date: string;

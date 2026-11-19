@@ -20,6 +20,7 @@ import { hasPermission, type Permission } from "@/lib/auth/role-access";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { formatManilaDate, manilaCalendarDate, manilaDateKey } from "@/lib/booking/manila-date";
 import { calendarAvailability } from "@/lib/booking/calendar-availability";
+import { maintenancePeriodError } from "@/lib/booking/maintenance";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { createClient } from "@/lib/supabase/client";
 import { CALENDAR_COLORS, CALENDAR_LEGEND_KEYS, URGENT_CALENDAR_COLOR, calendarTextColor, type CalendarColorKey } from "@/lib/booking/calendar-appearance";
@@ -312,9 +313,14 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
 
   const saveBlock = async () => {
     if (blockSubmitting.current || !canManageMaintenance) return;
-    if (!blockName.trim() || !blockReason.trim() || !blockStart || !blockEnd || blockEnd < blockStart || (!blockAllDay && `${blockEnd}T${blockEndTime}` <= `${blockStart}T${blockStartTime}`)) {
-      setBlockError("Enter a name, reason and valid maintenance period. The end must be after the start."); return;
+    if (!blockName.trim() || !blockReason.trim() || !blockStart || !blockEnd || (!blockAllDay && (!blockStartTime || !blockEndTime))) {
+      setBlockError("Enter a name, reason and valid start/end dates and times."); return;
     }
+    if (blockEnd < blockStart) { setBlockError("The end date cannot be before the start date."); return; }
+    const start = `${blockStart}T${blockAllDay ? "00:00" : blockStartTime}:00+08:00`;
+    const end = blockAllDay ? new Date(Date.parse(`${blockEnd}T00:00:00+08:00`) + 86_400_000).toISOString() : `${blockEnd}T${blockEndTime}:00+08:00`;
+    const periodError = maintenancePeriodError(start, end);
+    if (periodError) { setBlockError(periodError); return; }
     if (!await confirm({ title: "Create maintenance block?", confirmText: "Confirm maintenance block", message:
       `${blockName.trim()}\n${blockAllDay ? `${blockStart} to ${blockEnd}, entire day(s), inclusive` : `${blockStart} ${blockStartTime} to ${blockEnd} ${blockEndTime}`} (Philippine time)\nReason: ${blockReason.trim()}\n\nThis prevents new reservations and ocular visits during the selected period. Existing conflicting bookings or visits will prevent creation.` })) return;
     if (blockSubmitting.current) return;
@@ -581,11 +587,13 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         {blockError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800 sm:col-span-2">{blockError}</p>}
         <label className="text-sm">Name<input required maxLength={120} value={blockName} onChange={event => setBlockName(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
         <label className="text-sm">Internal reason (staff only)<input required maxLength={2000} value={blockReason} onChange={event => setBlockReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
-        <label className="text-sm">Start date<input required type="date" value={blockStart} onChange={event => setBlockStart(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
-        <label className="text-sm">End date<input required type="date" min={blockStart} value={blockEnd} onChange={event => setBlockEnd(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
+        <label className="text-sm">Start date<input required type="date" min={today} max={blockEnd || undefined} value={blockStart} onChange={event => setBlockStart(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
+        <label className="text-sm">End date<input required type="date" min={blockStart > today ? blockStart : today} value={blockEnd} onChange={event => setBlockEnd(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 p-2 text-base text-black" /></label>
         <label className="flex min-h-11 cursor-pointer items-center gap-3 sm:col-span-2"><input type="checkbox" checked={blockAllDay} onChange={event => setBlockAllDay(event.target.checked)} />Block entire day(s)</label>
-        {!blockAllDay && <><label className="text-sm">Start time (PHT)<input required type="time" value={blockStartTime} onChange={event => setBlockStartTime(event.target.value)} className="admin-field mt-1 w-full" /></label><label className="text-sm">End time (PHT)<input required type="time" value={blockEndTime} onChange={event => setBlockEndTime(event.target.value)} className="admin-field mt-1 w-full" /></label></>}
+        {!blockAllDay && <><label className="text-sm">Start time (PHT)<input required type="time" max={blockStart === blockEnd ? blockEndTime || undefined : undefined} value={blockStartTime} onChange={event => setBlockStartTime(event.target.value)} className="admin-field mt-1 w-full" /></label><label className="text-sm">End time (PHT)<input required type="time" min={blockStart === blockEnd ? blockStartTime || undefined : undefined} value={blockEndTime} onChange={event => setBlockEndTime(event.target.value)} className="admin-field mt-1 w-full" /></label></>}
+        {!blockAllDay && <p className="text-xs text-neutral/60 sm:col-span-2">The end date and time must be later than the start. For overnight maintenance, select the following day as the end date.</p>}
         <p className="text-xs text-neutral/60 sm:col-span-2">All times are Philippine time. Overlapping reservations or ocular visits prevent creation. Guests see only maintenance availability.</p>
+        <p className="text-xs text-neutral/60 sm:col-span-2">Past dates and periods that have already ended cannot be added. Availability returns at the end time; the maintenance record remains in history.</p>
         <button disabled={blockBusy} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">{blockBusy ? "Creating..." : "Create maintenance block"}</button>
       </form>
     </RecordDialog>}

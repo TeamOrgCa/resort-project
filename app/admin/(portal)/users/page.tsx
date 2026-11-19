@@ -160,6 +160,10 @@ export default function AdminUsersPage() {
     if (!selectedStaff) {
       return;
     }
+    if (selectedStaff.role === "admin" && selectedStaff.id !== currentStaffUserId && values.fullName !== selectedStaff.full_name) {
+      setEditError("Only the account owner can change an admin's name.");
+      return;
+    }
     if (!await confirm({ title: "Save staff account changes?", confirmText: "Confirm account changes", message: `Update ${selectedStaff.email}?\nName: ${values.fullName}\nRole: ${values.role === "staff" ? "Manager" : values.role === "admin" ? "Admin" : "Cashier"}\nStatus: ${values.isActive ? "Active" : "Deactivated"}\n\nRole and status changes affect this account's access.` })) return;
 
     setEditError("");
@@ -236,6 +240,10 @@ export default function AdminUsersPage() {
     }
 
     if (action === "Edit") {
+      if (staffRecord.role === "admin" && staffRecord.id !== currentStaffUserId) {
+        showToast("error", "Only the account owner can change an admin's name.");
+        return;
+      }
       setSelectedStaff(staffRecord);
       setEditError("");
       setIsEditOpen(true);
@@ -319,7 +327,7 @@ export default function AdminUsersPage() {
 
         {activeTab === "Staff Accounts" && (
           <>
-            <p className="mb-4 text-sm text-neutral/65">Admin accounts cannot be disabled or have their passwords reset here.</p>
+            <p className="mb-4 text-sm text-neutral/65">You can edit only your own admin name. Admin accounts cannot be disabled or have their passwords reset here.</p>
             <AdminTablePreview
               title="Staff Accounts"
               isLoading={isLoading}
@@ -334,7 +342,7 @@ export default function AdminUsersPage() {
               onAction={() => setIsCreateOpen(true)}
               rowActions={["Edit", "Toggle Status", "Reset Password"]}
               getRowActionLabel={(action, row) => (action === "Toggle Status" ? (row.status === "Active" ? "Disable" : "Enable") : action)}
-              isRowActionDisabled={(action, row) => isEditing || (row.role === "Admin" && (action === "Reset Password" || (action === "Toggle Status" && row.status === "Active")))}
+              isRowActionDisabled={(action, row) => isEditing || (row.role === "Admin" && (action === "Reset Password" || (action === "Edit" && row.id !== currentStaffUserId) || (action === "Toggle Status" && row.status === "Active")))}
               onRowAction={(action: string, row) => handleRowAction(action, row as StaffUserTableRow)}
               sortable
             />
