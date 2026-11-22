@@ -42,6 +42,7 @@ interface ServiceOption {
   description: string;
   imageUrl: string | null;
   maxQuantity: number;
+  billingType: "quantity" | "duration";
 }
 
 interface GuestProfile {
@@ -107,7 +108,7 @@ function BookingFormContent() {
         message?: string;
         catalog?: {
           units: Array<{ unit_id: string; name: string; description: string | null; base_price: number; unit_img?: string | null; capacity?: number | null }>;
-          services: Array<{ service_id: string; name: string; price: number; description?: string | null; image_url?: string | null; max_quantity?: number }>;
+          services: Array<{ service_id: string; name: string; price: number; description?: string | null; image_url?: string | null; max_quantity?: number; billing_type?: "quantity" | "duration" }>;
         };
       };
 
@@ -133,6 +134,7 @@ function BookingFormContent() {
         description: service.description ?? "",
         imageUrl: service.image_url ?? null,
         maxQuantity: serviceQuantityLimit(service.max_quantity),
+        billingType: service.billing_type === "duration" ? "duration" : "quantity",
       }));
 
       const authUser = authResult.data.user;
@@ -225,7 +227,7 @@ function BookingFormContent() {
   const selectedRoom = units.find((room) => room.id === formData.roomType);
   const selectedServiceItems = services.filter(service => service.id in serviceQuantities).map(service => ({ ...service, quantity: serviceQuantities[service.id] }));
   const quantityError = serviceQuantityError(selectedServiceItems.map(service => ({ serviceId: service.id, quantity: service.quantity })),
-    services.map(service => ({ service_id: service.id, name: service.name, max_quantity: service.maxQuantity })));
+    services.map(service => ({ service_id: service.id, name: service.name, max_quantity: service.maxQuantity, billing_type: service.billingType })));
   const amenitiesTotal = selectedServiceItems.reduce((total, service) => total + service.price * Math.max(0, Number.isFinite(service.quantity) ? service.quantity : 0), 0);
   const guestCountsValid = isValidGuestCounts(formData.adultCount, formData.childCount);
   const pricing = computeBookingPricing({

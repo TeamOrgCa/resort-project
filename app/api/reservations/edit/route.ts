@@ -74,6 +74,7 @@ export async function POST(request: Request) {
     const billingEmail = billChanged ? await emailUpdatedBillingStatement(id, Number(data.totalAmount)) : undefined;
     const emailMessage = billingEmail ? (billingEmail.sent ? " Updated billing statement emailed." : ` Updated billing statement was not emailed. ${billingEmail.error ?? "Check email delivery settings."}`) : "";
     return NextResponse.json({ success: true, ...data, billingEmail,
+      services: data.services?.map((service: { serviceId: string }) => ({ ...service, billingType: loaded.services.find(old => old.service_id === service.serviceId)?.billing_type ?? loaded.catalogServices.find(listed => listed.service_id === service.serviceId)?.billing_type ?? "quantity" })),
       message: `Booking updated. Your total and remaining balance have been recalculated.${emailMessage}` });
   } catch (error) { return NextResponse.json({ message: error instanceof Error ? error.message : "Unable to update this booking." }, { status: 503 }); }
 }

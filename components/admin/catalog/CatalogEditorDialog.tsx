@@ -9,6 +9,7 @@ import CatalogDialog from "./CatalogDialog";
 import ContentImageEditor from "@/components/admin/ContentImageEditor";
 import ServicePhoto from "@/components/booking/ServicePhoto";
 import UnitPhoto from "@/components/booking/UnitPhoto";
+import { serviceBilling } from "@/lib/booking/service-billing";
 
 interface Props {
   resource: CatalogResource;
@@ -39,6 +40,7 @@ export default function CatalogEditorDialog({ resource, record, references, refe
   const needsReferences = resource === "unit_rates" || resource === "payment_accounts";
   const selectedMethod = references.paymentMethods.find(method => method.payment_method_id === draft.payment_method_id);
   const qrRequired = !selectedMethod || isGcashMethod({ name: selectedMethod.name, type: selectedMethod.type ?? "" });
+  const billing = serviceBilling(String(draft.billing_type ?? "quantity"));
   const setField = (key: string, value: string) => setDraft((current) => ({ ...current, [key]: value }));
 
   async function requestClose() {
@@ -73,8 +75,13 @@ export default function CatalogEditorDialog({ resource, record, references, refe
       <fieldset disabled={blocked} className="grid gap-5 sm:grid-cols-2">
         {definition.fields.map((field, index) => {
           const value = String(draft[field.key] ?? "");
+          const label = resource === "services" && field.key === "price" ? billing.priceLabel : resource === "services" && field.key === "max_quantity" ? billing.limitLabel : field.label;
           let control;
-          if (field.kind === "image") {
+          if (field.kind === "select") {
+            control = <select id={`catalog-${field.key}`} required value={value} onChange={event => setField(field.key, event.target.value)} className={inputClass}>
+              {field.options?.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>;
+          } else if (field.kind === "image") {
             control = <div className="mt-2 rounded-xl border border-neutral/15 bg-base/40 p-4">
               {!value && <div className="h-24 w-36 overflow-hidden rounded-lg">{resource === "units" ? <UnitPhoto src={null} /> : <ServicePhoto src={null} />}</div>}
               <ContentImageEditor value={value} onChange={(url) => setField(field.key, url)} label={resource === "units" ? "unit photo" : "service photo"} compact onUploadingChange={setUploadingImage} />
@@ -95,9 +102,9 @@ export default function CatalogEditorDialog({ resource, record, references, refe
             control = <input id={`catalog-${field.key}`} data-autofocus={index === 0 ? true : undefined} type={type} required={field.required} min={field.kind === "time" ? field.minTime : field.kind === "date" && field.key === "effective_to" ? String(draft.effective_from ?? "") : field.min} max={field.kind === "time" ? field.maxTime : field.max} step={field.kind === "money" ? "0.01" : field.kind === "integer" ? "1" : undefined} maxLength={type === "text" ? 200 : undefined} value={value} onChange={(event) => setField(field.key, event.target.value)} className={inputClass} />;
           }
           return <div key={field.key} className={field.kind === "textarea" || field.kind === "image" ? "sm:col-span-2" : ""}>
-            <label htmlFor={field.kind === "image" ? undefined : `catalog-${field.key}`} className="text-sm font-medium text-neutral">{field.label}{field.required && <span className="ml-1 text-primary" aria-label="required">*</span>}</label>
+            <label htmlFor={field.kind === "image" ? undefined : `catalog-${field.key}`} className="text-sm font-medium text-neutral">{label}{field.required && <span className="ml-1 text-primary" aria-label="required">*</span>}</label>
             {control}
-            {field.help && <p className="mt-1.5 text-xs leading-relaxed text-neutral/55">{field.help}</p>}
+            {field.help && <p className="mt-1.5 text-xs leading-relaxed text-neutral/55">{resource === "services" && field.key === "max_quantity" ? billing.help : field.help}</p>}
           </div>;
         })}
         {resource === "payment_accounts" && <div className="sm:col-span-2 rounded-xl border border-dashed border-neutral/20 bg-base/50 p-4">

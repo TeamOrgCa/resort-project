@@ -51,6 +51,7 @@ interface UnitRow {
 
 interface ServiceRow {
   max_quantity?: number;
+  billing_type?: "quantity" | "duration";
   name?: string;
   service_id: string;
   price: number;
@@ -251,7 +252,7 @@ export async function POST(request: Request) {
     const { data: servicesData, error: servicesError } = uniqueServiceIds.length
       ? await supabase
           .from("services")
-          .select("service_id, name, price, max_quantity, is_active")
+          .select("service_id, name, price, max_quantity, billing_type, is_active")
           .in("service_id", uniqueServiceIds)
       : { data: [], error: null };
 

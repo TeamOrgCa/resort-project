@@ -2,6 +2,7 @@
 import { advanceBookingIssue } from "@/lib/booking/advance-window";
 
 import { serviceQuantityError, serviceQuantityLimit } from "@/lib/booking/service-quantity";
+import { serviceBilling } from "@/lib/booking/service-billing";
 
 import Skeleton, { SkeletonGroup } from "@/components/ui/Skeleton";
 import { AdminCardsSkeleton } from "@/components/admin/AdminSkeletons";
@@ -28,7 +29,7 @@ import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/pho
 import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
 type Unit = { unit_id: string; name: string; capacity: number };
-type Service = { max_quantity?: number; service_id: string; name: string; description: string | null; price: number };
+type Service = { max_quantity?: number; billing_type?: string; service_id: string; name: string; description: string | null; price: number };
 type PackageMode = Exclude<BookingMode, "custom">;
 type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreated: (booking: { date: string; id?: string; reference?: string }) => void };
 type BookingForm = { bookingDate: string; bookingMode: PackageMode; wholeDayVariant: WholeDayVariant; adultCount: string; childCount: string; unitId: string; specialRequests: string };
@@ -69,7 +70,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
         const supabase = createClient();
         const [unitResult, serviceResult] = await Promise.all([
           supabase.from("units").select("unit_id, name, capacity").eq("is_active", true).is("archived_at", null).order("name"),
-          supabase.from("services").select("service_id, name, description, price, max_quantity").eq("is_active", true).order("name"),
+          supabase.from("services").select("service_id, name, description, price, max_quantity, billing_type").eq("is_active", true).order("name"),
         ]);
         if ([unitResult, serviceResult].some(result => result.error)) throw new Error("Unable to load units or services. Please reload the booking options.");
         if (!active) return;
@@ -233,12 +234,13 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
             {optionsLoading ? <AdminCardsSkeleton label="Loading services..." count={2} /> : !optionsError && services.length === 0 ? <p className="mt-3 text-sm text-neutral/60">No active services are available.</p> : null}
             <div className="mt-3 space-y-3">{services.map(service => {
               const quantity = serviceQuantities[service.service_id], selected = quantity !== undefined;
+              const billing = serviceBilling(service.billing_type);
               return <div key={service.service_id} className="rounded-xl border border-neutral/10 p-3">
                 <label className="flex cursor-pointer items-start gap-3 text-sm text-neutral">
                   <input type="checkbox" checked={selected} onChange={event => setServiceQuantities(current => { const next = { ...current }; if (event.target.checked) next[service.service_id] = "1"; else delete next[service.service_id]; return next; })} className="mt-0.5 h-5 w-5 shrink-0" />
-                  <span className="min-w-0 flex-1"><span className="block font-medium">{service.name}</span>{service.description && <span className="mt-1 block break-words text-xs text-neutral/60">{service.description}</span>}<span className="mt-1 block text-xs">{money(Number(service.price))} each</span></span>
+                  <span className="min-w-0 flex-1"><span className="block font-medium">{service.name}</span>{service.description && <span className="mt-1 block break-words text-xs text-neutral/60">{service.description}</span>}<span className="mt-1 block text-xs">{billing.typeLabel} · {money(Number(service.price))} {billing.rateLabel}</span></span>
                 </label>
-                {selected && <div className="mt-3 flex flex-wrap items-end justify-between gap-3"><label className="w-28 text-sm text-neutral">Quantity<input aria-label={`Quantity for ${service.name}`} type="number" min="1" max={serviceQuantityLimit(service.max_quantity)} step="1" required value={quantity} onChange={event => setServiceQuantities(current => ({ ...current, [service.service_id]: event.target.value }))} className={fieldClass} /></label><p className="text-sm font-semibold text-neutral">{validQuantity(quantity) ? money(Number(service.price) * Number(quantity)) : "Enter a valid quantity"}</p></div>}
+                {selected && <><p className="mt-2 text-xs text-neutral/60">{billing.help}</p><div className="mt-3 flex flex-wrap items-end justify-between gap-3"><label className="w-28 text-sm text-neutral">{billing.inputLabel}<input aria-label={`${billing.inputLabel} for ${service.name}`} type="number" min="1" max={serviceQuantityLimit(service.max_quantity)} step="1" required value={quantity} onChange={event => setServiceQuantities(current => ({ ...current, [service.service_id]: event.target.value }))} className={fieldClass} /></label><p className="text-sm font-semibold text-neutral">{validQuantity(quantity) ? money(Number(service.price) * Number(quantity)) : `Enter valid ${billing.inputLabel.toLowerCase()}`}</p></div></>}
               </div>;
             })}</div>
           </section>

@@ -1,5 +1,7 @@
 "use client";
 
+import { serviceBilling, serviceCount } from "@/lib/booking/service-billing";
+
 import { useEffect, useState } from "react";
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import type { ReservationRecordDetail } from "@/lib/booking/reservation-record";
@@ -29,7 +31,7 @@ export default function ReservationRecordDetails({ reservationId }: { reservatio
     <button type="button" onClick={() => { setLoading(true); setDetail(null); setError(null); setReload(value => value + 1); }} className="mt-3 min-h-11 rounded-xl border px-4 py-2 text-sm">Retry details</button></div>;
   const r = detail.reservation;
   const guestName = detail.guest ? `${detail.guest.first_name ?? ""} ${detail.guest.last_name ?? ""}`.trim() : "";
-  const lines = (items: ReservationRecordDetail["services"]) => <ul className="mt-2 space-y-2">{items.map((item, index) => <li key={index} className="flex flex-wrap justify-between gap-2 text-sm"><span>{item.quantity} × {item.name}</span><span>{money(item.price)} each</span></li>)}</ul>;
+  const lines = (items: ReservationRecordDetail["services"]) => <ul className="mt-2 space-y-2">{items.map((item, index) => <li key={index} className="flex flex-wrap justify-between gap-2 text-sm"><span>{serviceCount(item.quantity, item.billingType)} × {item.name}</span><span>{money(item.price)} {serviceBilling(item.billingType).rateLabel}</span></li>)}</ul>;
   return <div className="space-y-5 text-sm text-neutral">
     <section className="rounded-xl border border-neutral/10 p-4"><h3 className="font-semibold">Guest details</h3>
       <dl className="mt-3 grid gap-3 sm:grid-cols-2">{[

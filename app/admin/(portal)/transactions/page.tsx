@@ -711,7 +711,7 @@ export default function AdminTransactionsPage() {
           .eq("reservation_id", invoice.reservation_id),
         supabase
           .from("reservation_services")
-          .select("quantity, price_at_time, services(name)")
+          .select("quantity, price_at_time, billing_type, services(name)")
           .eq("reservation_id", invoice.reservation_id),
       ]);
 
@@ -775,6 +775,7 @@ export default function AdminTransactionsPage() {
           name: (Array.isArray(service.services) ? service.services[0]?.name : service.services?.name) ?? "Service",
           quantity,
           priceAtTime,
+          billingType: service.billing_type,
           lineTotal,
         };
       });

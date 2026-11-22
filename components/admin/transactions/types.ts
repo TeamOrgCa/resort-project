@@ -79,6 +79,7 @@ export interface InvoiceDetailReservationUnitRow {
 }
 
 export interface InvoiceDetailReservationServiceRow {
+  billing_type?: "quantity" | "duration";
   quantity: number;
   price_at_time: number;
   services:
@@ -99,6 +100,7 @@ export interface InvoiceUnitBreakdownItem {
 }
 
 export interface InvoiceServiceBreakdownItem {
+  billingType?: "quantity" | "duration";
   name: string;
   quantity: number;
   priceAtTime: number;
