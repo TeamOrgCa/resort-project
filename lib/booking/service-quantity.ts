@@ -21,11 +21,11 @@ export function parseServiceSelections(input: unknown): { serviceId: string; qua
 
 export function serviceQuantityError(
   selected: { serviceId: string; quantity?: number }[],
-  catalog: { service_id: string; name?: string; max_quantity?: number | null }[],
-  booked: { service_id: string; quantity: number }[] = [],
+  catalog: { service_id: string; name?: string; max_quantity?: number | null; billing_type?: string | null }[],
+  booked: { service_id: string; quantity: number; billing_type?: string | null }[] = [],
 ): string | null {
   const parsed = parseServiceSelections(selected);
-  if (!parsed) return "Choose each service once, with a whole-number quantity from 1 to 10000.";
+  if (!parsed) return "Choose each service once, with a whole-number quantity or duration from 1 to 10000.";
   for (const selection of parsed) {
     const service = catalog.find(item => item.service_id.toLowerCase() === selection.serviceId);
     const previous = booked.find(item => item.service_id.toLowerCase() === selection.serviceId);
@@ -34,7 +34,9 @@ export function serviceQuantityError(
       return "A selected service is no longer available. Reload the catalog.";
     }
     const limit = serviceQuantityLimit(service.max_quantity, previous?.quantity);
-    if (selection.quantity > limit) return `${service.name || "This service"} allows a maximum quantity of ${limit} per booking.`;
+    if (selection.quantity > limit) return (previous?.billing_type ?? service.billing_type) === "duration"
+      ? `${service.name || "This service"} allows a maximum of ${limit} rental hours per booking.`
+      : `${service.name || "This service"} allows a maximum quantity of ${limit} per booking.`;
   }
   return null;
 }

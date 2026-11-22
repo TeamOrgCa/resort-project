@@ -12,7 +12,7 @@ export type BillingBreakdown = {
 };
 
 export type BilledUnit = { name: string; quantity: number; pricePerPeriod: number };
-export type BilledService = { name: string; quantity: number; priceAtBooking: number };
+export type BilledService = { name: string; quantity: number; priceAtBooking: number; billingType?: "quantity" | "duration" };
 
 type BreakdownInput = {
   bookingMode: string | null;
@@ -53,7 +53,7 @@ export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
   }));
   const serviceLines: BillingLine[] = input.services.map((service) => ({
     description: service.name,
-    detail: "Additional service selected for this reservation",
+    detail: service.billingType === "duration" ? `${service.quantity} ${service.quantity === 1 ? "rental hour" : "rental hours"}; charged per hour` : "Additional service selected for this reservation",
     quantity: service.quantity,
     unitPrice: money(service.priceAtBooking),
     amount: money(service.quantity * service.priceAtBooking),

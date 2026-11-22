@@ -1,5 +1,7 @@
 "use client";
 
+import { serviceCount } from "@/lib/booking/service-billing";
+
 import Link from "next/link";
 import { Suspense, useRef, useState } from "react";
 import BookingProgress from "@/components/booking/BookingProgress";
@@ -224,7 +226,7 @@ function BookingDetailsContent() {
                       <div className="space-y-1 text-sm text-neutral/80">
                         {bookingDraft.services.map((service) => (
                           <p key={service.id}>
-                            {service.name} × {service.quantity ?? 1} - ₱{(Number(service.price || 0) * (service.quantity ?? 1)).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {service.name} × {serviceCount(service.quantity ?? 1, service.billingType)} - ₱{(Number(service.price || 0) * (service.quantity ?? 1)).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </p>
                         ))}
                       </div>
@@ -236,7 +238,7 @@ function BookingDetailsContent() {
                     <div className="space-y-2 text-sm text-neutral/80">
                       <div className="flex justify-between"><span>{costSummary.packageLabel}</span><span className="font-semibold text-neutral">₱{costSummary.packageCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       {costSummary.extraGuestCharge > 0 && <div className="flex justify-between"><span>Extra guests ({costSummary.extraGuests})</span><span className="font-semibold text-neutral">₱{costSummary.extraGuestCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
-                      {bookingDraft.services.map((service) => <div key={service.id} className="flex justify-between"><span>{service.name} × {service.quantity ?? 1}</span><span className="font-semibold text-neutral">₱{(Number(service.price || 0) * (service.quantity ?? 1)).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
+                      {bookingDraft.services.map((service) => <div key={service.id} className="flex justify-between"><span>{service.name} × {serviceCount(service.quantity ?? 1, service.billingType)}</span><span className="font-semibold text-neutral">₱{(Number(service.price || 0) * (service.quantity ?? 1)).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
                       <div className="flex justify-between"><span>Subtotal</span><span className="font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       {costSummary.tax > 0 && <div className="flex justify-between"><span>Tax</span><span className="font-semibold text-neutral">₱{costSummary.tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                       <div className="flex justify-between border-t border-neutral/10 pt-2"><span className="font-semibold text-neutral">Total</span><span className="font-bold text-primary">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>

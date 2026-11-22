@@ -1,5 +1,7 @@
 "use client";
 
+import { serviceBilling, serviceCount } from "@/lib/booking/service-billing";
+
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import { createPortal } from "react-dom";
 import { usePortalTarget } from "@/lib/use-portal-target";
@@ -164,7 +166,7 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
                     <div className="mt-2 space-y-2 text-sm text-neutral/80">
                       {invoiceDetails.serviceBreakdown.map((item, index) => (
                         <p key={`${item.name}-${index}`}>
-                          <span className="font-semibold text-neutral">{item.name}</span> • Qty {item.quantity} • {formatCurrency(item.priceAtTime)} = {formatCurrency(item.lineTotal)}
+                          <span className="font-semibold text-neutral">{item.name}</span> • {serviceBilling(item.billingType).inputLabel}: {serviceCount(item.quantity, item.billingType)} • {formatCurrency(item.priceAtTime)} {serviceBilling(item.billingType).rateLabel} = {formatCurrency(item.lineTotal)}
                         </p>
                       ))}
                     </div>

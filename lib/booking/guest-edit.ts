@@ -11,7 +11,7 @@ export type GuestEditDetail = {
 };
 export type GuestEditResult = { totalAmount: number; paidAmount: number; remainingBalance: number; overpaidAmount: number;
   adultCount: number; childCount: number; message: string;
-  services: { serviceId: string; name: string; quantity: number; priceAtTime: number }[] };
+  services: { serviceId: string; name: string; quantity: number; priceAtTime: number; billingType?: "quantity" | "duration" }[] };
 
 export function parseGuestBookingEdit(value: unknown): GuestBookingEdit | null {
   if (!value || typeof value !== "object") return null;

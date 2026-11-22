@@ -14,6 +14,7 @@ import { catalogResources, catalogResourceKeys, catalogRecordName, isCatalogActi
 import { validateCatalogRecord } from "@/lib/catalog/validation";
 import { isContentImageUrl } from "@/lib/settings/public-content";
 import { formatManilaDate, formatManilaTime } from "@/lib/booking/manila-date";
+import { serviceBilling } from "@/lib/booking/service-billing";
 
 const visibleCatalogResources = catalogResourceKeys.filter(key => key !== "unit_rates" && key !== "guest_rates");
 
@@ -140,6 +141,7 @@ export default function CatalogClient() {
   };
 
   const displayValue = (key: string, value: unknown): string => {
+    if (key === "billing_type") return serviceBilling(String(value ?? "quantity")).typeLabel;
     if (key === "unit_id") {
       const unit = references.units.find((item) => item.unit_id === value);
       return unit ? `${unit.name}${isCatalogActive(unit) ? "" : " (archived)"}` : "Unavailable unit";

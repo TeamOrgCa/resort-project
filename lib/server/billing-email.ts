@@ -21,7 +21,7 @@ type Reservation = {
 type Guest = { email: string | null; first_name: string | null; last_name: string | null };
 type NameRelation = { name: string } | { name: string }[] | null;
 type UnitRow = { quantity: number | null; price_per_night: number; units: NameRelation };
-type ServiceRow = { quantity: number | null; price_at_time: number; services: NameRelation };
+type ServiceRow = { billing_type?: "quantity" | "duration"; quantity: number | null; price_at_time: number; services: NameRelation };
 type ReservationCharges = {
   booking_mode: string | null;
   adult_count: number;
@@ -110,7 +110,7 @@ export async function emailBillingDocuments(
       .eq("reservation_id", reservation.reservation_id).maybeSingle<ReservationCharges>(),
     supabase.from("reservation_units").select("quantity, price_per_night, units(name)")
       .eq("reservation_id", reservation.reservation_id),
-    supabase.from("reservation_services").select("quantity, price_at_time, services(name)")
+    supabase.from("reservation_services").select("quantity, price_at_time, billing_type, services(name)")
       .eq("reservation_id", reservation.reservation_id),
     // Read optional provider/beta metadata without requiring a new schema migration.
     options.invoiceOnly ? Promise.resolve({ data: null, error: null }) : supabase.from("payments").select("*,payment_methods(name)").eq("payment_id",paymentId).maybeSingle(),
@@ -148,6 +148,7 @@ export async function emailBillingDocuments(
     name: relatedName(row.services, "Booked service"),
     quantity: Number(row.quantity ?? 1),
     priceAtBooking: Number(row.price_at_time),
+    billingType: row.billing_type,
   }));
 
   const guestName = `${guest.first_name ?? ""} ${guest.last_name ?? ""}`.trim() || "Guest";

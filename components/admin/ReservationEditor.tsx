@@ -3,6 +3,7 @@
 import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { advanceBookingIssue } from "@/lib/booking/advance-window";
 import { serviceQuantityLimit } from "@/lib/booking/service-quantity";
+import { serviceBilling } from "@/lib/booking/service-billing";
 
 import { useEffect, useRef, useState } from "react";
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
@@ -199,10 +200,11 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
           const selected = draft.services.find(e => e.serviceId === s.service_id);
           const old = detail.services.find(e => e.service_id === s.service_id);
           const price = Number(old?.price_at_time ?? s.price);
+          const billing = serviceBilling(old?.billing_type ?? s.billing_type);
           return <div key={s.service_id} className="flex items-center justify-between gap-3 rounded-xl bg-base/60 p-3">
             <label className="flex cursor-pointer items-start gap-3 text-sm"><input type="checkbox" className="mt-1 accent-primary" checked={Boolean(selected)} disabled={!canEdit || (!canReduce && Boolean(old))} onChange={e => setDraft({ ...draft, services: e.target.checked ? [...draft.services, { serviceId: s.service_id, quantity: 1 }] : draft.services.filter(x => x.serviceId !== s.service_id) })} />
-              <span><span className="font-medium text-neutral">{s.name}{!s.is_active ? " (archived)" : ""}</span><span className="block text-xs text-neutral/60">{currency(price)} each{old ? " · booked rate" : ""}</span></span></label>
-            {selected && <label className="w-20 shrink-0 text-xs text-neutral/60">Quantity<input aria-label={`Quantity for ${s.name}`} type="number" required min={!canReduce ? old?.quantity ?? 1 : 1} max={serviceQuantityLimit(s.max_quantity, old?.quantity)} className={inputClass} value={selected.quantity} onChange={e => setDraft({ ...draft, services: draft.services.map(x => x.serviceId === s.service_id ? { ...x, quantity: Number(e.target.value) } : x) })} /></label>}
+              <span><span className="font-medium text-neutral">{s.name}{!s.is_active ? " (archived)" : ""}</span><span className="block text-xs text-neutral/60">{currency(price)} {billing.rateLabel}{old ? " · booked rate" : ""}</span></span></label>
+            {selected && <label className="w-20 shrink-0 text-xs text-neutral/60">{billing.inputLabel}<input aria-label={`${billing.inputLabel} for ${s.name}`} type="number" required min={!canReduce ? old?.quantity ?? 1 : 1} max={serviceQuantityLimit(s.max_quantity, old?.quantity)} className={inputClass} value={selected.quantity} onChange={e => setDraft({ ...draft, services: draft.services.map(x => x.serviceId === s.service_id ? { ...x, quantity: Number(e.target.value) } : x) })} /></label>}
           </div>;
         })}
       </div>

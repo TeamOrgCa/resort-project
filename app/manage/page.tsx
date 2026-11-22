@@ -1,5 +1,7 @@
 ﻿"use client";
 
+import { serviceBilling, serviceCount } from "@/lib/booking/service-billing";
+
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -64,6 +66,7 @@ interface EditableReservationService {
   quantity: number;
   minQuantity: number;
   priceAtTime: number;
+  billingType?: "quantity" | "duration";
 }
 
 interface OcularRecord {
@@ -117,6 +120,7 @@ interface ReservationServiceRow {
   service_id: string;
   quantity: number;
   price_at_time: number;
+  billing_type?: "quantity" | "duration";
   services:
     | {
         name: string;
@@ -570,7 +574,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           reservationIds.length
             ? supabase
                 .from("reservation_services")
-                .select("reservation_id, service_id, quantity, price_at_time, services(name)")
+                .select("reservation_id, service_id, quantity, price_at_time, billing_type, services(name)")
                 .in("reservation_id", reservationIds)
             : Promise.resolve({ data: [], error: null }),
         ]);
@@ -631,6 +635,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             quantity: Number(serviceRow.quantity ?? 1),
             minQuantity: Number(serviceRow.quantity ?? 1),
             priceAtTime: Number(serviceRow.price_at_time ?? 0),
+            billingType: serviceRow.billing_type,
           });
           accumulator[serviceRow.reservation_id] = existing;
           return accumulator;
@@ -945,7 +950,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             </div>
             <div><h3 className="mb-3 font-semibold">Booked services</h3>
               {(reservationServicesById[selectedBooking.id] ?? []).length === 0 ? <p className="text-sm text-neutral/60">No services selected.</p>
-                : <div className="divide-y divide-neutral/10 rounded-xl border border-neutral/10 px-4">{(reservationServicesById[selectedBooking.id] ?? []).map(service => <div key={service.serviceId} className="flex justify-between gap-3 py-3 text-sm"><div className="min-w-0"><p className="font-medium">{service.name} &times; {service.quantity}</p><p className="mt-1 text-xs text-neutral/55">{formatCurrency(service.priceAtTime)} each</p></div><p className="shrink-0 font-medium">{formatCurrency(service.priceAtTime * service.quantity)}</p></div>)}</div>}
+                : <div className="divide-y divide-neutral/10 rounded-xl border border-neutral/10 px-4">{(reservationServicesById[selectedBooking.id] ?? []).map(service => <div key={service.serviceId} className="flex justify-between gap-3 py-3 text-sm"><div className="min-w-0"><p className="font-medium">{service.name} &times; {serviceCount(service.quantity, service.billingType)}</p><p className="mt-1 text-xs text-neutral/55">{formatCurrency(service.priceAtTime)} {serviceBilling(service.billingType).rateLabel}</p></div><p className="shrink-0 font-medium">{formatCurrency(service.priceAtTime * service.quantity)}</p></div>)}</div>}
             </div>
             {selectedBooking.remainingBalance > 0 && !isClosedReservation(selectedBooking.status) && selectedBooking.status.toLowerCase() !== "payment submitted" && <div className="rounded-2xl bg-primary/5 p-5">
               <h3 className="font-semibold">Continue payment</h3><p className="mt-1 text-sm text-neutral/65">Choose an available online method and submit proof for the outstanding balance.</p>

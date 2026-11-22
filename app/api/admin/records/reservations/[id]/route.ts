@@ -30,14 +30,14 @@ export async function GET(_request: Request, { params }: Context) {
         .eq(reservation.guest_id ? "id" : "walk_in_guest_id", reservation.guest_id ?? reservation.walk_in_guest_id).maybeSingle()
         : Promise.resolve({ data: null, error: null }),
       admin.from("reservation_units").select("quantity,price_per_night,units(name)").eq("reservation_id", id),
-      admin.from("reservation_services").select("quantity,price_at_time,services(name)").eq("reservation_id", id),
+      admin.from("reservation_services").select("quantity,price_at_time,billing_type,services(name)").eq("reservation_id", id),
       admin.from("transactions").select("total_amount,paid_amount,balance,status").eq("reservation_id", id).maybeSingle(),
     ]);
     for (const result of [guest, units, services, bill]) if (result.error) throw result.error;
     const detail: ReservationRecordDetail = {
       reservation, guest: guest.data,
       units: (units.data ?? []).map(row => ({ name: relationName(row.units, "Booked accommodation"), quantity: Number(row.quantity ?? 1), price: Number(row.price_per_night) })),
-      services: (services.data ?? []).map(row => ({ name: relationName(row.services, "Booked service"), quantity: Number(row.quantity ?? 1), price: Number(row.price_at_time) })),
+      services: (services.data ?? []).map(row => ({ name: relationName(row.services, "Booked service"), quantity: Number(row.quantity ?? 1), price: Number(row.price_at_time), billingType: row.billing_type })),
       bill: bill.data ? { total: Number(bill.data.total_amount), paid: Number(bill.data.paid_amount ?? 0), balance: Number(bill.data.balance), status: bill.data.status } : null,
     };
     return NextResponse.json({ success: true, detail }, { headers: { "Cache-Control": "no-store" } });

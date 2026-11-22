@@ -23,6 +23,22 @@ async function mount({ loaded = detail, fetcher = async () => Response.json({ su
   return { c, busy, saved, close: async () => { await act(async () => root.unmount()); c.remove(); globalThis.fetch = original; } };
 }
 
+test("customer edits use rental hours while keeping the original booked type after catalog changes", async () => {
+  const h = await mount({ loaded: { ...detail,
+    services: [{ ...detail.services[0], billing_type: "quantity" }],
+    catalogServices: [{ ...detail.catalogServices[0], billing_type: "duration" }, { ...detail.catalogServices[1], billing_type: "duration", max_quantity: 6 }],
+  } });
+  try {
+    assert.ok(h.c.querySelector('[aria-label="Quantity for Table"]'));
+    await input(h.c.querySelector('[aria-label="New service"]'), extra);
+    const hours = h.c.querySelector('[aria-label="New service hours"]'); assert.ok(hours); assert.equal(hours.max, "6");
+    await input(hours, 3); await click(button(h.c, "Add Service"));
+    assert.equal(h.c.querySelector('[aria-label="Hours for Karaoke"]').value, "3");
+    assert.match(h.c.textContent, /per hour/);
+    assert.match(h.c.querySelector('[aria-label="Updated bill preview"]').textContent, /10,100/);
+  } finally { await h.close(); }
+});
+
 test("partial-payment edits preview headcount charges and allow reducing/removing every service before saving", async () => {
   let posted; const h = await mount({ fetcher: async (_url, options) => { posted = JSON.parse(options.body); return Response.json({ success: true, totalAmount: 8150 }); } });
   try {

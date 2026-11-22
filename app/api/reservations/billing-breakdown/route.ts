@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     const admin = createAdminClient();
     const [bill, services, guestChanges, staffChanges] = await Promise.all([
       admin.from("transactions").select("total_amount,paid_amount,balance").eq("reservation_id", id).maybeSingle(),
-      admin.from("reservation_services").select("quantity,price_at_time,services(name)").eq("reservation_id", id),
+      admin.from("reservation_services").select("quantity,price_at_time,billing_type,services(name)").eq("reservation_id", id),
       admin.from("reservation_reschedules").select("reschedule_fee,rate_adjustment").eq("reservation_id", id).eq("status", "approved"),
       admin.from("reservation_reschedule_adjustments").select("notice_fee,rate_adjustment").eq("reservation_id", id),
     ]);
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
       adultCount: Number(r.adult_count), childCount: Number(r.child_count), adultRate: null, childRate: null, units: [],
       services: (services.data ?? []).map(row => ({
         name: (Array.isArray(row.services) ? row.services[0]?.name : (row.services as { name: string } | null)?.name) || "Additional service",
-        quantity: Number(row.quantity), priceAtBooking: Number(row.price_at_time),
+        quantity: Number(row.quantity), priceAtBooking: Number(row.price_at_time), billingType: row.billing_type,
       })),
       recordedTotal: Number(bill.data.total_amount), rescheduleFees: fee, dateRateAdjustment: rate,
     });

@@ -6,6 +6,7 @@ import ServicePhoto from "./ServicePhoto";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { serviceQuantityLimit } from "@/lib/booking/service-quantity";
+import { serviceBilling } from "@/lib/booking/service-billing";
 
 function PhotoPreview({ name, src, onClose }: { name: string; src: string | null; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -30,7 +31,7 @@ function PhotoPreview({ name, src, onClose }: { name: string; src: string | null
 }
 
 interface Props {
-  service: { id: string; name: string; description: string; price: number; imageUrl: string | null; maxQuantity?: number };
+  service: { id: string; name: string; description: string; price: number; imageUrl: string | null; maxQuantity?: number; billingType?: string };
   selected: boolean;
   onToggle: () => void;
   quantity?: number;
@@ -41,6 +42,7 @@ export default function ServiceSelectionCard({ service, selected, onToggle, quan
   const [previewOpen, setPreviewOpen] = useState(false);
   const closePreview = useCallback(() => setPreviewOpen(false), []);
   const limit = serviceQuantityLimit(service.maxQuantity);
+  const billing = serviceBilling(service.billingType);
   const money = (amount: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(amount);
   return <><div className={`flex h-full flex-col overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-primary/40 ${selected ? "border-primary bg-primary/5" : "border-neutral/20 bg-white hover:border-primary/60 hover:bg-primary/5"}`}>
     <button type="button" onClick={() => setPreviewOpen(true)} aria-label={`View ${service.name} photo`} aria-haspopup="dialog" style={{ display: "block", width: "100%", height: "clamp(11rem, 25vw, 13rem)" }} className="relative shrink-0 cursor-zoom-in overflow-hidden bg-stone-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"><ServicePhoto src={service.imageUrl} /></button>
@@ -48,18 +50,20 @@ export default function ServiceSelectionCard({ service, selected, onToggle, quan
       <span className="flex min-w-0 flex-1 flex-col self-stretch">
         <span className="block wrap-break-word font-semibold text-neutral">{service.name}</span>
         {service.description && <span className="mt-1 block whitespace-pre-line break-words text-sm leading-relaxed text-neutral/65">{service.description}</span>}
-        <span className="ui-nowrap mt-auto block max-w-full overflow-x-auto pt-3 text-sm font-semibold text-primary">{money(service.price)} each</span>
+        <span className="mt-2 block text-xs text-neutral/60">{billing.typeLabel}</span>
+        <span className="ui-nowrap mt-auto block max-w-full overflow-x-auto pt-3 text-sm font-semibold text-primary">{money(service.price)} {billing.rateLabel}</span>
       </span>
       <input type="checkbox" checked={selected} onChange={onToggle} aria-label={`Add ${service.name}`} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
     </label>
     {selected && onQuantityChange && <div className="border-t border-neutral/10 px-4 pb-4 pt-3">
-      <label className="block text-sm font-medium text-neutral" htmlFor={`service-quantity-${service.id}`}>Quantity <span className="text-xs font-normal text-neutral/60">(max {limit} per booking)</span></label>
+      <label className="block text-sm font-medium text-neutral" htmlFor={`service-quantity-${service.id}`}>{billing.inputLabel} <span className="text-xs font-normal text-neutral/60">(max {limit} per booking)</span></label>
       <div className="mt-2 flex items-center gap-2">
-        <button type="button" aria-label={`Decrease ${service.name} quantity`} disabled={quantity <= 1} onClick={() => onQuantityChange(Math.max(1, quantity - 1))} className="h-11 w-11 shrink-0 rounded-lg border border-neutral/20 text-xl hover:bg-base disabled:opacity-40">−</button>
-        <input id={`service-quantity-${service.id}`} name={`serviceQuantity-${service.id}`} aria-label={`Quantity for ${service.name}`} type="number" min={1} max={limit} step={1} required value={Number.isFinite(quantity) ? quantity : ""} onChange={event => onQuantityChange(Number(event.target.value))} className="h-11 w-full min-w-0 rounded-lg border border-neutral/20 px-2 text-center focus:border-primary focus:outline-primary" />
-        <button type="button" aria-label={`Increase ${service.name} quantity`} disabled={quantity >= limit} onClick={() => onQuantityChange(Math.min(limit, Math.max(1, quantity + 1)))} className="h-11 w-11 shrink-0 rounded-lg border border-neutral/20 text-xl hover:bg-base disabled:opacity-40">+</button>
+        <button type="button" aria-label={`Decrease ${service.name} ${billing.inputLabel.toLowerCase()}`} disabled={quantity <= 1} onClick={() => onQuantityChange(Math.max(1, quantity - 1))} className="h-11 w-11 shrink-0 rounded-lg border border-neutral/20 text-xl hover:bg-base disabled:opacity-40">−</button>
+        <input id={`service-quantity-${service.id}`} name={`serviceQuantity-${service.id}`} aria-label={`${billing.inputLabel} for ${service.name}`} type="number" min={1} max={limit} step={1} required value={Number.isFinite(quantity) ? quantity : ""} onChange={event => onQuantityChange(Number(event.target.value))} className="h-11 w-full min-w-0 rounded-lg border border-neutral/20 px-2 text-center focus:border-primary focus:outline-primary" />
+        <button type="button" aria-label={`Increase ${service.name} ${billing.inputLabel.toLowerCase()}`} disabled={quantity >= limit} onClick={() => onQuantityChange(Math.min(limit, Math.max(1, quantity + 1)))} className="h-11 w-11 shrink-0 rounded-lg border border-neutral/20 text-xl hover:bg-base disabled:opacity-40">+</button>
       </div>
       <p className="mt-2 text-sm font-semibold text-primary" aria-live="polite">Line total: {money(service.price * Math.max(0, Number.isFinite(quantity) ? quantity : 0))}</p>
+      {billing.type === "duration" && <p className="mt-1 text-xs text-neutral/60">{billing.help}</p>}
     </div>}
   </div>{previewOpen && <PhotoPreview name={service.name} src={service.imageUrl} onClose={closePreview} />}</>;
 }
