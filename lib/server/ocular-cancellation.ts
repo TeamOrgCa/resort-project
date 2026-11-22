@@ -9,7 +9,7 @@ import { sendOcularVisitCancelledEmail } from "@/lib/email";
 export async function cancelManagerOcularVisit(request: Request) {
   const staff = await requireActiveStaff();
   if (!staff) return NextResponse.json({ success: false, message: "Sign in as active resort staff." }, { status: 401 });
-  if (staff.staffUser.role !== "staff" || !await staffHasPermission(staff.supabase, staff.staffUser.role, "ocular_approval"))
+  if (!["admin", "staff"].includes(staff.staffUser.role) || !await staffHasPermission(staff.supabase, staff.staffUser.role, "ocular_approval"))
     return NextResponse.json({ success: false, message: "Only an authorized manager may cancel ocular visits." }, { status: 403 });
   const body = await request.json().catch(() => null);
   const reason = typeof body?.cancellationReason === "string" ? body.cancellationReason.trim() : "";

@@ -3,27 +3,9 @@ import { NextResponse } from "next/server";
 
 import { createAuditLog, requireAdminStaff } from "@/lib/server/admin-audit";
 import { tryCreateAdminClient } from "@/lib/supabase/admin";
+import { generateTemporaryPassword } from "@/lib/server/temporary-password";
 
-interface ResetPasswordPayload {
-  password: string;
-}
-
-const parsePayload = (value: unknown): ResetPasswordPayload | null => {
-  if (typeof value !== "object" || value === null) {
-    return null;
-  }
-
-  const payload = value as Partial<ResetPasswordPayload>;
-  const password = typeof payload.password === "string" ? payload.password : "";
-
-  if (password.length < 8) {
-    return null;
-  }
-
-  return { password };
-};
-
-export async function POST(request: Request, context: { params: Promise<{ staffId: string }> }) {
+export async function POST(_request: Request, context: { params: Promise<{ staffId: string }> }) {
   try {
     const staffContext = await requireAdminStaff();
 
@@ -32,11 +14,6 @@ export async function POST(request: Request, context: { params: Promise<{ staffI
     }
 
     const { staffId } = await context.params;
-    const payload = parsePayload(await request.json().catch(() => null));
-
-    if (!payload) {
-      return NextResponse.json({ success: false, message: "Invalid password payload." }, { status: 400 });
-    }
 
     const adminSupabase = tryCreateAdminClient();
 
@@ -62,8 +39,9 @@ export async function POST(request: Request, context: { params: Promise<{ staffI
       return NextResponse.json({ success: false, message: "Admin passwords cannot be reset through user management. The account owner must use password recovery or change their own password." }, { status: 403 });
     }
 
+    const temporaryPassword = generateTemporaryPassword();
     const { error: updateAuthError } = await adminSupabase.auth.admin.updateUserById(staffId, {
-      password: payload.password,
+      password: temporaryPassword,
     });
 
     if (updateAuthError) {
@@ -80,20 +58,17 @@ export async function POST(request: Request, context: { params: Promise<{ staffI
       .eq("id", staffId);
 
     if (revokeError) {
-      return NextResponse.json({ success: false, message: "Password updated but session revoke failed." }, { status: 500 });
+      return NextResponse.json({ success: false, message: "Password updated but session revoke failed. Retry the reset before sharing credentials." }, { status: 500 });
     }
-
     const auditSuccess = await createAuditLog(staffContext, {
       action: "Password reset",
       entityType: "staff_user",
       entityId: staffId,
     });
 
-    if (!auditSuccess) {
-      return NextResponse.json({ success: false, message: "Password reset but audit logging failed." }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true, message: "Password reset successfully." }, { status: 200 });
+    return NextResponse.json({ success: true, temporaryPassword,
+      message: auditSuccess ? "Password reset successfully." : "Password reset, but audit logging failed." },
+      { status: 200, headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ success: false, message: "Unexpected error while resetting password." }, { status: 500 });
   }

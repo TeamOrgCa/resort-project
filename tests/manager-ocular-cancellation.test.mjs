@@ -55,7 +55,8 @@ function harness({ role = "staff", allowed = true, rpcError = null, deliveryFail
 
 test("ocular cancellation API permits only managers with permission and a documented reason", async () => {
   const body = { visitId: visit, cancellationReason: "Maintenance requires closing" };
-  for (const role of ["admin", "cashier"]) { const h = harness({ role }); assert.equal((await h.post(body)).status, 403); assert.equal(h.calls.length, 0); }
+  for (const role of ["cashier"]) { const h = harness({ role }); assert.equal((await h.post(body)).status, 403); assert.equal(h.calls.length, 0); }
+  const admin = harness({ role: "admin" }); assert.equal((await admin.post(body)).status, 200); assert.equal(admin.calls.length, 1);
   assert.equal((await harness({ allowed: false }).post(body)).status, 403);
   assert.equal((await harness().post({ ...body, cancellationReason: "no" })).status, 400);
   const h = harness({ deliveryFails: true }); const response = await h.post(body); const data = await response.json();

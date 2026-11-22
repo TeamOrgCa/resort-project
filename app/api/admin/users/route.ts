@@ -7,12 +7,12 @@ import { isStaffRole, type StaffRole } from "@/lib/auth/staff-auth";
 import type { StaffUserRecord } from "@/components/admin/users/types";
 import { isValidStaffEmailForRole, staffEmailError } from "@/lib/auth/staff-email";
 import { normalizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
+import { generateTemporaryPassword } from "@/lib/server/temporary-password";
 
 interface CreateStaffPayload {
   fullName: string;
   email: string;
   role: StaffRole;
-  password: string;
   isActive: boolean;
 }
 
@@ -30,15 +30,14 @@ const parseCreatePayload = (value: unknown): CreateStaffPayload | null => {
   const payload = value as Partial<CreateStaffPayload>;
   const fullName = normalizePersonName(payload.fullName);
   const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
-  const password = typeof payload.password === "string" ? payload.password : "";
   const role = typeof payload.role === "string" && isStaffRole(payload.role) ? payload.role : null;
   const isActive = typeof payload.isActive === "boolean" ? payload.isActive : true;
 
-  if (!fullName || !email || !password || password.length < 8 || !role) {
+  if (!fullName || !email || !role) {
     return null;
   }
 
-  return { fullName, email, role, password, isActive };
+  return { fullName, email, role, isActive };
 };
 
 export async function GET() {
@@ -119,9 +118,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "That email is already in use." }, { status: 409 });
     }
 
+    const temporaryPassword = generateTemporaryPassword();
     const { data: authUser, error: createAuthError } = await adminSupabase.auth.admin.createUser({
       email: payload.email,
-      password: payload.password,
+      password: temporaryPassword,
       email_confirm: true,
       user_metadata: {
         full_name: payload.fullName,
@@ -159,17 +159,14 @@ export async function POST(request: Request) {
       entityId: createdStaff.id,
     });
 
-    if (!auditSuccess) {
-      return NextResponse.json({ success: false, message: "Staff created but audit logging failed." }, { status: 500 });
-    }
-
     return NextResponse.json(
       {
         success: true,
-        message: "Staff user created.",
+        message: auditSuccess ? "Staff user created." : "Staff user created, but audit logging failed.",
         staffUser: createdStaff,
+        temporaryPassword,
       },
-      { status: 201 }
+      { status: 201, headers: { "Cache-Control": "no-store" } }
     );
   } catch {
     return NextResponse.json({ success: false, message: "Unexpected error while creating staff user." }, { status: 500 });

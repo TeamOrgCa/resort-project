@@ -6,7 +6,7 @@ import { uuidPattern } from "@/lib/booking/reservation-edit";
 
 export async function POST(request: Request) {
   const staff = await requireActiveStaff();
-  if (!staff || staff.staffUser.role === "admin" || !await staffHasPermission(staff.supabase, staff.staffUser.role, "ocular_approval")) {
+  if (!staff || !await staffHasPermission(staff.supabase, staff.staffUser.role, "ocular_approval")) {
     return NextResponse.json({ success: false, message: "Ocular management permission required." }, { status: 403 });
   }
   const body = await request.json().catch(() => null);

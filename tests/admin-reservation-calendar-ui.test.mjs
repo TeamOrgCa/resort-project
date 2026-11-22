@@ -306,20 +306,20 @@ test("missing notification targets explain the problem without highlighting an u
   } finally { await h.close(); }
 });
 
-test("admins cannot manage maintenance or other operational actions even with forged grants", async () => {
+test("admins can create reservations, manage maintenance and process operational actions", async () => {
   const h = await mount({ role: "admin", mixedEntries: true, initialAccess: { role: "admin", permissions: ["reservations", "create_reservation", "edit_reservation", "cancel_reservation", "payment_approval", "ocular_approval"] } });
   try {
-    assert.equal(Boolean(button(h.c, "New reservation")), false);
-    assert.equal(Boolean(button(h.c, "Add maintenance block")), false);
+    assert.equal(Boolean(button(h.c, "New reservation")), true);
+    assert.equal(Boolean(button(h.c, "Add maintenance block")), true);
     await filter(h.c, "maintenance", '[aria-label="Filter calendar by type or status"]');
     await click([...agenda().querySelectorAll("button")][0]);
-    assert.equal(Boolean(button(document.body, "Release block")), false);
+    assert.equal(Boolean(button(document.body, "Release block")), true);
     await click(button(document.body, "Close booking dialog"));
     await filter(h.c, "all", '[aria-label="Filter calendar by type or status"]');
     await filter(h.c, "all");
     assert.match(agenda().textContent, /MV-CONFIRMED/);
     await click([...agenda().querySelectorAll("button")].find(b => b.textContent.includes("MV-CONFIRMED")));
-    for (const label of ["Record guest arrival", "Cancel reservation", "Approve payment", "Reject payment"]) assert.equal(Boolean(button(document.body, label)), false, label);
+    for (const label of ["Mark guest checked in", "Cancel reservation / review refund"]) assert.equal(Boolean(button(document.body, label)), true, label);
     assert.equal(h.calls.length, 0);
   } finally { await h.close(); }
 });
@@ -554,7 +554,7 @@ test("only managers can cancel a confirmed ocular visit and the cancellation rea
       await click([...agenda().querySelectorAll("button")].find(el => el.textContent.includes("MV-OCULAR")));
       const dialog = document.querySelector('[role="dialog"]');
       const cancel = button(dialog, "Cancel ocular visit");
-      if (role !== "staff") { assert.equal(cancel, undefined); continue; }
+      if (role === "cashier") { assert.equal(cancel, undefined); continue; }
       assert.equal(cancel.disabled, true);
       await input(dialog.querySelector("textarea"), "The resort is closed for urgent repairs");
       await click(cancel);

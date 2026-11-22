@@ -28,7 +28,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const staff = await requireActiveStaff();
-  if (!staff || staff.staffUser.role !== "staff" || !await staffHasPermission(staff.supabase, staff.staffUser.role, "edit_reservation")) return NextResponse.json({ message: "Manager reservation-edit permission required." }, { status: 403 });
+  if (!staff || !["admin", "staff"].includes(staff.staffUser.role) || !await staffHasPermission(staff.supabase, staff.staffUser.role, "edit_reservation")) return NextResponse.json({ message: "Manager or admin reservation-edit permission required." }, { status: 403 });
   const body = await request.json().catch(() => null);
   if (!body || typeof body.name !== "string" || typeof body.reason !== "string" ||
       !validDate(body.startDate) || !validDate(body.endDate) ||
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   const staff = await requireActiveStaff();
-  if (!staff || staff.staffUser.role !== "staff" || !await staffHasPermission(staff.supabase, staff.staffUser.role, "edit_reservation")) return NextResponse.json({ message: "Manager reservation-edit permission required." }, { status: 403 });
+  if (!staff || !["admin", "staff"].includes(staff.staffUser.role) || !await staffHasPermission(staff.supabase, staff.staffUser.role, "edit_reservation")) return NextResponse.json({ message: "Manager or admin reservation-edit permission required." }, { status: 403 });
   const body = await request.json().catch(() => null);
   if (!body || typeof body.blockId !== "string") return NextResponse.json({ message: "Block ID required." }, { status: 400 });
   const { error } = await staff.supabase.rpc("release_maintenance_block", { p_id: body.blockId });

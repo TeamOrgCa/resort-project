@@ -142,8 +142,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [ocularVisits, setOcularVisits] = useState<OcularVisit[]>([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState<MaintenanceBlock[]>([]);
-  const [isManager, setIsManager] = useState(initialAccess?.role === "staff");
-  const [canManageMaintenance, setCanManageMaintenance] = useState(initialAccess?.role === "staff" && initiallyAllowed("edit_reservation"));
+  const [isManager, setIsManager] = useState(initialAccess?.role === "staff" || initialAccess?.role === "admin");
+  const [canManageMaintenance, setCanManageMaintenance] = useState((initialAccess?.role === "staff" || initialAccess?.role === "admin") && initiallyAllowed("edit_reservation"));
   const [canCancel, setCanCancel] = useState(initiallyAllowed("cancel_reservation"));
   const [canCreate, setCanCreate] = useState(initiallyAllowed("create_reservation"));
   const [canCheckIn, setCanCheckIn] = useState(initiallyAllowed("edit_reservation"));
@@ -296,10 +296,10 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       const { data: { user } } = await client.auth.getUser();
       if (!user) return;
       const { data } = await client.from("staff_users").select("role, is_active").eq("id", user.id).maybeSingle();
-      setIsManager(data?.role === "staff" && data.is_active === true);
+      setIsManager(Boolean(data && ["admin", "staff"].includes(data.role) && data.is_active === true));
       if (data?.role && data.is_active) {
         const { data: grants } = await client.from("role_permissions").select("permissions").eq("role", data.role).maybeSingle();
-        setCanManageMaintenance(data.role === "staff" && hasPermission(data.role, grants?.permissions ?? [], "edit_reservation"));
+        setCanManageMaintenance(["admin", "staff"].includes(data.role) && hasPermission(data.role, grants?.permissions ?? [], "edit_reservation"));
         setCanCancel(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "cancel_reservation"));
         setCanCreate(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "create_reservation"));
         setCanCheckIn(hasPermission(data.role as StaffRole, grants?.permissions ?? [], "edit_reservation"));

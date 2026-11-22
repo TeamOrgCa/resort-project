@@ -12,7 +12,6 @@ const json = (data: unknown, status = 200) => NextResponse.json(data, { status, 
 async function access(readOnly = true) {
   const staff = await requireActiveStaff();
   if (!staff) return json({ success: false, message: "Unauthorized." }, 401);
-  if (!readOnly && staff.staffUser.role === "admin") return json({ success: false, message: "Administrators have view-only access to analytics." }, 403);
   if (!(await staffHasPermission(staff.supabase, staff.staffUser.role, "analytics"))) return json({ success: false, message: "Forbidden." }, 403);
   return null;
 }

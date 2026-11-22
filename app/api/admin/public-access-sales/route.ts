@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 async function recordPublicAccess(request: Request) {
   const staff = await requireActiveStaff();
   if (!staff) return NextResponse.json({ success:false,message:"Sign in with your cashier account." },{status:401});
-  if (staff.staffUser.role!=="cashier" || !await staffHasPermission(staff.supabase,"cashier","transactions") || !await staffHasPermission(staff.supabase,"cashier","payment_entry"))
+  if (!["admin","cashier"].includes(staff.staffUser.role) || !await staffHasPermission(staff.supabase,staff.staffUser.role,"transactions") || !await staffHasPermission(staff.supabase,staff.staffUser.role,"payment_entry"))
     return NextResponse.json({success:false,message:"Cashier Transactions and Record payments permission required."},{status:403});
   const {value,error}=validatePublicAccessInput(await request.json().catch(()=>null));
   if(!value)return NextResponse.json({success:false,message:error},{status:400});

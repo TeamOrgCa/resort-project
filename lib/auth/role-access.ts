@@ -9,7 +9,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   cancel_reservation: "Cancel reservation", reschedule_approval: "Resolve legacy reschedules",
   ocular_approval: "Manage ocular visits and record attendance", transactions: "View transactions",
   payment_approval: "Approve or reject payments", payment_entry: "Record payments",
-  refund_approval: "Approve or reject refunds (manager only)", refund_payout: "Record refund payout (cashier only)", refund_verify: "Verify refund payout (manager only)",
+  refund_approval: "Approve or reject refunds (manager or admin)", refund_payout: "Record refund payout (cashier or admin)", refund_verify: "Verify refund payout (manager or admin)",
   records: "View records", reports: "View and export reports", analytics: "View analytics",
   feedback_archive: "Archive and restore guest feedback (also requires Analytics)",
   feedback_moderation: "Approve or reject reviews with attachments (also requires Analytics)",
@@ -31,13 +31,11 @@ export function hasPermission(role: StaffRole, granted: readonly string[], permi
   return isPermissionAssignable(role, permission) && granted.includes(permission);
 }
 
-export const ADMIN_PERMISSIONS: readonly Permission[] = ["dashboard", "reservations", "transactions", "records", "reports", "analytics", "feedback_moderation", "audit", "users", "configuration", "catalog"];
+export const ADMIN_PERMISSIONS: readonly Permission[] = PERMISSIONS;
 
-export function isAdminReadOnlyRequest(role: StaffRole, path: string, method: string): boolean {
-  if (role !== "admin" || ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return false;
-  if (path === "/api/admin/analytics/feedback/moderate" && method.toUpperCase() === "POST") return false;
-  const fullAccessPaths = ["/api/admin/users", "/api/admin/permissions", "/api/admin/settings", "/api/admin/booking-policy", "/api/admin/catalog", "/api/admin/payment-accounts", "/api/admin/auth"];
-  return !fullAccessPaths.some(prefix => path === prefix || path.startsWith(`${prefix}/`));
+export function isAdminReadOnlyRequest(_role: StaffRole, _path: string, _method: string): boolean {
+  // Access is enforced by route permissions; admins have every permission.
+  return false;
 }
 
 export function routePermission(path: string): Permission | null {
