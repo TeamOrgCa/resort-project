@@ -1,9 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import StaffDialogShell from "@/components/admin/users/StaffDialogShell";
-import PasswordInput from "@/components/ui/PasswordInput";
 
 interface ResetPasswordDialogProps {
   isOpen: boolean;
@@ -11,7 +8,7 @@ interface ResetPasswordDialogProps {
   error: string;
   staffEmail: string | null;
   onClose: () => void;
-  onSubmit: (password: string) => Promise<void> | void;
+  onSubmit: () => Promise<void> | void;
 }
 
 export default function ResetPasswordDialog({
@@ -22,19 +19,9 @@ export default function ResetPasswordDialog({
   onClose,
   onSubmit,
 }: ResetPasswordDialogProps) {
-  const [password, setPassword] = useState("");
-
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    if (isOpen) {
-      setPassword("");
-    }
-  }, [isOpen]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await onSubmit(password);
+    if (!isSubmitting) await onSubmit();
   };
 
   return (
@@ -42,26 +29,13 @@ export default function ResetPasswordDialog({
       isOpen={isOpen}
       busy={isSubmitting}
       title="Reset Password"
-      description={staffEmail ? `Set a new temporary password for ${staffEmail}.` : "Set a new temporary password."}
+      description={staffEmail ? `Generate a temporary password for ${staffEmail}.` : "Generate a temporary password."}
       onClose={onClose}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error ? <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-        <label className="space-y-2">
-          <span className="block text-sm font-medium text-neutral">Temporary Password</span>
-          <PasswordInput
-            aria-label="Temporary password"
-            autoComplete="new-password"
-            disabled={isSubmitting}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            minLength={8}
-            required
-            className="admin-field w-full"
-            placeholder="At least 8 characters"
-          />
-        </label>
+        <p className="text-sm text-neutral/70">A temporary password will be generated automatically and shown after the reset. The account holder must change it at their next sign-in.</p>
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-t border-neutral/10 pt-5">
           <button

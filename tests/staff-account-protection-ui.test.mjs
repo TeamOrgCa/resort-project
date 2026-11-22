@@ -15,8 +15,8 @@ test("staff creation, edits and password resets require confirmation and cancell
   const originalFetch = globalThis.fetch, writes = [];
   const staff = { ...profile, id: "manager", full_name: "Test Manager", role: "staff" };
   globalThis.fetch = async (url, options) => {
-    if (options?.method) writes.push({ url, method: options.method, body: JSON.parse(options.body) });
-    return Response.json({ success: true, rows: [staff], currentStaffUserId: "self" });
+    if (options?.method) writes.push({ url, method: options.method, body: options.body ? JSON.parse(options.body) : null });
+    return Response.json({ success: true, rows: [staff], currentStaffUserId: "self", temporaryPassword: "Generated#Password234" });
   };
   const Component = loadTsModule("app/admin/(portal)/users/page.tsx", {
     "@/components/admin/AdminTablePreview": props => createElement("div", null,
@@ -38,23 +38,31 @@ test("staff creation, edits and password resets require confirmation and cancell
     let form = document.querySelector('[role="dialog"] form');
     await value(form.querySelector('input[placeholder="Alex Mendoza"]'), "New Manager");
     await value(form.querySelector('input[aria-label="Email username"]'), "new");
-    await value(form.querySelector('input[type="password"]'), "temporary123");
+    assert.equal(form.querySelector('input[type="password"]'), null);
     await submit(); assert.equal(writes.length, 0);
     assert.match(document.querySelector('[role="alertdialog"]').textContent, /new@marvilleresort.com/);
     assert.doesNotMatch(document.querySelector('[role="alertdialog"]').textContent, /temporary123/);
     await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     assert.ok(document.querySelector('[role="dialog"]')); assert.equal(form.querySelector('input[aria-label="Email username"]').value, "new");
     await submit(); await confirm("Confirm create account"); assert.equal(writes.length, 1); assert.equal(writes[0].method, "POST");
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Generated#Password234/);
+    assert.equal(Object.hasOwn(writes[0].body, "password"), false);
+    await click(button(document.body, "Done"));
+    assert.doesNotMatch(container.textContent, /Generated#Password234/);
     await click(button(container, "Edit"));
     form = document.querySelector('[role="dialog"] form');
     await value(form.querySelector('input:not([type="checkbox"])'), "Updated Manager");
     await submit(); assert.equal(writes.length, 1); await confirm("Confirm account changes");
     assert.equal(writes.length, 2); assert.equal(writes[1].body.fullName, "Updated Manager");
     await click(button(container, "Reset Password"));
-    await value(document.querySelector('[role="dialog"] input[type="password"]'), "newtemporary123");
+    assert.equal(document.querySelector('[role="dialog"] input[type="password"]'), null);
     await submit(); assert.equal(writes.length, 2);
     assert.doesNotMatch(document.querySelector('[role="alertdialog"]').textContent, /newtemporary123/);
     await confirm("Confirm password reset"); assert.equal(writes.length, 3); assert.match(writes[2].url, /password$/);
+    assert.equal(writes[2].body, null);
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Generated#Password234/);
+    await click(button(document.body, "Done"));
+    assert.doesNotMatch(container.textContent, /Generated#Password234/);
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch; }
 });
 
@@ -96,22 +104,15 @@ test("role editor prevents non-Gmail staff promotion even if a disabled Admin op
   } finally { await gmail.close(); }
 });
 
-test("reset temporary password has a visibility toggle that never submits the form", async () => {
+test("reset generates a password without a password input", async () => {
   const Component = loadTsModule("components/admin/users/ResetPasswordDialog.tsx").default, submissions = [];
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   try {
-    await act(async () => root.render(createElement(Component, { isOpen: true, isSubmitting: false, error: "", staffEmail: "cashier@marvilleresort.com", onClose() {}, onSubmit: password => submissions.push(password) })));
-    const password = container.querySelector('input[aria-label="Temporary password"]');
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(password, "secret123");
-      password.dispatchEvent(new window.Event("input", { bubbles: true }));
-      container.querySelector('button[aria-label="Show password"]').click();
-    });
-    assert.equal(password.type, "text"); assert.equal(password.value, "secret123"); assert.deepEqual(submissions, []);
-    await act(async () => container.querySelector('button[aria-label="Hide password"]').click());
-    assert.equal(password.type, "password");
+    await act(async () => root.render(createElement(Component, { isOpen: true, isSubmitting: false, error: "", staffEmail: "cashier@marvilleresort.com", onClose() {}, onSubmit: (...args) => submissions.push(args) })));
+    assert.equal(container.querySelector("input"), null);
+    assert.match(container.textContent, /generated automatically/);
     await act(async () => container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
-    assert.deepEqual(submissions, ["secret123"]);
+    assert.deepEqual(submissions, [[]]);
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
 
@@ -177,7 +178,7 @@ test("staff table disables active admin status actions and keeps other statuses 
   const originalFetch = globalThis.fetch, writes = [];
   const rows = [profile, { ...profile, id: "self" }, { ...profile, id: "inactive", is_active: false }, { ...profile, id: "manager", role: "staff" }, { ...profile, id: "cashier", role: "cashier" }];
   globalThis.fetch = async (_url, options) => {
-    if (options?.method === "PATCH") writes.push(JSON.parse(options.body));
+    if (options?.method === "PATCH") writes.push(options.body ? JSON.parse(options.body) : null);
     return Response.json({ success: true, rows, currentStaffUserId: "self" });
   };
   const noop = () => null;

@@ -118,19 +118,27 @@ test("user management cannot reset active or inactive admin passwords, including
   }
 });
 
-test("password reset checks fail closed for missing profiles, read failures, invalid input and denied access", async () => {
+test("password reset checks fail closed for missing profiles, read failures and denied access", async () => {
   for (const [options, expected] of [[{ missing: true }, 404], [{ readError: true }, 503], [{ allowed: false }, 401], [{ role: "unexpected-role" }, 403]]) {
     const h = passwordHarness(options); assert.equal((await h.reset()).status, expected);
     assert.deepEqual(h.authWrites, []); assert.deepEqual(h.database.writes, []); assert.deepEqual(h.audits, []);
   }
-  const invalid = passwordHarness({ role: "staff" }); assert.equal((await invalid.reset("short")).status, 400);
-  assert.deepEqual(invalid.authWrites, []);
+  const generated = passwordHarness({ role: "staff" });
+  const response = await generated.reset("short");
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.temporaryPassword, generated.authWrites[0].values.password);
+  assert.notEqual(data.temporaryPassword, "short");
+  assert.equal(response.headers.get("cache-control"), "no-store");
 });
 
 test("manager and cashier resets still revoke sessions, require a password change and create an audit entry", async () => {
   for (const role of ["staff", "cashier"]) {
     const h = passwordHarness({ role }); assert.equal((await h.reset()).status, 200);
-    assert.deepEqual(h.authWrites, [{ id: targetId, values: { password: "temporary123" } }]);
+    assert.equal(h.authWrites[0].id, targetId);
+    assert.equal(h.authWrites[0].values.password.length, 20);
+    assert.notEqual(h.authWrites[0].values.password, "temporary123");
+    assert.equal(JSON.stringify(h.audits).includes(h.authWrites[0].values.password), false);
     const staff = h.database.tables.staff_users[0];
     assert.equal(staff.active_session_id, null); assert.equal(staff.must_change_password, true);
     assert.match(staff.last_logout_at, /\+08:00$/); assert.equal(h.audits[0].action, "Password reset");

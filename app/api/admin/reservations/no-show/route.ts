@@ -7,7 +7,7 @@ import { uuidPattern } from "@/lib/booking/reservation-edit";
 export async function POST(request: Request) {
   const staff = await requireActiveStaff();
   if (!staff) return NextResponse.json({ message: "Sign in as an active manager." }, { status: 401 });
-  if (staff.staffUser.role !== "staff" || !await staffHasPermission(staff.supabase, staff.staffUser.role, "edit_reservation")) {
+  if (!["admin", "staff"].includes(staff.staffUser.role) || !await staffHasPermission(staff.supabase, staff.staffUser.role, "edit_reservation")) {
     return NextResponse.json({ message: "Only a manager with Edit reservations permission can record a no-show." }, { status: 403 });
   }
   const body = await request.json().catch(() => null);

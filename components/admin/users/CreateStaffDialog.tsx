@@ -3,7 +3,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import StaffDialogShell from "@/components/admin/users/StaffDialogShell";
-import PasswordInput from "@/components/ui/PasswordInput";
 import type { StaffUserFormValues } from "@/components/admin/users/types";
 import type { StaffRole } from "@/lib/auth/staff-auth";
 import { isValidStaffEmailForRole, staffEmailError, staffEmailSuffix, staffEmailUsername } from "@/lib/auth/staff-email";
@@ -23,7 +22,6 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<StaffRole>("staff");
-  const [password, setPassword] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [emailError, setEmailError] = useState("");
   const [nameError, setNameError] = useState("");
@@ -42,7 +40,6 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
     setNameError("");
     setEmail("");
     setRole("staff");
-    setPassword("");
     setIsActive(true);
     setEmailError("");
   }, [isOpen]);
@@ -65,7 +62,6 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
       fullName: normalizedName,
       email: normalizedEmail,
       role,
-      password,
       isActive,
     });
   };
@@ -170,20 +166,7 @@ export default function CreateStaffDialog({ isOpen, isSubmitting, error, onClose
             </select>
           </label>
 
-          <label className="space-y-2">
-            <span className="block text-sm font-medium text-neutral">Temporary Password</span>
-            <PasswordInput
-              aria-label="Temporary password"
-              autoComplete="new-password"
-              disabled={isSubmitting}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              minLength={8}
-              required
-              className="admin-field w-full"
-              placeholder="At least 8 characters"
-            />
-          </label>
+          <p className="self-center text-sm text-neutral/70">A temporary password will be generated automatically and shown after creation. The account holder must change it at first sign-in.</p>
         </div>
 
         <label className="flex items-center gap-3 rounded-xl border border-neutral/10 bg-base px-4 py-3 text-sm text-neutral">

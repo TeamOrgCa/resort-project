@@ -107,7 +107,7 @@ export default function AdminRecordsPage() {
             if (mounted) {
               setCanResolveLegacyReschedules(hasPermission(staff.role, grants?.permissions ?? [], "reschedule_approval"));
               setCanApproveOcular(hasPermission(staff.role, grants?.permissions ?? [], "ocular_approval"));
-              setCanCancelOcular(staff.role === "staff" && hasPermission(staff.role, grants?.permissions ?? [], "ocular_approval"));
+              setCanCancelOcular(["admin", "staff"].includes(staff.role) && hasPermission(staff.role, grants?.permissions ?? [], "ocular_approval"));
             }
           }
         }

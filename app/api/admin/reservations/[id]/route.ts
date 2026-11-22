@@ -30,8 +30,8 @@ export async function GET(_request: Request, context: Context) {
     void _snapshot;
     const canApproveLateReschedule = canEdit && await staffHasPermission(staff.supabase, staff.staffUser.role, "reschedule_approval");
     return NextResponse.json({ success: true, ...publicDetail, canEdit, canApproveLateReschedule,
-      canReduceServices: canEdit && !detail.lockedReason && (detail.canChangeDetails || staff.staffUser.role === "staff"),
-      canChangeAccommodation: canEdit && !detail.lockedReason && (detail.canChangeDetails || staff.staffUser.role === "staff"),
+      canReduceServices: canEdit && !detail.lockedReason && (detail.canChangeDetails || ["admin", "staff"].includes(staff.staffUser.role)),
+      canChangeAccommodation: canEdit && !detail.lockedReason && (detail.canChangeDetails || ["admin", "staff"].includes(staff.staffUser.role)),
       canRescheduleException: canApproveLateReschedule && Boolean(detail.lateRescheduleEligible) });
   } catch (error) { return fail(error instanceof Error ? error.message : "Unable to load reservation.", 500); }
 }
@@ -63,7 +63,7 @@ export async function PATCH(request: Request, context: Context) {
     const oldUnit = detail.units.length === 1 && detail.units[0].quantity === 1 ? detail.units[0].unit_id : null;
     const unitChanged = edit.unitId !== oldUnit;
     const changed = detailsChanged(detail.reservation, edit);
-    const manager = staff.staffUser.role === "staff";
+    const manager = ["admin", "staff"].includes(staff.staffUser.role);
     if ((scheduleChanged || (unitChanged && !manager)) && !detail.canChangeDetails && !lateAuthorized) return fail("The stay has started. Schedule changes are locked; accommodation changes require a manager.", 409);
     if (lateAuthorized && !detail.canChangeDetails && (unitChanged || edit.adultCount !== detail.reservation.adult_count || edit.childCount !== detail.reservation.child_count)) return fail("A late exception may move the booked schedule; existing accommodation and guest counts must be retained.", 400);
     if (changed) {

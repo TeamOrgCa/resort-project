@@ -13,13 +13,16 @@ type Refund = { refund_id: string; reservation_id: string; amount: number; reque
   policy_version: number | null; calculation_snapshot: CancellationPreview | null; workflow_version: number; status: string; requested_at: string;
   review_reason: string | null; payment_review_notes: string | null; payment_reviewed_at: string | null;
   payout_submitted_by: string | null; payout_submitted_at: string | null; payout_verification_notes: string | null;
-  refunded_at: string | null; gcash_reference: string | null; proof_path: string | null };
-type Payment = { payment_id: string; reservation_id: string; amount: number; status: string; reference_number: string; payment_type: string; verified_at: string | null; proof_path: string | null };
+  refunded_at: string | null; gcash_reference: string | null; proof_path: string | null; payout_method: string | null };
+type Payment = { payment_id: string; reservation_id: string; amount: number; status: string; reference_number: string; payment_type: string; verified_at: string | null; proof_path: string | null;
+  account_name: string | null; account_number: string | null; payment_methods: { name: string } | { name: string }[] | null };
+type Reservation = { reservation_id: string; reference_number: string; cancellation_reason: string | null; cancellation_initiator: string | null };
 type Bill = { reservation_id: string; total_amount: number; paid_amount: number };
 type Permissions = { canApprove: boolean; canPay: boolean; canVerify: boolean; staffId: string };
 const money = (n: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(n));
 const at = (value: string) => new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila" });
 const button = "admin-button-secondary";
+const paymentMethodName = (payment: Payment) => (Array.isArray(payment.payment_methods) ? payment.payment_methods[0]?.name : payment.payment_methods?.name) || "Method not recorded";
 
 export default function RefundRequestsPanel({ onUpdated, dateRange, paginationResetKey = "" }: { onUpdated?: () => void; dateRange?: DateRange; paginationResetKey?: string }) {
   const [refunds, setRefunds] = useState<Refund[]>([]), [payments, setPayments] = useState<Payment[]>([]), [bills, setBills] = useState<Bill[]>([]);
@@ -27,6 +30,7 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
   const [previousResetKey, setPreviousResetKey] = useState(paginationResetKey);
   if (previousResetKey !== paginationResetKey) { setPreviousResetKey(paginationResetKey); setPage(0); }
   const [refs, setRefs] = useState<Record<string, string>>({});
+  const [reservations, setReservations] = useState<Reservation[]>([]);
   const [guestNames, setGuestNames] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [permissions, setPermissions] = useState<Permissions>({ canApprove: false, canPay: false, canVerify: false, staffId: "" });
@@ -45,6 +49,7 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
     const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "Unable to load refunds.");
     setRefunds(data.refunds ?? []); setPayments(data.payments ?? []); setBills(data.bills ?? []); setPermissions(data.permissions ?? { canApprove: false, canPay: false, canVerify: false, staffId: "" });
     setRefs(Object.fromEntries((data.reservations ?? []).map((r: { reservation_id: string; reference_number: string }) => [r.reservation_id, r.reference_number])));
+    setReservations(data.reservations ?? []);
     setGuestNames(data.guestNames ?? {});
     setMethods(data.paymentMethods ?? []);
     setMethod(current => (data.paymentMethods ?? []).some((m: { name: string }) => m.name === current) ? current : data.paymentMethods?.[0]?.name ?? "");
@@ -73,6 +78,8 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
     setProofLink(data.signedUrl); window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
   const selectedPayments = payments.filter(p => p.reservation_id === selected?.reservation_id);
+  const reservation = reservations.find(r => r.reservation_id === selected?.reservation_id);
+  const refundAccounts = [...new Map(selectedPayments.filter(p => p.status === "verified").map(p => [JSON.stringify([paymentMethodName(p), p.account_name ?? "", p.account_number ?? ""]), p])).values()];
   const matchingRefunds = refunds.filter(f => withinDateRange(f.requested_at, dateRange) && (filter === "all" || f.status === filter || (filter === "pending" && f.status === "reviewed"))
     && `${guestNames[f.reservation_id] ?? ""} ${refs[f.reservation_id] ?? f.reservation_id}`.toLowerCase().includes(search.trim().toLowerCase()));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(matchingRefunds.length / 25) - 1));
@@ -96,6 +103,20 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
     {selected && <CatalogDialog title="Refund details" description={`Refund for ${refs[selected.reservation_id] ?? selected.reservation_id}`} busy={busy} onClose={() => { if (!busy) setSelectedId(null); }}><div className="space-y-4">
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
       <p className="text-sm">{refundStatusLabels[selected.status]} <strong className="ml-2">{money(selected.amount)}</strong></p>
+      {selected.request_kind === "cancellation" && <dl className="space-y-2 rounded-xl bg-base p-3 text-sm">
+        <div><dt className="font-medium">Cancellation initiated by</dt><dd>{reservation?.cancellation_initiator === "guest" ? "Guest" : reservation?.cancellation_initiator === "resort" ? "Resort" : "Not recorded"}</dd></div>
+        <div><dt className="font-medium">Cancellation reason</dt><dd className="whitespace-pre-wrap break-words">{reservation?.cancellation_reason?.trim() || "No cancellation reason was recorded."}</dd></div>
+      </dl>}
+      <section aria-label="Refund destination" className="space-y-3 rounded-xl border border-neutral/10 p-3 text-sm">
+        <h4 className="font-medium">Refund destination — original payment accounts</h4>
+        <p>Confirm the refund destination with the guest before sending money. These are the sender details saved with verified payments.</p>
+        {refundAccounts.length > 1 && <p className="font-medium text-amber-900">Multiple payment accounts are recorded. Confirm which account should receive the refund.</p>}
+        {refundAccounts.length ? refundAccounts.map(p => <dl key={p.payment_id} className="space-y-1 rounded-lg bg-base p-3">
+          <div><dt className="font-medium">Payment method</dt><dd>{paymentMethodName(p)}</dd></div>
+          <div><dt className="font-medium">Account name</dt><dd className="break-words">{p.account_name?.trim() || "Not recorded"}</dd></div>
+          <div><dt className="font-medium">Account / GCash number</dt><dd className="break-all">{p.account_number?.trim() || "Not recorded — confirm payout details with the guest."}</dd></div>
+        </dl>) : <p>No verified payment account details are available. Confirm payout details with the guest.</p>}
+      </section>
       <p className="text-sm">{selected.policy_snapshot}</p>
       {selected.workflow_version === 1 && selected.request_kind === "cancellation" && !["refunded", "rejected"].includes(selected.status) && <div className="space-y-3 rounded-xl bg-amber-50 p-3 text-sm">
         <p>This legacy request needs an authorized manager to document whether the guest or resort initiated cancellation and recalculate the refund before processing. Previous approvals will be reset and recorded in the audit log.</p>
@@ -116,7 +137,7 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
       <TablePagination total={selectedPayments.length} page={currentPaymentPage} pageSize={10} onPageChange={setPaymentPage} disabled={busy} label="Refund payment records pagination" />
       {selected.payment_review_notes && <p className="text-sm">Previous payment review: {selected.payment_review_notes}</p>}
       {selected.review_reason && <p className="text-sm">Manager decision: {selected.review_reason}</p>}
-      {selected.payout_submitted_at && <p className="text-sm">Transfer submitted {at(selected.payout_submitted_at)}. Reference: {selected.gcash_reference}</p>}
+      {selected.payout_submitted_at && <p className="text-sm">Transfer submitted {at(selected.payout_submitted_at)}. Payout method: {selected.payout_method || "Not recorded"}. Reference: {selected.gcash_reference}</p>}
       {selected.payout_verification_notes && <p className="text-sm">Verification: {selected.payout_verification_notes}</p>}
       {selected.refunded_at && <p className="text-sm">Refund completed {at(selected.refunded_at)}.</p>}
       {selected.proof_path && <button className="text-sm text-primary underline" onClick={() => void openProof(selected.proof_path!)}>View transfer proof</button>}

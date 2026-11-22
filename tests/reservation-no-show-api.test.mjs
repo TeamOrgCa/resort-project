@@ -13,13 +13,16 @@ function harness({ role = "staff", signedIn = true, allowed = true, error = null
   return { calls, post: (body = { reservationId: id, reason: "Guest did not arrive", noShowConfirmed: true }) => POST(new Request("http://localhost", { method: "POST", body: JSON.stringify(body) })) };
 }
 
-test("only authenticated managers with reservation-edit permission can mark a no-show", async () => {
-  for (const [options, status] of [[{ signedIn: false }, 401], [{ role: "admin" }, 403], [{ role: "cashier" }, 403], [{ allowed: false }, 403]]) {
+test("only authenticated admins or managers with reservation-edit permission can mark a no-show", async () => {
+  for (const [options, status] of [[{ signedIn: false }, 401], [{ role: "cashier" }, 403], [{ allowed: false }, 403]]) {
     const h = harness(options); assert.equal((await h.post()).status, status); assert.equal(h.calls.length, 0);
   }
   const h = harness(); const response = await h.post({ reservationId: id, reason: "  Guest did not arrive  ", noShowConfirmed: true, staffId: "forged", no_show_at: "1900-01-01", amount: 0 });
   assert.equal(response.status, 200);
   assert.deepEqual(h.calls, [{ name: "mark_reservation_no_show", args: { p_reservation: id, p_staff: "authenticated-manager", p_reason: "Guest did not arrive" } }]);
+  const admin = harness({ role: "admin" });
+  assert.equal((await admin.post()).status, 200);
+  assert.equal(admin.calls.length, 1);
 });
 
 test("a no-show needs a valid reservation, explicit acknowledgement and a meaningful bounded reason", async () => {
@@ -41,5 +44,5 @@ test("no-show API reports timing/attendance conflicts, missing records and migra
 test("the no-show API uses reservation-edit middleware permission rather than admin-only user access", () => {
   const { apiPermission, isAdminReadOnlyRequest } = loadTsModule("lib/auth/role-access.ts");
   assert.equal(apiPermission("/api/admin/reservations/no-show", "POST"), "edit_reservation");
-  assert.equal(isAdminReadOnlyRequest("admin", "/api/admin/reservations/no-show", "POST"), true);
+  assert.equal(isAdminReadOnlyRequest("admin", "/api/admin/reservations/no-show", "POST"), false);
 });

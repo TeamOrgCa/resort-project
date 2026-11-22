@@ -251,7 +251,7 @@ export default function AdminTransactionsPage() {
             const role = staffRole.role as StaffRole;
             const { data: grants } = role === "admin" ? { data: null } : await supabase.from("role_permissions").select("permissions").eq("role", role).maybeSingle();
             if (isMounted) setCanReviewPayments(hasPermission(role, grants?.permissions ?? [], "payment_approval"));
-            if (isMounted) { setCanRecordPayments(hasPermission(role, grants?.permissions ?? [], "payment_entry")); setCanRecordPublic(role === "cashier" && hasPermission(role, grants?.permissions ?? [], "payment_entry") && hasPermission(role, grants?.permissions ?? [], "transactions")); }
+            if (isMounted) { setCanRecordPayments(hasPermission(role, grants?.permissions ?? [], "payment_entry")); setCanRecordPublic(["admin", "cashier"].includes(role) && hasPermission(role, grants?.permissions ?? [], "payment_entry") && hasPermission(role, grants?.permissions ?? [], "transactions")); }
           }
         }
 

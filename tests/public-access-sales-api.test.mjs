@@ -20,10 +20,13 @@ function harness({ active = true, role = "cashier", permissions = ["transactions
   return { POST, calls, downloads };
 }
 
-test("public collections require a cashier session and both transaction/payment grants", async () => {
-  for (const [options, status] of [[{ active: false }, 401], [{ role: "admin" }, 403], [{ role: "staff" }, 403], [{ permissions: ["transactions"] }, 403], [{ permissions: ["payment_entry"] }, 403]]) {
+test("public collections require an admin or cashier session and both transaction/payment grants", async () => {
+  for (const [options, status] of [[{ active: false }, 401], [{ role: "staff" }, 403], [{ permissions: ["transactions"] }, 403], [{ permissions: ["payment_entry"] }, 403]]) {
     const h = harness(options); assert.equal((await h.POST(post(input))).status, status); assert.equal(h.calls.length, 0);
   }
+  const admin = harness({ role: "admin" });
+  assert.equal((await admin.POST(post(input))).status, 201);
+  assert.equal(admin.calls.length, 1);
 });
 
 test("cash collections normalize contact and notes, use the atomic RPC and expose idempotent receipt results", async () => {

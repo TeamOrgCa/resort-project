@@ -11,6 +11,7 @@ import {
 import CreateStaffDialog from "@/components/admin/users/CreateStaffDialog";
 import EditStaffDialog from "@/components/admin/users/EditStaffDialog";
 import ResetPasswordDialog from "@/components/admin/users/ResetPasswordDialog";
+import StaffDialogShell from "@/components/admin/users/StaffDialogShell";
 import RolePermissionsEditor from "@/components/admin/users/RolePermissionsEditor";
 import GuestAccountsPanel from "@/components/admin/users/GuestAccountsPanel";
 import type { StaffUserFormValues, StaffUserTableRow } from "@/components/admin/users/types";
@@ -53,6 +54,7 @@ export default function AdminUsersPage() {
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 
   useEffect(() => {
     const loadStaffUsers = async () => {
@@ -147,6 +149,7 @@ export default function AdminUsersPage() {
       }
 
       setIsCreateOpen(false);
+      setCredentials({ email: values.email, password: data.temporaryPassword });
       showToast("success", data.message || "Staff user created.");
       await refreshRows();
     } catch {
@@ -194,7 +197,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleResetPassword = async (password: string) => {
+  const handleResetPassword = async () => {
     if (!selectedStaff) {
       return;
     }
@@ -211,7 +214,6 @@ export default function AdminUsersPage() {
       const response = await fetch(`/api/admin/users/${selectedStaff.id}/password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
       });
 
       const data = await response.json();
@@ -222,6 +224,7 @@ export default function AdminUsersPage() {
       }
 
       setIsPasswordOpen(false);
+      setCredentials({ email: selectedStaff.email, password: data.temporaryPassword });
       setSelectedStaff(null);
       showToast("success", data.message || "Password reset successfully.");
       await refreshRows();
@@ -387,6 +390,19 @@ export default function AdminUsersPage() {
         }}
         onSubmit={handleResetPassword}
       />
+
+      <StaffDialogShell isOpen={Boolean(credentials)} title="Temporary sign-in details"
+        description="Copy these details before closing. The password is shown only for this action."
+        onClose={() => setCredentials(null)}>
+        {credentials && <div className="space-y-4 text-sm">
+          <dl className="space-y-3 rounded-xl bg-base p-4">
+            <div><dt className="font-medium">Email</dt><dd className="select-all break-all">{credentials.email}</dd></div>
+            <div><dt className="font-medium">Temporary password</dt><dd className="select-all break-all font-mono text-base">{credentials.password}</dd></div>
+          </dl>
+          <p>Share these details with the account holder. They must change the password at their next sign-in.</p>
+          <div className="flex justify-end"><button type="button" className="admin-button-primary" onClick={() => setCredentials(null)}>Done</button></div>
+        </div>}
+      </StaffDialogShell>
 
     </div>
   );

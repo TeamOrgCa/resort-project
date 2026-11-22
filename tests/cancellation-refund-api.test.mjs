@@ -67,17 +67,20 @@ test("removed cashier review and manager payout actions cannot reach the RPC or 
   assert.equal(manager.calls.length,0);assert.equal(manager.uploads.length,0);
 });
 
-test("refund approval moves to managers and administrators cannot process any refund action", async () => {
+test("managers approve refunds and admins can approve, reject and verify with required evidence", async () => {
   const manager = refund({ role: "staff" });
   assert.equal((await manager.post("approved")).status, 200);
   assert.equal(manager.calls[0].args.p_action, "approved");
   assert.equal((await refund({ role: "staff", authorized: false }).post("approved")).status, 403);
   const admin = refund({ role: "admin" });
-  for (const action of ["reviewed", "approved", "rejected", "payout_submitted", "refunded", "recalculate"]) {
-    assert.equal((await admin.post(action, { verified: "true", reason: "Reviewed records" })).status, 403);
+  for (const action of ["approved", "rejected", "refunded", "recalculate"]) {
+    assert.equal((await admin.post(action, { verified: "true", reason: "Reviewed records", initiator: "guest" })).status, 200);
   }
-  assert.equal(admin.calls.length, 0);
+  assert.equal(admin.calls.length, 4);
   assert.equal(admin.uploads.length, 0);
+  const proof = new File(["%PDF-1.7 fixture"], "proof.pdf", { type: "application/pdf" });
+  assert.equal((await admin.post("payout_submitted", { reference: "1234567890123", proof })).status, 200);
+  assert.equal(admin.uploads.length, 1);
 });
 test("payout evidence is submitted separately from completion, invalid file signatures cannot be uploaded",async()=>{
   const proof=new File(["%PDF-1.7 fixture"],"proof.pdf",{type:"application/pdf"});

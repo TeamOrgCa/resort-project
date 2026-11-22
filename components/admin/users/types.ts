@@ -28,6 +28,5 @@ export interface StaffUserFormValues {
   fullName: string;
   email: string;
   role: StaffRole;
-  password: string;
   isActive: boolean;
 }

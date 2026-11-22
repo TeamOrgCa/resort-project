@@ -124,16 +124,68 @@ test("refund requests show guest names and combine name searches with status fil
   } finally { await h.close(); }
 });
 
-test("view-only administrators can inspect refund records without processing controls", async () => {
+test("refund modal shows the cancellation reason and verified sender accounts for payout", async () => {
+  const payment = { payment_id: "p1", reservation_id: "reservation", amount: 3000, status: "verified", payment_type: "full",
+    reference_number: "1234567890123", account_name: "Ana Santos", account_number: "09171234567", payment_methods: { name: "GCash" } };
   const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async () => Response.json({
-    refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "reviewed", request_kind: "cancellation", workflow_version: 2, requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],
-    permissions: { canReview: false, canApprove: false, canPay: false, canVerify: false, canVerifyOwnPayout: false, staffId: "admin" },
+    refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "payout_submitted", request_kind: "cancellation", workflow_version: 2,
+      requested_at: "2026-11-01T00:00:00Z", payout_submitted_at: "2026-11-02T00:00:00Z", payout_method: "Bank transfer", gcash_reference: "TRANSFER-123" }],
+    reservations: [{ reservation_id: "reservation", reference_number: "MV-TEST", cancellation_reason: "Family plans changed\nUnable to travel.", cancellation_initiator: "guest" }],
+    payments: [payment, { ...payment, payment_id: "p2" },
+      { ...payment, payment_id: "p3", account_name: "Juan Cruz", account_number: "BANK-12345", payment_methods: [{ name: "Bank transfer" }] },
+      { ...payment, payment_id: "p4", status: "rejected", account_number: "09999999999" },
+      { ...payment, payment_id: "p5", status: "pending", account_number: "09888888888" },
+      { ...payment, payment_id: "p6", reservation_id: "another", account_number: "09777777777" }],
   }));
   try {
     await click(button(h.c, "View"));
+    const dialog = h.c.querySelector('[role="dialog"]');
+    assert.match(dialog.textContent, /Cancellation initiated byGuest/);
+    assert.match(dialog.textContent, /Family plans changed\nUnable to travel\./);
+    const destination = dialog.querySelector('[aria-label="Refund destination"]');
+    assert.match(destination.textContent, /GCash/);
+    assert.match(destination.textContent, /Ana Santos/);
+    assert.equal(destination.textContent.split("09171234567").length - 1, 1);
+    assert.match(destination.textContent, /Bank transfer/);
+    assert.match(destination.textContent, /BANK-12345/);
+    assert.match(destination.textContent, /Multiple payment accounts/);
+    assert.doesNotMatch(destination.textContent, /09999999999|09888888888|09777777777/);
+    assert.match(dialog.textContent, /Payout method: Bank transfer\. Reference: TRANSFER-123/);
+  } finally { await h.close(); }
+});
+
+test("refund modal explains missing destination details and keeps cancellation details specific to cancellations", async () => {
+  for (const requestKind of ["cancellation", "overpayment"]) {
+    const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async () => Response.json({
+      refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 100, status: "pending", request_kind: requestKind, workflow_version: 2, requested_at: "2026-11-01T00:00:00Z" }],
+      payments: requestKind === "cancellation" ? [{ payment_id: "cash", reservation_id: "reservation", status: "verified", amount: 500, payment_methods: { name: "Cash" } }] : [],
+    }));
+    try {
+      await click(button(h.c, "View"));
+      const dialog = h.c.querySelector('[role="dialog"]');
+      if (requestKind === "cancellation") {
+        assert.match(dialog.textContent, /No cancellation reason was recorded/);
+        assert.match(dialog.textContent, /Account \/ GCash numberNot recorded/);
+      } else {
+        assert.doesNotMatch(dialog.textContent, /Cancellation reason|Cancellation initiated by/);
+        assert.match(dialog.textContent, /No verified payment account details are available/);
+      }
+      assert.match(dialog.textContent, /[Cc]onfirm payout details with the guest/);
+    } finally { await h.close(); }
+  }
+});
+
+test("administrators can approve refunds when full access is returned", async () => {
+  const h = await mount("components/admin/transactions/RefundRequestsPanel.tsx", {}, async () => Response.json({
+    refunds: [{ refund_id: "refund", reservation_id: "reservation", amount: 2400, status: "reviewed", request_kind: "cancellation", workflow_version: 2, requested_at: "2026-10-14T01:00:00Z", policy_snapshot: "Retain 20%" }],
+    permissions: { canReview: false, canApprove: true, canPay: true, canVerify: true, staffId: "admin" },
+  }));
+  try {
+    await click(button(h.c, "View / process"));
     assert.match(h.c.textContent, /2,400/);
-    assert.equal(h.c.querySelector('[role="dialog"]').querySelector("textarea,input,select"), null);
-    for (const action of ["Approve refund", "Reject with reason", "Submit payment review", "Verify transfer and complete refund"]) assert.equal(button(h.c, action), undefined);
+    assert.ok(h.c.querySelector('[role="dialog"] textarea'));
+    assert.ok(button(h.c, "Approve refund"));
+    assert.ok(button(h.c, "Reject with reason"));
   } finally { await h.close(); }
 });
 

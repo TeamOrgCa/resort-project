@@ -20,7 +20,7 @@ export async function GET() {
       fetchByIds<ReservationGuestIdentity & { reference_number: string }>(ids, (batch, from, to) => staff.supabase.from("reservations")
         .select("reservation_id, guest_id, walk_in_guest_id, reference_number, status, cancellation_initiator, cancellation_reason").in("reservation_id", batch).order("reservation_id").range(from, to)),
       fetchByIds(ids, (batch, from, to) => staff.supabase.from("transactions").select("reservation_id, total_amount, paid_amount, cancellation_deposit_base").in("reservation_id", batch).order("reservation_id").range(from, to)),
-      fetchByIds(ids, (batch, from, to) => staff.supabase.from("payments").select("payment_id, reservation_id, amount, status, payment_type, reference_number, verified_at, proof_path")
+      fetchByIds(ids, (batch, from, to) => staff.supabase.from("payments").select("payment_id, reservation_id, amount, status, payment_type, reference_number, verified_at, proof_path, account_name, account_number, payment_methods(name)")
         .in("reservation_id", batch).order("payment_id").range(from, to)),
       fetchAllPages((from, to) => staff.supabase.from("payment_methods").select("payment_method_id, name, type").eq("is_active", true).order("payment_method_id").range(from, to)),
       staffHasPermission(staff.supabase, staff.staffUser.role, "refund_payout"),
@@ -29,8 +29,8 @@ export async function GET() {
     ]);
     const guestNames = await loadReservationGuestNames(staff.supabase, reservations);
     return NextResponse.json({ refunds, reservations, guestNames, bills, payments, paymentMethods, permissions: {
-      canPay: staff.staffUser.role === "cashier" && canPay, canVerify: staff.staffUser.role === "staff" && canVerify,
-      canApprove: staff.staffUser.role === "staff" && canApprove, staffId: staff.staffUser.id } },
+      canPay: ["admin", "cashier"].includes(staff.staffUser.role) && canPay, canVerify: ["admin", "staff"].includes(staff.staffUser.role) && canVerify,
+      canApprove: ["admin", "staff"].includes(staff.staffUser.role) && canApprove, staffId: staff.staffUser.id } },
       { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ message: "Unable to load refunds. Check the cancellation-refund-workflow migration, then retry." }, { status: 503 });
@@ -39,7 +39,6 @@ export async function GET() {
 export async function POST(request: Request) {
   const staff = await requireActiveStaff();
   if (!staff) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
-  if (staff.staffUser.role === "admin") return NextResponse.json({ message: "Administrators have view-only access to refunds." }, { status: 403 });
   const form = await request.formData().catch(() => null);
   const id = form?.get("refundId"), action = String(form?.get("action") ?? "");
   const reason = typeof form?.get("reason") === "string" ? String(form?.get("reason")).trim() : "";
@@ -50,7 +49,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Invalid refund action." }, { status: 400 });
   const permission = ["recalculate", "approved", "rejected"].includes(action) ? "refund_approval" : action === "payout_submitted" ? "refund_payout" : "refund_verify";
   if (!await staffHasPermission(staff.supabase, staff.staffUser.role, permission) ||
-    (action === "payout_submitted" ? staff.staffUser.role !== "cashier" : staff.staffUser.role !== "staff"))
+    (staff.staffUser.role !== "admin" && (action === "payout_submitted" ? staff.staffUser.role !== "cashier" : staff.staffUser.role !== "staff")))
     return NextResponse.json({ message: "Permission required. Managers approve or reject refunds and verify transfers; cashiers record approved payouts." }, { status: 403 });
   if ((action === "refunded" && (!verified || reason.length < 5)) || (action === "rejected" && reason.length < 5))
     return NextResponse.json({ message: "Enter notes and confirm verification. A rejection reason is required." }, { status: 400 });

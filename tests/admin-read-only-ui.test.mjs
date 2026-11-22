@@ -43,7 +43,7 @@ test("read-only tables keep working search, filters and details while hiding ope
   } finally { await act(async () => root.unmount()); container.remove(); }
 });
 
-test("the permission matrix shows admin view-only access and reserves refund approval for managers", async () => {
+test("the permission matrix gives admins full access and keeps manager/cashier grant boundaries", async () => {
   const saved = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ roles: [{ role: "staff", permissions: ["transactions", "refund_approval"] }, { role: "cashier", permissions: ["transactions"] }] });
   const Editor = loadTsModule("components/admin/users/RolePermissionsEditor.tsx").default;
@@ -52,19 +52,19 @@ test("the permission matrix shows admin view-only access and reserves refund app
     await act(async () => root.render(createElement(Editor)));
     const rows = [...container.querySelectorAll("tbody tr")];
     const row = label => rows.find(r => r.querySelector("th").textContent === label);
-    assert.equal(row("View reservations").lastElementChild.textContent, "View only");
+    assert.equal(row("View reservations").lastElementChild.textContent, "Full access");
     assert.equal(row("Manage catalog").lastElementChild.textContent, "Full access");
     const moderation = row("Approve or reject reviews with attachments (also requires Analytics)");
-    assert.equal(moderation.lastElementChild.textContent, "Approve / reject");
+    assert.equal(moderation.lastElementChild.textContent, "Full access");
     assert.equal(moderation.querySelectorAll("input")[0].disabled, false);
     assert.equal(moderation.querySelectorAll("input")[0].checked, false);
     assert.equal(moderation.querySelectorAll("input")[1].disabled, true);
-    assert.equal(row("Approve or reject refunds (manager only)").lastElementChild.textContent, "Unavailable");
-    const inputs = row("Approve or reject refunds (manager only)").querySelectorAll("input");
+    assert.equal(row("Approve or reject refunds (manager or admin)").lastElementChild.textContent, "Full access");
+    const inputs = row("Approve or reject refunds (manager or admin)").querySelectorAll("input");
     assert.equal(inputs[0].checked, true); assert.equal(inputs[0].disabled, false);
     assert.equal(inputs[1].checked, false); assert.equal(inputs[1].disabled, true);
-    assert.equal(row("Verify refund payout (manager only)").querySelectorAll("input")[1].disabled, true);
-    assert.equal(row("Record refund payout (cashier only)").querySelectorAll("input")[0].disabled, true);
-    assert.equal(row("Record refund payout (cashier only)").querySelectorAll("input")[1].disabled, false);
+    assert.equal(row("Verify refund payout (manager or admin)").querySelectorAll("input")[1].disabled, true);
+    assert.equal(row("Record refund payout (cashier or admin)").querySelectorAll("input")[0].disabled, true);
+    assert.equal(row("Record refund payout (cashier or admin)").querySelectorAll("input")[1].disabled, false);
   } finally { await act(async () => root.unmount()); container.remove(); globalThis.fetch = saved; }
 });

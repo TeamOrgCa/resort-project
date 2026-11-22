@@ -8,6 +8,29 @@ const invalidEmails = ["plainaddress", "alex@localhost", "alex@", "@example.com"
   ".alex@example.com", "alex.@example.com", "alex..m@example.com", "alex@example..com", "alex@-example.com", "alex@example-.com",
   "alex@exam_ple.com", "alex@example.c", "alex@example.123", "alex@example.com.", "alex@" + "a".repeat(64) + ".com", "a".repeat(65) + "@example.com"];
 
+test("creation generates a fresh temporary password for every role and returns it only with the creation result", async () => {
+  const passwords = new Set();
+  for (const role of ["admin", "staff", "cashier"]) {
+    const h = harness();
+    const body = { fullName: "Ana Santos", email: role === "admin" ? "ana@gmail.com" : "ana@marvilleresort.com", role, isActive: true };
+    for (const supplied of [undefined, "ClientChosenPassword123!"]) {
+      const response = await h.post({ ...body, ...(supplied ? { password: supplied } : {}) });
+      assert.equal(response.status, 201);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      const data = await response.json();
+      const password = data.temporaryPassword;
+      assert.equal(password, h.calls.created.at(-1).password);
+      assert.equal(password.length, 20);
+      for (const pattern of [/[A-Z]/, /[a-z]/, /[0-9]/, /[!@#$%&*?]/]) assert.match(password, pattern);
+      assert.notEqual(password, supplied);
+      assert.equal(passwords.has(password), false); passwords.add(password);
+      assert.equal(JSON.stringify(h.calls.profiles).includes(password), false);
+      assert.equal(JSON.stringify(h.calls.audits).includes(password), false);
+      assert.equal(h.calls.profiles.at(-1).values.must_change_password, true);
+    }
+  }
+});
+
 test("staff email validation accepts complete addresses, aliases, subdomains and domain length boundaries", () => {
   for (const email of ["alex@example.com", "Alex.Mendoza+cashier@Team.Example.COM.PH", "alex_mendoza@example.org", "o'neil@example.co.uk",
     "alex%tag@example.travel", "alex@xn--bcher-kva.de", "alex@example.xn--p1ai", "a".repeat(64) + "@example.com"]) assert.equal(isValidStaffEmail(email), true, email);

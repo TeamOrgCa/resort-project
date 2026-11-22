@@ -22,7 +22,7 @@ async function mount() {
   const render = (isOpen = true, isSubmitting = false) => act(async () => root.render(createElement(Component, { isOpen, isSubmitting, error: "", onClose() {}, onSubmit: data => submissions.push(data) })));
   await render();
   await value(container.querySelector('input[placeholder="Alex Mendoza"]'), "Alex Mendoza");
-  await value(container.querySelector('input[type="password"]'), "secret123");
+  assert.equal(container.querySelector('input[type="password"]'), null);
   return { container, submissions, render, email: () => container.querySelector('input[aria-label="Email username"]'),
     submit: () => act(async () => container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }))),
     close: async () => { await act(async () => root.unmount()); container.remove(); } };
@@ -38,7 +38,7 @@ test("invalid staff email stays beside the focused field and cannot submit; a co
     assert.equal(message.getAttribute("role"), "alert"); assert.equal(message, h.email().parentElement.nextElementSibling);
     await value(h.email(), "Alex.Mendoza+desk"); assert.equal(h.email().getAttribute("aria-invalid"), "false");
     await h.submit(); assert.equal(h.submissions.length, 1); assert.equal(h.submissions[0].email, "alex.mendoza+desk@marvilleresort.com");
-    assert.equal(h.submissions[0].role, "staff"); assert.equal(h.submissions[0].password, "secret123");
+    assert.equal(h.submissions[0].role, "staff"); assert.equal(Object.hasOwn(h.submissions[0], "password"), false);
   } finally { await h.close(); }
 });
 
@@ -122,18 +122,14 @@ test("email username rejects typed at-signs and input-event bypasses while prese
   } finally { await h.close(); }
 });
 
-test("temporary password can be shown and hidden without submitting, is disabled while saving and resets when reopened", async () => {
+test("staff creation explains automatic passwords and accepts no password input", async () => {
   const h = await mount();
-  const password = () => h.container.querySelector('input[aria-label="Temporary password"]');
   try {
-    assert.equal(password().type, "password");
-    const toggle = () => h.container.querySelector('button[aria-controls="' + password().id + '"]');
-    await act(async () => toggle().click());
-    assert.equal(password().type, "text"); assert.equal(password().value, "secret123");
-    assert.equal(toggle().getAttribute("aria-label"), "Hide password"); assert.equal(h.submissions.length, 0);
-    await act(async () => toggle().click()); assert.equal(password().type, "password");
-    await h.render(true, true); assert.equal(password().disabled, true); assert.equal(toggle().disabled, true);
-    await h.render(false); await h.render(true);
-    assert.equal(password().type, "password"); assert.equal(password().value, "");
+    assert.equal(h.container.querySelector('input[aria-label="Temporary password"]'), null);
+    assert.match(h.container.textContent, /generated automatically/);
+    await value(h.email(), "staff"); await h.submit();
+    assert.equal(Object.hasOwn(h.submissions[0], "password"), false);
+    await h.render(true, true); await h.submit();
+    assert.equal(h.submissions.length, 1);
   } finally { await h.close(); }
 });
