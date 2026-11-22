@@ -31,6 +31,7 @@ export function validateCatalogRecord(resource: CatalogResource, input: unknown,
     }
     if (typeof value !== "string") throw new CatalogValidationError(`Enter a valid ${field.label.toLowerCase()}.`);
     const text = value.trim();
+    if (field.kind === "select" && !field.options?.some(option => option.value === text)) throw new CatalogValidationError(`Select a valid ${field.label.toLowerCase()}.`);
     if (text.length > (field.kind === "textarea" ? 10000 : field.kind === "image" ? 2048 : 200)) throw new CatalogValidationError(`${field.label} is too long.`);
     if ((field.kind === "unit" || field.kind === "payment_method") && !isCatalogUuid(text)) throw new CatalogValidationError(`Select a valid ${field.label.toLowerCase()}.`);
     if (field.kind === "image" && !isContentImageUrl(text)) throw new CatalogValidationError("Use an HTTPS image URL or a local image path.");

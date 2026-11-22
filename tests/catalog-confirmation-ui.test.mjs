@@ -45,6 +45,24 @@ test("catalog saves need confirmation, keep draft on cancellation, and do not su
   } finally { await h.close(); }
 });
 
+test("changing service type updates the hourly wording and saves the selected type", async () => {
+  const h = await mount();
+  try {
+    const select = h.c.querySelector('#catalog-billing_type');
+    assert.equal(select.value, "quantity");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(select, "duration");
+      select.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    assert.match(h.c.textContent, /Price per hour \(PHP\)/);
+    assert.match(h.c.textContent, /Maximum hours per booking/);
+    await h.submit();
+    await click(button(document.querySelector('[role="alertdialog"]'), "Confirm save"));
+    assert.equal(h.saves[0][0].billing_type, "duration");
+    assert.equal(h.saves[0][0].price, 300); assert.equal(h.saves[0][0].max_quantity, 5);
+  } finally { await h.close(); }
+});
+
 test("outside clicks keep an untouched editor open and dirty outside/Cancel/close/Escape actions ask before discarding", async () => {
   const h = await mount();
   try {

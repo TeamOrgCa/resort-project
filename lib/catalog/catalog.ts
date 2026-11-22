@@ -1,6 +1,6 @@
 export type CatalogRecord = Record<string, unknown>;
 export type CatalogStatus = "active" | "archived" | "all";
-export type CatalogFieldKind = "text" | "textarea" | "money" | "integer" | "date" | "time" | "image" | "unit" | "payment_method";
+export type CatalogFieldKind = "text" | "textarea" | "money" | "integer" | "date" | "time" | "image" | "unit" | "payment_method" | "select";
 
 export interface CatalogField {
   key: string;
@@ -11,7 +11,8 @@ export interface CatalogField {
   max?: number;
   minTime?: string;
   maxTime?: string;
-  defaultValue?: number;
+  defaultValue?: number | string;
+  options?: { value: string; label: string }[];
   help?: string;
 }
 
@@ -30,11 +31,12 @@ export interface CatalogDefinition {
 export const catalogResources = {
   services: {
     label: "Services", singular: "service", description: "Manage the extras guests can add to their stay.",
-    id: "service_id", select: "service_id, name, description, image_url, price, max_quantity, is_active, created_at", order: "name", search: "name",
-    columns: ["name", "price", "max_quantity"], fields: [
+    id: "service_id", select: "service_id, name, description, image_url, billing_type, price, max_quantity, is_active, created_at", order: "name", search: "name",
+    columns: ["name", "billing_type", "price", "max_quantity"], fields: [
       { key: "name", label: "Service name", kind: "text", required: true },
+      { key: "billing_type", label: "Service type", kind: "select", defaultValue: "quantity", options: [{ value: "quantity", label: "Quantity-based (per item)" }, { value: "duration", label: "Duration-based (per hour)" }], help: "Choose per item for extras such as mattresses, or per hour for rentals such as karaoke." },
       { key: "price", label: "Price (PHP)", kind: "money", required: true, min: 0 },
-      { key: "max_quantity", label: "Maximum quantity per booking", kind: "integer", required: true, min: 1, max: 10000, defaultValue: 1, help: "Guests can select up to this many of the service in one booking." },
+      { key: "max_quantity", label: "Maximum per booking", kind: "integer", required: true, min: 1, max: 10000, defaultValue: 1, help: "Guests can select up to this many items or rental hours in one booking." },
       { key: "description", label: "Description", kind: "textarea" },
       { key: "image_url", label: "Service photo", kind: "image", help: "Upload or replace a photo, or remove it to use the default placeholder. Save changes to publish." },
     ],

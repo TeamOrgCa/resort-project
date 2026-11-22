@@ -88,3 +88,15 @@ test("booking review displays quantity line totals and submits the chosen quanti
     }finally{await h.close();}
   }
 });
+
+test("booking review identifies rental hours and submits their billable count", async () => {
+  let posted;
+  const h = await mount(async (_url, options) => { posted = JSON.parse(options.body); return Response.json({ success: true, reservation: { id: "reservation" } }); }, false,
+    { services: [{ id: "karaoke", name: "Karaoke", price: 200, quantity: 3, billingType: "duration" }], total: 8100 });
+  try {
+    assert.match(h.container.textContent, /Karaoke.*3 hours/);
+    assert.match(h.container.textContent, /600\.00/);
+    await click(h.container.querySelector('[aria-label="Accept terms"]')); await click(actions(h.container).querySelector("button"));
+    assert.deepEqual(posted.selectedServices, [{ serviceId: "karaoke", quantity: 3 }]);
+  } finally { await h.close(); }
+});

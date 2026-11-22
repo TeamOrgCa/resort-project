@@ -7,10 +7,10 @@ export async function loadReservationEditor(id: string) {
   const admin = createAdminClient();
   const [r, s, u, b, cs, cu, payments, reschedules] = await Promise.all([
     admin.from("reservations").select("*").eq("reservation_id", id).maybeSingle<EditableReservation>(),
-    admin.from("reservation_services").select("service_id,quantity,price_at_time").eq("reservation_id", id).order("service_id"),
+    admin.from("reservation_services").select("service_id,quantity,price_at_time,billing_type").eq("reservation_id", id).order("service_id"),
     admin.from("reservation_units").select("unit_id,quantity,price_per_night").eq("reservation_id", id).order("unit_id"),
     admin.from("transactions").select("total_amount,paid_amount,status").eq("reservation_id", id).maybeSingle<Bill>(),
-    admin.from("services").select("service_id,name,price,max_quantity,is_active").order("name"),
+    admin.from("services").select("service_id,name,price,max_quantity,billing_type,is_active").order("name"),
     admin.from("units").select("unit_id,name,base_price,is_active,archived_at").order("name"),
     admin.from("payments").select("payment_id").eq("reservation_id", id).eq("status", "pending").limit(1),
     admin.from("reservation_reschedules").select("reschedule_id").eq("reservation_id", id).eq("status", "pending").limit(1),

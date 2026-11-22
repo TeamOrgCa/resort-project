@@ -25,9 +25,9 @@ export type EditableReservation = {
   checked_in_at?: string | null;
   checked_out_at?: string | null;
 };
-export type SelectedService = { service_id: string; quantity: number; price_at_time: number };
+export type SelectedService = { service_id: string; quantity: number; price_at_time: number; billing_type?: "quantity" | "duration" };
 export type SelectedUnit = { unit_id: string; quantity: number; price_per_night: number };
-export type CatalogService = { max_quantity?: number; service_id: string; name: string; price: number; is_active: boolean };
+export type CatalogService = { max_quantity?: number; billing_type?: "quantity" | "duration"; service_id: string; name: string; price: number; is_active: boolean };
 export type CatalogUnit = { unit_id: string; name: string; base_price: number; is_active: boolean; archived_at: string | null };
 export type Bill = { total_amount: number; paid_amount: number; status: string };
 export type EditDetail = {

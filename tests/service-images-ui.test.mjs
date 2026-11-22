@@ -105,11 +105,13 @@ for(const [resource,imageField,placeholder] of [["services","image_url","service
     await act(async () => finish());
     assert.equal(ui.container.querySelector("img").getAttribute("src"), "https://images.example.com/new.jpg");
     await act(async () => ui.container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await act(async () => [...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Confirm save").click());
     assert.equal(saved[imageField], "https://images.example.com/new.jpg");
     await act(async () => [...ui.container.querySelectorAll("button")].find(button => button.textContent === "Remove photo").click());
     assert.equal(ui.container.querySelector("img").getAttribute("src"), `/images/${placeholder}-placeholder.svg`);
     await act(async () => ui.container.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
-    assert.equal(saved[imageField], "");
+    await act(async () => [...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Confirm save").click());
+    assert.equal(saved[imageField], null);
   } finally { await ui.close(); globalThis.fetch = oldFetch; }
 });
 

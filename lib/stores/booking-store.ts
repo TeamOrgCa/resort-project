@@ -8,6 +8,7 @@ export interface BookingServiceItem {
   name: string;
   price: number;
   quantity?: number;
+  billingType?: "quantity" | "duration";
 }
 
 export interface BookingDraft {

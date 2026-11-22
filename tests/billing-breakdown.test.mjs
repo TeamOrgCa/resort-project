@@ -14,6 +14,13 @@ const booking = {
   services: [{ name: "Extra mattress", quantity: 2, priceAtBooking: 300 }],
 };
 
+test("hourly service statements show rental hours and multiply the hourly rate", () => {
+  const result = buildBillingBreakdown({ ...booking, services: [{ name: "Karaoke", quantity: 3, priceAtBooking: 200, billingType: "duration" }], recordedTotal: 8300 });
+  const line = result.lines.find(line => line.description === "Karaoke");
+  assert.equal(line.quantity, 3); assert.equal(line.unitPrice, 200); assert.equal(line.amount, 600);
+  assert.match(line.detail, /3 rental hours; charged per hour/);
+});
+
 test("shows stored unit, guest, and service charges when they match the bill", () => {
   const breakdown = buildBillingBreakdown({ ...booking, recordedTotal: 8300 });
   assert.deepEqual(breakdown.lines.map(({ description, amount }) => [description, amount]), [

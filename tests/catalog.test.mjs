@@ -19,6 +19,22 @@ const seed = () => ({
   payment_methods: [{ payment_method_id: uuid(2), name: "GCash", type: "ewallet", is_active: true }],
 });
 
+test("service types persist through creation and edits into the public catalog", async () => {
+  const h = harness();
+  const create = await h.request("POST", { resource: "services", record: { ...samples.services, name: "Karaoke rental", billing_type: "duration", price: 200, max_quantity: 8 } });
+  assert.equal(create.status, 201);
+  const { record } = await create.json();
+  assert.equal(record.billing_type, "duration");
+  const { getActiveCatalog } = loadTsModule("repositories/catalogRepository.ts");
+  assert.equal((await getActiveCatalog(h.database)).services[0].billing_type, "duration");
+  const update = await h.request("PATCH", { resource: "services", id: record.service_id, record: { billing_type: "quantity" } });
+  assert.equal(update.status, 200);
+  assert.equal((await getActiveCatalog(h.database)).services[0].billing_type, "quantity");
+  for (const billing_type of ["hourly", "invalid", 5]) {
+    assert.equal((await h.request("PATCH", { resource: "services", id: record.service_id, record: { billing_type } })).status, 400);
+  }
+});
+
 test("service catalog persists its maximum and rejects missing, fractional or excessive limits",async()=>{
   const {validateCatalogRecord}=loadTsModule("lib/catalog/validation.ts");
   for(const max_quantity of [undefined,null,0,-1,1.5,10001])assert.throws(()=>validateCatalogRecord("services",{...samples.services,max_quantity}));

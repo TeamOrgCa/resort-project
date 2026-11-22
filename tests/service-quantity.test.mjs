@@ -5,6 +5,13 @@ import {loadTsModule} from "./helpers/load-ts-module.mjs";
 const {parseServiceSelections,serviceQuantityError,serviceQuantityLimit}=loadTsModule("lib/booking/service-quantity.ts");
 const catalog=[{service_id:"mattress",name:"Mattress",max_quantity:3}];
 
+test("duration limits use rental-hour wording and booked types take precedence over later catalog edits", () => {
+  const hourly = [{ service_id: "karaoke", name: "Karaoke", max_quantity: 4, billing_type: "duration" }];
+  assert.equal(serviceQuantityError([{ serviceId: "karaoke", quantity: 4 }], hourly), null);
+  assert.match(serviceQuantityError([{ serviceId: "karaoke", quantity: 5 }], hourly), /maximum of 4 rental hours/);
+  assert.match(serviceQuantityError([{ serviceId: "karaoke", quantity: 5 }], hourly, [{ service_id: "karaoke", quantity: 1, billing_type: "quantity" }]), /maximum quantity of 4/);
+});
+
 test("service selections reject invalid and duplicate quantities instead of silently changing them to one",()=>{
   assert.deepEqual(parseServiceSelections(undefined),[]);
   assert.deepEqual(parseServiceSelections([{serviceId:"Mattress"}]),[{serviceId:"mattress",quantity:1}]);

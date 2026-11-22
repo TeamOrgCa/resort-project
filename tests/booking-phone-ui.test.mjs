@@ -16,7 +16,7 @@ async function bookingFetch(url) {
   if (url.startsWith("https://psgc.cloud/api/")) return Response.json(url.endsWith("/provinces")
     ? [{ code: "0405800000", name: "Rizal" }]
     : [{ code: "0405813000", name: "Taytay", type: "Mun" }, { code: "0405805000", name: "Cainta", type: "Mun" }]);
-  return Response.json({ success: true, catalog: { units: [{ unit_id: "pool", name: "Pool", base_price: 7500,unit_img:"https://images.example.com/pool.jpg",capacity:4 },{unit_id:"garden",name:"Garden Room",base_price:8000,unit_img:"https://images.example.com/garden.jpg",capacity:2,description:"Air-conditioned garden room"}], services: [{ service_id: "mattress", name: "Extra mattress", description: "Fresh linen included", image_url: "https://images.example.com/mattress.jpg", price: 500,max_quantity:3 }] } });
+  return Response.json({ success: true, catalog: { units: [{ unit_id: "pool", name: "Pool", base_price: 7500,unit_img:"https://images.example.com/pool.jpg",capacity:4 },{unit_id:"garden",name:"Garden Room",base_price:8000,unit_img:"https://images.example.com/garden.jpg",capacity:2,description:"Air-conditioned garden room"}], services: [{ service_id: "mattress", name: "Extra mattress", description: "Fresh linen included", image_url: "https://images.example.com/mattress.jpg", price: 500,max_quantity:3 }, { service_id: "karaoke", name: "Karaoke rental", price: 200, billing_type: "duration", max_quantity:4 }] } });
 }
 
 test("booking blocks invalid contacts and carries the normalized Philippine number into review", async () => {
@@ -46,6 +46,11 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
     await act(async()=>container.querySelector('img[src="https://images.example.com/garden.jpg"]').click());
     assert.equal(container.querySelector('input[name="roomType"][value="garden"]').checked,true);
     await act(async () => container.querySelector('input[aria-label="Add Extra mattress"]').click());
+    await act(async () => container.querySelector('input[aria-label="Add Karaoke rental"]').click());
+    const hours = container.querySelector('[aria-label="Hours for Karaoke rental"]');
+    assert.equal(hours.max, "4");
+    await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set.call(hours,"3"); hours.dispatchEvent(new window.Event("input",{bubbles:true})); });
+    assert.match(container.textContent, /Duration-based/); assert.match(container.textContent, /per hour/);
     const phone = container.querySelector("#booking-phone");
     assert.equal(phone.value, "9171234567"); assert.match(phone.parentElement.textContent, /\+63/);
     const review = [...container.querySelectorAll("button")].find(button => button.textContent.includes("Review Full Details"));
@@ -70,7 +75,9 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
         assert.equal(store.getState().bookingDraft.phone, "+639171234567");
         assert.equal(store.getState().bookingDraft.services[0].id, "mattress");
         assert.equal(store.getState().bookingDraft.services[0].price, 500);
-        assert.equal(store.getState().bookingDraft.services[0].quantity,2);assert.equal(store.getState().bookingDraft.total,legacyRates.weekday.night.baseRate+1000);
+        assert.equal(store.getState().bookingDraft.services[0].quantity,2);assert.equal(store.getState().bookingDraft.total,legacyRates.weekday.night.baseRate+1600);
+        assert.equal(store.getState().bookingDraft.services[1].billingType, "duration");
+        assert.equal(store.getState().bookingDraft.services[1].quantity, 3);
         assert.equal(store.getState().bookingDraft.unitId,"garden");assert.equal(store.getState().bookingDraft.roomName,"Garden Room");
         assert.equal(store.getState().bookingDraft.roomPrice,legacyRates.weekday.night.baseRate);
         assert.equal(store.getState().bookingDraft.checkIn, "2027-06-14");

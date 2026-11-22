@@ -34,7 +34,7 @@ async function mount(fetcher = () => Response.json({ success: true, reservation:
   const client = { from(table) {
     assert.notEqual(table, "guests", "Manual entry must not load account choices");
     const data = table === "guests" ? [{ id: "guest", first_name: "Test", last_name: "Guest", email: "test@example.com" }]
-      : table === "services" ? [{ service_id: "karaoke", name: "Karaoke", price: 500, description: "Use during the stay" }, { service_id: "chairs", name: "Extra chair", price: 100, description: null }]
+      : table === "services" ? [{ service_id: "karaoke", name: "Karaoke", billing_type: "duration", price: 500, description: "Use during the stay" }, { service_id: "chairs", name: "Extra chair", price: 100, description: null }]
       : [{ unit_id: "unit", name: "Resort", capacity: 30 }];
     const q = { select: () => q, order: () => q, limit: () => q, eq: () => q, is: () => q,
       then: (resolve, reject) => Promise.resolve({ data }).then(resolve, reject) };
@@ -184,19 +184,20 @@ test("refreshing availability invalidates a selected package and prevents even a
   }finally{await h.close();}
 });
 
-test("services and quantities recalculate the bill and downpayment and are included in the saved reservation",async()=>{
+test("hourly rentals and item quantities recalculate manual billing and save the selected hours/counts",async()=>{
   const h=await mount();
   try{
     const c=h.container;await click(c.querySelector('[aria-label="Next month"]'));await click(c.querySelector("[data-date]"));
     await fillGuest(c);
     const checks=c.querySelectorAll('input[type="checkbox"]');await click(checks[0]);await click(checks[1]);
-    await input(c.querySelector('[aria-label="Quantity for Karaoke"]'),"2");
+    await input(c.querySelector('[aria-label="Hours for Karaoke"]'),"2");
     await input(c.querySelector('[aria-label="Quantity for Extra chair"]'),"3");
     const preview=c.querySelector('[aria-label="Billing preview"]');assert.match(preview.textContent,/Additional services: .*1,300\.00/);
+    assert.match(c.textContent, /Duration-based/); assert.match(c.textContent, /per hour/); assert.match(c.textContent, /Quantity-based/);
     const expected=preview.textContent.includes("Weekend")?9300:8800;assert.ok(preview.textContent.includes(expected.toLocaleString("en-PH")+".00"));
-    await input(c.querySelector('[aria-label="Quantity for Karaoke"]'),"0");assert.equal(submitButton(c).disabled,true);
-    await input(c.querySelector('[aria-label="Quantity for Karaoke"]'),"1.5");assert.equal(submitButton(c).disabled,true);
-    await input(c.querySelector('[aria-label="Quantity for Karaoke"]'),"2");assert.equal(submitButton(c).disabled,false);
+    await input(c.querySelector('[aria-label="Hours for Karaoke"]'),"0");assert.equal(submitButton(c).disabled,true);
+    await input(c.querySelector('[aria-label="Hours for Karaoke"]'),"1.5");assert.equal(submitButton(c).disabled,true);
+    await input(c.querySelector('[aria-label="Hours for Karaoke"]'),"2");assert.equal(submitButton(c).disabled,false);
     await act(async()=>c.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
     await confirmReservationIfOpen();
     assert.deepEqual(h.requests[0].body.selectedServices,[{serviceId:"karaoke",quantity:2},{serviceId:"chairs",quantity:3}]);
