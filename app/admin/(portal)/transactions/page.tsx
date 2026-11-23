@@ -41,6 +41,7 @@ import { fetchAllPages, fetchByIds } from "@/lib/server/fetch-all-pages";
 import RecordPaymentDialog, { type StaffPaymentMethod, type RecordedPaymentResult } from "@/components/admin/transactions/RecordPaymentDialog";
 import { loadReservationGuestNames } from "@/lib/booking/reservation-guest-names";
 import { manilaDateKey } from "@/lib/booking/manila-date";
+import { receiptDiscountFields } from "@/lib/booking/billing-discount";
 import { resolveDateRange, withinDateRange, type DatePreset } from "@/lib/admin/date-range";
 
 import PublicAccessPaymentDialog from "@/components/admin/transactions/PublicAccessPaymentDialog";
@@ -692,12 +693,12 @@ export default function AdminTransactionsPage() {
       const [reservationResult, transactionResult, paymentsResult, reservationUnitsResult, reservationServicesResult] = await Promise.all([
         supabase
           .from("reservations")
-          .select("reference_number, booking_type, status, start_datetime, end_datetime")
+          .select("reference_number, booking_type, status, start_datetime, end_datetime, booking_mode, adult_count, child_count")
           .eq("reservation_id", invoice.reservation_id)
           .maybeSingle<InvoiceDetailReservationRow>(),
         supabase
           .from("transactions")
-          .select("total_amount, paid_amount, balance, status")
+          .select("total_amount, paid_amount, balance, status, discount_amount, discount_kind, discount_promo_code, discount_promo_type, discount_promo_value, discount_eligible_guests, discount_package_price")
           .eq("reservation_id", invoice.reservation_id)
           .maybeSingle<InvoiceDetailTransactionRow>(),
         supabase
@@ -822,7 +823,7 @@ export default function AdminTransactionsPage() {
 
       const { data: receiptRecord, error: receiptError } = await supabase
         .from("receipts")
-        .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name")
+        .select("receipt_id, payment_id, receipt_number, issued_at, is_active, archived_at, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name, discount_snapshot")
         .eq("receipt_id", receiptId)
         .maybeSingle<ReceiptDetailReceiptRow>();
 
@@ -894,6 +895,7 @@ export default function AdminTransactionsPage() {
           { label: "Payment Ref", value: paymentRecord.reference_number ?? "-" },
           { label: "Paid At", value: paymentRecord.paid_at ? formatDateTime(paymentRecord.paid_at) : "-" },
           { label: "Amount Paid", value: formatCurrency(Number(receiptRecord.amount_paid ?? 0)) },
+          ...receiptDiscountFields(receiptRecord.discount_snapshot, Number(receiptRecord.transaction_total_at_time ?? 0)),
           { label: "Booking Total at Payment", value: formatCurrency(Number(receiptRecord.transaction_total_at_time ?? 0)) },
           { label: "Balance After Payment", value: formatCurrency(Number(receiptRecord.balance_after_payment ?? 0)) },
         ],
@@ -1051,6 +1053,8 @@ export default function AdminTransactionsPage() {
 
       {viewDetails ? <KeyValueDetailsModal details={viewDetails} onClose={() => setViewDetails(null)}
         onSettlePayment={viewedTransaction && canRecordPayments ? settleViewedTransaction : undefined}
+        discountReservationId={viewedTransaction && canRecordPayments && ["pending", "confirmed"].includes(viewedTransaction.reservation_status ?? "") ? viewedTransaction.reservation_id : undefined}
+        onDiscountChanged={result => { setRefreshRevision(n => n + 1); setViewDetails(current => current ? { ...current, fields: current.fields.map(field => field.label === "Total Amount" ? { ...field, value: formatCurrency(result.totalAmount) } : field.label === "Balance" ? { ...field, value: formatCurrency(result.remainingBalance) } : field.label === "Overpaid" ? { ...field, value: formatCurrency(Math.max(0, Number(viewedTransaction?.paid_amount ?? 0) - result.totalAmount)) } : field.label === "Status" ? { ...field, value: toTitleCase(deriveTransactionStatus(result.totalAmount, Number(viewedTransaction?.paid_amount ?? 0), result.remainingBalance)) } : field) } : current); }}
         canSettlePayment={canSettleViewedTransaction} settlementMessage={settlementMessage} /> : null}
 
       {showPublicPayment&&<PublicAccessPaymentDialog methods={paymentMethods} onClose={()=>setShowPublicPayment(false)} onSaved={(sale,message)=>{
@@ -1058,7 +1062,7 @@ export default function AdminTransactionsPage() {
       }}/>}
       {paymentReservationId && <RecordPaymentDialog initialReservationId={paymentReservationId}
         bills={transactions} references={reservationReferencesById} methods={paymentMethods}
-        onSaved={paymentSaved} onClose={() => setPaymentReservationId(null)} />}
+        onBillUpdated={() => setRefreshRevision(n => n + 1)} onSaved={paymentSaved} onClose={() => setPaymentReservationId(null)} />}
 
       {reviewPayment && (
         <PaymentReviewModal

@@ -43,7 +43,7 @@ export function bookingGuide(page: BookingGuidePage, saved = false, balance = fa
       description: "This is the guest-details step. Your earlier date and package are carried forward. Complete the required details, choose any extras, then review your booking.",
       steps: [
         step("guest-personal", "Who is the booking for?", "Check your name, email, Philippine mobile number and address. Use accurate contact details so the resort can reach you about the reservation."),
-        step("guest-group", "Guests and unit selection", "Enter the adults and children attending and select an available unit. Read the guest limits and any extra-person charges shown below these fields."),
+        step("guest-group", "Guests and unit selection", "Enter the number of guests attending and select an available unit. Read the guest limits and any extra-person charges shown below the field."),
         step("guest-services", "Optional resort services", "Select only the additional services you need. Their prices are added to the billing summary; leaving them unselected adds no service charge."),
         step("guest-requests", "Anything we should know?", "Use this optional field for special requests. The resort can review them with your booking."),
         step("guest-summary", "Watch your total", `The summary shows your schedule, package, guest charges, extras and total. It also shows the ${DOWN_PAYMENT_PERCENT}% down payment option. Review the figures after changing your selections.`),

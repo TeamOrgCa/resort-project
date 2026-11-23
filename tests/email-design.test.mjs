@@ -95,6 +95,24 @@ test("legacy receipts explicitly label missing payment metadata without inventin
   const message=messages.at(-1);assert.match(message.text,/Payment method: Not recorded/);assert.match(message.text,/Payment reference: Not recorded/);assert.match(message.text,/Paid at \(Philippine time\): Not recorded/);
 });
 
+test("receipt, invoice and updated statement emails show the applied promo and net charges in HTML and plain text",async()=>{
+  const {buildBillingBreakdown}=loadTsModule("lib/booking/billing-breakdown.ts");
+  const breakdown=buildBillingBreakdown({bookingMode:"day",startDatetime:base.checkInDate,endDatetime:base.checkOutDate,
+    adultCount:10,childCount:0,adultRate:null,childRate:null,units:[],services:[],recordedTotal:9000,
+    discount:{amount:1000,kind:"promo",promoCode:"SAVE10",promoType:"percent",promoValue:10,headCount:10,eligibleGuests:0,packagePrice:10000}});
+  for(const [send,extra] of [["sendPaymentReceiptEmail",{}],["sendReservationInvoiceEmail",{}],["sendReservationInvoiceEmail",{updatedAt:billing.issuedAt}]]) {
+    await mail[send]({...billing,...extra,totalAmount:9000,breakdown});
+    const message=messages.at(-1),dom=new JSDOM(message.html);
+    try {
+      for(const text of [message.text,dom.window.document.body.textContent]) {
+        assert.match(text,/Promo discount \(SAVE10\)/);assert.match(text,/10% off the package price/);
+        assert.match(text,/-₱1,000\.00/);assert.match(text,/Total before discount/);
+        assert.match(text,/10,000\.00/);assert.match(text,/9,000\.00/);
+      }
+    } finally {dom.window.close();}
+  }
+});
+
 test("staff codes and password resets use branded emails with five-minute, one-use instructions", async () => {
   for (const [send, payload, title, expected] of [
     ["sendStaffOtpEmail", { email: base.guestEmail, code: "12345678" }, "Staff verification code", "12345678"],

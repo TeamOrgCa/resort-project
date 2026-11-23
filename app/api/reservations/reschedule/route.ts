@@ -228,7 +228,11 @@ export async function POST(request: Request) {
 
     if (!reservation.package_rate_version) return NextResponse.json({ success: false, message: "This reservation needs its package rate history configured. Please contact the resort." }, { status: 503 });
     const packageSchedule = await loadPackageRates(adminSupabase, reservation.package_rate_version);
+    const { data: discount, error: discountError } = await adminSupabase.from("transactions").select("discount_amount,discount_eligible_guests,discount_promo_code,discount_promo_type,discount_promo_value").eq("reservation_id", reservation.reservation_id).maybeSingle();
+    if (discountError || !discount) return NextResponse.json({ message: "Unable to load the booking discount. Please retry." }, { status: 503 });
+    const hasDiscount = Boolean(discount.discount_amount || discount.discount_eligible_guests || discount.discount_promo_code);
     const charges = calculateRescheduleCharges({
+      discount: hasDiscount ? discount : undefined,
       rates: packageSchedule.rates,
       originalStart: reservation.start_datetime,
       originalEnd: reservation.end_datetime,
@@ -261,10 +265,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: result, error: saveError } = await adminSupabase.rpc("reschedule_guest_reservation", {
+    const { data: result, error: saveError } = await adminSupabase.rpc(hasDiscount ? "reschedule_guest_reservation_with_discount" : "reschedule_guest_reservation", {
       p_reservation: reservation.reservation_id,
       p_guest: user.id,
       p_expected: {
+        ...(hasDiscount ? { discount: { amount: Number(discount.discount_amount ?? 0), eligible: Number(discount.discount_eligible_guests ?? 0), code: discount.discount_promo_code ?? null, type: discount.discount_promo_type ?? null, value: Number(discount.discount_promo_value ?? 0) } } : {}),
         startDatetime: reservation.start_datetime, endDatetime: reservation.end_datetime,
         adultCount: reservation.adult_count, childCount: reservation.child_count,
         bookingMode: reservation.booking_mode, packageRateVersion: reservation.package_rate_version,

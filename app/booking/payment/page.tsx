@@ -421,6 +421,7 @@ function PaymentContent() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          promoCode: bookingDraft.promoCode ?? null,
           reservationId,
           payment: {
             paymentMethodId: selectedPaymentMethodId,
@@ -531,12 +532,8 @@ function PaymentContent() {
                 <span className="font-semibold text-neutral">{successRoomName}</span>
               </div>}
               {!isBalancePayment && <div className="flex justify-between">
-                <span className="text-neutral/70">Adults</span>
-                <span className="font-semibold text-neutral">{successAdultCount}</span>
-              </div>}
-              {!isBalancePayment && <div className="flex justify-between">
-                <span className="text-neutral/70">Children</span>
-                <span className="font-semibold text-neutral">{successChildCount}</span>
+                <span className="text-neutral/70">Number of guests</span>
+                <span className="font-semibold text-neutral">{successAdultCount + successChildCount}</span>
               </div>}
               <div className="flex justify-between pt-3 border-t border-neutral/10">
                 <span className="text-neutral/70">Total Amount</span>
@@ -907,7 +904,7 @@ function PaymentContent() {
                   {!isBalancePayment && <div className="pb-4 border-b border-neutral/10">
                     <p className="text-sm font-semibold text-neutral mb-2">Booking Charges</p>
                     <div className="flex justify-between text-sm mb-1"><span className="text-neutral/70">{costSummary.packageLabel}</span><span className="whitespace-nowrap text-neutral">₱{costSummary.packageCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                    <div className="flex justify-between text-sm mb-1"><span className="text-neutral/70">Guests</span><span className="text-neutral">{adultCount} adults, {childCount} children</span></div>
+                    <div className="flex justify-between text-sm mb-1"><span className="text-neutral/70">Guests</span><span className="text-neutral">{adultCount + childCount} guests</span></div>
                     {costSummary.extraGuestCharge > 0 && <div className="flex justify-between text-sm"><span className="text-neutral/70">Extra guests ({costSummary.extraGuests})</span><span className="whitespace-nowrap text-neutral">₱{costSummary.extraGuestCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                   </div>}
 

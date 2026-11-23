@@ -19,7 +19,7 @@ export interface ServiceCatalogRecord {
   description: string | null;
   price: number;
   max_quantity: number;
-  billing_type?: "quantity" | "duration";
+  billing_type?: "quantity" | "duration" | "person" | "fixed";
   is_active: boolean;
 }
 

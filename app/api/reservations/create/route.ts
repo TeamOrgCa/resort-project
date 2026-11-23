@@ -1,3 +1,4 @@
+import { BookingPromoError, loadBookingPromo, applyNewBookingPromo } from "@/lib/server/booking-discounts";
 import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { LegalPolicyError, requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 import { parseServiceSelections, serviceQuantityError } from "@/lib/booking/service-quantity";
@@ -36,6 +37,7 @@ interface CreateReservationPayload {
   adultCount: number;
   childCount: number;
   unitId: string;
+  promoCode?: string | null;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
   acceptedPoliciesVersion: string;
@@ -51,7 +53,7 @@ interface UnitRow {
 
 interface ServiceRow {
   max_quantity?: number;
-  billing_type?: "quantity" | "duration";
+  billing_type?: "quantity" | "duration" | "person" | "fixed";
   name?: string;
   service_id: string;
   price: number;
@@ -95,6 +97,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
   if (!value || typeof value !== "object") return null;
 
   const payload = value as Partial<CreateReservationPayload>;
+  if (payload.promoCode !== undefined && payload.promoCode !== null && (typeof payload.promoCode !== "string" || payload.promoCode.length > 40)) return null;
   const selectedServices = parseServiceSelections(payload.selectedServices);
   if (!selectedServices) return null;
   if (payload.phoneNumber !== undefined && typeof payload.phoneNumber !== "string") return null;
@@ -135,6 +138,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     adultCount: payload.adultCount,
     childCount: payload.childCount,
     unitId: payload.unitId,
+    promoCode: payload.promoCode,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices,
     acceptedPoliciesVersion: payload.acceptedPoliciesVersion,
@@ -314,13 +318,14 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    const promo = await loadBookingPromo(payload.promoCode);
     const pricing = computeBookingPricing({
       bookingMode: payload.bookingMode,
       startDatetime: payload.startDatetime,
       endDatetime: payload.endDatetime,
       adultCount: payload.adultCount,
       childCount: payload.childCount,
-      servicesTotal,
+      servicesTotal, promo,
     }, packageSchedule.rates);
     const totalAmount = pricing.total;
 
@@ -413,7 +418,7 @@ export async function POST(request: Request) {
     const { error: seedTransactionError } = await supabase.from("transactions").upsert(
       {
         reservation_id: reservation.reservation_id,
-        total_amount: totalAmount,
+        total_amount: pricing.grossTotal,
         status: "unpaid",
       },
       {
@@ -429,12 +434,13 @@ export async function POST(request: Request) {
       );
     }
 
+    await applyNewBookingPromo(reservation.reservation_id, user.id, promo?.code ?? null, pricing.grossTotal, true, pricing.total);
     const { error: notificationError } = await createNotifications({
       actorId: user.id,
       guestId: user.id,
       staffRoles: NOTIFICATION_AUDIENCES.reservation,
       title: "Booking saved",
-      message: `Reservation ${reservation.reference_number} is pending payment.`,
+      message: totalAmount === 0 ? `Reservation ${reservation.reference_number} is confirmed; your promo covers the bill.` : `Reservation ${reservation.reference_number} is pending payment.`,
       entityType: "reservation",
       entityId: reservation.reservation_id,
       guestActionUrl: "/manage",
@@ -451,8 +457,8 @@ export async function POST(request: Request) {
         reservation: {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
-          status: reservation.status,
-          paymentDeadlineAt: reservation.payment_deadline_at,
+          status: pricing.total === 0 ? "confirmed" : reservation.status,
+          paymentDeadlineAt: totalAmount === 0 ? null : reservation.payment_deadline_at,
           totalAmount,
         },
       },
@@ -466,6 +472,8 @@ export async function POST(request: Request) {
       const supabase = await createClient();
       await supabase.from("reservations").delete().eq("reservation_id", reservationId);
     }
+
+    if (error instanceof BookingPromoError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
 
     return NextResponse.json(
       {

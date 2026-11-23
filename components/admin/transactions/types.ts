@@ -35,6 +35,9 @@ export interface InvoiceDetailInvoiceRow {
 }
 
 export interface InvoiceDetailReservationRow {
+  booking_mode?: string | null;
+  adult_count?: number;
+  child_count?: number;
   reference_number: string;
   booking_type: "online" | "walk_in" | null;
   status: "pending" | "confirmed" | "cancelled" | "completed" | "no_show" | null;
@@ -43,6 +46,13 @@ export interface InvoiceDetailReservationRow {
 }
 
 export interface InvoiceDetailTransactionRow {
+  discount_promo_code?: string | null;
+  discount_promo_type?: "percent" | "fixed" | null;
+  discount_promo_value?: number;
+  discount_eligible_guests?: number;
+  discount_package_price?: number;
+  discount_amount?: number;
+  discount_kind?: string;
   total_amount: number;
   paid_amount: number | null;
   balance: number | null;
@@ -79,7 +89,7 @@ export interface InvoiceDetailReservationUnitRow {
 }
 
 export interface InvoiceDetailReservationServiceRow {
-  billing_type?: "quantity" | "duration";
+  billing_type?: "quantity" | "duration" | "person" | "fixed";
   quantity: number;
   price_at_time: number;
   services:
@@ -100,7 +110,7 @@ export interface InvoiceUnitBreakdownItem {
 }
 
 export interface InvoiceServiceBreakdownItem {
-  billingType?: "quantity" | "duration";
+  billingType?: "quantity" | "duration" | "person" | "fixed";
   name: string;
   quantity: number;
   priceAtTime: number;
@@ -138,6 +148,7 @@ export interface PaymentRow {
 }
 
 export interface ReceiptDetailReceiptRow {
+  discount_snapshot?: import("@/lib/booking/billing-discount").BillingDiscountSnapshot | null;
   receipt_id: string;
   payment_id: string;
   receipt_number: string;

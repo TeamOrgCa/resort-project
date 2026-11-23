@@ -1,3 +1,4 @@
+import { BookingPromoError, loadBookingPromo, applyNewBookingPromo } from "@/lib/server/booking-discounts";
 import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { NextResponse } from "next/server";
@@ -43,6 +44,7 @@ interface ManualReservationPayload {
   adultCount: number;
   childCount: number;
   unitId: string;
+  promoCode?: string | null;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
 }
@@ -60,7 +62,7 @@ interface UnitRow {
 
 interface ServiceRow {
   max_quantity?: number;
-  billing_type?: "quantity" | "duration";
+  billing_type?: "quantity" | "duration" | "person" | "fixed";
   name?: string;
   service_id: string;
   price: number;
@@ -107,6 +109,7 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
   }
 
   const payload = value as Partial<ManualReservationPayload>;
+  if (payload.promoCode !== undefined && payload.promoCode !== null && (typeof payload.promoCode !== "string" || payload.promoCode.length > 40)) return null;
 
   if (
     (payload.bookingMode !== "day" && payload.bookingMode !== "night" && payload.bookingMode !== "whole_day" && payload.bookingMode !== "custom") ||
@@ -163,6 +166,7 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     adultCount: payload.adultCount,
     childCount: payload.childCount,
     unitId: payload.unitId.trim(),
+    promoCode: payload.promoCode,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices,
   };
@@ -304,6 +308,7 @@ export async function POST(request: Request) {
     const quantityError = serviceQuantityError(selectedServices, [...servicesById.values()]);
     if (quantityError) return NextResponse.json({ success: false, message: quantityError }, { status: 400 });
 
+    const promo = await loadBookingPromo(payload.promoCode);
     const guestId: string | null = null;
     let walkInGuestId: string | null = null;
 
@@ -364,7 +369,7 @@ export async function POST(request: Request) {
       endDatetime: payload.endDatetime,
       adultCount: payload.adultCount,
       childCount: payload.childCount,
-      servicesTotal,
+      servicesTotal, promo,
     }, packageSchedule.rates);
 
     const { data: reservation, error: reservationError } = await staffContext.supabase
@@ -449,7 +454,7 @@ export async function POST(request: Request) {
     const { error: seedTransactionError } = await staffContext.supabase.from("transactions").upsert(
       {
         reservation_id: reservation.reservation_id,
-        total_amount: pricing.total,
+        total_amount: pricing.grossTotal,
         status: "unpaid",
       },
       {
@@ -468,6 +473,8 @@ export async function POST(request: Request) {
       );
     }
 
+    try { await applyNewBookingPromo(reservation.reservation_id, staffContext.staffUser.id, promo?.code ?? null, pricing.grossTotal, false, pricing.total); }
+    catch (error) { await staffContext.supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id); if (walkInGuestId) await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId); throw error; }
     const auditSuccess = await createAuditLog(staffContext, {
       action: "Created manual reservation",
       entityType: "reservation",
@@ -487,7 +494,7 @@ export async function POST(request: Request) {
         reservation: {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
-          status: reservation.status,
+          status: pricing.total === 0 ? "confirmed" : reservation.status,
           totalAmount: pricing.total,
           bookingType: "walk_in",
         },
@@ -495,6 +502,7 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof BookingPromoError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     return NextResponse.json(
       {

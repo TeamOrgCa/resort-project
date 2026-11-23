@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendPaymentReceiptEmail, sendReservationInvoiceEmail } from "@/lib/email";
 import { buildBillingBreakdown, type BilledService, type BilledUnit } from "@/lib/booking/billing-breakdown";
+import { billingDiscountSnapshot, type BillingDiscountSnapshot } from "@/lib/booking/billing-discount";
 import { tryCreateAdminClient } from "@/lib/supabase/admin";
 
 export type BillingEmailResult = {
@@ -21,7 +22,7 @@ type Reservation = {
 type Guest = { email: string | null; first_name: string | null; last_name: string | null };
 type NameRelation = { name: string } | { name: string }[] | null;
 type UnitRow = { quantity: number | null; price_per_night: number; units: NameRelation };
-type ServiceRow = { billing_type?: "quantity" | "duration"; quantity: number | null; price_at_time: number; services: NameRelation };
+type ServiceRow = { billing_type?: "quantity" | "duration" | "person" | "fixed"; quantity: number | null; price_at_time: number; services: NameRelation };
 type ReservationCharges = {
   booking_mode: string | null;
   adult_count: number;
@@ -98,13 +99,13 @@ export async function emailBillingDocuments(
   }
 
   const [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult, paymentResult] = await Promise.all([
-    options.invoiceOnly ? Promise.resolve({ data: null, error: null }) : supabase.from("receipts").select("receipt_id, receipt_number, issued_at, email_sent, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name")
+    options.invoiceOnly ? Promise.resolve({ data: null, error: null }) : supabase.from("receipts").select("receipt_id, receipt_number, issued_at, email_sent, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name, discount_snapshot")
       .eq("payment_id", paymentId).maybeSingle(),
     supabase.from("invoices").select("invoice_id, created_at, status, total_amount, email_sent")
       .eq("reservation_id", reservation.reservation_id).neq("status", "void")
       .order("created_at", { ascending: false }).order("invoice_id", { ascending: false })
       .limit(1).maybeSingle(),
-    supabase.from("transactions").select("total_amount, paid_amount, balance")
+    supabase.from("transactions").select("total_amount, paid_amount, balance, discount_amount, discount_kind, discount_promo_code, discount_promo_type, discount_promo_value, discount_eligible_guests, discount_package_price")
       .eq("reservation_id", reservation.reservation_id).maybeSingle(),
     supabase.from("reservations").select("booking_mode, adult_count, child_count, adult_rate_at_booking, child_rate_at_booking")
       .eq("reservation_id", reservation.reservation_id).maybeSingle<ReservationCharges>(),
@@ -169,6 +170,7 @@ export async function emailBillingDocuments(
   const paidAmount = Number(transaction?.paid_amount ?? 0);
   const balance = Number(transaction?.balance ?? Math.max(totalAmount - paidAmount, 0));
   const breakdownInput = {
+    discount: billingDiscountSnapshot(transaction, Number(charges.adult_count) + Number(charges.child_count)),
     bookingMode: charges.booking_mode,
     startDatetime: reservation.start_datetime,
     endDatetime: reservation.end_datetime,
@@ -181,15 +183,21 @@ export async function emailBillingDocuments(
   };
 
   if (receipt && !receipt.email_sent) {
+    const savedDiscount = (receipt.discount_snapshot as BillingDiscountSnapshot | null) ?? null;
     result.receiptSent = await sendPaymentReceiptEmail({
       ...base,
+      ...(savedDiscount ? { adultCount: savedDiscount.headCount, childCount: 0 } : {}),
       guestName: receipt.billed_to_name || base.guestName,
       receiptNumber: receipt.receipt_number,
       issuedAt: receipt.issued_at,
       amountPaid: Number(receipt.amount_paid ?? paymentAmount),
       totalAmount: Number(receipt.transaction_total_at_time ?? totalAmount),
       balance: Number(receipt.balance_after_payment ?? balance),
-      breakdown: buildBillingBreakdown({ ...breakdownInput, recordedTotal: Number(receipt.transaction_total_at_time ?? totalAmount) }),
+      breakdown: buildBillingBreakdown({ ...breakdownInput,
+        discount: savedDiscount,
+        ...(savedDiscount ? { adultCount: savedDiscount.headCount, childCount: 0 } : {}),
+        recordedTotal: Number(receipt.transaction_total_at_time ?? totalAmount),
+      }),
     });
     await recordDelivery("receipt", receipt.receipt_id, result.receiptSent);
   }

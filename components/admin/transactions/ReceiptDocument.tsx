@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import BillingDocument from "./BillingDocument";
 import type { ViewField } from "./types";
 
-const paymentLabels = new Set(["Payment Method", "Payment Ref", "Paid At", "Amount Paid", "Booking Total at Payment", "Collection Total", "Balance After Payment"]);
+const paymentLabels = new Set(["Payment Method", "Payment Ref", "Paid At", "Amount Paid", "Booking Total at Payment", "Collection Total", "Balance After Payment", "Total before discount", "Discount applied", "Discount details", "Discount amount"]);
 
 /** Use saved receipt values, never a live bill that may have changed since payment. */
 export default function ReceiptDocument({ fields, children }: { fields: ViewField[]; children?: ReactNode }) {

@@ -1,4 +1,6 @@
 "use client";
+import PromoCodeInput from "@/components/booking/PromoCodeInput";
+import type { PromoQuote } from "@/lib/booking/discounts";
 import { advanceBookingIssue } from "@/lib/booking/advance-window";
 
 import { serviceQuantityError, serviceQuantityLimit } from "@/lib/booking/service-quantity";
@@ -17,7 +19,7 @@ import { buildBookingWindow, toIsoLocalDay, type BookingMode, type WholeDayVaria
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
 import { computeBookingPricing } from "@/lib/booking/pricing";
-import { isValidGuestCounts } from "@/lib/booking/guest-count";
+import { MAX_GUESTS, isValidGuestCounts } from "@/lib/booking/guest-count";
 import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { isStaffBookingWindowAllowed, STAFF_BOOKING_WINDOW_MESSAGE } from "@/lib/booking/start-time";
@@ -51,6 +53,8 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsRevision, setOptionsRevision] = useState(0);
   const [walkIn, setWalkIn] = useState({ firstName: "", lastName: "", email: "", phoneNumber: "", address: "" });
+  const [checkingPromo, setCheckingPromo] = useState(false);
+  const [promo, setPromo] = useState<PromoQuote | null>(null);
   const [form, setForm] = useState<BookingForm>({ bookingDate: toIsoLocalDay(new Date()), bookingMode: "day", wholeDayVariant: "day_to_night", adultCount: "1", childCount: "0", unitId: "", specialRequests: "" });
   const [calendarMonth, setCalendarMonth] = useState(() => toIsoLocalDay(new Date()).slice(0, 7));
   const availability = useBookingAvailability([calendarMonth, form.bookingDate.slice(0, 7)], isOpen);
@@ -140,10 +144,11 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
   const servicesTotal = services.reduce((total, service) => total + (validQuantity(serviceQuantities[service.service_id] ?? "") ? Number(service.price) * Number(serviceQuantities[service.service_id]) : 0), 0);
   const previewWindow = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: form.bookingMode, date: form.bookingDate, wholeDayVariant: form.wholeDayVariant });
   const preview = packageSchedule && !("error" in previewWindow) && isValidGuestCounts(Number(form.adultCount), Number(form.childCount))
-    ? computeBookingPricing({ bookingMode: form.bookingMode, startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime, adultCount: Number(form.adultCount), childCount: Number(form.childCount), servicesTotal }, packageSchedule.rates) : null;
+    ? computeBookingPricing({ bookingMode: form.bookingMode, startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime, adultCount: Number(form.adultCount), childCount: Number(form.childCount), servicesTotal, promo }, packageSchedule.rates) : null;
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (checkingPromo) return;
     if (saving.current) return;
     setError(null); setSuccess(null);
     if (!("error" in previewWindow) && !isStaffBookingWindowAllowed(previewWindow.startDatetime, previewWindow.endDatetime)) { setError(STAFF_BOOKING_WINDOW_MESSAGE); return; }
@@ -160,7 +165,8 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
     const phoneNumber = normalizePhilippineMobile(walkIn.phoneNumber);
     if (!phoneNumber) { setError(PH_MOBILE_ERROR); return; }
     if (!await confirm({ title: "Create manual reservation?", confirmText: "Confirm reservation", message:
-      `Create a reservation for ${firstName} ${lastName}?\n\n${formatManilaDateTime(previewWindow.startDatetime)} to ${formatManilaDateTime(previewWindow.endDatetime)} (Philippine time)\nPackage: ${form.bookingMode === "whole_day" ? "Whole day" : form.bookingMode === "night" ? "Overnight" : "Day"}\nGuests: ${adults} adult(s), ${children} child(ren)\nAccommodation: ${units.find(unit => unit.unit_id === form.unitId)?.name ?? "Selected unit"}\nTotal: ${money(preview?.total ?? 0)}\n\nThis records the reservation. Payments are recorded separately.` })) return;
+      `Create a reservation for ${firstName} ${lastName}?\n\n${formatManilaDateTime(previewWindow.startDatetime)} to ${formatManilaDateTime(previewWindow.endDatetime)} (Philippine time)\nPackage: ${form.bookingMode === "whole_day" ? "Whole day" : form.bookingMode === "night" ? "Overnight" : "Day"}\nNumber of guests: ${adults + children}\nAccommodation: ${units.find(unit => unit.unit_id === form.unitId)?.name ?? "Selected unit"}\nTotal: ${money(preview?.total ?? 0)}\n\nThis records the reservation. Payments are recorded separately.` })) return;
+    if (checkingPromo) return;
     if (saving.current) return;
     if (!isStaffBookingWindowAllowed(previewWindow.startDatetime, previewWindow.endDatetime)) { setError(STAFF_BOOKING_WINDOW_MESSAGE); return; }
     saving.current = true; setIsSaving(true);
@@ -169,7 +175,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
         packageRateVersion: packageSchedule.version, guestType: "walk_in", walkInGuest: { ...walkIn, firstName, lastName, phoneNumber }, bookingMode: form.bookingMode,
         wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : null,
         startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime,
-        adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests, selectedServices,
+        promoCode: promo?.code ?? null, adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests, selectedServices,
       }) });
       const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; reservation?: { id?: string; referenceNumber?: string } } | null;
       if (!response.ok || !result?.success) {
@@ -225,7 +231,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
               ]} />}
               {availability.ready && selectedIssue && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{selectedIssue} Choose another date or an available package.</p>}
               {optionsLoading ? <SkeletonGroup label="Loading units..."><Skeleton className="mb-2 h-4 w-16" /><Skeleton className="h-11 w-full" /></SkeletonGroup> : <SelectField label="Unit" value={form.unitId} onChange={value => updateForm("unitId", value)} options={units.map(unit => ({ value: unit.unit_id, label: `${unit.name} - ${unit.capacity} pax` }))} />}
-              <div className="grid grid-cols-2 gap-3"><Input label="Adults" type="number" value={form.adultCount} onChange={value => updateForm("adultCount", value)} /><Input label="Children" type="number" value={form.childCount} onChange={value => updateForm("childCount", value)} /></div>
+              <Input label="Number of guests" type="number" value={form.adultCount} onChange={value => updateForm("adultCount", value)} />
             </div>
           </div>
           <section aria-labelledby="manual-services-title" className="rounded-xl border border-neutral/10 p-4">
@@ -234,16 +240,18 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
             {optionsLoading ? <AdminCardsSkeleton label="Loading services..." count={2} /> : !optionsError && services.length === 0 ? <p className="mt-3 text-sm text-neutral/60">No active services are available.</p> : null}
             <div className="mt-3 space-y-3">{services.map(service => {
               const quantity = serviceQuantities[service.service_id], selected = quantity !== undefined;
-              const billing = serviceBilling(service.billing_type);
+              const billing = serviceBilling(service.billing_type, serviceQuantityLimit(service.max_quantity));
               return <div key={service.service_id} className="rounded-xl border border-neutral/10 p-3">
                 <label className="flex cursor-pointer items-start gap-3 text-sm text-neutral">
                   <input type="checkbox" checked={selected} onChange={event => setServiceQuantities(current => { const next = { ...current }; if (event.target.checked) next[service.service_id] = "1"; else delete next[service.service_id]; return next; })} className="mt-0.5 h-5 w-5 shrink-0" />
                   <span className="min-w-0 flex-1"><span className="block font-medium">{service.name}</span>{service.description && <span className="mt-1 block break-words text-xs text-neutral/60">{service.description}</span>}<span className="mt-1 block text-xs">{billing.typeLabel} · {money(Number(service.price))} {billing.rateLabel}</span></span>
                 </label>
-                {selected && <><p className="mt-2 text-xs text-neutral/60">{billing.help}</p><div className="mt-3 flex flex-wrap items-end justify-between gap-3"><label className="w-28 text-sm text-neutral">{billing.inputLabel}<input aria-label={`${billing.inputLabel} for ${service.name}`} type="number" min="1" max={serviceQuantityLimit(service.max_quantity)} step="1" required value={quantity} onChange={event => setServiceQuantities(current => ({ ...current, [service.service_id]: event.target.value }))} className={fieldClass} /></label><p className="text-sm font-semibold text-neutral">{validQuantity(quantity) ? money(Number(service.price) * Number(quantity)) : `Enter valid ${billing.inputLabel.toLowerCase()}`}</p></div></>}
+                {selected && billing.hasQuantity && <><p className="mt-2 text-xs text-neutral/60">{billing.help}</p><div className="mt-3 flex flex-wrap items-end justify-between gap-3"><label className="w-28 text-sm text-neutral">{billing.inputLabel}<input aria-label={`${billing.inputLabel} for ${service.name}`} type="number" min="1" max={serviceQuantityLimit(service.max_quantity)} step="1" required value={quantity} onChange={event => setServiceQuantities(current => ({ ...current, [service.service_id]: event.target.value }))} className={fieldClass} /></label><p className="text-sm font-semibold text-neutral">{validQuantity(quantity) ? money(Number(service.price) * Number(quantity)) : `Enter valid ${billing.inputLabel.toLowerCase()}`}</p></div></>}
               </div>;
             })}</div>
           </section>
+          <PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />
+          {preview && preview.discountAmount > 0 && <p className="text-sm">Promo discount: -{money(preview.discountAmount)}</p>}
           <label className="block text-sm text-neutral">Special requests<textarea value={form.specialRequests} onChange={event => updateForm("specialRequests", event.target.value)} rows={3} className={fieldClass} /></label>
           <div aria-label="Billing preview" className="rounded-xl bg-base p-4 text-sm text-neutral">{packageRatesError ? <p role="alert" className="text-red-700">{packageRatesError}</p> : preview ? <>
             <p className="font-semibold">{preview.rateTier === "weekend" ? "Weekend" : "Weekday"} package: {money(preview.packageRate)}</p>
@@ -253,7 +261,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
             <p className="mt-2 font-semibold text-primary">Total: {money(preview.total)}</p>
             <p className="mt-1 text-xs text-neutral/60">Minimum 20% downpayment: {money(preview.downPaymentMin)}</p>
           </> : <p>Choose a valid date and guest count to view the current package price.</p>}</div>
-          <div className="flex flex-wrap justify-end gap-2"><button type="submit" disabled={isSaving || !preview || Boolean(packageRatesError) || !quantitiesValid || Boolean(selectedIssue) || optionsLoading || Boolean(optionsError)} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
+          <div className="flex flex-wrap justify-end gap-2"><button type="submit" disabled={checkingPromo || isSaving || !preview || Boolean(packageRatesError) || !quantitiesValid || Boolean(selectedIssue) || optionsLoading || Boolean(optionsError)} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
         </fieldset>
       </form>
     </div>
@@ -263,7 +271,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
 }
 
 function Input({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label className="block text-sm text-neutral">{label}<input type={type} value={value} onChange={event => onChange(event.target.value)} className={fieldClass} /></label>;
+  return <label className="block text-sm text-neutral">{label}<input type={type} min={type === "number" ? 1 : undefined} max={type === "number" ? MAX_GUESTS : undefined} step={type === "number" ? 1 : undefined} value={value} onChange={event => onChange(event.target.value)} className={fieldClass} /></label>;
 }
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string; disabled?: boolean }> }) {
   return <label className="block text-sm text-neutral">{label}<select value={value} onChange={event => onChange(event.target.value)} className={fieldClass}><option value="" disabled>Select {label.toLowerCase()}</option>{options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}{option.disabled ? " (unavailable)" : ""}</option>)}</select></label>;

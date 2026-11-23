@@ -33,6 +33,7 @@ type ManageTab = "bookings" | "ocular" | "refunds";
 type RecordMode = "view" | "edit" | "reschedule" | null;
 
 interface BookingRecord {
+  discount?: import("@/lib/booking/discounts").DiscountState;
   id: string;
   reference: string;
   startDatetime: string;
@@ -66,7 +67,7 @@ interface EditableReservationService {
   quantity: number;
   minQuantity: number;
   priceAtTime: number;
-  billingType?: "quantity" | "duration";
+  billingType?: "quantity" | "duration" | "person" | "fixed";
 }
 
 interface OcularRecord {
@@ -94,7 +95,8 @@ interface ReservationRow {
   cancellation_snapshot?: { outcome?: string } | null;
 }
 
-interface TransactionRow {
+type importDiscountState = import("@/lib/booking/discounts").DiscountState;
+interface TransactionRow extends importDiscountState {
   reservation_id: string;
   total_amount: number;
   paid_amount: number | null;
@@ -120,7 +122,7 @@ interface ReservationServiceRow {
   service_id: string;
   quantity: number;
   price_at_time: number;
-  billing_type?: "quantity" | "duration";
+  billing_type?: "quantity" | "duration" | "person" | "fixed";
   services:
     | {
         name: string;
@@ -284,7 +286,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const rescheduleQuote = requestedSchedule && selectedBooking?.bookingMode && rescheduleRates?.reservationId === selectedBooking.id
     ? calculateRescheduleCharges({ originalStart: selectedBooking.startDatetime, originalEnd: selectedBooking.endDatetime,
       newStart: requestedSchedule.startDatetime, newEnd: requestedSchedule.endDatetime, bookingMode: selectedBooking.bookingMode,
-      adultCount: selectedBooking.adultCount, childCount: selectedBooking.childCount, rates: rescheduleRates.rates, now }) : null;
+      discount: selectedBooking.discount, adultCount: selectedBooking.adultCount, childCount: selectedBooking.childCount, rates: rescheduleRates.rates, now }) : null;
   useEffect(() => {
     if (recordMode !== "reschedule" || !selectedBookingId || !canRequestReschedule) return;
     let active = true;
@@ -568,7 +570,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           reservationIds.length
             ? supabase
                 .from("transactions")
-                .select("reservation_id, total_amount, paid_amount, balance")
+                .select("reservation_id, total_amount, paid_amount, balance, discount_amount, discount_eligible_guests, discount_promo_code, discount_promo_type, discount_promo_value")
                 .in("reservation_id", reservationIds)
             : Promise.resolve({ data: [], error: null }),
           reservationIds.length
@@ -591,9 +593,10 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
         const guestData = guestResult.data;
         const transactionByReservationId = ((transactionRows as TransactionRow[] | null) ?? []).reduce<
-          Record<string, { total: number; paid: number; balance: number }>
+          Record<string, { total: number; paid: number; balance: number; discount: TransactionRow }>
         >((accumulator, transaction) => {
           accumulator[transaction.reservation_id] = {
+            discount: transaction,
             total: Number(transaction.total_amount ?? 0),
             paid: Number(transaction.paid_amount ?? 0),
             balance: Number(transaction.balance ?? 0),
@@ -611,6 +614,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           bookingMode: reservation.booking_mode,
           guests: Number(reservation.adult_count ?? 0) + Number(reservation.child_count ?? 0),
           adultCount: Number(reservation.adult_count ?? 0), childCount: Number(reservation.child_count ?? 0),
+          discount: transactionByReservationId[reservation.reservation_id]?.discount,
           totalAmount: transactionByReservationId[reservation.reservation_id]?.total ?? 0,
           paidAmount: transactionByReservationId[reservation.reservation_id]?.paid ?? 0,
           remainingBalance: transactionByReservationId[reservation.reservation_id]?.balance ?? 0,
@@ -736,7 +740,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       try {
         const supabase = createClient();
         const [billResult, reservationResult] = await Promise.all([
-          supabase.from("transactions").select("reservation_id, total_amount, paid_amount, balance").in("reservation_id", reservationIds),
+          supabase.from("transactions").select("reservation_id, total_amount, paid_amount, balance, discount_amount, discount_eligible_guests, discount_promo_code, discount_promo_type, discount_promo_value").in("reservation_id", reservationIds),
           supabase.from("reservations").select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot, checked_in_at, checked_out_at").in("reservation_id", reservationIds),
         ]);
         if (!active || revision !== bookingRevision.current || billResult.error || reservationResult.error) return;
@@ -753,6 +757,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             adultCount: reservation.adult_count, childCount: reservation.child_count,
             status: toTitleCase(reservation.status), paymentDeadlineAt: reservation.payment_deadline_at,
             cancellationOutcome: reservation.cancellation_snapshot?.outcome, checkedInAt: reservation.checked_in_at, checkedOutAt: reservation.checked_out_at,
+            discount: bill,
             totalAmount: Number(bill.total_amount ?? 0), paidAmount: Number(bill.paid_amount ?? 0), remainingBalance: Number(bill.balance ?? 0),
           };
         }));
@@ -939,7 +944,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 <div><dt className="text-neutral/55">Checked out at:</dt><dd className="mt-1 font-semibold">{selectedBooking.checkedOutAt ? formatDateTime(selectedBooking.checkedOutAt) : "Not recorded"}</dd></div>
               </>}
               <div><dt className="text-neutral/55">Package</dt><dd className="mt-1 font-medium capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Reservation"}</dd></div>
-              <div><dt className="text-neutral/55">Guests</dt><dd className="mt-1 font-medium">{selectedBooking.adultCount} {selectedBooking.adultCount === 1 ? "adult" : "adults"}, {selectedBooking.childCount} {selectedBooking.childCount === 1 ? "child" : "children"}</dd></div>
+              <div><dt className="text-neutral/55">Guests</dt><dd className="mt-1 font-medium">{selectedBooking.guests} guests</dd></div>
               <div><dt className="text-neutral/55">Contact email</dt><dd className="mt-1 break-all font-medium">{selectedBooking.email}</dd></div>
             </dl>
             <BookingAmountBreakdown reservationId={selectedBooking.id} totalAmount={selectedBooking.totalAmount} />
@@ -1027,6 +1032,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               {rescheduleQuote ? <div className="rounded-xl border border-neutral/10 bg-white p-4 text-sm">
                 <p>Notice fee: {formatCurrency(rescheduleQuote.noticeFee)}</p>
                 <p>Higher date rate: {formatCurrency(rescheduleQuote.rateAdjustment)}</p>
+                {rescheduleQuote.discountAdjustment !== 0 && <p>Discount recalculation: {formatCurrency(rescheduleQuote.discountAdjustment)}</p>}
                 <p className="mt-2 font-semibold">Additional charge: {formatCurrency(rescheduleQuote.totalAdditional)}</p>
                 <p className="mt-1">New total: {formatCurrency(selectedBooking.totalAmount + rescheduleQuote.totalAdditional)}. Remaining balance: {formatCurrency(Math.max(selectedBooking.totalAmount + rescheduleQuote.totalAdditional - selectedBooking.paidAmount, 0))}.</p>
               </div> : canRequestReschedule && !reschedulePricingError && !rescheduleRates && <p role="status" className="text-sm text-neutral/60">Loading the booked prices...</p>}

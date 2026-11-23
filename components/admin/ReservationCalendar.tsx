@@ -689,7 +689,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                           <div className="mt-2 space-y-1 text-xs text-neutral/70">
                             <p>{guest.email ?? "No email provided"}</p>
                             <p>{guest.phone_number ?? "No phone provided"}</p>
-                            <p>{reservation.adult_count} adults · {reservation.child_count} children</p>
+                            <p>{reservation.adult_count + reservation.child_count} guests</p>
                             <p>{formatTime(reservation.start_datetime)} - {formatTime(reservation.end_datetime)}</p>
                             <p>Status: {titleCase(reservation.status)}</p>
                           </div>

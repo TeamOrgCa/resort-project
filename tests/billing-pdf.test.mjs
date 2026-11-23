@@ -5,6 +5,23 @@ import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
 const base={kind:"receipt",documentNumber:"RCP-TEST-123",issuedAt:"2027-01-14T10:00:00Z",guestName:"José Muñoz",reservationReference:"MV-TEST-123",checkInDate:"2027-01-15T04:30:00Z",checkOutDate:"2027-01-15T08:00:00Z",bookingMode:"Day swimming",adultCount:12,childCount:3,totalAmount:10000,paidAmount:2500,balance:7500,paymentMethod:"Cash",paymentReference:"CASH-12345678",breakdown:{total:10000,lines:[{description:"Private pool package",detail:"Private rooms and standard inclusions",quantity:1,unitPrice:10000,amount:10000}]}};
 
+test("receipt, invoice and statement PDFs include the winning discount code, savings and net total",async()=>{
+  const drawn=[];
+  const {createBillingPdf}=loadTsModule("lib/server/billing-pdf.ts",{"pdf-lib":{...pdfLib,PDFDocument:{create:async()=>{
+    const doc=await pdfLib.PDFDocument.create(),add=doc.addPage.bind(doc);
+    doc.addPage=(...args)=>{const page=add(...args),draw=page.drawText.bind(page);page.drawText=(text,options)=>{drawn.push(text);return draw(text,options);};return page;};return doc;
+  }}}});
+  const {buildBillingBreakdown}=loadTsModule("lib/booking/billing-breakdown.ts");
+  const breakdown=buildBillingBreakdown({bookingMode:"day",startDatetime:base.checkInDate,endDatetime:base.checkOutDate,
+    adultCount:10,childCount:0,adultRate:null,childRate:null,units:[],services:[],recordedTotal:9000,
+    discount:{amount:1000,kind:"promo",promoCode:"SAVE10",promoType:"percent",promoValue:10,headCount:10,eligibleGuests:0,packagePrice:10000}});
+  for(const options of [{kind:"receipt"},{kind:"invoice"},{kind:"invoice",updatedAt:base.issuedAt}]) {
+    drawn.length=0;await createBillingPdf({...base,...options,breakdown,totalAmount:9000});
+    for(const text of ["Promo discount (SAVE10)","PHP -1,000.00","Total before discount","PHP 10,000.00","Total after discount","PHP 9,000.00","15 guests"])
+      assert.ok(drawn.includes(text),`PDF missing ${text}`);
+  }
+});
+
 test("receipt PDFs preserve actual references, Philippine times, accented guest names and money",async()=>{
   const drawn=[];
   const {createBillingPdf,billingPdfFilename}=loadTsModule("lib/server/billing-pdf.ts",{"pdf-lib":{...pdfLib,PDFDocument:{create:async()=>{

@@ -29,14 +29,26 @@ export interface CatalogDefinition {
 }
 
 export const catalogResources = {
+  promo_codes: {
+    label: "Promos / vouchers", singular: "promo code", description: "Create or archive voucher codes. Discounts apply to the package price; only the larger of the promo and eligible PWD/senior discount is used.",
+    id: "promo_id", select: "promo_id,code,discount_type,discount_value,max_uses,starts_at,ends_at,is_active,created_at", order: "code", search: "code",
+    columns: ["code", "discount_type", "discount_value", "max_uses", "usage_count", "pending_uses", "remaining_uses", "starts_at", "ends_at"], fields: [
+      { key: "code", label: "Promo / voucher code", kind: "text", required: true },
+      { key: "discount_type", label: "Discount type", kind: "select", defaultValue: "percent", options: [{ value: "percent", label: "Percentage of package price" }, { value: "fixed", label: "Fixed peso discount" }] },
+      { key: "discount_value", label: "Discount value (% or PHP)", kind: "money", required: true, min: 0.01 },
+      { key: "max_uses", label: "Maximum successful reservations", kind: "integer", min: 1, help: "Optional. Leave blank for unlimited uses, or enter a total limit such as 5. One use is counted when a booking is confirmed and the promo wins. Pending bookings hold a slot until confirmed, cancelled or expired. Confirmed uses are not restored by later cancellations." },
+      { key: "starts_at", label: "Valid from (PH)", kind: "date" },
+      { key: "ends_at", label: "Valid until (PH)", kind: "date" },
+    ],
+  },
   services: {
     label: "Services", singular: "service", description: "Manage the extras guests can add to their stay.",
     id: "service_id", select: "service_id, name, description, image_url, billing_type, price, max_quantity, is_active, created_at", order: "name", search: "name",
     columns: ["name", "billing_type", "price", "max_quantity"], fields: [
       { key: "name", label: "Service name", kind: "text", required: true },
-      { key: "billing_type", label: "Service type", kind: "select", defaultValue: "quantity", options: [{ value: "quantity", label: "Quantity-based (per item)" }, { value: "duration", label: "Duration-based (per hour)" }], help: "Choose per item for extras such as mattresses, or per hour for rentals such as karaoke." },
+      { key: "billing_type", label: "Service type", kind: "select", defaultValue: "quantity", options: [{ value: "duration", label: "Per Hour" }, { value: "quantity", label: "Per Piece" }, { value: "person", label: "Per Person" }, { value: "fixed", label: "Fixed Rate" }], help: "Choose how this service is charged. Fixed rates have one charge unless multiple bookings are allowed." },
       { key: "price", label: "Price (PHP)", kind: "money", required: true, min: 0 },
-      { key: "max_quantity", label: "Maximum per booking", kind: "integer", required: true, min: 1, max: 10000, defaultValue: 1, help: "Guests can select up to this many items or rental hours in one booking." },
+      { key: "max_quantity", label: "Maximum per booking", kind: "integer", required: true, min: 1, max: 10000, defaultValue: 1, help: "Set the maximum hours, pieces, guests or bookings. For a single fixed-rate charge, set this to 1. A higher value allows multiple bookings." },
       { key: "description", label: "Description", kind: "textarea" },
       { key: "image_url", label: "Service photo", kind: "image", help: "Upload or replace a photo, or remove it to use the default placeholder. Save changes to publish." },
     ],
@@ -124,7 +136,7 @@ export function catalogRecordName(resource: CatalogResource, record: CatalogReco
   if (resource === "unit_rates") return `${references?.units.find((unit) => unit.unit_id === record.unit_id)?.name ?? "Unit"} rate`;
   if (resource === "guest_rates") return `Guest rate from ${record.effective_from ?? "unspecified date"}`;
   if (resource === "ocular_time_slots") return `${String(record.start_time ?? "").slice(0, 5)} – ${String(record.end_time ?? "").slice(0, 5)}`;
-  return String(record.name ?? record.account_name ?? record.title ?? catalogResources[resource].singular);
+  return String(record.name ?? record.code ?? record.account_name ?? record.title ?? catalogResources[resource].singular);
 }
 
 export interface CatalogReferences {

@@ -36,6 +36,26 @@ test("settling cash sends the updated invoice even when an earlier invoice was a
   const h=harness({invoiceSent:true});await h.send();assert.equal(h.sent.length,2);
   const duplicate=harness({invoiceSent:true,receiptSent:true});await duplicate.send();assert.equal(duplicate.sent.length,0);
 });
+
+test("receipt emails retain the issued promo after bill changes while statements show the new winning discount",async()=>{
+  const h=harness();
+  h.rows.receipts.discount_snapshot={amount:1000,kind:"promo",promoCode:"SAVE10",promoType:"percent",promoValue:10,eligibleGuests:0,headCount:10,packagePrice:10000};
+  h.rows.transactions={total_amount:9000,paid_amount:10000,balance:0,discount_amount:2000,discount_kind:"pwd_senior",discount_eligible_guests:10,discount_package_price:10000,discount_promo_code:"SMALL"};
+  h.rows.invoices.total_amount=9000;
+  await h.send();
+  const receipt=h.sent[0][1],invoice=h.sent[1][1];
+  assert.equal(receipt.totalAmount,10000);assert.equal(receipt.breakdown.lines.at(-1).description,"Promo discount (SAVE10)");
+  assert.equal(receipt.breakdown.lines.at(-1).amount,-1000);
+  assert.match(invoice.breakdown.lines.at(-1).description,/PWD \/ senior/);assert.match(invoice.breakdown.lines.at(-1).detail,/10 of 10/);
+  assert.equal(invoice.breakdown.lines.at(-1).amount,-2000);
+  for(const payload of [receipt,invoice])assert.equal(payload.breakdown.lines.reduce((sum,line)=>sum+line.amount,0),payload.totalAmount);
+});
+
+test("a historical receipt never infers its discount from a current bill even when totals happen to match",async()=>{
+  const h=harness();Object.assign(h.rows.transactions,{discount_amount:500,discount_kind:"promo",discount_promo_code:"LATER",discount_promo_type:"fixed",discount_promo_value:500});
+  await h.send();assert.ok(!h.sent[0][1].breakdown.lines.some(line=>line.kind==="discount"));
+  assert.equal(h.sent[1][1].breakdown.lines.at(-1).description,"Promo discount (LATER)");
+});
 test("delivery failures remain retryable and configuration and optional offline emails are respected",async()=>{
   const failed=harness({receiptDelivery:false,invoiceDelivery:false});const failure=await failed.send();assert.equal(failure.receiptSent,false);assert.equal(failure.invoiceSent,false);assert.match(failure.error,/could not be sent/);
   assert.ok(failed.recorded.every(record=>record.p_sent===false&&record.p_error));

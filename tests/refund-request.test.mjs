@@ -6,6 +6,7 @@ const reservationId = "22222222-2222-4222-8222-222222222222";
 function harness({ authenticated = true, rpcError = null, notificationFails = false } = {}) {
   const calls = [], notices = [];
   const client = {
+    from: () => { const q = { select: () => q, eq: () => q, then: resolve => Promise.resolve({ data: [], error: null }).then(resolve) }; return q; },
     auth: { getUser: async () => ({ data: { user: authenticated ? { id: "guest" } : null }, error: null }) },
     rpc: async (name, args) => { calls.push({ name, args }); return { data: rpcError ? null : name === "get_guest_refund_overview" ? { refunds: [], eligible: [{ reservation_id: reservationId, amount: 500 }] } : "refund", error: rpcError }; },
   };

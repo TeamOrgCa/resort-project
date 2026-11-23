@@ -9,7 +9,7 @@ export async function loadReservationEditor(id: string) {
     admin.from("reservations").select("*").eq("reservation_id", id).maybeSingle<EditableReservation>(),
     admin.from("reservation_services").select("service_id,quantity,price_at_time,billing_type").eq("reservation_id", id).order("service_id"),
     admin.from("reservation_units").select("unit_id,quantity,price_per_night").eq("reservation_id", id).order("unit_id"),
-    admin.from("transactions").select("total_amount,paid_amount,status").eq("reservation_id", id).maybeSingle<Bill>(),
+    admin.from("transactions").select("total_amount,paid_amount,status,discount_amount,discount_kind,discount_eligible_guests,discount_promo_code,discount_promo_type,discount_promo_value").eq("reservation_id", id).maybeSingle<Bill>(),
     admin.from("services").select("service_id,name,price,max_quantity,billing_type,is_active").order("name"),
     admin.from("units").select("unit_id,name,base_price,is_active,archived_at").order("name"),
     admin.from("payments").select("payment_id").eq("reservation_id", id).eq("status", "pending").limit(1),
@@ -23,7 +23,7 @@ export async function loadReservationEditor(id: string) {
   const services = (s.data ?? []) as SelectedService[];
   const units = (u.data ?? []) as SelectedUnit[];
   const bill = { ...b.data, total_amount: Number(b.data.total_amount), paid_amount: Number(b.data.paid_amount ?? 0) };
-  const snapshot = { updatedAt: r.data.updated_at, totalAmount: bill.total_amount, paidAmount: bill.paid_amount,
+  const snapshot = { discount: { amount: Number(bill.discount_amount ?? 0), eligible: Number(bill.discount_eligible_guests ?? 0), code: bill.discount_promo_code ?? null, type: bill.discount_promo_type ?? null, value: Number(bill.discount_promo_value ?? 0) }, updatedAt: r.data.updated_at, totalAmount: bill.total_amount, paidAmount: bill.paid_amount,
     services: services.map(s => ({ serviceId: s.service_id, quantity: s.quantity, price: Number(s.price_at_time) })),
     units: units.map(u => ({ unitId: u.unit_id, quantity: u.quantity, price: Number(u.price_per_night) })) };
   const version = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");

@@ -38,7 +38,7 @@ function harness({ beta = false, status = "consistent", method = "GCash", insert
     "@/lib/server/advance-booking": { checkAdvanceBooking: async () => null },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict: false, error: null }) },
     "@/lib/server/package-rates": { loadQuotedPackageRates: async () => ({ version: 1, rates: {} }), PackageRatesError: class extends Error {} },
-    "@/lib/booking/pricing": { computeBookingPricing: () => ({ total: 5000 }) },
+    "@/lib/booking/pricing": { computeBookingPricing: () => ({ total: 5000, grossTotal: 5000 }) },
     "@/lib/server/manual-payment-proof": { inspectManualPaymentProof: async (...args) => { manualProofs.push(args); return proofValid; } },
     "@/lib/server/gcash-ocr": { inspectPaymentProof: async (_client, input) => { inspected.push(input); return { status, betaTest: beta, notes: "Checked", amount: input.amount, reference: input.reference, paidAt: status === "skipped" ? undefined : "2026-10-13T01:00:00Z" }; } },
     "@/lib/notifications": { createNotifications: async notice => { notifications.push(notice); if (notificationFails) throw new Error("Unavailable"); return { error: null }; }, NOTIFICATION_AUDIENCES: { checkout: [] } },

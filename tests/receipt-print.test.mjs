@@ -3,6 +3,28 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
+const { receiptDiscountFields } = loadTsModule("lib/booking/billing-discount.ts");
+
+test("receipt payment summaries and print copies include saved promo or PWD savings", () => {
+  const originalDocument = globalThis.document; globalThis.document = { body: {} };
+  try {
+    const Modal = loadTsModule("components/admin/transactions/KeyValueDetailsModal.tsx", {
+      "react-dom": { createPortal: element => element },
+      "@/components/content/SiteContent": { useSiteContent: () => ({}), contentText: () => "" },
+    }).default;
+    const snapshot = {amount:1000,kind:"promo",promoCode:"SAVE10",promoType:"percent",promoValue:10,eligibleGuests:2,headCount:10,packagePrice:10000};
+    for (const discount of [snapshot, {...snapshot,amount:400,kind:"pwd_senior"}]) {
+      const fields = [...receiptDiscountFields(discount,9000),{label:"Booking Total at Payment",value:"PHP 9,000.00"}];
+      const markup=renderToStaticMarkup(createElement(Modal,{details:{title:"Receipt",kind:"receipt",fields},onClose(){}}));
+      assert.match(markup,/Total before discount/); assert.match(markup,/Discount amount/);
+      assert.match(markup,/Booking Total at Payment/); assert.match(markup,/9,000\.00/);
+      if(discount.kind==="promo") {assert.match(markup,/SAVE10/);assert.match(markup,/10,000\.00/);assert.match(markup,/-₱1,000\.00/);}
+      else {assert.match(markup,/2 of 10 guests eligible/);assert.doesNotMatch(markup,/SAVE10/);}
+    }
+    assert.deepEqual(receiptDiscountFields(null,9000),[]);
+    assert.deepEqual(receiptDiscountFields({...snapshot,amount:0,kind:"none"},9000),[]);
+  } finally { if(originalDocument===undefined)delete globalThis.document;else globalThis.document=originalDocument; }
+});
 
 test("printable receipts render a separate document with branding and historical amounts", () => {
   const originalDocument = globalThis.document;

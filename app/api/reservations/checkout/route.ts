@@ -1,3 +1,4 @@
+import { BookingPromoError, loadBookingPromo, applyNewBookingPromo } from "@/lib/server/booking-discounts";
 import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { LegalPolicyError, requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 import { parseServiceSelections, serviceQuantityError } from "@/lib/booking/service-quantity";
@@ -45,6 +46,7 @@ interface CheckoutPayload {
   adultCount: number;
   childCount: number;
   unitId: string;
+  promoCode?: string | null;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
   payment: {
@@ -68,7 +70,7 @@ interface UnitRow {
 
 interface ServiceRow {
   max_quantity?: number;
-  billing_type?: "quantity" | "duration";
+  billing_type?: "quantity" | "duration" | "person" | "fixed";
   name?: string;
   service_id: string;
   price: number;
@@ -140,6 +142,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
 
   const payload = value as Partial<CheckoutPayload>;
   if (typeof payload.acceptedPoliciesVersion !== "string") return null;
+  if (payload.promoCode !== undefined && payload.promoCode !== null && (typeof payload.promoCode !== "string" || payload.promoCode.length > 40)) return null;
   const selectedServices = parseServiceSelections(payload.selectedServices);
   if (!selectedServices) return null;
   if (payload.phoneNumber !== undefined && typeof payload.phoneNumber !== "string") return null;
@@ -199,6 +202,7 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     packageRateVersion: Number(payload.packageRateVersion),
     childCount: payload.childCount,
     unitId: payload.unitId,
+    promoCode: payload.promoCode,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices,
     payment: {
@@ -408,13 +412,14 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    const promo = await loadBookingPromo(payload.promoCode);
     const pricing = computeBookingPricing({
       bookingMode: payload.bookingMode,
       startDatetime: payload.startDatetime,
       endDatetime: payload.endDatetime,
       adultCount: payload.adultCount,
       childCount: payload.childCount,
-      servicesTotal,
+      servicesTotal, promo,
     }, packageSchedule.rates);
     const totalAmount = pricing.total;
 
@@ -518,7 +523,7 @@ export async function POST(request: Request) {
     const { error: seedTransactionError } = await supabase.from("transactions").upsert(
       {
         reservation_id: reservation.reservation_id,
-        total_amount: totalAmount,
+        total_amount: pricing.grossTotal,
       },
       {
         onConflict: "reservation_id",
@@ -621,6 +626,7 @@ export async function POST(request: Request) {
       }
     }
 
+    await applyNewBookingPromo(reservation.reservation_id, user.id, promo?.code ?? null, pricing.grossTotal, true, pricing.total);
     const manualReview = !gcash || ocr.status === "skipped";
     const betaTest = gcash && "betaTest" in ocr && ocr.betaTest === true;
     const { data: payment, error: paymentError } = await createAdminClient()
@@ -711,6 +717,8 @@ export async function POST(request: Request) {
       const supabase = await createClient();
       await supabase.from("reservations").delete().eq("reservation_id", reservationId);
     }
+
+    if (error instanceof BookingPromoError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
 
     return NextResponse.json(
       {

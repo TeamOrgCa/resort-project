@@ -9,15 +9,24 @@ const { default: Editor } = loadTsModule("components/admin/catalog/CatalogEditor
 const references = { units: [{ unit_id: uuid(1), name: "Archived villa", is_active: false, archived_at: "2026-10-12T00:00:00Z" }], paymentMethods: [] };
 const render = (resource, record) => renderToStaticMarkup(createElement(Editor, { resource, record, references, referencesError: null, busy: false, error: null, onClose: () => {}, onSave: async () => {} }));
 
+test("promo editor offers an optional whole-number usage limit and explains confirmation counting", () => {
+  const markup = render("promo_codes", { code: "SAVE10", discount_type: "percent", discount_value: 10, max_uses: 5 });
+  assert.match(markup, /Maximum successful reservations/);
+  assert.match(markup, /id="catalog-max_uses"[^>]*type="number"[^>]*min="1"[^>]*step="1"[^>]*value="5"/);
+  assert.doesNotMatch(markup, /id="catalog-max_uses"[^>]*required/);
+  assert.match(markup, /Leave blank for unlimited/); assert.match(markup, /when a booking is confirmed/);
+  assert.doesNotMatch(markup, /id="catalog-usage_count"/);
+});
+
 test("service editors distinguish hourly rentals from quantities and retain saved types", () => {
   const duration = render("services", { name: "Karaoke", billing_type: "duration", price: 200, max_quantity: 8 });
-  assert.match(duration, /Duration-based \(per hour\)/);
+  assert.match(duration, /Per Hour/);
   assert.match(duration, /value="duration" selected=""/);
   assert.match(duration, /Price per hour \(PHP\)/);
   assert.match(duration, /Maximum hours per booking/);
   const quantity = render("services", null);
   assert.match(quantity, /value="quantity" selected=""/);
-  assert.match(quantity, /Price per item \(PHP\)/);
+  assert.match(quantity, /Price per piece \(PHP\)/);
   assert.match(quantity, /Maximum quantity per booking/);
 });
 

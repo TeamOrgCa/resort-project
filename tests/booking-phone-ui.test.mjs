@@ -47,10 +47,10 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
     assert.equal(container.querySelector('input[name="roomType"][value="garden"]').checked,true);
     await act(async () => container.querySelector('input[aria-label="Add Extra mattress"]').click());
     await act(async () => container.querySelector('input[aria-label="Add Karaoke rental"]').click());
-    const hours = container.querySelector('[aria-label="Hours for Karaoke rental"]');
+    const hours = container.querySelector('[aria-label="Duration (Hours) for Karaoke rental"]');
     assert.equal(hours.max, "4");
     await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set.call(hours,"3"); hours.dispatchEvent(new window.Event("input",{bubbles:true})); });
-    assert.match(container.textContent, /Duration-based/); assert.match(container.textContent, /per hour/);
+    assert.match(container.textContent, /Per Hour/); assert.match(container.textContent, /per hour/);
     const phone = container.querySelector("#booking-phone");
     assert.equal(phone.value, "9171234567"); assert.match(phone.parentElement.textContent, /\+63/);
     const review = [...container.querySelectorAll("button")].find(button => button.textContent.includes("Review Full Details"));

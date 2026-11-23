@@ -9,7 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 import { refundStatusLabels, type CancellationPreview } from "@/lib/booking/cancellation";
 import { withinDateRange, type DateRange } from "@/lib/admin/date-range";
 
-type Refund = { refund_id: string; reservation_id: string; amount: number; request_kind: string; policy_snapshot: string;
+type Refund = { guest_id?: string | null; destination_requested_at?: string | null; destination_submitted_at?: string | null; destination_method?: string | null; destination_account_name?: string | null; destination_account_number?: string | null; refund_id: string; reservation_id: string; amount: number; request_kind: string; policy_snapshot: string;
   policy_version: number | null; calculation_snapshot: CancellationPreview | null; workflow_version: number; status: string; requested_at: string;
   review_reason: string | null; payment_review_notes: string | null; payment_reviewed_at: string | null;
   payout_submitted_by: string | null; payout_submitted_at: string | null; payout_verification_notes: string | null;
@@ -56,6 +56,12 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
   }, []);
   useEffect(() => { void load().catch(cause => setError(cause instanceof Error ? cause.message : "Unable to load refunds.")).finally(() => setLoading(false)); }, [load]);
   const refresh = async () => { setLoading(true); setError(null); try { await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to refresh refunds."); } finally { setLoading(false); } };
+  async function requestDestination() {
+    if (!selected || busy) return;
+    setBusy(true); setError(null);
+    try { const response = await fetch("/api/admin/refunds/destination", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refundId: selected.refund_id }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message); setMessage(data.message); await load(); onUpdated?.(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to notify guest."); } finally { setBusy(false); }
+  }
   async function submit(action: string) {
     if (!selected || busy) return;
     setBusy(true); setError(null); setMessage(null);
@@ -80,6 +86,9 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
   const selectedPayments = payments.filter(p => p.reservation_id === selected?.reservation_id);
   const reservation = reservations.find(r => r.reservation_id === selected?.reservation_id);
   const refundAccounts = [...new Map(selectedPayments.filter(p => p.status === "verified").map(p => [JSON.stringify([paymentMethodName(p), p.account_name ?? "", p.account_number ?? ""]), p])).values()];
+  const missingDestination = !refundAccounts.some(p => p.account_name?.trim() && p.account_number?.trim() && paymentMethodName(p) !== "Method not recorded");
+  const awaitingDestination = Boolean(selected?.destination_requested_at && !selected.destination_submitted_at);
+  useEffect(() => { if (selected?.destination_submitted_at && selected.destination_method) setMethod(selected.destination_method); }, [selected?.refund_id, selected?.destination_method, selected?.destination_submitted_at]);
   const matchingRefunds = refunds.filter(f => withinDateRange(f.requested_at, dateRange) && (filter === "all" || f.status === filter || (filter === "pending" && f.status === "reviewed"))
     && `${guestNames[f.reservation_id] ?? ""} ${refs[f.reservation_id] ?? f.reservation_id}`.toLowerCase().includes(search.trim().toLowerCase()));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(matchingRefunds.length / 25) - 1));
@@ -116,6 +125,9 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
           <div><dt className="font-medium">Account name</dt><dd className="break-words">{p.account_name?.trim() || "Not recorded"}</dd></div>
           <div><dt className="font-medium">Account / GCash number</dt><dd className="break-all">{p.account_number?.trim() || "Not recorded — confirm payout details with the guest."}</dd></div>
         </dl>) : <p>No verified payment account details are available. Confirm payout details with the guest.</p>}
+        {selected.destination_submitted_at && <dl className="space-y-1 rounded-xl border border-primary/20 p-3"><dt className="font-semibold">Guest-provided refund destination</dt><dd>Payment method: {selected.destination_method}</dd><dd>Account name: {selected.destination_account_name}</dd><dd className="break-all">Account / GCash number: {selected.destination_account_number}</dd><dd>Submitted {at(selected.destination_submitted_at)}. Verify these details with the guest before transfer.</dd></dl>}
+        {awaitingDestination && <p role="status">Payment details requested {at(selected.destination_requested_at!)}. Awaiting the guest's reply in Manage Booking &gt; Refunds.</p>}
+        {missingDestination && !selected.destination_submitted_at && ["pending", "reviewed", "approved"].includes(selected.status) && (permissions.canApprove || permissions.canPay) && (selected.guest_id ? <button type="button" disabled={busy || Boolean(selected.destination_requested_at && Date.parse(selected.destination_requested_at) > Date.now() - 300000)} onClick={() => void requestDestination()} className={button}>{awaitingDestination ? "Send payment details reminder" : "Notify guest to provide refund payment details"}</button> : <p>This walk-in booking has no guest account. Contact the guest directly to confirm the refund destination.</p>)}
       </section>
       <p className="text-sm">{selected.policy_snapshot}</p>
       {selected.workflow_version === 1 && selected.request_kind === "cancellation" && !["refunded", "rejected"].includes(selected.status) && <div className="space-y-3 rounded-xl bg-amber-50 p-3 text-sm">
@@ -152,7 +164,7 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
         {!methods.length && <p role="alert" className="text-sm text-red-700">An administrator must activate a payment method in Business Catalog before a payout can be recorded.</p>}
         <label className="block text-sm">Transfer reference<input maxLength={100} value={reference} disabled={busy} onChange={e => setReference(e.target.value)} className="admin-field mt-1 w-full" /></label>
         <label className="block text-sm">Transfer proof (image or PDF, up to 8 MB)<input type="file" disabled={busy} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={e => setProof(e.target.files?.[0] ?? null)} className="mt-2 block" /></label>
-        <button className={`${button} whitespace-normal`} disabled={busy || !method || reference.trim().length < 6 || !proof} onClick={() => void submit("payout_submitted")}>Submit transfer for verification</button></div>}
+        <button className={`${button} whitespace-normal`} disabled={busy || awaitingDestination || Boolean(selected.destination_submitted_at && method !== selected.destination_method) || !method || reference.trim().length < 6 || !proof} onClick={() => void submit("payout_submitted")}>Submit transfer for verification</button></div>}
       {selected.status === "payout_submitted" && <div className="space-y-3 rounded-xl bg-amber-50 p-3">
         {selected.payout_submitted_by === permissions.staffId ? <p className="text-sm">An authorized manager must verify this transfer. You cannot verify your own payout.</p> : permissions.canVerify ? <>
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" disabled={busy} checked={verified} onChange={e => setVerified(e.target.checked)} />I checked the transfer amount, recipient, reference and proof against the payment-provider transaction records.</label>
