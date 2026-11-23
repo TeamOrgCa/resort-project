@@ -1,5 +1,6 @@
 "use client";
 import PromoCodeInput from "@/components/booking/PromoCodeInput";
+import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
 import type { PromoQuote } from "@/lib/booking/discounts";
 
 import BookingGuide from "@/components/booking/BookingGuide";
@@ -530,6 +531,8 @@ function BookingFormContent() {
                       <span className="whitespace-nowrap font-semibold text-neutral">₱{tax.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>}
                   </div>
+
+                  <BookingPromoDiscount code={promo?.code ?? null} amount={pricing.discountAmount} />
 
                   <div className="flex justify-between text-xl font-bold">
                     <span className="text-neutral">Total</span>

@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { act, createElement, useEffect } from "react";
 import { create } from "zustand";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
+import { legacyRates } from "./helpers/package-rates.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/booking/details" });
 globalThis.window = dom.window; globalThis.document = dom.window.document;
@@ -99,4 +100,46 @@ test("booking review identifies rental hours and submits their billable count", 
     await click(h.container.querySelector('[aria-label="Accept terms"]')); await click(actions(h.container).querySelector("button"));
     assert.deepEqual(posted.selectedServices, [{ serviceId: "karaoke", quantity: 3 }]);
   } finally { await h.close(); }
+});
+
+test("full booking details show the promo separately from package and service charges before and after saving", async () => {
+  for (const [promo, savings] of [
+    [{code:"SAVE20",discount_type:"percent",discount_value:20},1500],
+    [{code:"LESS500",discount_type:"fixed",discount_value:500},500],
+  ]) {
+    let posted;
+    const total=8500-savings;
+    const h=await mount(async (_url,options)=>{posted=JSON.parse(options.body);return Response.json({success:true,reservation:{id:"reservation",totalAmount:total}});},false,
+      {promo,promoCode:promo.code,packageRates:legacyRates,services:[{id:"mattress",name:"Extra mattress",price:500,quantity:2}],subtotal:8500,total});
+    try {
+      const bill=h.container.querySelector('[data-booking-guide="review-bill"]');
+      const summary=[...h.container.querySelectorAll("h3")].find(node=>node.textContent==="Quick Summary").parentElement;
+      for (const section of [bill,summary]) {
+        assert.match(section.querySelector('[aria-label="Applied promo discount"]').textContent,new RegExp(promo.code));
+        assert.ok(section.textContent.includes(`-₱${savings.toLocaleString("en-PH",{minimumFractionDigits:2})}`));
+        assert.ok(section.textContent.includes(total.toLocaleString("en-PH",{minimumFractionDigits:2})));
+      }
+      assert.match(bill.textContent,/Private pool package₱7,500\.00/);
+      assert.match(bill.textContent,/Extra mattress.*1,000\.00/);assert.match(bill.textContent,/Subtotal₱8,500\.00/);
+      const firstPayment=[...h.container.querySelectorAll("h3")].find(node=>node.textContent==="To Pay First").parentElement;
+      assert.ok(firstPayment.textContent.includes((total*.2).toLocaleString("en-PH",{minimumFractionDigits:2})));
+      await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector("button"));
+      assert.equal(posted.promoCode,promo.code);
+      assert.equal(h.container.querySelectorAll('[aria-label="Applied promo discount"]').length,2);
+      assert.equal(h.store.getState().bookingDraft.total,total);
+    } finally {await h.close();}
+  }
+});
+
+test("a saved fully discounted booking shows its promo and zero payment; bookings without promos omit the row", async () => {
+  const h=await mount(async()=>{throw Error("Saved bookings must not be recreated");},true,
+    {promo:{code:"FREEPOOL",discount_type:"percent",discount_value:100},promoCode:"FREEPOOL",packageRates:legacyRates,total:0});
+  try {
+    const bill=h.container.querySelector('[data-booking-guide="review-bill"]');
+    assert.match(bill.textContent,/Private pool package₱7,500\.00/);assert.match(bill.textContent,/FREEPOOL.*-₱7,500\.00/);
+    assert.match(bill.textContent,/Total₱0\.00/);assert.deepEqual(labels(h.container),["Back to Home","Manage confirmed booking"]);
+  } finally {await h.close();}
+  const plain=await mount(async()=>Response.json({}));
+  try {assert.equal(plain.container.querySelector('[aria-label="Applied promo discount"]'),null);}
+  finally {await plain.close();}
 });
