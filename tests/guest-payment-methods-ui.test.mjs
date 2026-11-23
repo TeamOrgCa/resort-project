@@ -24,7 +24,7 @@ async function render(Component) {
   return { container, close: async () => { await act(async () => root.unmount()); container.remove(); } };
 }
 const account = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", secondAccount = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-async function mount(paid = 0) {
+async function mount(paid = 0, draftPatch = {}) {
   const originalFetch = globalThis.fetch, originalUrl = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
   URL.createObjectURL = () => "blob:proof-preview"; URL.revokeObjectURL = () => {};
   const posts = [], uploads = []; let release;
@@ -50,6 +50,7 @@ async function mount(paid = 0) {
     } });
   };
   const state = { bookingDraft: { reservationId: "reservation", reservationReference: "MV-TEST", firstName: "Guest", lastName: "User", total: 5000, paidAmount: paid, services: [], unitId: paid ? "balance-payment" : "pool", bookingMode: "day", roomPrice: 5000, nights: 1, adultCount: 2, childCount: 0, startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00" } };
+  Object.assign(state.bookingDraft,draftPatch);
   const Component = loadTsModule("app/booking/payment/page.tsx", {
     "next/link": ({ href, children, ...props }) => createElement("a", { href, ...props }, children), "next/image": () => null,
     "@/components/Navigation": () => null, "@/components/Footer": () => null, "@/components/PaymentQr": () => null, "@/components/booking/BookingGuide": () => null,
@@ -69,6 +70,17 @@ async function file(input) {
     input.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
 }
+
+test("payment summaries retain the applied promo code and savings after booking review",async()=>{
+  const h=await mount(0,{promo:{code:"SAVE20",discount_type:"percent",discount_value:20},promoCode:"SAVE20",total:4000});
+  try {
+    const promo=h.container.querySelector('[aria-label="Applied promo discount"]');
+    assert.match(promo.textContent,/SAVE20.*-₱1,000\.00/);
+    const summary=[...h.container.querySelectorAll("h3")].find(node=>node.textContent==="Payment Summary").parentElement;
+    assert.match(summary.textContent,/Subtotal₱5,000\.00/);assert.match(summary.textContent,/Total Amount₱4,000\.00/);
+    assert.match(summary.textContent,/Amount sent₱800\.00/);
+  } finally {await h.close();}
+});
 
 for (const paid of [0, 1000]) test(`guest ${paid ? "balance payment" : "checkout"} supports non-QR bank accounts and submits once for manual review`, async () => {
   const h = await mount(paid);

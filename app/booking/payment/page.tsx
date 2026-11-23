@@ -1,6 +1,7 @@
 "use client";
 
 import { serviceCount } from "@/lib/booking/service-billing";
+import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
 
 import BookingGuide from "@/components/booking/BookingGuide";
 import BookingProgress from "@/components/booking/BookingProgress";
@@ -924,6 +925,8 @@ function PaymentContent() {
                     <span className="text-neutral/70">Subtotal</span>
                     <span className="whitespace-nowrap font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>}
+
+                  {!isBalancePayment && <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} />}
 
                   {!isBalancePayment && costSummary.tax > 0 && <div className="flex justify-between">
                     <span className="text-neutral/70">Tax</span>

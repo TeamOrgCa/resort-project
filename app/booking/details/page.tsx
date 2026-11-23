@@ -12,6 +12,7 @@ import { useBookingStore } from "@/lib/stores/booking-store";
 import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
 import { buildBookingCostSummary } from "@/lib/booking/summary";
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
+import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -242,6 +243,7 @@ function BookingDetailsContent() {
                       {bookingDraft.services.map((service) => <div key={service.id} className="flex justify-between"><span>{service.name} × {serviceCount(service.quantity ?? 1, service.billingType)}</span><span className="font-semibold text-neutral">₱{(Number(service.price || 0) * (service.quantity ?? 1)).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
                       <div className="flex justify-between"><span>Subtotal</span><span className="font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       {costSummary.tax > 0 && <div className="flex justify-between"><span>Tax</span><span className="font-semibold text-neutral">₱{costSummary.tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                      <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} />
                       <div className="flex justify-between border-t border-neutral/10 pt-2"><span className="font-semibold text-neutral">Total</span><span className="font-bold text-primary">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                     </div>
                   </div>
@@ -278,6 +280,7 @@ function BookingDetailsContent() {
               <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-4">Quick Summary</h3>
                 <div className="space-y-3 text-sm text-neutral/80">
+                  <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} />
                   <div className="flex justify-between"><span>Total</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                   <div className="flex justify-between"><span>{DOWN_PAYMENT_PERCENT}% Down Payment Option</span><span className="font-semibold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                   <div className="flex justify-between"><span>Balance</span><span className="font-semibold text-neutral">₱{remainingBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>

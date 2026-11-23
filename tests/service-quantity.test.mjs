@@ -36,3 +36,18 @@ test("booking summaries multiply services by quantities and retain old draft qua
   assert.equal(summary.servicesTotal,1500);assert.equal(summary.packageCharge,7500);
   const legacy=buildBookingCostSummary({total:8000,tax:0,roomPrice:7500,services:[{id:"mattress",price:500}]});assert.equal(legacy.servicesTotal,500);
 });
+
+test("discounted booking summaries retain the gross package, extra guest and service charges",()=>{
+  const {buildBookingCostSummary}=loadTsModule("lib/booking/summary.ts");
+  // Use an explicit schedule so this assertion is independent of catalog defaults.
+  const rates={weekday:{day:{baseRate:10000,addOnPerHead:100}},weekend:{day:{baseRate:10000,addOnPerHead:100}}};
+  for(const packageRates of [rates,null]) {
+    const summary=buildBookingCostSummary({bookingMode:"day",startDatetime:"2027-06-14T08:00:00+08:00",endDatetime:"2027-06-14T16:00:00+08:00",
+      adultCount:22,childCount:0,packageRates,total:9200,tax:0,roomPrice:10000,services:[{id:"mattress",price:500,quantity:2}],
+      promo:{code:"SAVE20",discount_type:"percent",discount_value:20}});
+    assert.equal(summary.packageCharge+(summary.extraGuestCharge??0),10200);
+    assert.equal(summary.servicesTotal,1000);assert.equal(summary.subtotal,11200);assert.equal(summary.discountAmount,2000);
+    assert.equal(summary.subtotal-summary.discountAmount,summary.total);assert.equal(summary.promoCode,"SAVE20");
+    if(packageRates) {assert.equal(summary.packageCharge,10000);assert.equal(summary.extraGuestCharge,200);}
+  }
+});

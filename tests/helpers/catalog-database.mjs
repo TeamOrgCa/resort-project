@@ -6,7 +6,7 @@ export function catalogDatabase(seed = {}) {
   const writes = [];
   let nextId = 100;
   let nextError = null;
-  const ids = { services: "service_id", units: "unit_id", unit_rates: "unit_rate_id", guest_rates: "rate_id", payment_methods: "payment_method_id", payment_accounts: "account_id", reservation_policies: "policy_id", ocular_time_slots: "slot_id" };
+  const ids = { promo_codes: "promo_id", services: "service_id", units: "unit_id", unit_rates: "unit_rate_id", guest_rates: "rate_id", payment_methods: "payment_method_id", payment_accounts: "account_id", reservation_policies: "policy_id", ocular_time_slots: "slot_id" };
   const client = {
     tables, writes,
     failNextWrite(error = { code: "XX000", message: "Database failure" }) { nextError = error; },
@@ -16,6 +16,7 @@ export function catalogDatabase(seed = {}) {
       const query = {
         select(_columns, options) { head = options?.head ?? false; return query; },
         eq(key, value) { filters.push((row) => row[key] === value); return query; },
+        in(key, values) { filters.push((row) => values.includes(row[key])); return query; },
         is(key, value) { filters.push((row) => (row[key] ?? null) === value); return query; },
         or(expression) { filters.push((row) => row.is_active !== true || (expression.includes("archived_at") && Boolean(row.archived_at))); return query; },
         ilike(key, pattern) { const term = pattern.slice(1, -1).replace(/\\(.)/g, "$1").toLowerCase(); filters.push((row) => String(row[key] ?? "").toLowerCase().includes(term)); return query; },
