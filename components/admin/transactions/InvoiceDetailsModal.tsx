@@ -1,6 +1,6 @@
 "use client";
 
-import { serviceBilling, serviceCount } from "@/lib/booking/service-billing";
+import { invoiceBillingBreakdown } from "./invoice-breakdown";
 
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import { createPortal } from "react-dom";
@@ -42,6 +42,8 @@ const toTitleCase = (value: string) =>
 
 export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceDetails, onClose }: InvoiceDetailsModalProps) {
   const portalTarget = usePortalTarget();
+  const breakdown = invoiceDetails ? invoiceBillingBreakdown(invoiceDetails) : null;
+  const discount = breakdown?.lines.find(line => line.kind === "discount");
   const canPrint = Boolean(portalTarget && !isLoading && !error && invoiceDetails);
   if (!isOpen) {
     return null;
@@ -135,51 +137,14 @@ export default function InvoiceDetailsModal({ isOpen, isLoading, error, invoiceD
 
             <section className="rounded-xl border border-neutral/10 p-4">
               <h4 className="text-sm font-semibold text-neutral">Cost Breakdown</h4>
-              <p className="mt-2 text-sm text-neutral/70">
-                Nights: <span className="font-semibold text-neutral">{invoiceDetails.nights}</span>
-              </p>
-
-              <div className="mt-4 space-y-4">
-                <div>
-                  <p className="text-sm font-semibold text-neutral">Units</p>
-                  {invoiceDetails.unitBreakdown.length === 0 ? (
-                    <p className="mt-2 text-sm text-neutral/70">No unit charges found.</p>
-                  ) : (
-                    <div className="mt-2 space-y-2 text-sm text-neutral/80">
-                      {invoiceDetails.unitBreakdown.map((item, index) => (
-                        <p key={`${item.name}-${index}`}>
-                          <span className="font-semibold text-neutral">{item.name}</span> • Qty {item.quantity} • {formatCurrency(item.pricePerNight)}/night × {invoiceDetails.nights} night(s) = {formatCurrency(item.lineTotal)}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                  <p className="mt-2 text-sm text-neutral/80">
-                    Units Subtotal: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(invoiceDetails.unitsSubtotal)}</span>
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-neutral">Services</p>
-                  {invoiceDetails.serviceBreakdown.length === 0 ? (
-                    <p className="mt-2 text-sm text-neutral/70">No service charges found.</p>
-                  ) : (
-                    <div className="mt-2 space-y-2 text-sm text-neutral/80">
-                      {invoiceDetails.serviceBreakdown.map((item, index) => (
-                        <p key={`${item.name}-${index}`}>
-                          <span className="font-semibold text-neutral">{item.name}</span> • {serviceBilling(item.billingType).inputLabel}: {serviceCount(item.quantity, item.billingType)} • {formatCurrency(item.priceAtTime)} {serviceBilling(item.billingType).rateLabel} = {formatCurrency(item.lineTotal)}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                  <p className="mt-2 text-sm text-neutral/80">
-                    Services Subtotal: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(invoiceDetails.servicesSubtotal)}</span>
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-base px-3 py-2 text-sm text-neutral/80">
-                  Computed Total: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(invoiceDetails.computedTotal)}</span>
-                  <span className="mx-2">•</span>
-                  Transaction Total: <span className="ui-nowrap inline-block max-w-full overflow-x-auto align-bottom font-semibold text-neutral">{formatCurrency(Number(invoiceDetails.transaction?.total_amount ?? 0))}</span>
+              <div className="mt-3 space-y-3 text-sm text-neutral/80">
+                {breakdown?.lines.map((line, index) => <div key={index} className="flex flex-wrap justify-between gap-2">
+                  <div className="min-w-0 flex-1"><p className="font-semibold">{line.description}</p><p className="text-xs text-neutral/65">{line.detail}</p></div>
+                  <span className="whitespace-nowrap">{formatCurrency(line.amount)}</span>
+                </div>)}
+                <div className="rounded-xl bg-base px-3 py-2">
+                  {discount && <p>Total before discount: {formatCurrency(Number(breakdown?.total ?? 0) - discount.amount)}</p>}
+                  <p className="font-semibold">{discount ? "Total after discount" : "Total charges"}: {formatCurrency(Number(breakdown?.total ?? 0))}</p>
                 </div>
               </div>
             </section>

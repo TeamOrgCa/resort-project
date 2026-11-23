@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildBillingBreakdown } from "../lib/booking/billing-breakdown.ts";
+import { loadTsModule } from "./helpers/load-ts-module.mjs";
+const { buildBillingBreakdown } = loadTsModule("lib/booking/billing-breakdown.ts");
 
 const booking = {
   bookingMode: "day",
@@ -18,7 +19,7 @@ test("hourly service statements show rental hours and multiply the hourly rate",
   const result = buildBillingBreakdown({ ...booking, services: [{ name: "Karaoke", quantity: 3, priceAtBooking: 200, billingType: "duration" }], recordedTotal: 8300 });
   const line = result.lines.find(line => line.description === "Karaoke");
   assert.equal(line.quantity, 3); assert.equal(line.unitPrice, 200); assert.equal(line.amount, 600);
-  assert.match(line.detail, /3 rental hours; charged per hour/);
+  assert.match(line.detail, /Duration \(Hours\): 3; charged per hour/);
 });
 
 test("shows stored unit, guest, and service charges when they match the bill", () => {
@@ -39,6 +40,14 @@ test("uses the recorded package amount when snapshot rates do not match the bill
   assert.equal(breakdown.lines.reduce((sum, line) => sum + line.amount, 0), breakdown.total);
 });
 
+test("the winning discount is itemized and the bill still reconciles with services and fees", () => {
+  const result = buildBillingBreakdown({ ...booking, recordedTotal: 8500, rescheduleFees: 500, dateRateAdjustment: 200, discountAmount: 500, discountKind: "pwd_senior" });
+  assert.equal(result.lines.at(-1).kind, "discount");
+  assert.equal(result.lines.at(-1).amount, -500);
+  assert.equal(result.lines.reduce((sum, line) => sum + line.amount, 0), 8500);
+  assert.doesNotMatch(result.lines[0].detail, /adults|children/);
+});
+
 test("uses the booking period count for longer stays", () => {
   const breakdown = buildBillingBreakdown({
     ...booking,
@@ -47,6 +56,27 @@ test("uses the booking period count for longer stays", () => {
   });
   assert.deepEqual(breakdown.lines.map(({ amount }) => amount), [15000, 400, 600]);
   assert.equal(breakdown.total, 16000);
+});
+
+test("the winning promo includes its saved code and rate without listing the competing PWD discount", () => {
+  const result = buildBillingBreakdown({ ...booking, recordedTotal: 7000, discount: {
+    amount: 1000, kind: "promo", promoCode: "SAVE10", promoType: "percent", promoValue: 10,
+    headCount: 10, eligibleGuests: 2, packagePrice: 10000,
+  } });
+  const line = result.lines.find(line => line.kind === "discount");
+  assert.equal(line.description, "Promo discount (SAVE10)"); assert.match(line.detail, /10% off the package price/);
+  assert.doesNotMatch(line.detail, /2 of 10|PWD/); assert.equal(line.amount, -1000);
+  assert.equal(result.lines.reduce((sum, line) => sum + line.amount, 0), 7000);
+});
+
+test("PWD statements show the eligible headcount and proportional calculation", () => {
+  const result = buildBillingBreakdown({ ...booking, recordedTotal: 7600, discount: {
+    amount: 400, kind: "pwd_senior", promoCode: "SMALL", promoType: "fixed", promoValue: 100,
+    headCount: 10, eligibleGuests: 2, packagePrice: 10000,
+  } });
+  const line = result.lines.find(line => line.kind === "discount");
+  assert.match(line.description, /PWD \/ senior discount \(20%\)/); assert.match(line.detail, /2 of 10 guests eligible/);
+  assert.match(line.detail, /10,000\.00.*\/ 10 guests x 20% x 2/); assert.doesNotMatch(line.description + line.detail, /SMALL/);
 });
 
 test("reschedule fees and date-rate adjustments are separate additions, not hidden in package charges", () => {

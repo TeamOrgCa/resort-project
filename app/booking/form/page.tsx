@@ -1,4 +1,6 @@
 "use client";
+import PromoCodeInput from "@/components/booking/PromoCodeInput";
+import type { PromoQuote } from "@/lib/booking/discounts";
 
 import BookingGuide from "@/components/booking/BookingGuide";
 import BookingProgress from "@/components/booking/BookingProgress";
@@ -42,7 +44,7 @@ interface ServiceOption {
   description: string;
   imageUrl: string | null;
   maxQuantity: number;
-  billingType: "quantity" | "duration";
+  billingType: "quantity" | "duration" | "person" | "fixed";
 }
 
 interface GuestProfile {
@@ -71,14 +73,16 @@ function BookingFormContent() {
   const { schedule: packageSchedule, error: packageRatesError } = usePackageRates();
   const router = useRouter();
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
+  const [checkingPromo, setCheckingPromo] = useState(false);
+  const [promo, setPromo] = useState<PromoQuote | null>(bookingDraft.promo ?? null);
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [formData, setFormData] = useState({
     firstName: bookingDraft.firstName || "",
     lastName: bookingDraft.lastName || "",
     email: bookingDraft.email || "",
     phone: bookingDraft.phone || "",
-    adultCount: bookingDraft.adultCount || 1,
-    childCount: bookingDraft.childCount || 0,
+    adultCount: (bookingDraft.adultCount || 1) + (bookingDraft.childCount || 0),
+    childCount: 0,
     roomType: bookingDraft.unitId || "",
     specialRequests: bookingDraft.specialRequests || "",
   });
@@ -108,7 +112,7 @@ function BookingFormContent() {
         message?: string;
         catalog?: {
           units: Array<{ unit_id: string; name: string; description: string | null; base_price: number; unit_img?: string | null; capacity?: number | null }>;
-          services: Array<{ service_id: string; name: string; price: number; description?: string | null; image_url?: string | null; max_quantity?: number; billing_type?: "quantity" | "duration" }>;
+          services: Array<{ service_id: string; name: string; price: number; description?: string | null; image_url?: string | null; max_quantity?: number; billing_type?: "quantity" | "duration" | "person" | "fixed" }>;
         };
       };
 
@@ -134,7 +138,7 @@ function BookingFormContent() {
         description: service.description ?? "",
         imageUrl: service.image_url ?? null,
         maxQuantity: serviceQuantityLimit(service.max_quantity),
-        billingType: service.billing_type === "duration" ? "duration" : "quantity",
+        billingType: service.billing_type ?? "quantity",
       }));
 
       const authUser = authResult.data.user;
@@ -236,7 +240,7 @@ function BookingFormContent() {
     endDatetime: effectiveEndDate.toISOString(),
     adultCount: formData.adultCount,
     childCount: formData.childCount,
-    servicesTotal: amenitiesTotal,
+    servicesTotal: amenitiesTotal, promo,
   }, packageSchedule.rates);
   const subtotal = pricing.subtotal;
   const tax = pricing.tax;
@@ -244,6 +248,7 @@ function BookingFormContent() {
   const downPayment = pricing.downPaymentMin;
 
   const handleContinueToPayment = () => {
+    if (checkingPromo) return;
     if (quantityError) { setFormError(quantityError); return; }
     if ((bookingDraft.packageRateVersion && bookingDraft.packageRateVersion !== packageSchedule.version)
       || !validateBookingWindow({ ...bookingDraft, startDatetime: effectiveStartDate.toISOString(), endDatetime: effectiveEndDate.toISOString() }, packageSchedule.times).valid) {
@@ -255,7 +260,7 @@ function BookingFormContent() {
       return;
     }
     if (!guestCountsValid) {
-      setFormError(`Enter at least one adult and no more than ${MAX_GUESTS} guests in total.`);
+      setFormError(`Enter at least one guest and no more than ${MAX_GUESTS} guests in total.`);
       return;
     }
     if (!isValidName(formData.firstName.trim()) || !isValidName(formData.lastName.trim())) {
@@ -300,7 +305,7 @@ function BookingFormContent() {
       total,
       downPayment,
       services: selectedServiceItems,
-      specialRequests: formData.specialRequests,
+      specialRequests: formData.specialRequests, promo, promoCode: promo?.code ?? null,
       reservationId: "",
       reservationReference: "",
     });
@@ -375,39 +380,13 @@ function BookingFormContent() {
                 {/* Booking Details */}
                 <div data-booking-guide="guest-group" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Booking Details</h3>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Adults</label>
-                      <GuestCountInput
-                        name="adultCount"
-                        value={formData.adultCount}
-                        onValueChange={adultCount => setFormData(current => ({ ...current, adultCount }))}
-                        min="1"
-                        max={MAX_GUESTS}
-                        step="1"
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-neutral/70 mb-2">Number of Children</label>
-                      <GuestCountInput
-                        name="childCount"
-                        value={formData.childCount}
-                        onValueChange={childCount => setFormData(current => ({ ...current, childCount }))}
-                        min="0"
-                        max={MAX_GUESTS - 1}
-                        step="1"
-                        className="w-full px-4 py-3 rounded-lg border border-neutral/20 focus:border-primary focus:outline-none"
-                      />
-                    </div>
-                  </div>
+                  <label className="block max-w-sm text-sm font-medium text-neutral/70">Number of guests<GuestCountInput name="headCount" aria-label="Number of guests" value={formData.adultCount} onValueChange={adultCount => setFormData(current => ({ ...current, adultCount, childCount: 0 }))} min={1} max={MAX_GUESTS} step={1} required className="mt-2 w-full rounded-lg border border-neutral/20 px-4 py-3" /></label>
                   <p className={`mt-3 text-sm ${guestCountsValid ? "text-neutral/70" : "text-red-600"}`} aria-live="polite">
                     {guestCountsValid
                       ? <>The package includes {pricing.includedGuests} guests, with up to {MAX_EXTRA_GUESTS} additional guests ({MAX_GUESTS} total). Each additional guest is ₱{pricing.addOnPerHead.toLocaleString("en-PH")}; {pricing.extraGuests > 0
                           ? `${pricing.extraGuests} extra ${pricing.extraGuests === 1 ? "guest adds" : "guests add"} ₱${pricing.extraGuestTotal.toLocaleString("en-PH")} to your total.`
                           : "no additional guest charge applies."}</>
-                      : `Enter at least one adult and no more than ${MAX_GUESTS} guests in total.`}
+                      : `Enter at least one guest and no more than ${MAX_GUESTS} guests in total.`}
                   </p>
                   <fieldset disabled={catalogLoading} className="mt-6 min-w-0">
                     <legend className="mb-2 text-sm font-semibold text-neutral">Accommodation Type *</legend>
@@ -442,6 +421,7 @@ function BookingFormContent() {
                   {quantityError && <p role="alert" className="mt-3 text-sm text-red-700">{quantityError}</p>}
                 </div>
 
+                <div className="mb-6"><PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />{pricing.discountAmount > 0 && <p className="mt-2 text-sm font-semibold text-primary">Promo discount: -{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(pricing.discountAmount)}</p>}<p className="mt-2 text-xs text-neutral/65">PWD / senior discounts can be verified by resort staff. Only the larger discount applies.</p></div>
                 {/* Special Requests */}
                 <div data-booking-guide="guest-requests" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Special Requests</h3>
@@ -464,7 +444,7 @@ function BookingFormContent() {
                   </Link>
                   <div className="flex-1">
                     <button data-booking-guide="guest-continue" type="button" onClick={handleContinueToPayment}
-                      disabled={catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || Boolean(quantityError)}
+                      disabled={checkingPromo || catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || Boolean(quantityError)}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Review Full Details
@@ -542,7 +522,7 @@ function BookingFormContent() {
 
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
-                      <span className="text-neutral/70">Subtotal</span>
+                      <span className="text-neutral/70">Subtotal (before promo)</span>
                       <span className="whitespace-nowrap font-semibold text-neutral">₱{subtotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     {tax > 0 && <div className="flex justify-between">

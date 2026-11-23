@@ -49,5 +49,11 @@ export function validateCatalogRecord(resource: CatalogResource, input: unknown,
 
   if (result.effective_to && String(result.effective_to) < String(result.effective_from)) throw new CatalogValidationError("End date must be on or after the start date.");
   if (resource === "ocular_time_slots" && String(result.end_time) <= String(result.start_time)) throw new CatalogValidationError("End time must be later than start time.");
+  if (resource === "promo_codes") {
+    result.code = String(result.code).toUpperCase();
+    if (!/^[A-Z0-9_-]{3,40}$/.test(String(result.code))) throw new CatalogValidationError("Use 3-40 letters, digits, underscores or hyphens for a promo code.");
+    if (result.discount_type === "percent" && Number(result.discount_value) > 100) throw new CatalogValidationError("A percentage discount cannot exceed 100%.");
+    if (result.starts_at && result.ends_at && String(result.ends_at) < String(result.starts_at)) throw new CatalogValidationError("The expiry date must be on or after the start date.");
+  }
   return result;
 }

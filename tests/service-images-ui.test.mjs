@@ -19,6 +19,18 @@ async function mount(Component, props) {
   return { container, root, close: async () => { await act(async () => root.unmount()); container.remove(); } };
 }
 
+test("service pricing units show the right count labels and fixed rates hide single-booking counts", async () => {
+  const Card = loadTsModule("components/booking/ServiceSelectionCard.tsx", mocks).default;
+  for (const [billingType, maximum, label] of [["duration", 8, "Duration (Hours)"], ["quantity", 5, "Quantity"], ["person", 30, "Number of Guests"], ["fixed", 1, null], ["fixed", 4, "Number of Bookings"]]) {
+    const ui = await mount(Card, { service: { id: "service", name: "Service", price: 200, billingType, maxQuantity: maximum }, selected: true, quantity: 1, onToggle: () => {}, onQuantityChange: () => {} });
+    try {
+      const input = ui.container.querySelector('input[type="number"]');
+      if (label) { assert.equal(input.getAttribute("aria-label"), `${label} for Service`); assert.equal(input.max, String(maximum)); }
+      else assert.equal(input, null);
+    } finally { await ui.close(); }
+  }
+});
+
 test("real service images retain an explicit display area without generated sizing utilities", async () => {
   const Card = loadTsModule("components/booking/ServiceSelectionCard.tsx").default;
   const ui = await mount(Card, { service: { id: "1", name: "Mattress", description: "Fresh linen", price: 500, imageUrl: "https://images.example.com/mattress.jpg" }, selected: false, onToggle: () => {} });

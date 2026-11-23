@@ -75,7 +75,7 @@ export async function createBillingPdf(input: BillingPdfInput, logo?: Buffer): P
   row("Issued",date(input.issuedAt));row("Guest",input.guestName);
   if(input.updatedAt)row("Statement updated",date(input.updatedAt));
   row("Booking reference",input.reservationReference);row("Payment for",input.bookingMode);
-  row("Guests",`${input.adultCount} adults, ${input.childCount} children`);
+  row("Guests",`${input.adultCount + input.childCount} guests`);
   row("Check-in (Philippine time)",date(input.checkInDate));row("Check-out (Philippine time)",date(input.checkOutDate));
   if(input.kind==="receipt" || input.paymentMethod)row("Payment method",input.paymentMethod || "Not recorded");
   if(input.kind==="receipt" || input.paymentReference)row("Payment reference",input.paymentReference || "Not recorded");
@@ -89,10 +89,13 @@ export async function createBillingPdf(input: BillingPdfInput, logo?: Buffer): P
     page.drawText(amount,{x:width-margin-font.widthOfTextAtSize(amount,10),y,font,size:10,color:ink});
     for(const line of heading){ensure(18);page.drawText(line,{x:margin,y,font,size:11,color:ink});y-=17;}
     paragraph(item.detail,9);
-    paragraph(`Quantity: ${item.quantity}  |  Rate: ${money(item.unitPrice)}`,9);
+    if(item.kind!=="discount")paragraph(`Quantity: ${item.quantity}  |  Rate: ${money(item.unitPrice)}`,9);
     y-=7;
   }
-  ensure(145);row("Total charges",money(input.totalAmount));
+  const discountTotal=-input.breakdown.lines.filter(line=>line.kind==="discount").reduce((sum,line)=>sum+line.amount,0);
+  ensure(discountTotal>0?175:145);
+  if(discountTotal>0)row("Total before discount",money(input.totalAmount+discountTotal));
+  row(discountTotal>0?"Total after discount":"Total charges",money(input.totalAmount));
   row(input.kind==="receipt"?"This payment received":"Payments received",money(input.paidAmount));
   row("Remaining balance",money(input.balance),true);
   y-=22;paragraph("Keep this document for your records. For assistance, call 09172796592 or 82360633.",9);

@@ -16,7 +16,7 @@ const failure = (error: unknown) => error instanceof CatalogDuplicateError ? inv
 const databaseFailure = (error: { code?: string; message: string }) => {
   if (error.code === "23505") return invalid("A matching record already exists. Update it instead.", 409);
   if (error.code === "23503") return invalid("The linked record is no longer available. Refresh and try again.", 409);
-  if (error.code === "23514") return invalid("These values do not meet the catalog requirements.");
+  if (error.code === "23514") return invalid(error.message.startsWith("Maximum uses cannot be below") ? error.message : "These values do not meet the catalog requirements.");
   return invalid("Unable to save this record. Please try again.", 500);
 };
 
@@ -94,11 +94,18 @@ export async function GET(request: Request) {
     };
     const from = (page - 1) * pageSize;
     const [records, active, archived] = await Promise.all([
-      queryForStatus(status as CatalogStatus).order(definition.order, { ascending: !definition.order.startsWith("effective_") }).order(definition.id).range(from, from + pageSize - 1),
+      queryForStatus(status as CatalogStatus).order(definition.order, { ascending: !definition.order.startsWith("effective_") }).order(definition.id).range(from, from + pageSize - 1).overrideTypes<CatalogRecord[], { merge: false }>(),
       queryForStatus("active", true), queryForStatus("archived", true),
     ]);
     if (records.error || active.error || archived.error) return invalid("Unable to load catalog records. Please try again.", 500);
-    return NextResponse.json({ success: true, records: records.data ?? [], page, pageSize, total: records.count ?? 0,
+    let catalogRecords = (records.data ?? []) as CatalogRecord[];
+    if (resource === "promo_codes" && catalogRecords.length) {
+      const stats = await client.from("promo_code_availability").select("promo_id,usage_count,pending_uses,remaining_uses").in("promo_id", catalogRecords.map(row => row.promo_id));
+      if (stats.error) return invalid("Unable to load promo usage. Apply the promo usage limits migration.", 503);
+      const byId = new Map((stats.data ?? []).map(row => [row.promo_id, row]));
+      catalogRecords = catalogRecords.map(row => ({ ...row, ...byId.get(row.promo_id) }));
+    }
+    return NextResponse.json({ success: true, records: catalogRecords, page, pageSize, total: records.count ?? 0,
       counts: { active: active.count ?? 0, archived: archived.count ?? 0 } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return failure(error); }
 }

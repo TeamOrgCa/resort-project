@@ -1,4 +1,7 @@
+import { serviceBilling } from "./service-billing";
+import { describeBillingDiscount, type BillingDiscountSnapshot } from "./billing-discount";
 export type BillingLine = {
+  kind?: "discount";
   description: string;
   detail: string;
   quantity: number;
@@ -12,7 +15,7 @@ export type BillingBreakdown = {
 };
 
 export type BilledUnit = { name: string; quantity: number; pricePerPeriod: number };
-export type BilledService = { name: string; quantity: number; priceAtBooking: number; billingType?: "quantity" | "duration" };
+export type BilledService = { name: string; quantity: number; priceAtBooking: number; billingType?: "quantity" | "duration" | "person" | "fixed" };
 
 type BreakdownInput = {
   bookingMode: string | null;
@@ -25,6 +28,9 @@ type BreakdownInput = {
   units: BilledUnit[];
   services: BilledService[];
   recordedTotal: number;
+  discountAmount?: number;
+  discountKind?: string;
+  discount?: BillingDiscountSnapshot | null;
   rescheduleFees?: number;
   dateRateAdjustment?: number;
 };
@@ -33,6 +39,8 @@ const cents = (value: number) => Math.round(value * 100);
 const money = (value: number) => cents(value) / 100;
 
 export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
+  const discountAmount = Number(input.discount?.amount ?? input.discountAmount ?? 0);
+  const discountDescription = describeBillingDiscount(input.discount);
   const periods = Math.max(1, Math.ceil((Date.parse(input.endDatetime) - Date.parse(input.startDatetime)) / 86_400_000));
   const unitLines: BillingLine[] = input.units.map((unit) => ({
     description: unit.name,
@@ -53,7 +61,7 @@ export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
   }));
   const serviceLines: BillingLine[] = input.services.map((service) => ({
     description: service.name,
-    detail: service.billingType === "duration" ? `${service.quantity} ${service.quantity === 1 ? "rental hour" : "rental hours"}; charged per hour` : "Additional service selected for this reservation",
+    detail: `${serviceBilling(service.billingType).inputLabel}: ${service.quantity}; charged ${serviceBilling(service.billingType).rateLabel}`,
     quantity: service.quantity,
     unitPrice: money(service.priceAtBooking),
     amount: money(service.quantity * service.priceAtBooking),
@@ -63,7 +71,13 @@ export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
     { description: "Reschedule fees (non-refundable)", amount: money(input.rescheduleFees ?? 0), detail: "Accumulated fees from completed reschedules" },
     { description: "Higher-date-rate adjustments", amount: money(input.dateRateAdjustment ?? 0), detail: "Additional package cost for the selected dates" },
   ].filter(line => line.amount > 0).map(line => ({ ...line, quantity: 1, unitPrice: line.amount }));
-  const detailedLines = [...unitLines, ...guestLines, ...serviceLines, ...adjustmentLines];
+  const discountLines: BillingLine[] = discountAmount > 0 ? [{
+    kind: "discount",
+    description: discountDescription?.label ?? (input.discountKind === "promo" ? "Promo discount" : "PWD / senior discount (20% of eligible guest shares)"),
+    detail: discountDescription?.detail ?? "Larger eligible discount applied; discounts do not stack",
+    quantity: 1, unitPrice: -money(discountAmount), amount: -money(discountAmount),
+  }] : [];
+  const detailedLines = [...unitLines, ...guestLines, ...serviceLines, ...adjustmentLines, ...discountLines];
   if (detailedLines.length && cents(detailedLines.reduce((sum, line) => sum + line.amount, 0)) === cents(input.recordedTotal)) {
     return { lines: detailedLines, total: money(input.recordedTotal) };
   }
@@ -76,10 +90,10 @@ export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
   const units = input.units.map((unit) => `${unit.quantity} × ${unit.name}`).join(", ") || "selected resort package";
   const packageLine: BillingLine = {
     description: "Private pool package and guest charges",
-    detail: `${mode}; ${units}; ${input.adultCount} ${input.adultCount === 1 ? "adult" : "adults"}, ${input.childCount} ${input.childCount === 1 ? "child" : "children"}`,
+    detail: `${mode}; ${units}; ${input.adultCount + input.childCount} guests`,
     quantity: 1,
-    unitPrice: money(input.recordedTotal - servicesTotal - adjustmentsTotal),
-    amount: money(input.recordedTotal - servicesTotal - adjustmentsTotal),
+    unitPrice: money(input.recordedTotal + discountAmount - servicesTotal - adjustmentsTotal),
+    amount: money(input.recordedTotal + discountAmount - servicesTotal - adjustmentsTotal),
   };
-  return { lines: [packageLine, ...serviceLines, ...adjustmentLines], total: money(input.recordedTotal) };
+  return { lines: [packageLine, ...serviceLines, ...adjustmentLines, ...discountLines], total: money(input.recordedTotal) };
 }

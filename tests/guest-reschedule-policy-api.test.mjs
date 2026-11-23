@@ -16,7 +16,7 @@ function harness({ booked = reservation, user = { id: "guest" }, conflict = fals
     let mutation;
     const q = { select: () => q, eq: (key, value) => { filters.push({ table, mutation, key, value }); return q; }, insert: body => { mutation = "insert"; writes.push({ table, body }); return q; },
       update: body => { mutation = "update"; writes.push({ table, body }); return q; }, delete: () => { mutation = "delete"; writes.push({ table, mutation }); return q; },
-      maybeSingle: async () => ({ data: mutation === "update" ? (changed ? null : { reservation_id: booked.reservation_id }) : pending, error: null }), single: async () => ({ data: { reschedule_id: "request" }, error: rpcError }),
+      maybeSingle: async () => ({ data: table === "transactions" ? { discount_amount: 0 } : mutation === "update" ? (changed ? null : { reservation_id: booked.reservation_id }) : pending, error: null }), single: async () => ({ data: { reschedule_id: "request" }, error: rpcError }),
       then: (resolve, reject) => Promise.resolve({ data: null, error: mutation === "insert" ? rpcError : null }).then(resolve, reject) };
     return q;
   } };

@@ -29,7 +29,7 @@ export async function GET(_request: Request, context: Context) {
     const { snapshot: _snapshot, ...publicDetail } = detail;
     void _snapshot;
     const canApproveLateReschedule = canEdit && await staffHasPermission(staff.supabase, staff.staffUser.role, "reschedule_approval");
-    return NextResponse.json({ success: true, ...publicDetail, canEdit, canApproveLateReschedule,
+    return NextResponse.json({ success: true, ...publicDetail, canEdit, canManageDiscount: canEdit && ["admin", "staff"].includes(staff.staffUser.role), canApproveLateReschedule,
       canReduceServices: canEdit && !detail.lockedReason && (detail.canChangeDetails || ["admin", "staff"].includes(staff.staffUser.role)),
       canChangeAccommodation: canEdit && !detail.lockedReason && (detail.canChangeDetails || ["admin", "staff"].includes(staff.staffUser.role)),
       canRescheduleException: canApproveLateReschedule && Boolean(detail.lateRescheduleEligible) });
@@ -65,7 +65,7 @@ export async function PATCH(request: Request, context: Context) {
     const changed = detailsChanged(detail.reservation, edit);
     const manager = ["admin", "staff"].includes(staff.staffUser.role);
     if ((scheduleChanged || (unitChanged && !manager)) && !detail.canChangeDetails && !lateAuthorized) return fail("The stay has started. Schedule changes are locked; accommodation changes require a manager.", 409);
-    if (lateAuthorized && !detail.canChangeDetails && (unitChanged || edit.adultCount !== detail.reservation.adult_count || edit.childCount !== detail.reservation.child_count)) return fail("A late exception may move the booked schedule; existing accommodation and guest counts must be retained.", 400);
+    if (lateAuthorized && !detail.canChangeDetails && (unitChanged || edit.adultCount + edit.childCount !== detail.reservation.adult_count + detail.reservation.child_count)) return fail("A late exception may move the booked schedule; existing accommodation and guest counts must be retained.", 400);
     if (changed) {
       if (scheduleChanged && !isBookingStartAllowed(edit.startDatetime, now)) return fail(BOOKING_LEAD_MESSAGE, 400);
       const window = validateEditWindow(edit, detail.packageTimes, detail.reservation);
@@ -86,10 +86,11 @@ export async function PATCH(request: Request, context: Context) {
     const preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, edit, detail.packageRates, now);
     if (preview.total < 0) return fail("This change would produce a negative bill. Review the reservation charges.", 400);
     if (preview.total !== moneyRound(edit.expectedTotal)) return fail("Service prices or the bill changed. Reload to review the updated amount.", 409);
+    if (edit.adultCount + edit.childCount === detail.reservation.adult_count + detail.reservation.child_count) { edit.adultCount = detail.reservation.adult_count; edit.childCount = detail.reservation.child_count; }
     const pricedServices = edit.services.map(s => ({ ...s, price: Number(detail.services.find(e => e.service_id === s.serviceId)?.price_at_time ?? detail.catalogServices.find(e => e.service_id === s.serviceId)!.price) }));
-    const { data, error } = await createAdminClient().rpc(scheduleChanged ? "edit_staff_reservation_reschedule" : "edit_staff_reservation", {
+    const { data, error } = await createAdminClient().rpc(preview.hasDiscount ? (scheduleChanged ? "edit_staff_reservation_reschedule_with_discount" : "edit_staff_reservation_with_discount") : (scheduleChanged ? "edit_staff_reservation_reschedule" : "edit_staff_reservation"), {
       p_reservation: id, p_staff: staff.staffUser.id, p_expected: detail.snapshot,
-      p_patch: { ...edit, services: pricedServices, packageDelta: preview.packageDelta, rescheduleFee: preview.rescheduleFee, dateRateAdjustment: preview.dateRateAdjustment },
+      p_patch: { ...edit, expectedTotal: preview.interimTotal, services: pricedServices, packageDelta: preview.packageDelta, rescheduleFee: preview.rescheduleFee, dateRateAdjustment: preview.dateRateAdjustment },
     });
     if (error) {
       if (["PGRST202", "42883"].includes(error.code)) return fail(scheduleChanged ? "Apply the reschedule-policy migration before changing reservation dates." : "Reservation editing needs the reservation-edit migration. Ask your administrator to apply it.", 503);

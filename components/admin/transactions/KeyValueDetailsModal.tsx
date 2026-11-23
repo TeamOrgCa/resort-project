@@ -1,7 +1,8 @@
 "use client";
 
 import type { ViewDetailsState } from "./types";
-import { useEffect } from "react";
+import BookingDiscountPanel from "../BookingDiscountPanel";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
 import ReceiptDocument from "./ReceiptDocument";
@@ -9,13 +10,16 @@ import ReceiptDocument from "./ReceiptDocument";
 interface KeyValueDetailsModalProps {
   details: ViewDetailsState;
   onClose: () => void;
+  discountReservationId?: string;
+  onDiscountChanged?: (result: { totalAmount: number; remainingBalance: number }) => void;
   onSettlePayment?: () => void;
   canSettlePayment?: boolean;
   settlementMessage?: string;
 }
-const receiptFields = new Set(["Receipt No.", "Issued At", "Guest Name", "Billed To", "Reservation Ref", "Payment for", "Payment Method", "Payment Ref", "Paid At", "Amount Paid", "Booking Total at Payment", "Transaction Total at Time", "Balance After Payment", "Contact No.", "Collection Ref", "Access Type", "Collection Total"]);
+const receiptFields = new Set(["Receipt No.", "Issued At", "Guest Name", "Billed To", "Reservation Ref", "Payment for", "Payment Method", "Payment Ref", "Paid At", "Amount Paid", "Booking Total at Payment", "Transaction Total at Time", "Balance After Payment", "Contact No.", "Collection Ref", "Access Type", "Collection Total", "Total before discount", "Discount applied", "Discount details", "Discount amount"]);
 
-export default function KeyValueDetailsModal({ details, onClose, onSettlePayment, canSettlePayment = false, settlementMessage }: KeyValueDetailsModalProps) {
+export default function KeyValueDetailsModal({ details, onClose, onSettlePayment, canSettlePayment = false, settlementMessage, discountReservationId, onDiscountChanged }: KeyValueDetailsModalProps) {
+  const [discountBusy, setDiscountBusy] = useState(false);
   const readOnly = useAdminReadOnly();
   const isReceipt = details.kind === "receipt";
   const fields = isReceipt ? details.fields.filter(field => receiptFields.has(field.label)).map(field => ({ ...field,
@@ -38,7 +42,7 @@ export default function KeyValueDetailsModal({ details, onClose, onSettlePayment
     <div id={isReceipt ? "billing-receipt-print" : undefined} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-neutral/45 px-3 py-4 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6" role="dialog" aria-modal="true" aria-label={details.title}>
       {isReceipt ? <ReceiptDocument fields={fields}>
         {!readOnly && <button type="button" onClick={() => window.print()} className="admin-button-primary">Print receipt</button>}
-        <button type="button" onClick={onClose} className="admin-button-secondary">Close</button>
+        <button type="button" disabled={discountBusy} onClick={() => { if (!discountBusy) onClose(); }} className="admin-button-secondary">Close</button>
       </ReceiptDocument> : <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-neutral/10 bg-white p-4 shadow-2xl sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral/10 pb-5">
           <div>
@@ -46,10 +50,10 @@ export default function KeyValueDetailsModal({ details, onClose, onSettlePayment
             <p className="receipt-screen-only mt-1 text-sm text-neutral/70">Detailed record view for this billing entry.</p>
           </div>
           <div className="receipt-screen-only flex flex-wrap gap-2">
-            {onSettlePayment && !readOnly && <button type="button" disabled={!canSettlePayment} onClick={() => { if (canSettlePayment) onSettlePayment(); }} className="admin-button-primary disabled:cursor-not-allowed disabled:opacity-50">Settle payment</button>}
+            {onSettlePayment && !readOnly && <button type="button" disabled={!canSettlePayment || discountBusy} onClick={() => { if (canSettlePayment) onSettlePayment(); }} className="admin-button-primary disabled:cursor-not-allowed disabled:opacity-50">Settle payment</button>}
             <button
               type="button"
-              onClick={onClose}
+              disabled={discountBusy} onClick={() => { if (!discountBusy) onClose(); }}
               className="admin-button-secondary"
             >
               Close
@@ -64,6 +68,7 @@ export default function KeyValueDetailsModal({ details, onClose, onSettlePayment
             </p>
           ))}
         </div>
+        {!readOnly && discountReservationId && <div className="mt-5"><BookingDiscountPanel reservationId={discountReservationId} onBusyChange={setDiscountBusy} onChanged={onDiscountChanged} /></div>}
         {onSettlePayment && settlementMessage && <p role="status" className="mt-5 rounded-xl bg-base p-3 text-sm text-neutral/70">{settlementMessage}</p>}
       </div>}
     </div>

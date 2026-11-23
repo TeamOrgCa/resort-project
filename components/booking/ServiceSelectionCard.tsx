@@ -42,7 +42,7 @@ export default function ServiceSelectionCard({ service, selected, onToggle, quan
   const [previewOpen, setPreviewOpen] = useState(false);
   const closePreview = useCallback(() => setPreviewOpen(false), []);
   const limit = serviceQuantityLimit(service.maxQuantity);
-  const billing = serviceBilling(service.billingType);
+  const billing = serviceBilling(service.billingType, limit);
   const money = (amount: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(amount);
   return <><div className={`flex h-full flex-col overflow-hidden rounded-xl border transition-colors focus-within:ring-2 focus-within:ring-primary/40 ${selected ? "border-primary bg-primary/5" : "border-neutral/20 bg-white hover:border-primary/60 hover:bg-primary/5"}`}>
     <button type="button" onClick={() => setPreviewOpen(true)} aria-label={`View ${service.name} photo`} aria-haspopup="dialog" style={{ display: "block", width: "100%", height: "clamp(11rem, 25vw, 13rem)" }} className="relative shrink-0 cursor-zoom-in overflow-hidden bg-stone-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"><ServicePhoto src={service.imageUrl} /></button>
@@ -55,7 +55,7 @@ export default function ServiceSelectionCard({ service, selected, onToggle, quan
       </span>
       <input type="checkbox" checked={selected} onChange={onToggle} aria-label={`Add ${service.name}`} className="mt-1 h-4 w-4 shrink-0 accent-primary" />
     </label>
-    {selected && onQuantityChange && <div className="border-t border-neutral/10 px-4 pb-4 pt-3">
+    {selected && onQuantityChange && billing.hasQuantity && <div className="border-t border-neutral/10 px-4 pb-4 pt-3">
       <label className="block text-sm font-medium text-neutral" htmlFor={`service-quantity-${service.id}`}>{billing.inputLabel} <span className="text-xs font-normal text-neutral/60">(max {limit} per booking)</span></label>
       <div className="mt-2 flex items-center gap-2">
         <button type="button" aria-label={`Decrease ${service.name} ${billing.inputLabel.toLowerCase()}`} disabled={quantity <= 1} onClick={() => onQuantityChange(Math.max(1, quantity - 1))} className="h-11 w-11 shrink-0 rounded-lg border border-neutral/20 text-xl hover:bg-base disabled:opacity-40">−</button>

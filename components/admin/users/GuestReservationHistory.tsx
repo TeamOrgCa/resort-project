@@ -44,7 +44,7 @@ export default function GuestReservationHistory({ guestId, name, email, onClose 
               <dl className="mt-4 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
                 <div><dt className="text-xs text-neutral/60">Scheduled check-in</dt><dd className="mt-1">{dateTime(row.startDatetime)}</dd></div>
                 <div><dt className="text-xs text-neutral/60">Scheduled check-out</dt><dd className="mt-1">{dateTime(row.endDatetime)}</dd></div>
-                <div><dt className="text-xs text-neutral/60">Package / guests</dt><dd className="mt-1">{title(row.bookingMode ?? "custom")} &middot; {row.adults} adults, {row.children} children</dd></div>
+                <div><dt className="text-xs text-neutral/60">Package / guests</dt><dd className="mt-1">{title(row.bookingMode ?? "custom")} &middot; {row.adults + row.children} guests</dd></div>
                 <div><dt className="text-xs text-neutral/60">Booked on</dt><dd className="mt-1">{dateTime(row.createdAt)}</dd></div>
                 <div><dt className="text-xs text-neutral/60">Recorded bill</dt><dd className="mt-1 font-medium">{money(row.totalAmount)}</dd></div>
                 <div><dt className="text-xs text-neutral/60">Recorded net payments</dt><dd className="mt-1">{money(row.paidAmount)}</dd></div>

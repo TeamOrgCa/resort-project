@@ -148,7 +148,7 @@ test("staff without approval cannot unlock late dates; ended confirmed stays can
     h = await mount({ detail });
     assert.equal(day(h.c, "2027-06-20").disabled, true);
     await click(h.c.querySelector('input[type="checkbox"]')); await click(day(h.c, "2027-06-20"));
-    assert.equal(field(h.c, "Adults", "input").disabled, true);
+    assert.equal(field(h.c, "Number of guests", "input").disabled, true);
     await submit(h.c); assert.equal(h.saved[0].expectedTotal, 9600); // PHP 500 past-date notice + PHP 500 weekend difference.
     await h.close(); h = await mount({ detail: { ...detail, canApproveLateReschedule: false, canRescheduleException: false } });
     assert.equal(h.c.querySelector('input[type="checkbox"]'), null); assert.equal(day(h.c, "2027-06-20").disabled, true);
@@ -160,10 +160,10 @@ test("checked-in stays enable guest counts while keeping accommodation and dates
   const detail={...fixture(),canChangeDetails:false}; detail.reservation.checked_in_at="2027-06-14T08:00:00+08:00";
   const h=await mount({detail});
   try {
-    assert.equal(field(h.c,"Adults","input").disabled,false);
-    assert.equal(field(h.c,"Children","input").disabled,false);
+    assert.equal(field(h.c,"Number of guests","input").disabled,false);
+    assert.equal([...h.c.querySelectorAll("label")].some(label => label.textContent.startsWith("Children")), false);
     assert.equal(field(h.c,"Accommodation").disabled,true);
-    await value(field(h.c,"Adults","input"),"22");
+    await value(field(h.c,"Number of guests","input"),"22");
     await submit(h.c);
     assert.equal(h.saved[0].adultCount,22); assert.equal(h.saved[0].expectedTotal,8850);
     assert.equal(h.saved[0].startDatetime,"2027-06-14T00:00:00.000Z");

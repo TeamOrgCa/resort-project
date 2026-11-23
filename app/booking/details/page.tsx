@@ -76,7 +76,7 @@ function BookingDetailsContent() {
     }
 
     if (isAlreadySaved) {
-      setSaveSuccess("Your booking is saved. Continue to payment to secure your reservation.");
+      setSaveSuccess((bookingDraft.total === 0 ? "Booking confirmed. Your promo covers the bill; no payment is needed." : "Your booking is saved. Continue to payment to secure your reservation."));
       return;
     }
 
@@ -92,6 +92,7 @@ function BookingDetailsContent() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          promoCode: bookingDraft.promoCode ?? null,
           bookingMode: bookingDraft.bookingMode,
           packageRateVersion: bookingDraft.packageRateVersion,
           phoneNumber: bookingDraft.phone,
@@ -134,7 +135,7 @@ function BookingDetailsContent() {
         return;
       }
 
-     
+
       // ✅ Save only after success
       setBookingDraft({
         reservationId: json.reservation.id,
@@ -145,7 +146,7 @@ function BookingDetailsContent() {
           : {}),
       });
       setPaymentDeadlineAt(json.reservation.paymentDeadlineAt ?? null);
-      setSaveSuccess("Booking saved successfully. Continue to payment to secure your reservation.");
+      setSaveSuccess(Number(json.reservation.totalAmount) === 0 ? "Booking confirmed. Your promo covers the bill; no payment is needed." : "Booking saved successfully. Continue to payment to secure your reservation.");
     } catch {
       setSaveError("Unable to save booking right now. Please try again.");
     } finally {
@@ -212,8 +213,8 @@ function BookingDetailsContent() {
                       <p>Mode: <span className="font-semibold text-neutral">{bookingDraft.bookingMode === "whole_day" ? bookingDraft.wholeDayVariant === "day_to_night" ? "Whole Day – Daytime" : "Whole Day – Overnight" : { day: "Day", night: "Night", custom: "Custom" }[bookingDraft.bookingMode]}</span></p>
                       <p>Accommodation: <span className="font-semibold text-neutral">{bookingDraft.roomName}</span></p>
                       <p>Duration: <span className="font-semibold text-neutral">{durationHours === null ? "Unavailable" : `${durationHours.toLocaleString("en-PH", { maximumFractionDigits: 2 })} ${durationHours === 1 ? "hr" : "hrs"}`}</span></p>
-                      <p>Adults: <span className="font-semibold text-neutral">{bookingDraft.adultCount}</span></p>
-                      <p>Children: <span className="font-semibold text-neutral">{bookingDraft.childCount}</span></p>
+
+
                       <p>Total Guests: <span className="font-semibold text-neutral">{totalGuests}</span></p>
                     </div>
                   </div>
@@ -251,7 +252,7 @@ function BookingDetailsContent() {
                 {saveError && <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{saveError}</div>}
                 {isAlreadySaved && (
                   <div data-booking-guide="review-saved" role="status" className="mt-6 rounded-xl border border-secondary/30 bg-secondary/10 p-4 text-sm text-neutral">
-                    <p className="font-semibold">{saveSuccess ?? "Your booking is saved. Continue to payment to secure your reservation."}</p>
+                    <p className="font-semibold">{saveSuccess ?? (bookingDraft.total === 0 ? "Booking confirmed. Your promo covers the bill; no payment is needed." : "Your booking is saved. Continue to payment to secure your reservation.")}</p>
                     <p className="mt-2">Booking reference: <span className="ui-nowrap font-semibold text-primary">{bookingDraft.reservationReference || "-"}</span></p>
                     {paymentDeadlineAt && <p>Submit payment by {new Date(paymentDeadlineAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} (Manila time).</p>}
                   </div>
@@ -262,8 +263,8 @@ function BookingDetailsContent() {
                     className="flex min-h-12 items-center justify-center rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
                     {isAlreadySaved ? "Back to Home" : "Back to Edit"}
                   </Link>
-                  {isAlreadySaved ? <Link href="/booking/payment" className="flex min-h-12 items-center justify-center rounded-full bg-primary px-6 py-4 text-center font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
-                    Continue to Payment
+                  {isAlreadySaved ? <Link href={bookingDraft.total === 0 ? "/manage" : "/booking/payment"} className="flex min-h-12 items-center justify-center rounded-full bg-primary px-6 py-4 text-center font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                    {bookingDraft.total === 0 ? "Manage confirmed booking" : "Continue to Payment"}
                   </Link> : <button type="button" disabled={!hasValidDraft || !acceptedPolicies || bookingPolicyVersion === null || isSavingBooking}
                     onClick={() => void handleSaveBooking()}
                     className="min-h-12 rounded-full bg-primary px-6 py-4 font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">

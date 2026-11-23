@@ -5,6 +5,7 @@ import { catalogDatabase, uuid } from "./helpers/catalog-database.mjs";
 
 const { catalogResources } = loadTsModule("lib/catalog/catalog.ts");
 const samples = {
+  promo_codes: { code: "SUMMER20", discount_type: "percent", discount_value: "20", starts_at: "2026-01-01", ends_at: "2027-12-31" },
   services: { max_quantity: 10, name: "Extra mattress", description: "A comfortable extra", price: "500.25" },
   units: { name: "Family unit", description: "Pool view", capacity: "6", base_price: "7500.00", unit_img: "/website_photo.jpg" },
   unit_rates: { unit_id: uuid(1), price: "8000.00", effective_from: "2026-10-12", effective_to: "2026-12-31" },
@@ -17,6 +18,29 @@ const samples = {
 const seed = () => ({
   units: [{ unit_id: uuid(1), name: "Pool villa", capacity: 6, base_price: 7500, is_active: true, archived_at: null }],
   payment_methods: [{ payment_method_id: uuid(2), name: "GCash", type: "ewallet", is_active: true }],
+});
+
+test("admins can create, change and clear a promo's maximum successful reservations", async () => {
+  const h = harness();
+  const created = await h.request("POST", { resource: "promo_codes", record: { ...samples.promo_codes, max_uses: 5 } });
+  assert.equal(created.status, 201);
+  const record = (await created.json()).record; assert.equal(record.max_uses, 5);
+  const patch = max_uses => h.request("PATCH", { resource: "promo_codes", id: record.promo_id, record: { max_uses } });
+  for (const invalid of [0, -1, 1.5, "1e3", 2147483648]) assert.equal((await patch(invalid)).status, 400);
+  assert.equal((await patch(10)).status, 200);
+  assert.equal((await (await patch("")).json()).record.max_uses, null);
+  assert.equal((await h.request("PATCH", { resource: "promo_codes", id: record.promo_id, record: { usage_count: 0 } })).status, 400);
+  h.database.failNextWrite({ code: "23514", message: "Maximum uses cannot be below the confirmed uses plus active pending holds (3)" });
+  const below = await patch(1); assert.equal(below.status, 400); assert.match((await below.json()).message, /pending holds/);
+});
+
+test("promo catalog includes server-calculated confirmed uses, pending holds and available uses", async () => {
+  const h = harness(catalogDatabase({ promo_codes: [{ ...samples.promo_codes, promo_id: uuid(30), max_uses: 5, is_active: true }],
+    promo_code_availability: [{ promo_id: uuid(30), usage_count: 2, pending_uses: 1, remaining_uses: 2 }] }));
+  const response = await h.request("GET", undefined, "?resource=promo_codes");
+  assert.equal(response.status, 200);
+  const record = (await response.json()).records[0];
+  assert.equal(record.max_uses, 5); assert.equal(record.usage_count, 2); assert.equal(record.pending_uses, 1); assert.equal(record.remaining_uses, 2);
 });
 
 test("service types persist through creation and edits into the public catalog", async () => {
@@ -150,7 +174,7 @@ for (const [resource, record] of Object.entries(samples)) {
     const id = original[catalogResources[resource].id];
     assert.equal(original.is_active, true);
     const field = catalogResources[resource].fields.find((field) => field.kind === "money" || field.kind === "text" || field.kind === "integer");
-    const value = field.kind === "money" ? "555.55" : field.kind === "integer" ? 4 : "Updated name";
+    const value = field.kind === "money" ? "555.55" : field.kind === "integer" ? 4 : resource === "promo_codes" ? "NEWCODE" : "Updated name";
     const edited = await request("PATCH", { resource, id, record: { [field.key]: value } });
     assert.equal(edited.status, 200);
     const editedRecord = (await edited.json()).record;

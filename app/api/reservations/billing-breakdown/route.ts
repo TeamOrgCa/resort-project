@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { uuidPattern } from "@/lib/booking/reservation-edit";
 import { buildBillingBreakdown } from "@/lib/booking/billing-breakdown";
+import { billingDiscountSnapshot } from "@/lib/booking/billing-discount";
 
 export async function GET(request: Request) {
   try {
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
     // never internal reasons, policy snapshots or staff identities.
     const admin = createAdminClient();
     const [bill, services, guestChanges, staffChanges] = await Promise.all([
-      admin.from("transactions").select("total_amount,paid_amount,balance").eq("reservation_id", id).maybeSingle(),
+      admin.from("transactions").select("total_amount,paid_amount,balance,discount_amount,discount_kind,discount_promo_code,discount_promo_type,discount_promo_value,discount_eligible_guests,discount_package_price").eq("reservation_id", id).maybeSingle(),
       admin.from("reservation_services").select("quantity,price_at_time,billing_type,services(name)").eq("reservation_id", id),
       admin.from("reservation_reschedules").select("reschedule_fee,rate_adjustment").eq("reservation_id", id).eq("status", "approved"),
       admin.from("reservation_reschedule_adjustments").select("notice_fee,rate_adjustment").eq("reservation_id", id),
@@ -37,9 +38,10 @@ export async function GET(request: Request) {
         name: (Array.isArray(row.services) ? row.services[0]?.name : (row.services as { name: string } | null)?.name) || "Additional service",
         quantity: Number(row.quantity), priceAtBooking: Number(row.price_at_time), billingType: row.billing_type,
       })),
+      discount: billingDiscountSnapshot(bill.data, Number(r.adult_count) + Number(r.child_count)),
       recordedTotal: Number(bill.data.total_amount), rescheduleFees: fee, dateRateAdjustment: rate,
     });
-    if (breakdown.lines.some(line => !Number.isFinite(line.amount) || line.amount < 0)) throw new Error("Inconsistent billing details");
+    if (breakdown.lines.some(line => !Number.isFinite(line.amount) || (line.amount < 0 && line.kind !== "discount"))) throw new Error("Inconsistent billing details");
     return NextResponse.json({ breakdown }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ message: "Unable to load the amount breakdown. Please retry." }, { status: 503 });

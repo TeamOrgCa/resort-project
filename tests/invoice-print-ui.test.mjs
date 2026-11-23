@@ -43,7 +43,7 @@ test("Print invoice opens printing with a separate branded document and cleans i
     assert.match(documentNode.textContent, /Nov 20, 2026/); assert.match(documentNode.textContent, /12:30 AM/);
     assert.match(documentNode.textContent, /Extra mattress/); assert.match(documentNode.textContent, /00012345/);
     assert.match(documentNode.textContent, /RCPT-123/);
-    assert.match(documentNode.textContent, /Invoice amount at issue₱2,000\.00/);
+    assert.match(documentNode.textContent, /Invoice amount₱2,000\.00/);
     assert.match(documentNode.textContent, /Current billing total₱2,200\.00/);
     assert.match(documentNode.textContent, /Outstanding balance₱1,800\.00/);
     assert.match(documentNode.textContent, /Pool <script>literal<\/script>/);
@@ -70,6 +70,25 @@ test("invoices cannot print while loading, missing, or failed; stale data is exc
     }
     assert.equal(prints, 0);
   } finally { await act(async () => root.unmount()); container.remove(); }
+});
+
+test("invoice screens and print copies reconcile gross, winning discount, and net charges", async () => {
+  const container=document.createElement("div");document.body.append(container);const root=createRoot(container);
+  try {
+    for (const kind of ["promo","pwd_senior"]) {
+      const discounted={...details,reservation:{...details.reservation,adult_count:10,child_count:0},
+        invoice:{...details.invoice,total_amount:1800},transaction:{...details.transaction,total_amount:1800,balance:1400,
+          discount_kind:kind,discount_amount:200,discount_promo_code:"SAVE10",discount_promo_type:"percent",discount_promo_value:10,
+          discount_package_price:2000,discount_eligible_guests:5}};
+      await act(async()=>root.render(createElement(Modal,{isOpen:true,isLoading:false,error:null,onClose(){},invoiceDetails:discounted})));
+      for (const node of [container,document.getElementById("billing-invoice-print")]) {
+        assert.match(node.textContent,/Total before discount.*2,000\.00/);
+        assert.match(node.textContent,/-₱200\.00/);assert.match(node.textContent,/1,800\.00/);
+        if(kind==="promo")assert.match(node.textContent,/Promo discount \(SAVE10\)/);
+        else {assert.match(node.textContent,/5 of 10 guests eligible/);assert.doesNotMatch(node.textContent,/SAVE10/);}
+      }
+    }
+  } finally {await act(async()=>root.unmount());container.remove();}
 });
 
 test("an invoice with no transaction or payments does not invent a paid balance", async () => {

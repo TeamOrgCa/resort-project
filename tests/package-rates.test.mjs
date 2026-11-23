@@ -129,8 +129,8 @@ test("chatbot quotes saved prices and cannot fall back to the static swimming pr
   assert.doesNotMatch(resortContext, /7,500|14,500|15,000/);
 });
 
-function bookingHarness({ version = 2, insertError = null, manual = false, services = [], conflict = false, registered = false, permitted = true, times } = {}) {
-  const writes = [];
+function bookingHarness({ version = 2, insertError = null, manual = false, services = [], conflict = false, registered = false, permitted = true, times, promo = null } = {}) {
+  const writes = [], appliedPromos = [];
   const rates = copy(); rates.weekday.day = { baseRate: 4321.25, addOnPerHead: 123.45 };
   const client = {
     ...db({ version, rates, times }),
@@ -155,15 +155,16 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
   };
   const previousRpc=client.rpc; client.rpc=(name,args)=>name==="get_legal_policies"?Promise.resolve({data:[legalPoliciesFixture().terms,legalPoliciesFixture().privacy],error:null}):previousRpc(name,args);
   const route = loadTsModule(manual ? "app/api/admin/reservations/create/route.ts" : "app/api/reservations/create/route.ts", {
+    "@/lib/server/booking-discounts": { BookingPromoError: class extends Error {}, loadBookingPromo: async code => code ? promo : null, applyNewBookingPromo: async (...args) => { if (args[2]) appliedPromos.push(args); } },
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/server/role-permissions": { staffHasPermission: async () => permitted },
-    "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: client, staffUser: { role: "admin" } }), createAuditLog: async () => true },
+    "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: client, staffUser: { role: "admin", id: "staff" } }), createAuditLog: async () => true },
     "@/lib/server/advance-booking": { checkAdvanceBooking: async () => null },
     "@/lib/server/reservation-availability": { checkReservationOverlap: async () => ({ conflict, error: null }) },
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { reservation: [] } },
   });
 
-  return { writes, save: (overrides = {}) => route.POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({
+  return { writes, appliedPromos, save: (overrides = {}) => route.POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({
     bookingMode: "day", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00",
     unitId: "unit", adultCount: 22, childCount: 0, packageRateVersion: 2, bookingPolicyVersion: 1, phoneNumber: "09171234567",
     ...(manual ? { guestType: "walk_in", walkInGuest: { firstName: "Test", lastName: "Guest", email: "test@example.com", phoneNumber: "09123456789", address: "Test address" } } : {}),
@@ -180,6 +181,17 @@ test("reservation creation stamps its schedule and bills server prices rather th
   assert.equal(h.writes.find(w => w.table === "reservations").payload.terms_policy_id, legalPoliciesFixture().terms.policy_id);
   assert.equal(h.writes.find(w => w.table === "reservations").payload.privacy_policy_id, legalPoliciesFixture().privacy.policy_id);
   assert.equal(h.writes.find(w => w.table === "transactions").payload.total_amount, 4568.15);
+});
+
+test("customer and manual bookings apply server-validated promos to the package and seed the gross bill", async () => {
+  for (const manual of [false, true]) {
+    const h = bookingHarness({ manual, promo: { code: "SAVE10", discount_type: "percent", discount_value: 10 } });
+    const response = await h.save({ promoCode: "SAVE10", discountAmount: 4000, totalAmount: 1 });
+    assert.equal(response.status, 201);
+    assert.equal((await response.json()).reservation.totalAmount, 4136.02);
+    assert.equal(h.writes.find(w => w.table === "transactions").payload.total_amount, 4568.15);
+    assert.deepEqual(h.appliedPromos[0], ["reservation", manual ? "staff" : "guest", "SAVE10", 4568.15, !manual, 4136.02]);
+  }
 });
 
 test("stale guest legal agreement is rejected before writes, including a publication racing reservation insert",async()=>{

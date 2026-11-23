@@ -1,4 +1,5 @@
 "use client";
+import BookingDiscountPanel from "../BookingDiscountPanel";
 
 import { useRef, useState } from "react";
 import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
@@ -17,10 +18,12 @@ export type RecordedPaymentResult = {
 const money = (amount: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(amount);
 const isCash = (method: StaffPaymentMethod) => method.type.trim().toLowerCase() === "cash" || method.name.trim().toLowerCase() === "cash";
 
-export default function RecordPaymentDialog({ initialReservationId, bills, references, methods, onSaved, onClose }: {
+export default function RecordPaymentDialog({ initialReservationId, bills, references, methods, onSaved, onClose, onBillUpdated }: {
   initialReservationId: string; bills: Bill[]; references: Record<string, string>; methods: StaffPaymentMethod[];
-  onSaved: (result: RecordedPaymentResult) => void; onClose: () => void;
+  onBillUpdated?: () => void; onSaved: (result: RecordedPaymentResult) => void; onClose: () => void;
 }) {
+  const [updatedBalances, setUpdatedBalances] = useState<Record<string, number>>({});
+  const [discountBusy, setDiscountBusy] = useState(false);
   const [reservationId, setReservationId] = useState(initialReservationId);
   const [amount, setAmount] = useState(() => Number(bills.find(bill => bill.reservation_id === initialReservationId)?.balance ?? 0).toFixed(2));
   const [methodId, setMethodId] = useState("cash");
@@ -35,14 +38,14 @@ export default function RecordPaymentDialog({ initialReservationId, bills, refer
   const saving = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const cash = methodId === "cash";
-  const balance = Number(bills.find(bill => bill.reservation_id === reservationId)?.balance ?? 0);
+  const balance = updatedBalances[reservationId] ?? Number(bills.find(bill => bill.reservation_id === reservationId)?.balance ?? 0);
   const nonCashMethods = methods.filter(method => method.is_active && !isCash(method));
   const methodAvailable = cash || nonCashMethods.some(method => method.payment_method_id === methodId);
   const valid = methodAvailable && received && isValidPaymentAmount(Number(amount)) && Number(amount) <= balance
     && (cash || (reference.trim().length >= 6 && accountName.trim() && accountNumber.trim() && file));
 
   const submit = async () => {
-    if (saving.current || !valid) return;
+    if (saving.current || discountBusy || !valid) return;
     const sender = cash ? null : normalizeSenderName(accountName);
     if (!cash && !sender) { setError(SENDER_NAME_ERROR); return; }
     saving.current = true; setBusy(true); setError(null);
@@ -76,11 +79,12 @@ export default function RecordPaymentDialog({ initialReservationId, bills, refer
     finally { saving.current = false; setBusy(false); }
   };
 
-  return <CatalogDialog title="Record payment" description="Record money already received and apply it to the reservation bill." busy={busy} onClose={() => { if (!saving.current) onClose(); }}>
+  return <CatalogDialog title="Record payment" description="Record money already received and apply it to the reservation bill." busy={busy || discountBusy} onClose={() => { if (!saving.current && !discountBusy) onClose(); }}>
+    {reservationId && <BookingDiscountPanel key={reservationId} reservationId={reservationId} disabled={busy} onBusyChange={setDiscountBusy} onChanged={result => { const next = Number(result.remainingBalance); setUpdatedBalances(old => ({ ...old, [reservationId]: next })); setAmount(next.toFixed(2)); setReceived(false); onBillUpdated?.(); }} />}
     <form className="space-y-4" onSubmit={event => { event.preventDefault(); void submit(); }}>
-      <fieldset disabled={busy} className="min-w-0 space-y-4">
+      <fieldset disabled={busy || discountBusy} className="min-w-0 space-y-4">
         <label className="block text-sm font-medium text-black">Reservation<select data-autofocus value={reservationId} onChange={event => {
-          setReservationId(event.target.value); setAmount(Number(bills.find(bill => bill.reservation_id === event.target.value)?.balance ?? 0).toFixed(2));
+          setReservationId(event.target.value); setAmount((updatedBalances[event.target.value] ?? Number(bills.find(bill => bill.reservation_id === event.target.value)?.balance ?? 0)).toFixed(2));
           setCashReference(`CASH-${crypto.randomUUID().slice(0, 12).toUpperCase()}`); setReference(""); setReceived(false); setError(null);
         }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white p-3 text-base text-black">
           {bills.filter(bill => Number(bill.balance ?? 0) > 0 && ["pending", "confirmed"].includes(bill.reservation_status ?? "")).map(bill => <option key={bill.reservation_id} value={bill.reservation_id}>{references[bill.reservation_id] ?? bill.reservation_id} - balance {money(Number(bill.balance))}</option>)}

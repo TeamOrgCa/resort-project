@@ -8,10 +8,12 @@ export interface BookingServiceItem {
   name: string;
   price: number;
   quantity?: number;
-  billingType?: "quantity" | "duration";
+  billingType?: "quantity" | "duration" | "person" | "fixed";
 }
 
 export interface BookingDraft {
+  promo?: import("@/lib/booking/discounts").PromoQuote | null;
+  promoCode?: string | null;
   packageRateVersion: number | null;
   packageRates: PackageRates | null;
   checkIn: string;
@@ -67,6 +69,8 @@ interface BookingStoreState {
 }
 
 const initialDraft: BookingDraft = {
+  promo: null,
+  promoCode: null,
   packageRateVersion: null,
   packageRates: null,
   checkIn: "",
@@ -134,7 +138,7 @@ export const useBookingStore = create<BookingStoreState>()(
         })),
       setBookingDraft: (draft) =>
         set((state) => {
-          const changesReservation = ["bookingMode", "startDatetime", "endDatetime", "unitId", "adultCount", "childCount", "services"]
+          const changesReservation = ["bookingMode", "startDatetime", "endDatetime", "unitId", "adultCount", "childCount", "services", "promoCode"]
             .some((key) => key in draft);
           return {
             bookingDraft: {

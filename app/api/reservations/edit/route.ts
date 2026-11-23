@@ -56,8 +56,9 @@ export async function POST(request: Request) {
     const preview = previewReservationEdit(r, detail.bill, detail.services, detail.catalogServices,
       { ...edit, bookingMode: r.booking_mode, startDatetime: r.start_datetime, endDatetime: r.end_datetime }, detail.packageRates);
     if (Math.abs(preview.total - edit.expectedTotal) > 0.001) return NextResponse.json({ message: "The bill changed. Reload and review the new total." }, { status: 409 });
-    const { data, error } = await createAdminClient().rpc("edit_guest_reservation_bill", { p_reservation: id, p_guest: user.id,
-      p_expected: loaded.snapshot, p_patch: { adultCount: edit.adultCount, childCount: edit.childCount, ...(edit.unitId !== undefined ? { unitId: edit.unitId } : {}), services: edit.services, packageDelta: preview.packageDelta, expectedTotal: preview.total } });
+    if (edit.adultCount + edit.childCount === r.adult_count + r.child_count) { edit.adultCount = r.adult_count; edit.childCount = r.child_count; }
+    const { data, error } = await createAdminClient().rpc(preview.hasDiscount ? "edit_guest_reservation_bill_with_discount" : "edit_guest_reservation_bill", { p_reservation: id, p_guest: user.id,
+      p_expected: loaded.snapshot, p_patch: { adultCount: edit.adultCount, childCount: edit.childCount, ...(edit.unitId !== undefined ? { unitId: edit.unitId } : {}), services: edit.services, packageDelta: preview.packageDelta, expectedTotal: preview.interimTotal } });
     if (error) {
       const missing = ["PGRST202", "42883"].includes(error.code);
       return NextResponse.json({ message: missing ? "Booking editing needs the guest-booking-edit migration. Contact the resort administrator." : error.message },

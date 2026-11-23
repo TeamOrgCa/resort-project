@@ -1,4 +1,5 @@
 "use client";
+import BookingDiscountPanel from "./BookingDiscountPanel";
 
 import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import { advanceBookingIssue } from "@/lib/booking/advance-window";
@@ -8,7 +9,7 @@ import { serviceBilling } from "@/lib/booking/service-billing";
 import { useEffect, useRef, useState } from "react";
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import { MAX_GUESTS } from "@/lib/booking/guest-count";
-import { moveReservationToDate, previewReservationEdit, validateEditWindow, type EditDetail, type ReservationEdit } from "@/lib/booking/reservation-edit";
+import { serviceSelectionsChanged, moveReservationToDate, previewReservationEdit, validateEditWindow, type EditDetail, type ReservationEdit } from "@/lib/booking/reservation-edit";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
 import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
 import { maintenanceOverlaps } from "@/lib/booking/maintenance";
@@ -61,7 +62,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
         setDetail(d); setLateAcknowledged(false);
         setCalendarMonth(localTime(d.reservation.start_datetime).slice(0, 7));
         setDraft({ bookingMode: d.reservation.booking_mode ?? "day", startDatetime: localTime(d.reservation.start_datetime),
-          endDatetime: localTime(d.reservation.end_datetime), adultCount: d.reservation.adult_count, childCount: d.reservation.child_count,
+          endDatetime: localTime(d.reservation.end_datetime), adultCount: d.reservation.adult_count + d.reservation.child_count, childCount: 0,
           unitId: d.units.length === 1 && d.units[0].quantity === 1 ? d.units[0].unit_id : null,
           specialRequests: d.reservation.special_requests ?? "", reason: "",
           services: d.services.map(s => ({ serviceId: s.service_id, quantity: s.quantity })) });
@@ -83,8 +84,8 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
   const toEdit = () => ({ ...draft,
     ...moveReservationToDate(detail.reservation, draft.startDatetime.slice(0, 10)),
     bookingMode: detail.reservation.booking_mode ?? "day", lateRescheduleAcknowledged: lateAcknowledged, version: detail.version, expectedTotal: 0 });
-  let preview: ReturnType<typeof previewReservationEdit> | null = null;
-  try { preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, toEdit(), detail.packageRates, availability.now); } catch { /* Incomplete datetime input: show a prompt in the bill preview. */ }
+  let preview: ReturnType<typeof previewReservationEdit> | null = null, previewError = "";
+  try { preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, toEdit(), detail.packageRates, availability.now); } catch (cause) { previewError = cause instanceof Error ? cause.message : "Unable to calculate the bill."; }
   const visibleServices = detail.catalogServices.filter(s => s.is_active || detail.services.some(e => e.service_id === s.service_id));
   // Keep historical selections visible even if their catalog record was removed.
   for (const s of detail.services) if (!visibleServices.some(e => e.service_id === s.service_id)) visibleServices.push({ service_id: s.service_id, name: "Previously booked service", price: Number(s.price_at_time), is_active: false });
@@ -92,6 +93,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
   const sameSchedule = (candidate: Pick<Draft, "bookingMode" | "startDatetime" | "endDatetime">) => candidate.bookingMode === detail.reservation.booking_mode
     && candidate.startDatetime === localTime(detail.reservation.start_datetime) && candidate.endDatetime === localTime(detail.reservation.end_datetime);
   const scheduleChanged = !sameSchedule(draft);
+  const unsavedDetails = scheduleChanged || draft.adultCount + draft.childCount !== detail.reservation.adult_count + detail.reservation.child_count || draft.unitId !== (detail.units.length === 1 ? detail.units[0].unit_id : null) || draft.specialRequests !== (detail.reservation.special_requests ?? "") || serviceSelectionsChanged(detail.services, draft.services);
 
   function windowIssue(candidate: Pick<Draft, "bookingMode" | "startDatetime" | "endDatetime">): string | null {
     if (!draft || !detail) return "Load the reservation first.";
@@ -152,6 +154,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
         <p className="mt-1 text-sm text-neutral/60">{detail.guest?.email || "No email"} · {detail.guest?.phone_number || "No phone"}</p></div>
       <div className="text-sm text-neutral/70"><p className="font-medium">{detail.reservation.reference_number}</p><p className="capitalize">{detail.reservation.status.replaceAll("_", " ")}</p><p>{detail.reservation.booking_type === "walk_in" ? "Staff-entered booking" : "Online booking"}</p></div>
     </div>
+    {canEdit && detail.canManageDiscount && <div>{unsavedDetails && <p className="mb-2 text-sm text-amber-900">Save the reservation changes first so the discount uses the saved number of guests and package price.</p>}<BookingDiscountPanel reservationId={reservationId} disabled={busy || unsavedDetails} onBusyChange={setBusy} onChanged={() => { reloadDetails(); onSaved(); }} /></div>}
     {success && <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{success}</p>}
     {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800"><p>{error}</p><button type="button" disabled={busy} onClick={reloadDetails} className="mt-2 underline">Reload reservation</button></div>}
     {!canEdit && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{detail.lockedReason ?? "Your role has view-only access. An administrator can grant permission to edit reservations."}</p>}
@@ -188,8 +191,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
       </select></label>
     <fieldset disabled={busy || !canEdit} className="grid gap-4 sm:grid-cols-2">
       <legend className="mb-3 font-semibold text-neutral">Guest counts</legend>
-      <label className="text-sm text-neutral/70">Adults<input disabled={!canEdit} required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value) })} /></label>
-      <label className="text-sm text-neutral/70">Children<input disabled={!canEdit} required type="number" min={0} max={MAX_GUESTS - 1} className={inputClass} value={draft.childCount} onChange={e => setDraft({ ...draft, childCount: Number(e.target.value) })} /></label>
+      <label className="text-sm text-neutral/70">Number of guests<input aria-label="Number of guests" disabled={!canEdit} required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value), childCount: 0 })} /></label>
       <p className="text-xs text-neutral/60 sm:col-span-2">Times are in Philippine time. Up to {MAX_GUESTS} guests. Package rates apply to the selected schedule and guest count.</p>
     </fieldset>
     <fieldset disabled={busy || !canEdit} className="space-y-3">
@@ -200,11 +202,11 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
           const selected = draft.services.find(e => e.serviceId === s.service_id);
           const old = detail.services.find(e => e.service_id === s.service_id);
           const price = Number(old?.price_at_time ?? s.price);
-          const billing = serviceBilling(old?.billing_type ?? s.billing_type);
+          const billing = serviceBilling(old?.billing_type ?? s.billing_type, serviceQuantityLimit(s.max_quantity, old?.quantity));
           return <div key={s.service_id} className="flex items-center justify-between gap-3 rounded-xl bg-base/60 p-3">
             <label className="flex cursor-pointer items-start gap-3 text-sm"><input type="checkbox" className="mt-1 accent-primary" checked={Boolean(selected)} disabled={!canEdit || (!canReduce && Boolean(old))} onChange={e => setDraft({ ...draft, services: e.target.checked ? [...draft.services, { serviceId: s.service_id, quantity: 1 }] : draft.services.filter(x => x.serviceId !== s.service_id) })} />
               <span><span className="font-medium text-neutral">{s.name}{!s.is_active ? " (archived)" : ""}</span><span className="block text-xs text-neutral/60">{currency(price)} {billing.rateLabel}{old ? " · booked rate" : ""}</span></span></label>
-            {selected && <label className="w-20 shrink-0 text-xs text-neutral/60">{billing.inputLabel}<input aria-label={`${billing.inputLabel} for ${s.name}`} type="number" required min={!canReduce ? old?.quantity ?? 1 : 1} max={serviceQuantityLimit(s.max_quantity, old?.quantity)} className={inputClass} value={selected.quantity} onChange={e => setDraft({ ...draft, services: draft.services.map(x => x.serviceId === s.service_id ? { ...x, quantity: Number(e.target.value) } : x) })} /></label>}
+            {selected && billing.hasQuantity && <label className="w-20 shrink-0 text-xs text-neutral/60">{billing.inputLabel}<input aria-label={`${billing.inputLabel} for ${s.name}`} type="number" required min={!canReduce ? old?.quantity ?? 1 : 1} max={serviceQuantityLimit(s.max_quantity, old?.quantity)} className={inputClass} value={selected.quantity} onChange={e => setDraft({ ...draft, services: draft.services.map(x => x.serviceId === s.service_id ? { ...x, quantity: Number(e.target.value) } : x) })} /></label>}
           </div>;
         })}
       </div>
@@ -217,11 +219,12 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
         <dt className="text-neutral/60">Package adjustment</dt><dd className="text-right">{currency(preview.packageDelta)}</dd>
         <dt className="text-neutral/60">Reschedule notice fee</dt><dd className="text-right">{currency(preview.rescheduleFee)}</dd>
         <dt className="text-neutral/60">Services total</dt><dd className="text-right">{currency(preview.servicesTotal)}</dd>
+        {preview.hasDiscount && <><dt>Discount applied</dt><dd className="text-right">-{currency(preview.discountAmount)}</dd></>}
         <dt className="font-semibold">New total</dt><dd className="text-right font-semibold">{currency(preview.total)}</dd>
         <dt className="text-neutral/60">Already paid</dt><dd className="text-right">{currency(preview.paid)}</dd>
         <dt className="font-semibold text-primary">Amount payable</dt><dd className="text-right font-semibold text-primary">{currency(preview.balance)}</dd>
         {preview.overpaid > 0 && <><dt className="text-amber-800">Overpayment</dt><dd className="text-right text-amber-800">{currency(preview.overpaid)}</dd></>}
-      </dl> : <p className="mt-2 text-sm text-neutral/60">Complete the schedule to preview the bill.</p>}
+      </dl> : <p className="mt-2 text-sm text-neutral/60">{previewError || "Complete the schedule to preview the bill."}</p>}
       <p className="mt-3 text-xs text-neutral/60">Payments and issued receipts are retained. The current invoice follows the updated bill. Handle any overpayment in Transactions.</p>
     </div>
     {(canEdit || detail.canRescheduleException) && <><label className="block text-sm text-neutral/70">Reason for change <span className="text-red-600">*</span><textarea required maxLength={1000} disabled={busy} rows={2} className={inputClass} placeholder="Example: Guest requested a new date by Messenger, or added services at check-in." value={draft.reason} onChange={e => setDraft({ ...draft, reason: e.target.value })} /></label>

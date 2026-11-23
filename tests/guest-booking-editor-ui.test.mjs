@@ -33,7 +33,7 @@ test("customer edits use rental hours while keeping the original booked type aft
     await input(h.c.querySelector('[aria-label="New service"]'), extra);
     const hours = h.c.querySelector('[aria-label="New service hours"]'); assert.ok(hours); assert.equal(hours.max, "6");
     await input(hours, 3); await click(button(h.c, "Add Service"));
-    assert.equal(h.c.querySelector('[aria-label="Hours for Karaoke"]').value, "3");
+    assert.equal(h.c.querySelector('[aria-label="Duration (Hours) for Karaoke"]').value, "3");
     assert.match(h.c.textContent, /per hour/);
     assert.match(h.c.querySelector('[aria-label="Updated bill preview"]').textContent, /10,100/);
   } finally { await h.close(); }
@@ -43,7 +43,7 @@ test("partial-payment edits preview headcount charges and allow reducing/removin
   let posted; const h = await mount({ fetcher: async (_url, options) => { posted = JSON.parse(options.body); return Response.json({ success: true, totalAmount: 8150 }); } });
   try {
     assert.equal(button(h.c, "Save Reservation Changes").disabled, true);
-    await input(h.c.querySelector('[aria-label="Adults"]'), 20);
+    await input(h.c.querySelector('[aria-label="Number of guests"]'), 20);
     await input(h.c.querySelector('[aria-label="Quantity for Table"]'), 1);
     assert.match(h.c.querySelector('[aria-label="Updated bill preview"]').textContent, /8,250/);
     await click(h.c.querySelector('[aria-label="Remove Table"]')); assert.match(h.c.textContent, /Services are optional/);
@@ -62,15 +62,15 @@ test("full-payment and during-stay restrictions retain additions and expose acti
   try {
     assert.equal(h.c.querySelector('[aria-label="Remove Table"]').disabled, true);
     assert.equal(h.c.querySelector('[aria-label="Quantity for Table"]').min, "2");
-    await input(h.c.querySelector('[aria-label="Adults"]'), 31); assert.match(h.c.querySelector('[role="alert"]').textContent, /no more than 30/);
+    await input(h.c.querySelector('[aria-label="Number of guests"]'), 31); assert.match(h.c.querySelector('[role="alert"]').textContent, /no more than 30/);
     assert.equal(button(h.c, "Save Reservation Changes").disabled, true);
-    await input(h.c.querySelector('[aria-label="Adults"]'), 21); assert.equal(button(h.c, "Save Reservation Changes").disabled, false);
+    await input(h.c.querySelector('[aria-label="Number of guests"]'), 21); assert.equal(button(h.c, "Save Reservation Changes").disabled, false);
     assert.match(h.c.textContent, /Excess paid/);
     await input(h.c.querySelector('[aria-label="New service"]'), extra); await click(button(h.c, "Add Service"));
     assert.equal(h.c.querySelector('[aria-label="Remove Karaoke"]').disabled, false);
   } finally { await h.close(); }
   const stay = await mount({ loaded: { ...detail, canChangeGuests: false, canReduceServices: false } });
-  try { assert.equal(stay.c.querySelector('[aria-label="Adults"]').disabled, true); assert.equal(stay.c.querySelector('[aria-label="Remove Table"]').disabled, true); }
+  try { assert.equal(stay.c.querySelector('[aria-label="Number of guests"]').disabled, true); assert.equal(stay.c.querySelector('[aria-label="Remove Table"]').disabled, true); }
   finally { await stay.close(); }
 });
 

@@ -42,7 +42,7 @@ export default function ReservationRecordDetails({ reservationId }: { reservatio
     <section className="rounded-xl border border-neutral/10 p-4"><h3 className="font-semibold">Reservation details</h3>
       <dl className="mt-3 grid gap-3 sm:grid-cols-2">{[
         ["Reference", r.reference_number], ["Status", title(r.status)], ["Package", title(r.booking_mode ?? "Unspecified")],
-        ["Guests", `${r.adult_count} adults, ${r.child_count} children`], ["Scheduled arrival", dateTime(r.start_datetime)], ["Scheduled departure", dateTime(r.end_datetime)],
+        ["Guests", `${r.adult_count + r.child_count} guests`], ["Scheduled arrival", dateTime(r.start_datetime)], ["Scheduled departure", dateTime(r.end_datetime)],
         ["Actual check-in", dateTime(r.checked_in_at)], ["Actual checkout", dateTime(r.checked_out_at)], ["Booking created", dateTime(r.created_at)],
       ].map(([label, value]) => <div key={label}><dt className="text-neutral/60">{label}</dt><dd className="mt-1 break-words font-medium">{value}</dd></div>)}</dl>
     </section>

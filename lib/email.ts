@@ -148,7 +148,7 @@ const formatMoney = (value: number) =>
 const billingLines = (payload: BillingEmailBase) => [
   `Reservation: ${payload.reservationReference}`,
   `Booking type: ${payload.bookingMode}`,
-  `Guests: ${payload.adultCount} adults, ${payload.childCount} children`,
+  `Guests: ${payload.adultCount + payload.childCount} guests`,
   `Check-in: ${formatDateTimeLabel(payload.checkInDate)}`,
   `Check-out: ${formatDateTimeLabel(payload.checkOutDate)}`,
 ];
@@ -156,7 +156,7 @@ const billingLines = (payload: BillingEmailBase) => [
 const billingRows = (payload: BillingEmailBase) => [
   ["Reservation", payload.reservationReference],
   ["Booking type", payload.bookingMode],
-  ["Guests", `${payload.adultCount} adults, ${payload.childCount} children`],
+  ["Guests", `${payload.adultCount + payload.childCount} guests`],
   ["Check-in", formatDateTimeLabel(payload.checkInDate)],
   ["Check-out", formatDateTimeLabel(payload.checkOutDate)],
 ];
@@ -168,9 +168,10 @@ const billingTable = (rows: string[][]) => `<table class="email-details" cellpad
 const breakdownText = (breakdown: BillingBreakdown) => [
   "Items availed and charges:",
   ...breakdown.lines.flatMap((line) => [
-    `- ${line.description}: ${line.quantity} × ${formatMoney(line.unitPrice)} = ${formatMoney(line.amount)}`,
+    line.kind === "discount" ? `- ${line.description}: ${formatMoney(line.amount)}` : `- ${line.description}: ${line.quantity} × ${formatMoney(line.unitPrice)} = ${formatMoney(line.amount)}`,
     `  ${line.detail}`,
   ]),
+  ...(breakdown.lines.some(line => line.kind === "discount") ? [`Total before discount: ${formatMoney(breakdown.total - breakdown.lines.filter(line => line.kind === "discount").reduce((sum, line) => sum + line.amount, 0))}`] : []),
   `Total charges: ${formatMoney(breakdown.total)}`,
 ];
 
@@ -185,7 +186,7 @@ const breakdownTable = (breakdown: BillingBreakdown) => `
       <td style="padding:14px 12px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word"><strong style="color:#3B2A1E">${escapeHtml(line.description)}</strong><br><span style="color:#705D4E;font-size:12px">${escapeHtml(line.detail)}</span><br><span style="color:#705D4E;font-size:12px">Qty: ${line.quantity} &middot; Rate: ${escapeHtml(formatMoney(line.unitPrice))}</span></td>
       <td style="padding:14px 12px;text-align:right;vertical-align:top;white-space:nowrap;font-weight:600;color:#3B2A1E">${escapeHtml(formatMoney(line.amount))}</td>
     </tr>`).join("")}</tbody>
-    <tfoot><tr bgcolor="#EDF4ED"><th scope="row" style="padding:14px 12px;text-align:left;color:#2F6B3F">Total charges</th>
+    <tfoot>${breakdown.lines.some(line => line.kind === "discount") ? `<tr><th scope="row" style="padding:14px 12px;text-align:left">Total before discount</th><td style="padding:14px 12px;text-align:right;white-space:nowrap">${escapeHtml(formatMoney(breakdown.total - breakdown.lines.filter(line => line.kind === "discount").reduce((sum, line) => sum + line.amount, 0)))}</td></tr>` : ""}<tr bgcolor="#EDF4ED"><th scope="row" style="padding:14px 12px;text-align:left;color:#2F6B3F">Total charges</th>
       <td style="padding:14px 12px;text-align:right;white-space:nowrap;font-weight:700;color:#2F6B3F">${escapeHtml(formatMoney(breakdown.total))}</td></tr></tfoot>
   </table>`;
 

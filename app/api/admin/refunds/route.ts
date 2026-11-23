@@ -13,7 +13,7 @@ export async function GET() {
   if (!await staffHasPermission(staff.supabase, staff.staffUser.role, "transactions")) return NextResponse.json({ message: "Permission required." }, { status: 403 });
   try {
     const refunds = await fetchAllPages((from, to) => staff.supabase.from("refund_requests")
-      .select("refund_id, reservation_id, guest_id, amount, request_kind, policy_snapshot, policy_version, calculation_snapshot, workflow_version, status, requested_at, reviewed_by, reviewed_at, review_reason, payment_reviewed_by, payment_reviewed_at, payment_review_notes, payout_submitted_by, payout_submitted_at, payout_method, payout_verification_notes, refunded_by, refunded_at, gcash_reference, proof_path")
+      .select("refund_id, reservation_id, guest_id, amount, request_kind, policy_snapshot, policy_version, calculation_snapshot, workflow_version, status, requested_at, reviewed_by, reviewed_at, review_reason, payment_reviewed_by, payment_reviewed_at, payment_review_notes, payout_submitted_by, payout_submitted_at, payout_method, payout_verification_notes, refunded_by, refunded_at, gcash_reference, proof_path, destination_requested_at, destination_method, destination_account_name, destination_account_number, destination_submitted_at")
       .order("requested_at", { ascending: false }).order("refund_id").range(from, to));
     const ids = [...new Set(refunds.map(row => row.reservation_id as string))];
     const [reservations, bills, payments, paymentMethods, canPay, canVerify, canApprove] = await Promise.all([
@@ -66,8 +66,10 @@ export async function POST(request: Request) {
     if (!(proof instanceof File) || proof.size < 1 || proof.size > 8 * 1024 * 1024 ||
       !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(proof.type) || !reference || reference.length < 6 || reference.length > 100)
       return NextResponse.json({ message: "A transfer reference and image or PDF proof (up to 8 MB) are required." }, { status: 400 });
-    const { data: current, error } = await staff.supabase.from("refund_requests").select("status").eq("refund_id", id).maybeSingle();
+    const { data: current, error } = await staff.supabase.from("refund_requests").select("status,destination_requested_at,destination_submitted_at,destination_method").eq("refund_id", id).maybeSingle();
     if (error || current?.status !== "approved") return NextResponse.json({ message: "The refund must be approved before recording a transfer." }, { status: 409 });
+    if (current.destination_requested_at && !current.destination_submitted_at) return NextResponse.json({ message: "Wait for the guest to provide the requested refund account details." }, { status: 409 });
+    if (current.destination_submitted_at && current.destination_method !== method) return NextResponse.json({ message: "Use the payout method supplied by the guest." }, { status: 400 });
     const bytes = Buffer.from(await proof.arrayBuffer());
     const signatures: Record<string, boolean> = {
       "application/pdf": bytes.subarray(0, 5).toString() === "%PDF-",

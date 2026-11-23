@@ -1,3 +1,4 @@
+import { calculateBookingDiscount, savedPromo, type DiscountState } from "./discounts";
 import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { DEFAULT_PACKAGE_TIMES, type PackageTimes } from "./package-times";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
@@ -25,16 +26,17 @@ export type EditableReservation = {
   checked_in_at?: string | null;
   checked_out_at?: string | null;
 };
-export type SelectedService = { service_id: string; quantity: number; price_at_time: number; billing_type?: "quantity" | "duration" };
+export type SelectedService = { service_id: string; quantity: number; price_at_time: number; billing_type?: "quantity" | "duration" | "person" | "fixed" };
 export type SelectedUnit = { unit_id: string; quantity: number; price_per_night: number };
-export type CatalogService = { max_quantity?: number; billing_type?: "quantity" | "duration"; service_id: string; name: string; price: number; is_active: boolean };
+export type CatalogService = { max_quantity?: number; billing_type?: "quantity" | "duration" | "person" | "fixed"; service_id: string; name: string; price: number; is_active: boolean };
 export type CatalogUnit = { unit_id: string; name: string; base_price: number; is_active: boolean; archived_at: string | null };
-export type Bill = { total_amount: number; paid_amount: number; status: string };
+export type Bill = DiscountState & { total_amount: number; paid_amount: number; status: string };
 export type EditDetail = {
   reservation: EditableReservation; guest: { first_name: string; last_name: string; email: string | null; phone_number: string | null } | null;
   services: SelectedService[]; units: SelectedUnit[]; catalogServices: CatalogService[]; catalogUnits: CatalogUnit[];
   bill: Bill; version: string; canEdit: boolean; canChangeDetails: boolean; lockedReason: string | null;
   packageRates: PackageRates; packageTimes?: PackageTimes;
+  canManageDiscount?: boolean;
   canApproveLateReschedule?: boolean;
   canRescheduleException?: boolean;
   canReduceServices?: boolean;
@@ -104,7 +106,7 @@ export function reservationEditAccess(r: EditableReservation, pendingPayment: bo
 
 export function detailsChanged(r: EditableReservation, edit: ReservationEdit) {
   return r.booking_mode !== edit.bookingMode || Date.parse(r.start_datetime) !== Date.parse(edit.startDatetime) ||
-    Date.parse(r.end_datetime) !== Date.parse(edit.endDatetime) || r.adult_count !== edit.adultCount || r.child_count !== edit.childCount;
+    Date.parse(r.end_datetime) !== Date.parse(edit.endDatetime) || r.adult_count + r.child_count !== edit.adultCount + edit.childCount;
 }
 
 export function validateEditWindow(edit: ReservationEdit, times: PackageTimes = DEFAULT_PACKAGE_TIMES, original?: EditableReservation) {
@@ -140,8 +142,11 @@ export function previewReservationEdit(r: EditableReservation, bill: Bill, exist
     if (!old && (!listed || !listed.is_active)) throw new Error("A selected service is no longer available. Reload the reservation.");
     return sum + s.quantity * Number(old?.price_at_time ?? listed!.price);
   }, 0);
-  const total = moneyRound(Number(bill.total_amount) + packageDelta + rescheduleFee + newServices - oldServices);
-  return { packageDelta, rescheduleFee, dateRateAdjustment: dateDelta, servicesTotal: moneyRound(newServices), total,
+  const interimTotal = moneyRound(Number(bill.total_amount) + packageDelta + rescheduleFee + newServices - oldServices);
+  const hasDiscount = Boolean(bill.discount_amount || bill.discount_eligible_guests || bill.discount_promo_code);
+  const discount = hasDiscount ? calculateBookingDiscount(computeBookingPricing({ ...edit, servicesTotal: 0 }, rates).packageRate, edit.adultCount + edit.childCount, Number(bill.discount_eligible_guests ?? 0), savedPromo(bill)) : null;
+  const total = moneyRound(interimTotal + (discount ? Number(bill.discount_amount ?? 0) - discount.amount : 0));
+  return { interimTotal, hasDiscount, discountAmount: discount?.amount ?? 0, packageDelta, rescheduleFee, dateRateAdjustment: dateDelta, servicesTotal: moneyRound(newServices), total,
     paid: Number(bill.paid_amount), balance: moneyRound(Math.max(0, total - Number(bill.paid_amount))),
     overpaid: moneyRound(Math.max(0, Number(bill.paid_amount) - total)) };
 }

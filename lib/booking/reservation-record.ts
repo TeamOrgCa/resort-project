@@ -9,6 +9,6 @@ export type ReservationRecordDetail = {
   reservation: ReservationRecord;
   guest: { first_name: string; last_name: string; email: string | null; phone_number: string | null; address: string | null } | null;
   units: { name: string; quantity: number; price: number }[];
-  services: { name: string; quantity: number; price: number; billingType?: "quantity" | "duration" }[];
+  services: { name: string; quantity: number; price: number; billingType?: "quantity" | "duration" | "person" | "fixed" }[];
   bill: { total: number; paid: number; balance: number; status: string } | null;
 };

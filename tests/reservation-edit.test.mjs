@@ -24,7 +24,7 @@ const detail = () => ({ reservation, bill, packageRates: legacyRates, services: 
 test("service additions retain a negotiated package, fees, historical prices and payments", () => {
   const p = helper.previewReservationEdit(reservation, bill, existing, catalog, { ...edit,
     services: [{ serviceId, quantity: 2 }, { serviceId: newServiceId, quantity: 3 }] }, legacyRates);
-  assert.deepEqual(p, { packageDelta: 0, rescheduleFee: 0, dateRateAdjustment: 0, servicesTotal: 950, total: 9450, paid: 8000, balance: 1450, overpaid: 0 });
+  assert.deepEqual(p, { interimTotal: 9450, hasDiscount: false, discountAmount: 0, packageDelta: 0, rescheduleFee: 0, dateRateAdjustment: 0, servicesTotal: 950, total: 9450, paid: 8000, balance: 1450, overpaid: 0 });
 });
 test("a schedule or guest-count edit applies only the package price difference", () => {
   const p = helper.previewReservationEdit(reservation, bill, existing, catalog, { ...edit, adultCount: 22 }, legacyRates);

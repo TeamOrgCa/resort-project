@@ -1,3 +1,4 @@
+import { calculateBookingDiscount, type PromoQuote } from "./discounts";
 import { BookingMode } from "@/lib/booking/policy";
 import { downPaymentAmount } from "@/lib/booking/payment-policy";
 import { isManilaWeekend, manilaHour } from "@/lib/booking/manila-date";
@@ -11,6 +12,7 @@ export interface BookingPricingInput {
   adultCount: number;
   childCount: number;
   servicesTotal?: number;
+  promo?: PromoQuote | null;
 }
 
 export interface BookingPricingResult {
@@ -26,6 +28,8 @@ export interface BookingPricingResult {
   subtotal: number;
   tax: number;
   total: number;
+  discountAmount: number;
+  grossTotal: number;
   downPaymentMin: number;
 }
 
@@ -73,7 +77,8 @@ export const computeBookingPricing = (input: BookingPricingInput, rates: Package
   const extraGuestTotal = extraGuests * addOnPerHead;
   const servicesTotal = Math.max(0, Number(input.servicesTotal || 0));
   const subtotal = packageRate + extraGuestTotal + servicesTotal;
-  const total = round2(subtotal);
+  const discountAmount = input.promo && totalGuests > 0 ? calculateBookingDiscount(packageRate, totalGuests, 0, input.promo).amount : 0;
+  const total = round2(subtotal - discountAmount);
 
   return {
     rateTier: tier,
@@ -85,7 +90,9 @@ export const computeBookingPricing = (input: BookingPricingInput, rates: Package
     extraGuests,
     extraGuestTotal,
     servicesTotal,
-    subtotal: total,
+    grossTotal: round2(subtotal),
+    discountAmount,
+    subtotal: round2(subtotal),
     tax: 0,
     total,
     downPaymentMin: downPaymentAmount(total),

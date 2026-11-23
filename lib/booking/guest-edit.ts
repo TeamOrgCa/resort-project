@@ -1,17 +1,17 @@
-import type { CatalogService, CatalogUnit, EditableReservation, SelectedService, SelectedUnit } from "./reservation-edit";
+import type { Bill, CatalogService, CatalogUnit, EditableReservation, SelectedService, SelectedUnit } from "./reservation-edit";
 import type { PackageRates } from "./package-rates";
 import { isValidGuestCounts } from "./guest-count";
 
 export type GuestBookingEdit = { adultCount: number; childCount: number; unitId?: string | null; services: { serviceId: string; quantity: number }[]; version: string; expectedTotal: number };
 export type GuestEditDetail = {
   reservation: EditableReservation; services: SelectedService[]; catalogServices: CatalogService[];
-  bill: { total_amount: number; paid_amount: number; status: string }; packageRates: PackageRates;
+  bill: Bill; packageRates: PackageRates;
   version: string; lockedReason: string | null; canChangeGuests: boolean; canReduceServices: boolean;
   units?: SelectedUnit[]; catalogUnits?: CatalogUnit[]; canChangeAccommodation?: boolean;
 };
 export type GuestEditResult = { totalAmount: number; paidAmount: number; remainingBalance: number; overpaidAmount: number;
   adultCount: number; childCount: number; message: string;
-  services: { serviceId: string; name: string; quantity: number; priceAtTime: number; billingType?: "quantity" | "duration" }[] };
+  services: { serviceId: string; name: string; quantity: number; priceAtTime: number; billingType?: "quantity" | "duration" | "person" | "fixed" }[] };
 
 export function parseGuestBookingEdit(value: unknown): GuestBookingEdit | null {
   if (!value || typeof value !== "object") return null;
@@ -38,7 +38,7 @@ export function guestEditRestriction(detail: GuestEditDetail, edit: GuestBooking
     if (!detail.canChangeAccommodation) return "Accommodation can only be changed before check-in. Contact resort staff.";
     if (!edit.unitId || !detail.catalogUnits?.some(unit => unit.unit_id === edit.unitId && unit.is_active && !unit.archived_at)) return "Choose an available accommodation type.";
   }
-  if (!detail.canChangeGuests && (edit.adultCount !== r.adult_count || edit.childCount !== r.child_count)) return "Guest counts can only be changed before check-in. Contact resort staff during your stay.";
+  if (!detail.canChangeGuests && (edit.adultCount + edit.childCount !== r.adult_count + r.child_count)) return "Guest counts can only be changed before check-in. Contact resort staff during your stay.";
   if (!detail.canReduceServices && detail.services.some(s => (edit.services.find(next => next.serviceId === s.service_id)?.quantity ?? 0) < s.quantity)) return "Services cannot be reduced or removed after full payment or after check-in. Contact resort staff.";
   return null;
 }

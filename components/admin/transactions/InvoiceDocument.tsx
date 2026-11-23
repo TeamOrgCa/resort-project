@@ -3,6 +3,7 @@
 import BillingDocument from "./BillingDocument";
 import type { InvoiceViewDetails } from "./types";
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
+import { invoiceBillingBreakdown } from "./invoice-breakdown";
 
 const money = (value: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 }).format(value);
 const titleCase = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
@@ -17,15 +18,14 @@ export default function InvoiceDocument({ details }: { details: InvoiceViewDetai
     ["Scheduled check-in", reservation ? formatManilaDateTime(reservation.start_datetime) : "Not recorded"],
     ["Scheduled check-out", reservation ? formatManilaDateTime(reservation.end_datetime) : "Not recorded"],
   ];
-  const lines = [
-    ...details.unitBreakdown.map(item => ({ name: item.name, quantity: item.quantity, rate: `${money(item.pricePerNight)}/night × ${details.nights}`, total: item.lineTotal })),
-    ...details.serviceBreakdown.map(item => ({ name: item.name, quantity: item.quantity, rate: money(item.priceAtTime), total: item.lineTotal })),
-  ];
+  const breakdown = invoiceBillingBreakdown(details);
+  const discount = breakdown.lines.find(line => line.kind === "discount");
+  const lines = !transaction && !details.unitBreakdown.length && !details.serviceBreakdown.length
+    ? [] : breakdown.lines.filter(line => line.kind !== "discount");
   const totals: [string, string][] = [
-    ["Accommodation subtotal", money(details.unitsSubtotal)],
-    ["Services subtotal", money(details.servicesSubtotal)],
-    ["Itemized subtotal", money(details.computedTotal)],
-    ["Invoice amount at issue", money(Number(invoice.total_amount))],
+    ["Total before discount", money(breakdown.total - (discount?.amount ?? 0))],
+    ...(discount ? [[discount.description, money(discount.amount)]] as [string, string][] : []),
+    ["Invoice amount", money(Number(invoice.total_amount))],
     ...(transaction ? [
       ["Current billing total", money(Number(transaction.total_amount))],
       ["Verified amount paid", money(Number(transaction.paid_amount ?? 0))],
@@ -41,12 +41,13 @@ export default function InvoiceDocument({ details }: { details: InvoiceViewDetai
     <section className="receipt-section"><h2>Charge breakdown</h2>
       {lines.length ? <table className="invoice-items" aria-label="Invoice charges">
         <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Rate</th><th scope="col">Amount</th></tr></thead>
-        <tbody>{lines.map((item, index) => <tr key={index}><td>{item.name}</td><td>{item.quantity}</td><td>{item.rate}</td><td>{money(item.total)}</td></tr>)}</tbody>
+        <tbody>{lines.map((item, index) => <tr key={index}><td>{item.description}<br /><small>{item.detail}</small></td><td>{item.quantity}</td><td>{money(item.unitPrice)}</td><td>{money(item.amount)}</td></tr>)}</tbody>
       </table> : <p className="receipt-caption">No itemized charges recorded.</p>}
     </section>
     <section className="receipt-section"><h2>Billing summary</h2>
       <table className="receipt-table" aria-label="Invoice billing summary"><tbody>{totals.map(([label, value]) => <tr key={label} className={label === "Outstanding balance" ? "receipt-balance-row" : undefined}><th scope="row">{label}</th><td>{value}</td></tr>)}</tbody></table>
-      <p className="receipt-caption">The invoice amount reflects the bill when issued. Current billing totals may include later adjustments beyond the itemized charges above.</p>
+      {discount && <p className="receipt-caption">{discount.detail}</p>}
+      <p className="receipt-caption">The charge breakdown reflects the current reservation bill, including any applied discount. Payment receipts retain the amounts and discount details recorded at payment.</p>
     </section>
     <section className="receipt-section"><h2>Verified payments</h2>
       {details.verifiedPayments.length ? <table className="invoice-items" aria-label="Invoice verified payments">

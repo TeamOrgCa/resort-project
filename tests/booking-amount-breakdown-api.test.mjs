@@ -17,7 +17,7 @@ function harness({ authenticated=true, owned=true, failure=false }={}) {
     })},
     '@/lib/supabase/admin':{createAdminClient:()=>{adminReads++;return {from:table=>{const q={select:()=>q,eq:(...args)=>{filters.push([table,...args]);return q;},maybeSingle:()=>q,then:resolve=>resolve({data:data[table],error:failure?{message:'Unavailable'}:null})};return q;}};}},
   });
-  return { get:()=>route.GET(new Request('http://localhost/api/reservations/billing-breakdown?reservationId='+id)),filters,reads:()=>adminReads };
+  return { data,get:()=>route.GET(new Request('http://localhost/api/reservations/billing-breakdown?reservationId='+id)),filters,reads:()=>adminReads };
 }
 test('amount breakdown requires ownership before reading private reschedule history',async()=>{
   for(const [options,status] of [[{authenticated:false},401],[{owned:false},403]]) {
@@ -37,4 +37,16 @@ test('bill separately reconciles package, services, guest/staff fees and rate ch
 test('failed charge queries show an error instead of silently treating fees as zero',async()=>{
   const response=await harness({failure:true}).get();assert.equal(response.status,503);
   assert.equal((await response.json()).breakdown,undefined);
+});
+
+test('customer bills disclose the applied promo code or eligible PWD guest count and reconcile savings',async()=>{
+  for(const kind of ['promo','pwd_senior']) {
+    const h=harness();Object.assign(h.data.transactions,{total_amount:3900,discount_amount:200,discount_kind:kind,
+      discount_promo_code:'SAVE10',discount_promo_type:'percent',discount_promo_value:10,discount_eligible_guests:2,discount_package_price:2000});
+    const response=await h.get();assert.equal(response.status,200);
+    const {breakdown}=await response.json(),line=breakdown.lines.find(line=>line.kind==='discount');
+    assert.equal(line.amount,-200);assert.equal(breakdown.lines.reduce((sum,line)=>sum+line.amount,0),3900);
+    if(kind==='promo')assert.match(line.description,/SAVE10/);
+    else {assert.match(line.detail,/2 of 4 guests eligible/);assert.doesNotMatch(line.description+line.detail,/SAVE10/);}
+  }
 });
