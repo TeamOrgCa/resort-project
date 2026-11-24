@@ -21,6 +21,27 @@ test('invalid public guest counts and service quantities are rejected before sav
  const h=harness();for(const patch of [{adultCount:0},{childCount:-1},{adultCount:1.5},{eligibleGuests:4},{selectedServices:[{serviceId:id(90),quantity:0}]},{expectedTotal:'420'}])assert.equal((await h.post({...body,...patch})).status,400);
  assert.equal(h.calls.length,0);assert.equal((await harness({error:{code:'40001',message:'Public session is full'}}).post(body)).status,409);
 });
+
+test('public booking identifies the invalid field and accepts bookings without services or discounts',async()=>{
+ const h=harness();
+ for(const [patch,field,message] of [
+  [{firstName:''},'firstName',/first and last name/],
+  [{phone:''},'phone',/Philippine mobile/],
+  [{address:'Incomplete'},'address',/street address|province/],
+  [{requestId:undefined},'requestId',/booking draft/],
+  [{typeId:undefined},'typeId',/Day or Night/],
+  [{pricingVersion:undefined},'pricingVersion',/Session rates/],
+  [{eligibleGuests:4},'eligibleGuests',/PWD \/ senior count/],
+  [{selectedServices:[{serviceId:id(90),quantity:0}]},'selectedServices',/Services are optional/],
+  [{promoCode:123},'promoCode',/promo code is optional/],
+ ]){
+  const response=await h.post({...body,...patch}),error=await response.json();
+  assert.equal(response.status,400);assert.equal(error.field,field);assert.match(error.message,message);
+ }
+ assert.equal(h.calls.length,0);
+ assert.equal((await h.post({...body,eligibleGuests:0,promoCode:null,selectedServices:[]})).status,201);
+ assert.equal(h.calls[0].args.p_input.eligibleGuests,0);assert.equal(h.calls[0].args.p_input.promoCode,null);assert.deepEqual(h.calls[0].args.p_input.selectedServices,[]);
+});
 test('public manual reservations use the existing creation permission in middleware',()=>{
  const {apiPermission}=loadTsModule('lib/auth/role-access.ts');assert.equal(apiPermission('/api/admin/reservations/public-swimming','POST'),'create_reservation');
 });

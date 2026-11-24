@@ -45,7 +45,7 @@ test('public details prefill contacts, preserve adult/child counts, cap rental h
   const hours=[...host.querySelectorAll('input[type="number"]')].find(i=>i.getAttribute('max')==='8');assert.ok(hours);await change(hours,2);
   await change(host.querySelector('[aria-label="Promo code"]'),'PUBLIC20');await click([...host.querySelectorAll('button')].find(b=>b.textContent==='Apply code'));
   await act(async()=>host.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
-  assert.deepEqual(routes,['/booking/details']);const d=store.getState().bookingDraft;assert.equal(d.adultCount,2);assert.equal(d.childCount,1);assert.equal(d.discountAmount,84);assert.equal(d.total,536);assert.equal(d.downPayment,536);assert.equal(d.discountKind,'promo');assert.ok(d.publicRequestId);
+  assert.deepEqual(routes,['/booking/details']);const d=store.getState().bookingDraft;assert.equal(d.firstName,'Maria');assert.equal(d.lastName,'Cruz');assert.equal(d.phone,'+639171234567');assert.equal(d.address,'Street, City, Province, 1234');assert.equal(d.adultCount,2);assert.equal(d.childCount,1);assert.equal(d.discountAmount,84);assert.equal(d.total,536);assert.equal(d.downPayment,536);assert.equal(d.discountKind,'promo');assert.ok(d.publicRequestId);
   assert.ok(!calls.some(c=>c.url.startsWith('/api/reservations/')));
  }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=oldFetch;}
 });
