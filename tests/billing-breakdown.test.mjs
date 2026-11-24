@@ -15,6 +15,17 @@ const booking = {
   services: [{ name: "Extra mattress", quantity: 2, priceAtBooking: 300 }],
 };
 
+test("room accommodation, extra guests and extension charges reconcile with the existing bill", () => {
+  const result = buildBillingBreakdown({ ...booking, units: [], services: [], adultRate: null,
+    roomCharges: [{ description: "F01 accommodation", amount: 1500 }, { description: "F01 additional guests", amount: 400 }, { description: "F01 extension (2 hours)", amount: 200 }],
+    recordedTotal: 2100,
+  });
+  assert.equal(result.total, 2100);
+  assert.equal(result.lines.length, 3);
+  assert.equal(result.lines.reduce((sum, line) => sum + line.amount, 0), 2100);
+  assert.ok(result.lines.some(line => line.description.includes("extension") && line.amount === 200));
+});
+
 test("hourly service statements show rental hours and multiply the hourly rate", () => {
   const result = buildBillingBreakdown({ ...booking, services: [{ name: "Karaoke", quantity: 3, priceAtBooking: 200, billingType: "duration" }], recordedTotal: 8300 });
   const line = result.lines.find(line => line.description === "Karaoke");

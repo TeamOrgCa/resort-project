@@ -99,9 +99,15 @@ test("dashboard API requires an active staff session and dashboard permission be
   }
   const h = route(); const response = await h.GET();
   assert.equal(response.headers.get("cache-control"), "no-store"); assert.deepEqual((await response.json()).dashboard.permissions, ["dashboard", "reservations"]);
-  const admin = await (await route({ role: "admin", permissions: [] }).GET()).json(); assert.equal(admin.dashboard.permissions.includes("create_reservation"), false); assert.ok(admin.dashboard.permissions.includes("users"));
+  const admin = await (await route({ role: "admin", permissions: [] }).GET()).json(); assert.equal(admin.dashboard.permissions.includes("create_reservation"), true); assert.ok(admin.dashboard.permissions.includes("users")); assert.ok(admin.dashboard.permissions.includes("rooms"));
   assert.equal((await route({ fail: true }).GET()).status, 500);
   const { apiPermission } = loadTsModule("lib/auth/role-access.ts"); assert.equal(apiPermission("/api/admin/dashboard", "GET"), "dashboard");
+});
+test("dashboard includes private swimming, public swimming and room accommodation in arrivals and its type breakdown",async()=>{
+ const h=data({reservations:[reservation('private'),reservation('public',{commercial_type:'public_swimming'}),reservation('room',{commercial_type:'room_accommodation'})]});
+ const snapshot=await h.generateDashboard(now);
+ assert.equal(snapshot.arrivalsToday,3);assert.deepEqual(snapshot.reservations.map(r=>r.reservationType),['Private Swimming','Public Swimming','Room Accommodation']);
+ assert.deepEqual(snapshot.bookingTypes.map(p=>p.value),[1,1,1]);
 });
 
 test("reservation deep links validate IDs/dates and check add permission before opening the form", async () => {

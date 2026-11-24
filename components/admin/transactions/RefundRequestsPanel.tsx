@@ -16,7 +16,7 @@ type Refund = { guest_id?: string | null; destination_requested_at?: string | nu
   refunded_at: string | null; gcash_reference: string | null; proof_path: string | null; payout_method: string | null };
 type Payment = { payment_id: string; reservation_id: string; amount: number; status: string; reference_number: string; payment_type: string; verified_at: string | null; proof_path: string | null;
   account_name: string | null; account_number: string | null; payment_methods: { name: string } | { name: string }[] | null };
-type Reservation = { reservation_id: string; reference_number: string; cancellation_reason: string | null; cancellation_initiator: string | null };
+type Reservation = { reservation_id: string; reference_number: string; commercial_type?: string; cancellation_reason: string | null; cancellation_initiator: string | null };
 type Bill = { reservation_id: string; total_amount: number; paid_amount: number };
 type Permissions = { canApprove: boolean; canPay: boolean; canVerify: boolean; staffId: string };
 const money = (n: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(Number(n));
@@ -126,7 +126,7 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
           <div><dt className="font-medium">Account / GCash number</dt><dd className="break-all">{p.account_number?.trim() || "Not recorded — confirm payout details with the guest."}</dd></div>
         </dl>) : <p>No verified payment account details are available. Confirm payout details with the guest.</p>}
         {selected.destination_submitted_at && <dl className="space-y-1 rounded-xl border border-primary/20 p-3"><dt className="font-semibold">Guest-provided refund destination</dt><dd>Payment method: {selected.destination_method}</dd><dd>Account name: {selected.destination_account_name}</dd><dd className="break-all">Account / GCash number: {selected.destination_account_number}</dd><dd>Submitted {at(selected.destination_submitted_at)}. Verify these details with the guest before transfer.</dd></dl>}
-        {awaitingDestination && <p role="status">Payment details requested {at(selected.destination_requested_at!)}. Awaiting the guest's reply in Manage Booking &gt; Refunds.</p>}
+        {awaitingDestination && <p role="status">Payment details requested {at(selected.destination_requested_at!)}. Awaiting the guest&apos;s reply in Manage Booking &gt; Refunds.</p>}
         {missingDestination && !selected.destination_submitted_at && ["pending", "reviewed", "approved"].includes(selected.status) && (permissions.canApprove || permissions.canPay) && (selected.guest_id ? <button type="button" disabled={busy || Boolean(selected.destination_requested_at && Date.parse(selected.destination_requested_at) > Date.now() - 300000)} onClick={() => void requestDestination()} className={button}>{awaitingDestination ? "Send payment details reminder" : "Notify guest to provide refund payment details"}</button> : <p>This walk-in booking has no guest account. Contact the guest directly to confirm the refund destination.</p>)}
       </section>
       <p className="text-sm">{selected.policy_snapshot}</p>
@@ -157,6 +157,7 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
       {canAddNotes && <label className="block text-sm font-medium">Decision / transfer / verification notes<textarea rows={2} maxLength={2000} value={reason} disabled={busy} onChange={e => setReason(e.target.value)} className="admin-field mt-1 w-full" /></label>}
       {permissions.canApprove && ["pending", "reviewed", "approved"].includes(selected.status) && <div className="flex flex-wrap gap-3">
         {["pending", "reviewed"].includes(selected.status) && !legacy && <button className={button} disabled={busy} onClick={() => void submit("approved")}>Approve refund</button>}
+        {["pending", "reviewed"].includes(selected.status) && !legacy && reservations.find(r => r.reservation_id === selected.reservation_id)?.commercial_type === "public_swimming" && <button className={button} disabled={busy || reason.trim().length < 5} title="Enter the valid reason in the approval notes before approving this exception" onClick={() => void submit("approved_full")}>Approve 100% refund exception</button>}
         <button className={button} disabled={busy || reason.trim().length < 5} onClick={() => void submit("rejected")}>Reject with reason</button></div>}
       {selected.status === "approved" && permissions.canPay && !legacy && <div className="space-y-3 rounded-xl bg-base p-3">
         <p className="text-sm font-medium">Transfer {money(selected.amount)} manually through an approved payment method before submitting this evidence.</p>

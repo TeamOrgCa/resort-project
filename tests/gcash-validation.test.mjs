@@ -125,7 +125,7 @@ test("a consistent status alone cannot bypass required extracted fields", () => 
 const guestId = "11111111-1111-4111-8111-111111111111";
 const reservationId = "22222222-2222-4222-8222-222222222222";
 const paymentBody = { reservationId, payment: { paymentMethodId: "gcash", type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guestId}/proof.png` } };
-function paymentHarness({ beta = false, authenticated = true, owner = guestId, method = "GCash", paid = 0, total = 5000, pending = false, ocrStatus = "consistent", proofMissing = false, accountMissing = false, insertError = null } = {}) {
+function paymentHarness({ commercialType = "private_swimming", beta = false, authenticated = true, owner = guestId, method = "GCash", paid = 0, total = 5000, pending = false, ocrStatus = "consistent", proofMissing = false, accountMissing = false, insertError = null } = {}) {
   const inserted = [], inspected = [], manualProofs = [], emails = [];
   const manual = method !== "GCash" && method !== "Cash";
   const client = { auth: { getUser: async () => ({ data: { user: authenticated ? { id: guestId } : null }, error: null }) },
@@ -133,7 +133,7 @@ function paymentHarness({ beta = false, authenticated = true, owner = guestId, m
       const filters = {};
       const query = { select: () => query, not: () => query, order: () => query, eq: (key, value) => { filters[key] = value; return query; }, limit: () => query,
         maybeSingle: async () => ({ error: null, data: table === "payment_methods" ? { name: method, type: "ewallet", is_active: true }
-          : table === "reservations" ? { reservation_id: reservationId, guest_id: owner, reference_number: "MV-TEST", status: paid ? "confirmed" : "pending", payment_deadline_at: new Date(Date.now() + 600000).toISOString() }
+          : table === "reservations" ? { reservation_id: reservationId, guest_id: owner, commercial_type: commercialType, reference_number: "MV-TEST", status: paid ? "confirmed" : "pending", payment_deadline_at: new Date(Date.now() + 600000).toISOString() }
           : table === "transactions" ? { total_amount: total, paid_amount: paid, balance: Math.max(total - paid, 0) }
           : table === "payment_accounts" ? accountMissing ? null : { account_id: "33333333-3333-4333-8333-333333333333", account_name: "MarVille Resort", account_number: "09171231234" }
           : table === "payments" ? pending && filters.status === "pending" ? { payment_id: "pending" } : null : null }) };
@@ -272,4 +272,10 @@ test("payment approvals send confirmation and billing emails during beta testing
   const pending = paymentHarness({ ocrStatus: "skipped" });
   assert.equal((await pending.post(paymentBody)).status, 201);
   assert.deepEqual(pending.emails, []);
+});
+
+
+test("room payment API rejects down payments even when a customer forges the payment option",async()=>{
+  const h=paymentHarness({commercialType:"room_accommodation"});const response=await h.post(paymentBody);
+  assert.equal(response.status,400);assert.match((await response.json()).message,/full payment/);assert.equal(h.inspected.length,0);assert.equal(h.inserted.length,0);
 });

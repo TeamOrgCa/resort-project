@@ -5,6 +5,7 @@ import type { PackageRates } from "@/lib/booking/package-rates";
 import { positiveRateAdjustment, rescheduleNoticeFee } from "@/lib/booking/reschedule-charge-policy";
 
 export function calculateRescheduleCharges(input: {
+  commercialType?: string;
   originalStart: string;
   originalEnd: string;
   newStart: string;
@@ -17,6 +18,7 @@ export function calculateRescheduleCharges(input: {
   rates: PackageRates;
 }) {
   const noticeFee = rescheduleNoticeFee(input.originalStart, input.now);
+  if (input.commercialType === "public_swimming") return { noticeFee, rateAdjustment: 0, discountAdjustment: 0, totalAdditional: noticeFee };
   const priceFor = (startDatetime: string, endDatetime: string) => computeBookingPricing({
     bookingMode: input.bookingMode,
     startDatetime,

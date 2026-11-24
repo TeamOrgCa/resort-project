@@ -32,7 +32,7 @@ test("review moderation API requires Analytics and moderation access, validates 
  const {isAdminReadOnlyRequest,apiPermission}=loadTsModule("lib/auth/role-access.ts");
  assert.equal(isAdminReadOnlyRequest("admin","/api/admin/analytics/feedback/moderate","POST"),false);
  assert.equal(apiPermission("/api/admin/analytics/feedback/moderate","POST"),"feedback_moderation");
- assert.equal(isAdminReadOnlyRequest("admin","/api/admin/reservations/id","PATCH"),true);
+ assert.equal(isAdminReadOnlyRequest("admin","/api/admin/reservations/id","PATCH"),false);
 });
 
 test("configuration accepts only whole advance-day limits from zero through 3650",async()=>{

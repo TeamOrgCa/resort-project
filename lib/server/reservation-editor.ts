@@ -35,8 +35,13 @@ export async function loadReservationEditor(id: string) {
     if (result.error) throw new Error("Unable to load guest details.");
     guest = result.data;
   }
-  return { reservation: r.data, guest, services, units, bill, packageRates: packageSchedule.rates, packageTimes: packageSchedule.times, catalogServices: (cs.data ?? []) as CatalogService[],
-    catalogUnits: (cu.data ?? []) as CatalogUnit[], snapshot, version,
+  const reservation = r.data;
+  const catalogServices = ((cs.data ?? []) as CatalogService[]).map(service => reservation.commercial_type === "public_swimming" && service.billing_type === "duration"
+    ? { ...service, max_quantity: Math.min(service.max_quantity ?? 10000, Math.floor((Date.parse(reservation.end_datetime) - Date.parse(reservation.start_datetime)) / 3600000)) } : service);
+  const access = reservationEditAccess(r.data, Boolean(payments.data?.length), Boolean(reschedules.data?.length));
+  if (r.data.commercial_type === "room_accommodation" || r.data.room_pricing) { access.lockedReason = "Use Room Management to update room assignments, guest stays and charges."; access.canChangeDetails = false; }
+  return { reservation: r.data, guest, services, units, bill, packageRates: packageSchedule.rates, packageTimes: packageSchedule.times, catalogServices,
+    catalogUnits: r.data.commercial_type === "public_swimming" ? [] : (cu.data ?? []) as CatalogUnit[], snapshot, version,
     lateRescheduleEligible: r.data.status === "confirmed" && !r.data.checked_in_at && !payments.data?.length && !reschedules.data?.length,
-    ...reservationEditAccess(r.data, Boolean(payments.data?.length), Boolean(reschedules.data?.length)) };
+    ...access };
 }

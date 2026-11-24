@@ -43,7 +43,6 @@ interface ManualReservationPayload {
   customEndTime?: string | null;
   adultCount: number;
   childCount: number;
-  unitId: string;
   promoCode?: string | null;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
@@ -53,12 +52,6 @@ interface WalkInGuestRow {
   walk_in_guest_id: string;
 }
 
-interface UnitRow {
-  unit_id: string;
-  base_price: number;
-  is_active: boolean;
-  archived_at: string | null;
-}
 
 interface ServiceRow {
   max_quantity?: number;
@@ -115,7 +108,6 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     (payload.bookingMode !== "day" && payload.bookingMode !== "night" && payload.bookingMode !== "whole_day" && payload.bookingMode !== "custom") ||
     typeof payload.startDatetime !== "string" ||
     typeof payload.endDatetime !== "string" ||
-    typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
     typeof payload.childCount !== "number" ||
     !Number.isSafeInteger(payload.packageRateVersion) || Number(payload.packageRateVersion) < 1
@@ -165,7 +157,6 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
     customEndTime: typeof payload.customEndTime === "string" ? payload.customEndTime : null,
     adultCount: payload.adultCount,
     childCount: payload.childCount,
-    unitId: payload.unitId.trim(),
     promoCode: payload.promoCode,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices,
@@ -254,15 +245,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: unit, error: unitError } = await staffContext.supabase
-      .from("units")
-      .select("unit_id, base_price, is_active, archived_at")
-      .eq("unit_id", payload.unitId)
-      .maybeSingle<UnitRow>();
-
-    if (unitError || !unit || !unit.is_active || unit.archived_at) {
-      return NextResponse.json({ success: false, message: "Selected unit is not available." }, { status: 400 });
-    }
 
 
     const uniqueServiceIds = [...new Set(payload.selectedServices?.map((item) => item.serviceId) ?? [])];
@@ -406,23 +388,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: reservationUnitError } = await staffContext.supabase.from("reservation_units").insert({
-      reservation_id: reservation.reservation_id,
-      unit_id: unit.unit_id,
-      quantity: 1,
-      price_per_night: unit.base_price,
-    });
-
-    if (reservationUnitError) {
-      await staffContext.supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
-      if (walkInGuestId) {
-        await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
-      }
-      return NextResponse.json(
-        { success: false, message: "Failed to attach selected unit." },
-        { status: 500 }
-      );
-    }
 
     if (selectedServices.length > 0) {
       const reservationServicesPayload = selectedServices.map((service) => {

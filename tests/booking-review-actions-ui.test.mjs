@@ -11,7 +11,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http:
 globalThis.window = dom.window; globalThis.document = dom.window.document;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client"); after(() => dom.window.close());
-const draft = { startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", bookingMode: "day", unitId: "pool", adultCount: 4, childCount: 0,
+const draft = { startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", bookingMode: "day", unitId: "", adultCount: 4, childCount: 0,
   firstName: "Maria", lastName: "Cruz", email: "guest@example.com", phone: "09171234567", address: "Taytay", services: [], specialRequests: "", roomPrice: 7500, total: 7500, nights: 1, tax: 0, reservationId: "", reservationReference: "" };
 async function mount(fetcher, saved = false, draftPatch = {}) {
   const original = globalThis.fetch; globalThis.fetch = fetcher;
@@ -34,6 +34,19 @@ const actions = container => container.querySelector('[aria-label="Booking actio
 const labels = container => [...actions(container).children].map(child => child.textContent.trim());
 const click = el => act(async () => el.click());
 
+test("room booking review saves room selections through the room API and then offers full payment", async () => {
+  const posts=[];
+  const h=await mount(async(url,options)=>{posts.push({url,body:JSON.parse(options.body)});return Response.json({success:true,reservation:{id:"room-reservation",referenceNumber:"RM-SAVED",totalAmount:270}});},false,
+    {commercialType:"room_accommodation",unitId:"room-accommodation",roomRequestId:"room-request",roomSelections:[{classificationId:"standard",pricingVersion:1,occupants:2,name:"Standard Rooms",accommodation:300,additionalGuestCharge:0,includedCapacity:2}],adultCount:2,eligibleGuests:1,discountAmount:30,discountKind:"pwd_senior",roomPrice:300,total:270,endDatetime:"2027-06-14T11:00:00+08:00"});
+  try{
+    assert.deepEqual(labels(h.container),["Back to Booking Details","Save Booking"]);assert.doesNotMatch(h.container.textContent,/Down Payment Option/);
+    assert.ok(h.container.querySelector('[aria-label="Applied PWD / senior discount"]'));
+    await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector("button"));
+    assert.equal(posts[0].url,"/api/reservations/rooms");assert.equal(posts[0].body.rooms.length,1);assert.equal(posts[0].body.durationHours,3);assert.equal(posts[0].body.eligibleGuests,1);
+    assert.deepEqual(labels(h.container),["View Saved Bookings","Continue to Payment"]);assert.equal(h.store.getState().bookingDraft.downPayment,270);
+  }finally{await h.close();}
+});
+
 test("booking review has exactly two actions and switches them only after a successful save", async () => {
   let finish, posts = 0;
   const h = await mount(async () => { posts++; return new Promise(resolve => { finish = () => resolve(Response.json({ success: true, reservation: { id: "reservation", referenceNumber: "MV-TEST", totalAmount: 7500, paymentDeadlineAt: "2027-06-14T01:00:00Z" } })); }); });
@@ -52,6 +65,18 @@ test("booking review has exactly two actions and switches them only after a succ
     assert.match(status.textContent, /Booking saved successfully/); assert.match(status.textContent, /MV-TEST/); assert.match(status.textContent, /Submit payment by/);
     assert.equal(h.store.getState().bookingDraft.reservationId, "reservation"); assert.equal(actions(h.container).querySelector("button"), null);
   } finally { await h.close(); }
+});
+
+test("public swimming review saves adult/child eligibility and services through its API with full payment",async()=>{
+  const posts=[];
+  const h=await mount(async(url,options)=>{posts.push({url,body:JSON.parse(options.body)});return Response.json({success:true,reservation:{id:'public-reservation',referenceNumber:'PS-SAVED',totalAmount:420}});},false,
+    {commercialType:'public_swimming',unitId:'public-swimming',publicRequestId:'public-request',publicSwimmingType:{type_id:'day',name:'Day Public Swimming',pricing_version:1},adultCount:2,childCount:1,eligibleGuests:0,discountAmount:0,roomPrice:420,total:420});
+  try{
+    assert.doesNotMatch(h.container.textContent,/Down Payment Option/);assert.match(h.container.textContent,/Public swimming admission/);
+    await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector('button'));
+    assert.equal(posts[0].url,'/api/reservations/public-swimming');assert.equal(posts[0].body.typeId,'day');assert.equal(posts[0].body.adultCount,2);assert.equal(posts[0].body.childCount,1);assert.equal(posts[0].body.eligibleGuests,0);
+    assert.equal(h.store.getState().bookingDraft.downPayment,420);
+  }finally{await h.close();}
 });
 
 test("failed saves retain the edit/save actions and show the retry error directly above them", async () => {

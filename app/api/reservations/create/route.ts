@@ -36,7 +36,6 @@ interface CreateReservationPayload {
   customEndTime?: string | null;
   adultCount: number;
   childCount: number;
-  unitId: string;
   promoCode?: string | null;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
@@ -44,12 +43,6 @@ interface CreateReservationPayload {
   bookingPolicyVersion: number;
 }
 
-interface UnitRow {
-  unit_id: string;
-  base_price: number;
-  is_active: boolean;
-  archived_at: string | null;
-}
 
 interface ServiceRow {
   max_quantity?: number;
@@ -106,7 +99,6 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     (payload.bookingMode !== "day" && payload.bookingMode !== "night" && payload.bookingMode !== "whole_day" && payload.bookingMode !== "custom") ||
     typeof payload.startDatetime !== "string" ||
     typeof payload.endDatetime !== "string" ||
-    typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
     typeof payload.childCount !== "number" ||
     !Number.isSafeInteger(payload.packageRateVersion) || Number(payload.packageRateVersion) < 1 ||
@@ -137,7 +129,6 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     customEndTime: typeof payload.customEndTime === "string" ? payload.customEndTime : null,
     adultCount: payload.adultCount,
     childCount: payload.childCount,
-    unitId: payload.unitId,
     promoCode: payload.promoCode,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices,
@@ -235,21 +226,6 @@ export async function POST(request: Request) {
 
     const legalPolicies = await requireCurrentLegalPolicies(supabase, payload.acceptedPoliciesVersion);
 
-    const { data: unit, error: unitError } = await supabase
-      .from("units")
-      .select("unit_id, base_price, is_active, archived_at")
-      .eq("unit_id", payload.unitId)
-      .maybeSingle<UnitRow>();
-
-    if (unitError || !unit || !unit.is_active || unit.archived_at) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Selected unit is not available.",
-        },
-        { status: 400 }
-      );
-    }
 
     const uniqueServiceIds = [...new Set(payload.selectedServices?.map((item) => item.serviceId) ?? [])];
 
@@ -377,19 +353,6 @@ export async function POST(request: Request) {
 
     reservationId = reservation.reservation_id;
 
-    const { error: reservationUnitError } = await supabase.from("reservation_units").insert({
-      reservation_id: reservation.reservation_id,
-      unit_id: payload.unitId,
-      quantity: 1,
-      price_per_night: unit.base_price,
-    });
-
-    if (reservationUnitError) {
-      await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
-      return NextResponse.json(buildDbFailurePayload(reservationUnitError, "Failed to attach selected unit."), {
-        status: 500,
-      });
-    }
 
     if (selectedServices.length > 0) {
       const reservationServicesPayload = selectedServices.map((service) => {

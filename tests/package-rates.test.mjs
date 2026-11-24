@@ -166,7 +166,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
 
   return { writes, appliedPromos, save: (overrides = {}) => route.POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({
     bookingMode: "day", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00",
-    unitId: "unit", adultCount: 22, childCount: 0, packageRateVersion: 2, bookingPolicyVersion: 1, phoneNumber: "09171234567",
+    adultCount: 22, childCount: 0, packageRateVersion: 2, bookingPolicyVersion: 1, phoneNumber: "09171234567",
     ...(manual ? { guestType: "walk_in", walkInGuest: { firstName: "Test", lastName: "Guest", email: "test@example.com", phoneNumber: "09123456789", address: "Test address" } } : {}),
     acceptedPoliciesVersion: LEGAL_POLICY_VERSION, ...overrides,
   }) })) };
@@ -174,13 +174,14 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
 
 test("reservation creation stamps its schedule and bills server prices rather than submitted totals", async () => {
   const h = bookingHarness();
-  const response = await h.save({ totalAmount: 1, packageRates: legacyRates });
+  const response = await h.save({ totalAmount: 1, packageRates: legacyRates, unitId: "forged-room" });
   assert.equal(response.status, 201);
   assert.equal((await response.json()).reservation.totalAmount, 4568.15);
   assert.equal(h.writes.find(w => w.table === "reservations").payload.package_rate_version, 2);
   assert.equal(h.writes.find(w => w.table === "reservations").payload.terms_policy_id, legalPoliciesFixture().terms.policy_id);
   assert.equal(h.writes.find(w => w.table === "reservations").payload.privacy_policy_id, legalPoliciesFixture().privacy.policy_id);
   assert.equal(h.writes.find(w => w.table === "transactions").payload.total_amount, 4568.15);
+  assert.equal(h.writes.some(w => w.table === "reservation_units"), false, "Private cottages are included without claiming a catalog room");
 });
 
 test("customer and manual bookings apply server-validated promos to the package and seed the gross bill", async () => {
@@ -191,6 +192,7 @@ test("customer and manual bookings apply server-validated promos to the package 
     assert.equal((await response.json()).reservation.totalAmount, 4136.02);
     assert.equal(h.writes.find(w => w.table === "transactions").payload.total_amount, 4568.15);
     assert.deepEqual(h.appliedPromos[0], ["reservation", manual ? "staff" : "guest", "SAVE10", 4568.15, !manual, 4136.02]);
+    assert.equal(h.writes.some(w => w.table === "reservation_units"), false);
   }
 });
 

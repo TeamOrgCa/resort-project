@@ -12,6 +12,14 @@ export interface BookingServiceItem {
 }
 
 export interface BookingDraft {
+  commercialType?: "private_swimming" | "public_swimming" | "room_accommodation";
+  roomSelections?: import("@/lib/booking/customer-rooms").CustomerRoomSelection[];
+  eligibleGuests?: number;
+  discountAmount?: number;
+  discountKind?: string;
+  roomRequestId?: string;
+  publicSwimmingType?: import("@/lib/booking/public-swimming").PublicSwimmingType;
+  publicRequestId?: string;
   promo?: import("@/lib/booking/discounts").PromoQuote | null;
   promoCode?: string | null;
   packageRateVersion: number | null;
@@ -69,6 +77,12 @@ interface BookingStoreState {
 }
 
 const initialDraft: BookingDraft = {
+  commercialType: "private_swimming",
+  roomSelections: [],
+  eligibleGuests: 0,
+  discountAmount: 0,
+  discountKind: "none",
+  roomRequestId: "",
   promo: null,
   promoCode: null,
   packageRateVersion: null,
@@ -138,7 +152,7 @@ export const useBookingStore = create<BookingStoreState>()(
         })),
       setBookingDraft: (draft) =>
         set((state) => {
-          const changesReservation = ["bookingMode", "startDatetime", "endDatetime", "unitId", "adultCount", "childCount", "services", "promoCode"]
+          const changesReservation = ["bookingMode", "startDatetime", "endDatetime", "unitId", "adultCount", "childCount", "services", "promoCode", "commercialType", "roomSelections", "eligibleGuests", "publicSwimmingType"]
             .some((key) => key in draft);
           return {
             bookingDraft: {

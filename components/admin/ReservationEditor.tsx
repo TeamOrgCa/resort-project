@@ -12,6 +12,7 @@ import { MAX_GUESTS } from "@/lib/booking/guest-count";
 import { serviceSelectionsChanged, moveReservationToDate, previewReservationEdit, validateEditWindow, type EditDetail, type ReservationEdit } from "@/lib/booking/reservation-edit";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
 import { useBookingAvailability } from "@/lib/booking/use-booking-availability";
+import { useGuestRescheduleAvailability } from "@/lib/booking/use-guest-reschedule-availability";
 import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "@/lib/booking/availability";
 import { manilaDateKey, manilaDateTimeLocal } from "@/lib/booking/manila-date";
@@ -47,9 +48,12 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
   const form = useRef<HTMLFormElement>(null);
   const [confirming, setConfirming] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState("");
-  const availability = useBookingAvailability([
+  const isPublicBooking = detail?.reservation.commercial_type === "public_swimming" && !detail.reservation.room_pricing;
+  const privateAvailability = useBookingAvailability([
     calendarMonth, ...monthsInWindow(draft?.startDatetime ?? "", draft?.endDatetime ?? ""),
-  ], Boolean(detail?.canEdit && (detail.canChangeDetails || detail.canRescheduleException) && (!detail.lockedReason || detail.canRescheduleException) && !loading), reservationId);
+  ], Boolean(!isPublicBooking && detail?.canEdit && (detail.canChangeDetails || detail.canRescheduleException) && (!detail.lockedReason || detail.canRescheduleException) && !loading), reservationId);
+  const publicAvailability = useGuestRescheduleAvailability(detail?.reservation.start_datetime ?? "", detail?.reservation.end_datetime ?? "", calendarMonth, draft?.startDatetime.slice(0, 10) ?? "", !!isPublicBooking && !loading, "public_swimming", reservationId);
+  const availability = isPublicBooking ? publicAvailability : privateAvailability;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -62,7 +66,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
         setDetail(d); setLateAcknowledged(false);
         setCalendarMonth(localTime(d.reservation.start_datetime).slice(0, 7));
         setDraft({ bookingMode: d.reservation.booking_mode ?? "day", startDatetime: localTime(d.reservation.start_datetime),
-          endDatetime: localTime(d.reservation.end_datetime), adultCount: d.reservation.adult_count + d.reservation.child_count, childCount: 0,
+          endDatetime: localTime(d.reservation.end_datetime), adultCount: d.reservation.commercial_type === "public_swimming" ? d.reservation.adult_count : d.reservation.adult_count + d.reservation.child_count, childCount: d.reservation.commercial_type === "public_swimming" ? d.reservation.child_count : 0,
           unitId: d.units.length === 1 && d.units[0].quantity === 1 ? d.units[0].unit_id : null,
           specialRequests: d.reservation.special_requests ?? "", reason: "",
           services: d.services.map(s => ({ serviceId: s.service_id, quantity: s.quantity })) });
@@ -97,6 +101,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
 
   function windowIssue(candidate: Pick<Draft, "bookingMode" | "startDatetime" | "endDatetime">): string | null {
     if (!draft || !detail) return "Load the reservation first.";
+    if (isPublicBooking) return candidate.startDatetime.slice(0, 10) === manilaDateKey(detail.reservation.start_datetime) ? null : publicAvailability.dateIssue(candidate.startDatetime.slice(0, 10));
     if (!availability.ready) return availability.error ?? "Loading available dates...";
     try {
       const { startDatetime: start, endDatetime: end } = moveReservationToDate(detail.reservation, candidate.startDatetime.slice(0, 10));
@@ -114,6 +119,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
   }
 
   const dateIssue = (date: string) => {
+    if (isPublicBooking) return date === manilaDateKey(detail.reservation.start_datetime) ? null : publicAvailability.calendarDateIssue(date);
     const moved = moveReservationToDate(detail.reservation, date);
     return windowIssue({ bookingMode: draft.bookingMode, startDatetime: localTime(moved.startDatetime), endDatetime: localTime(moved.endDatetime) });
   };
@@ -158,8 +164,9 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
     {success && <p role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-800">{success}</p>}
     {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800"><p>{error}</p><button type="button" disabled={busy} onClick={reloadDetails} className="mt-2 underline">Reload reservation</button></div>}
     {!canEdit && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{detail.lockedReason ?? "Your role has view-only access. An administrator can grant permission to edit reservations."}</p>}
-    {canEdit && !canChange && <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">The stay has started. Managers can reduce or remove services and change accommodation while this stay is editable. Review the revised bill and record a reason. Schedule changes stay locked after check-in.</p>}
-    {(canChange || detail.canRescheduleException) && <div className="rounded-xl border border-neutral/10 bg-base p-4 text-sm text-neutral">
+    {canEdit && !canChange && <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">The stay has started. Managers can reduce or remove services while this stay is editable. Review the revised bill and record a reason. Schedule changes stay locked after check-in.</p>}
+    {(detail.reservation.commercial_type === "room_accommodation" || detail.reservation.room_pricing) && <a href="/admin/rooms" className="admin-button-secondary inline-flex">Open Room Management</a>}
+    {!isPublicBooking && (canChange || detail.canRescheduleException) && <div className="rounded-xl border border-neutral/10 bg-base p-4 text-sm text-neutral">
       <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
       <p className="mt-2">Original swimming date: {manilaDateKey(detail.reservation.start_datetime)}. Standard notice deadline: {noticePolicy.deadline} (Philippines).</p>
       {!noticePolicy.allowed && <p role="alert" className="mt-2 text-amber-900">{noticePolicy.blockedReason}</p>}
@@ -185,13 +192,15 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
       </dl>
       {selectedIssue && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2">{selectedIssue} Choose another date or time slot.</p>}
       </fieldset>
-      <label className="text-sm text-neutral/70">Accommodation type<select className={inputClass} disabled={busy || !canChangeAccommodation || detail.units.length > 1 || detail.units.some(u => u.quantity !== 1)} value={draft.unitId ?? ""} onChange={e => setDraft({ ...draft, unitId: e.target.value || null })}>
+      {(detail.reservation.commercial_type === "room_accommodation" || detail.reservation.room_pricing) && <label className="text-sm text-neutral/70">Accommodation type<select className={inputClass} disabled={busy || !canChangeAccommodation || detail.units.length > 1 || detail.units.some(u => u.quantity !== 1)} value={draft.unitId ?? ""} onChange={e => setDraft({ ...draft, unitId: e.target.value || null })}>
         {!draft.unitId && <option value="">{detail.units.length ? "Multiple accommodations (retained)" : "No accommodation selected"}</option>}
         {detail.catalogUnits.filter(u => (u.is_active && !u.archived_at) || detail.units.some(e => e.unit_id === u.unit_id)).map(u => <option key={u.unit_id} value={u.unit_id} disabled={(!u.is_active || Boolean(u.archived_at)) && u.unit_id !== draft.unitId}>{u.name}{!u.is_active || u.archived_at ? " (archived)" : ""}</option>)}
-      </select></label>
+      </select></label>}
+      {(detail.reservation.commercial_type ?? "private_swimming") === "private_swimming" && !detail.reservation.room_pricing && <p className="text-sm text-neutral/70">All cottages are included with private swimming.</p>}
     <fieldset disabled={busy || !canEdit} className="grid gap-4 sm:grid-cols-2">
       <legend className="mb-3 font-semibold text-neutral">Guest counts</legend>
-      <label className="text-sm text-neutral/70">Number of guests<input aria-label="Number of guests" disabled={!canEdit} required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value), childCount: 0 })} /></label>
+      <label className="text-sm text-neutral/70">{isPublicBooking ? "Adults" : "Number of guests"}<input aria-label={isPublicBooking ? "Adults" : "Number of guests"} disabled={!canEdit} required type="number" min={1} max={MAX_GUESTS} className={inputClass} value={draft.adultCount} onChange={e => setDraft({ ...draft, adultCount: Number(e.target.value), childCount: isPublicBooking ? draft.childCount : 0 })} /></label>
+      {isPublicBooking && <label className="text-sm text-neutral/70">Children<input aria-label="Children" disabled={!canEdit} required type="number" min={0} max={MAX_GUESTS - draft.adultCount} className={inputClass} value={draft.childCount} onChange={e => setDraft({ ...draft, childCount: Number(e.target.value) })} /></label>}
       <p className="text-xs text-neutral/60 sm:col-span-2">Times are in Philippine time. Up to {MAX_GUESTS} guests. Package rates apply to the selected schedule and guest count.</p>
     </fieldset>
     <fieldset disabled={busy || !canEdit} className="space-y-3">

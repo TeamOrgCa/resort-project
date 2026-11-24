@@ -29,6 +29,8 @@ import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 import { focusCalendarNotification } from "@/lib/booking/calendar-notification-focus";
 
 type Reservation = {
+  commercial_type?: string;
+  room_pricing?: boolean;
   reservation_id: string;
   reference_number: string;
   guest_id: string | null;
@@ -218,7 +220,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         const gridEnd = dateKey(addDays(startOfMonthGrid(month), 42));
         const availabilityEnd = dateKey(addDays(startOfMonthGrid(month), 43));
         const [{ data: reservationData, error: reservationError }, { data: ocularData, error: ocularError }, blocksResponse] = await Promise.all([
-          supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at, checked_in_at, checked_out_at, no_show_at, no_show_reason").neq("status", "expired").lt("start_datetime", `${availabilityEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(1000),
+          supabase.from("reservations").select("reservation_id, reference_number, commercial_type, room_pricing, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, booking_mode, booking_type, special_requests, payment_deadline_at, created_at, checked_in_at, checked_out_at, no_show_at, no_show_reason").neq("status", "expired").lt("start_datetime", `${availabilityEnd}T00:00:00+08:00`).gt("end_datetime", `${gridStart}T00:00:00+08:00`).order("start_datetime", { ascending: true }).limit(1000),
           supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, status, review_reason, cancellation_reason").gte("scheduled_date", gridStart).lt("scheduled_date", gridEnd).order("scheduled_date", { ascending: true }).limit(300),
           fetch(`/api/admin/maintenance-blocks?start=${gridStart}&end=${availabilityEnd}`, { cache: "no-store" }),
         ]);
@@ -376,7 +378,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
           kind: calendarBookingKind(reservation.status, signals[reservation.reservation_id]?.paidAmount),
           flags: reservationAttention(reservation, signals[reservation.reservation_id]),
           date: occupiedDate,
-          label: guest ? `${guest.first_name} ${guest.last_name}` : reservation.reference_number,
+          label: `${reservation.commercial_type === "room_accommodation" ? "Room" : reservation.commercial_type === "public_swimming" ? "Public" : "Private"} · ${guest ? `${guest.first_name} ${guest.last_name}` : reservation.reference_number}`,
           reference: reservation.reference_number,
           reservationId: reservation.reservation_id,
           status: reservation.status,
@@ -689,6 +691,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
                           <div className="mt-2 space-y-1 text-xs text-neutral/70">
                             <p>{guest.email ?? "No email provided"}</p>
                             <p>{guest.phone_number ?? "No phone provided"}</p>
+                            <p>{reservation.commercial_type === "room_accommodation" ? "Room Accommodation" : reservation.commercial_type === "public_swimming" ? "Public Swimming" : "Private Swimming"}</p>
                             <p>{reservation.adult_count + reservation.child_count} guests</p>
                             <p>{formatTime(reservation.start_datetime)} - {formatTime(reservation.end_datetime)}</p>
                             <p>Status: {titleCase(reservation.status)}</p>

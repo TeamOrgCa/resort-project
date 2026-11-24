@@ -35,10 +35,11 @@ export function guestEditRestriction(detail: GuestEditDetail, edit: GuestBooking
   const r = detail.reservation;
   const originalUnit = detail.units?.length === 1 && detail.units[0].quantity === 1 ? detail.units[0].unit_id : null;
   if (edit.unitId !== undefined && edit.unitId !== originalUnit) {
+    if ((r.commercial_type ?? "private_swimming") === "private_swimming" && !r.room_pricing) return "All cottages are included with private swimming. An accommodation selection is not required.";
     if (!detail.canChangeAccommodation) return "Accommodation can only be changed before check-in. Contact resort staff.";
     if (!edit.unitId || !detail.catalogUnits?.some(unit => unit.unit_id === edit.unitId && unit.is_active && !unit.archived_at)) return "Choose an available accommodation type.";
   }
-  if (!detail.canChangeGuests && (edit.adultCount + edit.childCount !== r.adult_count + r.child_count)) return "Guest counts can only be changed before check-in. Contact resort staff during your stay.";
+  if (!detail.canChangeGuests && (r.commercial_type === "public_swimming" ? edit.adultCount !== r.adult_count || edit.childCount !== r.child_count : edit.adultCount + edit.childCount !== r.adult_count + r.child_count)) return "Guest counts can only be changed before check-in. Contact resort staff during your stay.";
   if (!detail.canReduceServices && detail.services.some(s => (edit.services.find(next => next.serviceId === s.service_id)?.quantity ?? 0) < s.quantity)) return "Services cannot be reduced or removed after full payment or after check-in. Contact resort staff.";
   return null;
 }

@@ -41,10 +41,8 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
     assert.match(container.textContent, /Fresh linen included/);
     assert.ok(container.querySelector('img[src="https://images.example.com/mattress.jpg"]'));
     assert.equal(container.querySelector('select[name="roomType"]'),null);
-    assert.equal(container.querySelector('input[name="roomType"][value="pool"]').checked,true);
-    assert.ok(container.querySelector('img[src="https://images.example.com/garden.jpg"]'));
-    await act(async()=>container.querySelector('img[src="https://images.example.com/garden.jpg"]').click());
-    assert.equal(container.querySelector('input[name="roomType"][value="garden"]').checked,true);
+    assert.equal(container.querySelector('input[name="roomType"]'),null);
+    assert.match(container.textContent,/All cottages are included/);
     await act(async () => container.querySelector('input[aria-label="Add Extra mattress"]').click());
     await act(async () => container.querySelector('input[aria-label="Add Karaoke rental"]').click());
     const hours = container.querySelector('[aria-label="Duration (Hours) for Karaoke rental"]');
@@ -78,7 +76,7 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
         assert.equal(store.getState().bookingDraft.services[0].quantity,2);assert.equal(store.getState().bookingDraft.total,legacyRates.weekday.night.baseRate+1600);
         assert.equal(store.getState().bookingDraft.services[1].billingType, "duration");
         assert.equal(store.getState().bookingDraft.services[1].quantity, 3);
-        assert.equal(store.getState().bookingDraft.unitId,"garden");assert.equal(store.getState().bookingDraft.roomName,"Garden Room");
+        assert.equal(store.getState().bookingDraft.unitId,"");assert.equal(store.getState().bookingDraft.roomName,"All cottages included");
         assert.equal(store.getState().bookingDraft.roomPrice,legacyRates.weekday.night.baseRate);
         assert.equal(store.getState().bookingDraft.checkIn, "2027-06-14");
         assert.equal(store.getState().bookingDraft.checkOut, "2027-06-15", "early departures must keep their Philippine date");

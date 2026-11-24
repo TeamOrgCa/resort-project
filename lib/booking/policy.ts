@@ -80,7 +80,18 @@ export const validateBookingWindow = (input: BookingWindowInput, times: PackageT
     const openingMinutes = CUSTOM_START_HOUR * 60;
     const closingMinutes = CUSTOM_END_HOUR * 60;
 
-    if (startClock.minutesOfDay < openingMinutes || endClock.minutesOfDay > closingMinutes) {
+    // Fixed room stays use the custom window format and allow check-in all day.
+    const fixedRoomStay = [3, 12].some(hours => end.getTime() - start.getTime() === hours * 3_600_000);
+    if (fixedRoomStay) {
+      const matchesClock = (date: Date, clock: string) =>
+        new Date(date.getTime() + 8 * 3_600_000).toISOString().slice(11, 16) === clock
+        && date.getUTCSeconds() === 0 && date.getUTCMilliseconds() === 0;
+      if (!matchesClock(start, input.customStartTime!) || !matchesClock(end, input.customEndTime!)) {
+        return { valid: false, message: "Check-in and check-out times must match the booking schedule.", durationHours };
+      }
+    }
+
+    if (!fixedRoomStay && (startClock.minutesOfDay < openingMinutes || endClock.minutesOfDay > closingMinutes)) {
       return {
         valid: false,
         message: "Custom bookings must be within 8:00 AM to 10:00 PM.",

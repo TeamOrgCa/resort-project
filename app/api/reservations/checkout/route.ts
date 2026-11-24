@@ -45,7 +45,6 @@ interface CheckoutPayload {
   customEndTime?: string | null;
   adultCount: number;
   childCount: number;
-  unitId: string;
   promoCode?: string | null;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
@@ -61,12 +60,6 @@ interface CheckoutPayload {
   };
 }
 
-interface UnitRow {
-  unit_id: string;
-  base_price: number;
-  is_active: boolean;
-  archived_at: string | null;
-}
 
 interface ServiceRow {
   max_quantity?: number;
@@ -151,7 +144,6 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     (payload.bookingMode !== "day" && payload.bookingMode !== "night" && payload.bookingMode !== "whole_day" && payload.bookingMode !== "custom") ||
     typeof payload.startDatetime !== "string" ||
     typeof payload.endDatetime !== "string" ||
-    typeof payload.unitId !== "string" ||
     typeof payload.adultCount !== "number" ||
     typeof payload.childCount !== "number" ||
     !Number.isSafeInteger(payload.packageRateVersion) || Number(payload.packageRateVersion) < 1 ||
@@ -201,7 +193,6 @@ const parsePayload = (value: unknown): CheckoutPayload | null => {
     adultCount: payload.adultCount,
     packageRateVersion: Number(payload.packageRateVersion),
     childCount: payload.childCount,
-    unitId: payload.unitId,
     promoCode: payload.promoCode,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices,
@@ -328,21 +319,6 @@ export async function POST(request: Request) {
 
     const legalPolicies = await requireCurrentLegalPolicies(supabase, payload.acceptedPoliciesVersion);
 
-    const { data: unit, error: unitError } = await supabase
-      .from("units")
-      .select("unit_id, base_price, is_active, archived_at")
-      .eq("unit_id", payload.unitId)
-      .maybeSingle<UnitRow>();
-
-    if (unitError || !unit || !unit.is_active || unit.archived_at) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Selected unit is not available.",
-        },
-        { status: 400 }
-      );
-    }
 
     const uniqueServiceIds = [...new Set(payload.selectedServices?.map((item) => item.serviceId) ?? [])];
 
@@ -519,7 +495,7 @@ export async function POST(request: Request) {
 
     reservationId = reservation.reservation_id;
 
-    // Seed transaction total before unit/service triggers run so invoice creation has a non-null amount.
+    // Seed the transaction before service triggers run so invoices have a total.
     const { error: seedTransactionError } = await supabase.from("transactions").upsert(
       {
         reservation_id: reservation.reservation_id,
@@ -539,44 +515,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: reservationUnitError } = await supabase.from("reservation_units").insert({
-      reservation_id: reservation.reservation_id,
-      unit_id: payload.unitId,
-      quantity: 1,
-      price_per_night: unit.base_price,
-    });
-
-    if (reservationUnitError) {
-      console.error("[checkout] Failed to attach selected unit", reservationUnitError);
-      await supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id);
-
-      if (isInvoiceConstraintConflict(reservationUnitError)) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Billing trigger conflict detected while creating invoice records. Check invoice uniqueness and trigger constraints.",
-          },
-          { status: 500 }
-        );
-      }
-
-      if (isAuditStaffForeignKeyConflict(reservationUnitError)) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Audit logging trigger conflict detected for guest checkout. Update log_service_change() to only write staff user_id values.",
-          },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json(
-        buildDbFailurePayload(reservationUnitError, "Failed to attach selected unit."),
-        { status: 500 }
-      );
-    }
 
     if (selectedServices.length > 0) {
       const reservationServicesPayload = selectedServices.map((service) => {

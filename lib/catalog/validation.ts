@@ -49,6 +49,11 @@ export function validateCatalogRecord(resource: CatalogResource, input: unknown,
 
   if (result.effective_to && String(result.effective_to) < String(result.effective_from)) throw new CatalogValidationError("End date must be on or after the start date.");
   if (resource === "ocular_time_slots" && String(result.end_time) <= String(result.start_time)) throw new CatalogValidationError("End time must be later than start time.");
+  if (resource === "public_swimming_types") {
+    const minutes = (v: unknown) => Number(String(v).slice(0, 2)) * 60 + Number(String(v).slice(3, 5));
+    const duration = minutes(result.end_time) + Number(result.end_day_offset) * 1440 - minutes(result.start_time);
+    if (duration <= 0 || duration > 1440) throw new CatalogValidationError("Choose public swimming start/end times with a duration of up to 24 hours.");
+  }
   if (resource === "promo_codes") {
     result.code = String(result.code).toUpperCase();
     if (!/^[A-Z0-9_-]{3,40}$/.test(String(result.code))) throw new CatalogValidationError("Use 3-40 letters, digits, underscores or hyphens for a promo code.");

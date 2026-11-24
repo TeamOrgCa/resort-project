@@ -1,4 +1,6 @@
 "use client";
+import RoomBookingForm from "@/components/booking/RoomBookingForm";
+import PublicSwimmingForm from "@/components/booking/PublicSwimmingForm";
 import PromoCodeInput from "@/components/booking/PromoCodeInput";
 import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
 import type { PromoQuote } from "@/lib/booking/discounts";
@@ -11,7 +13,6 @@ import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useReservationFormGuard } from "@/components/booking/use-reservation-form-guard";
 import ServiceSelectionCard from "@/components/booking/ServiceSelectionCard";
-import UnitSelectionCard from "@/components/booking/UnitSelectionCard";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { createClient } from "@/lib/supabase/client";
@@ -28,15 +29,6 @@ import { isValidGuestCounts, MAX_GUESTS, MAX_EXTRA_GUESTS } from "@/lib/booking/
 import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
 import { parsePhilippineAddress, validatePhilippineAddress } from "@/lib/address/philippine-address";
 import { serviceQuantityError, serviceQuantityLimit } from "@/lib/booking/service-quantity";
-
-interface UnitOption {
-  id: string;
-  name: string;
-  price: number;
-  description: string;
-  imageUrl: string | null;
-  capacity: number | null;
-}
 
 interface ServiceOption {
   id: string;
@@ -65,9 +57,14 @@ const parseDateTime = (value: string | null) => {
 export default function BookingForm() {
   return (
     <Suspense fallback={<div className="booking-flow min-h-screen bg-base" />}>
-      <BookingFormContent />
+      <BookingFormRoute />
     </Suspense>
   );
+}
+
+function BookingFormRoute() {
+  const type = useBookingStore(state => state.bookingDraft.commercialType);
+  return type === "room_accommodation" ? <RoomBookingForm /> : type === "public_swimming" ? <PublicSwimmingForm /> : <BookingFormContent />;
 }
 
 function BookingFormContent() {
@@ -84,13 +81,11 @@ function BookingFormContent() {
     phone: bookingDraft.phone || "",
     adultCount: (bookingDraft.adultCount || 1) + (bookingDraft.childCount || 0),
     childCount: 0,
-    roomType: bookingDraft.unitId || "",
     specialRequests: bookingDraft.specialRequests || "",
   });
   const [address, setAddress] = useState(() => parsePhilippineAddress(bookingDraft.address || ""));
 
   const [serviceQuantities, setServiceQuantities] = useState<Record<string, number>>(() => Object.fromEntries(bookingDraft.services.map(service => [service.id, service.quantity ?? 1])));
-  const [units, setUnits] = useState<UnitOption[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -123,15 +118,6 @@ function BookingFormContent() {
         return;
       }
 
-      const mappedUnits: UnitOption[] = catalogResult.catalog.units.map((unit) => ({
-        id: unit.unit_id,
-        name: unit.name,
-        price: Number(unit.base_price),
-        description: unit.description ?? "",
-        imageUrl: unit.unit_img ?? null,
-        capacity: unit.capacity ?? null,
-      }));
-
       const mappedServices: ServiceOption[] = catalogResult.catalog.services.map((service) => ({
         id: service.service_id,
         name: service.name,
@@ -155,11 +141,9 @@ function BookingFormContent() {
         guestProfile = data ?? null;
       }
 
-      setUnits(mappedUnits);
       setServices(mappedServices);
       setFormData((prev) => ({
         ...prev,
-        roomType: mappedUnits.some(unit => unit.id === prev.roomType) ? prev.roomType : mappedUnits[0]?.id || "",
         firstName: prev.firstName || guestProfile?.first_name || authUser?.user_metadata?.first_name || "",
         lastName: prev.lastName || guestProfile?.last_name || authUser?.user_metadata?.last_name || "",
         email: prev.email || authUser?.email || "",
@@ -229,7 +213,6 @@ function BookingFormContent() {
   const effectiveEndDate = parseDateTime(bookingDraft.endDatetime || null) ?? fallbackEndDate;
 
   const durationHours = Math.max(1, (effectiveEndDate.getTime() - effectiveStartDate.getTime()) / (1000 * 60 * 60));
-  const selectedRoom = units.find((room) => room.id === formData.roomType);
   const selectedServiceItems = services.filter(service => service.id in serviceQuantities).map(service => ({ ...service, quantity: serviceQuantities[service.id] }));
   const quantityError = serviceQuantityError(selectedServiceItems.map(service => ({ serviceId: service.id, quantity: service.quantity })),
     services.map(service => ({ service_id: service.id, name: service.name, max_quantity: service.maxQuantity, billing_type: service.billingType })));
@@ -256,8 +239,8 @@ function BookingFormContent() {
       setFormError("Package prices or times changed. Return to the booking calendar to review the current schedule.");
       return;
     }
-    if (!selectedRoom || !bookingDraft.startDatetime || !bookingDraft.endDatetime) {
-      setFormError("Select valid booking dates and an available room first.");
+    if (!bookingDraft.startDatetime || !bookingDraft.endDatetime) {
+      setFormError("Select valid booking dates first.");
       return;
     }
     if (!guestCountsValid) {
@@ -297,8 +280,8 @@ function BookingFormContent() {
       address: addressValidation.value,
       adultCount: formData.adultCount,
       childCount: formData.childCount,
-      unitId: selectedRoom.id,
-      roomName: selectedRoom.name,
+      unitId: "",
+      roomName: "All cottages included",
       roomPrice: pricing.packageRate,
       nights: Math.max(1, Math.ceil(durationHours / 24)),
       subtotal,
@@ -389,16 +372,7 @@ function BookingFormContent() {
                           : "no additional guest charge applies."}</>
                       : `Enter at least one guest and no more than ${MAX_GUESTS} guests in total.`}
                   </p>
-                  <fieldset disabled={catalogLoading} className="mt-6 min-w-0">
-                    <legend className="mb-2 text-sm font-semibold text-neutral">Accommodation Type *</legend>
-                    <p className="mb-4 text-sm text-neutral/65">Choose an accommodation to include in your booking. Select a photo or accommodation name to choose it.</p>
-                    {catalogLoading && <p role="status" className="text-sm text-neutral/60">Loading available accommodations...</p>}
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      {units.map(room => <UnitSelectionCard key={room.id} unit={room} selected={formData.roomType === room.id}
-                        disabled={catalogLoading} onSelect={() => { setFormData(current => ({ ...current, roomType: room.id })); setFormError(null); }} />)}
-                    </div>
-                    {!catalogLoading && !catalogError && units.length === 0 && <p role="status" className="rounded-xl bg-base p-4 text-sm text-neutral/70">No accommodations are available for booking right now. Please contact the resort.</p>}
-                  </fieldset>
+                  <p className="mt-4 text-sm text-neutral/70">All cottages are included with your private swimming reservation.</p>
                 </div>
 
                 {/* Additional Services */}
@@ -410,7 +384,7 @@ function BookingFormContent() {
                     </div>
                   )}
                   {catalogLoading && (
-                    <p className="mb-4 text-sm text-neutral/70">Loading available units and services...</p>
+                    <p className="mb-4 text-sm text-neutral/70">Loading available services...</p>
                   )}
                   <div className="grid gap-3 sm:grid-cols-2">
                     {services.map((amenity) => (
@@ -445,7 +419,7 @@ function BookingFormContent() {
                   </Link>
                   <div className="flex-1">
                     <button data-booking-guide="guest-continue" type="button" onClick={handleContinueToPayment}
-                      disabled={checkingPromo || catalogLoading || units.length === 0 || !formData.roomType || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || Boolean(quantityError)}
+                      disabled={checkingPromo || catalogLoading || Boolean(catalogError) || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || Boolean(quantityError)}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Review Full Details
@@ -478,8 +452,8 @@ function BookingFormContent() {
 
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
-                      <span className="text-neutral/70">Selected unit</span>
-                      <span className="font-semibold text-neutral text-right">{selectedRoom?.name || "Choose a unit"}</span>
+                      <span className="text-neutral/70">Cottages</span>
+                      <span className="font-semibold text-neutral text-right">All included</span>
                     </div>
                     <div className="flex justify-between mb-2">
                       <span className="text-neutral/70">{pricing.rateTier === "weekend" ? "Weekend" : "Weekday"} {pricing.packageMode.replace("_", " ")} package</span>

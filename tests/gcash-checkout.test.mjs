@@ -5,7 +5,7 @@ import { loadTsModule } from "./helpers/load-ts-module.mjs";
 
 const guest = "11111111-1111-4111-8111-111111111111";
 const account = "22222222-2222-4222-8222-222222222222";
-const body = { acceptedPoliciesVersion:LEGAL_POLICY_VERSION,bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", unitId: "unit", adultCount: 2, childCount: 0,
+const body = { acceptedPoliciesVersion:LEGAL_POLICY_VERSION,bookingMode: "day", packageRateVersion: 1, phoneNumber: "+639171234567", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00", adultCount: 2, childCount: 0,
   payment: { paymentMethodId: "gcash", receivingAccountId: account, type: "downpayment", amount: 1500, referenceNumber: "1234-5678 90123", accountName: "Guest", accountNumber: "09171231234", proofPath: `${guest}/proof.png` } };
 function harness({ beta = false, status = "consistent", method = "GCash", insertError = null, notificationFails = false, proofValid = true, accountMissing = false, methodActive = true, services = [] } = {}) {
   const writes = [], inspected = [], manualProofs = [], accountFilters = [], emails = [], notifications = [];
@@ -58,6 +58,7 @@ test("legacy checkout uses the displayed recipient account, server minimum and a
   const payment = h.writes.find(w => w.table === "payments").payload;
   assert.equal(payment.amount, 1500); assert.equal(payment.reference_number, "1234567890123"); assert.equal(payment.receipt_paid_at, "2026-10-13T01:00:00Z");
   assert.equal((await response.json()).payment.amount, 1500);
+  assert.equal(h.writes.some(w => w.table === "reservation_units"), false);
   assert.equal(h.notifications[0].title, "Payment approved");
   assert.doesNotMatch(h.notifications[0].message, /OCR|automatically|automatic/i);
   assert.match(h.notifications[0].message, /MV-TEST.*approved/);

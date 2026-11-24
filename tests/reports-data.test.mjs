@@ -99,6 +99,11 @@ test("guest report includes online and walk-in contact details and uses reservat
   assert.equal(legacyReport.rows[0].source, "Unspecified");
   assert.equal(legacyReport.split.find(item => item.label === "Unspecified").value, 1);
 });
+test("guest reports identify all commercial reservation types for filtering and export",async()=>{
+ const h=harness({reservations:[booking('private'),booking('public',{commercial_type:'public_swimming'}),booking('room',{commercial_type:'room_accommodation'})]});
+ const report=(await(await h.get('Guest Report')).json()).report;
+ assert.deepEqual(new Set(report.rows.map(r=>r.reservationType)),new Set(['Private Swimming','Public Swimming','Room Accommodation']));
+});
 
 test("reports collect more than 1000 records and chunk referenced profile lookups", async () => {
   const bookings = Array.from({ length: 1001 }, (_, i) => booking(`r${i}`, { guest_id: `g${i}` }));

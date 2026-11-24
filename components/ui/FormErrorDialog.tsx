@@ -1,5 +1,7 @@
 "use client";
 
+import { lockBodyScroll } from "@/lib/ui/body-scroll-lock";
+
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { usePortalTarget } from "@/lib/use-portal-target";
@@ -24,8 +26,8 @@ export default function FormErrorDialog({ title, message, actions, closeText = "
     if (!portalTarget) return;
     const previousFocus = document.activeElement as HTMLElement | null;
     const returnFocus = returnFocusRef?.current;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const releaseScroll = lockBodyScroll();
+
     closeButton.current?.focus({ preventScroll: true });
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); return; }
@@ -41,7 +43,7 @@ export default function FormErrorDialog({ title, message, actions, closeText = "
     document.addEventListener("keydown", keydown);
     return () => {
       document.removeEventListener("keydown", keydown);
-      document.body.style.overflow = previousOverflow;
+      releaseScroll();
       (returnFocus ?? previousFocus)?.focus({ preventScroll: !returnFocus });
     };
   }, [returnFocusRef, portalTarget]);

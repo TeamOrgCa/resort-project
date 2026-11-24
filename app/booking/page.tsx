@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { customerAccountUser } from "@/lib/auth/customer-access";
 import { DEFAULT_ADVANCE_BOOKING_DAYS, maximumBookingDate, advanceBookingIssue } from "@/lib/booking/advance-window";
 import BookingGuide from "@/components/booking/BookingGuide";
+import PublicSwimmingSelection from "@/components/booking/PublicSwimmingSelection";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -15,13 +16,15 @@ import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { DEFAULT_PACKAGE_TIMES, PACKAGE_TIME_KEYS, packageTimeSlot, formatPackageTimeSlot, packageTimesLabel } from "@/lib/booking/package-times";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import type { CustomerRoomInventory } from "@/lib/booking/customer-rooms";
+import { buildRoomStayWindow, isRoomBookingStartAllowed, ROOM_BOOKING_LEAD_MESSAGE, ROOM_CHECK_IN_TIMES, type RoomDurationHours } from "@/lib/booking/room-stay";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
 import { ENABLE_CUSTOM_BOOKING } from "@/lib/booking/flags";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
 import { maintenanceOverlaps, type MaintenanceWindow } from "@/lib/booking/maintenance";
 import { isWindowAvailable, type ReservedWindow } from "@/lib/booking/availability";
-import { formatManilaDate, isValidManilaDate, manilaCalendarDate, manilaDateKey, manilaMonthDate } from "@/lib/booking/manila-date";
+import { formatManilaDate, formatManilaTime, isValidManilaDate, manilaCalendarDate, manilaDateKey, manilaMonthDate } from "@/lib/booking/manila-date";
 
 
 
@@ -29,19 +32,42 @@ const formatDateForStore = manilaDateKey;
 const toDateKey = manilaDateKey;
 const parseLocalDateValue = (value: string) => isValidManilaDate(value) ? manilaCalendarDate(value) : null;
 
+const BOOKING_OPTIONS = [
+  { id: "private", label: "Private Swimming", description: "Plan a pool day or celebration with your group.", icon: "M3 18c1.5-1 3-1 4.5 0s3 1 4.5 0 3-1 4.5 0 3 1 4.5 0M3 22c1.5-1 3-1 4.5 0s3 1 4.5 0 3-1 4.5 0 3 1 4.5 0M7 14V5a3 3 0 0 1 6 0m0 9V5a3 3 0 0 1 6 0M7 8h6M7 12h6" },
+  { id: "public", label: "Public Swimming", description: "Choose a date to enjoy a refreshing swim.", icon: "M3 20c1.5-1 3-1 4.5 0s3 1 4.5 0 3-1 4.5 0 3 1 4.5 0M4 15l5-5 4 4 3-2 4 4M14 5a2 2 0 1 0 4 0 2 2 0 0 0-4 0" },
+  { id: "ocular", label: "Ocular Visit", description: "Tour the resort and explore the facilities before booking.", icon: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Zm13 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0" },
+  { id: "room", label: "Room Accommodation", description: "Pick your dates for a relaxing resort stay.", icon: "M3 18v3m18-3v3M3 10V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5M3 18h18v-6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6Zm4-8V7h4v3m2 0V7h4v3" },
+] as const;
+type BookingOption = typeof BOOKING_OPTIONS[number]["id"];
+
 export default function Booking() {
   const { schedule: packageSchedule, error: packageRatesError } = usePackageRates();
   const router = useRouter();
   const setBookingWindow = useBookingStore((state) => state.setBookingWindow);
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const resetBookingDraft = useBookingStore((state) => state.resetBookingDraft);
-  const [bookingType, setBookingType] = useState<"stay" | "ocular">("stay");
+  const [selectedBookingOption, setSelectedBookingOption] = useState<BookingOption | null>(null);
+  const bookingType = selectedBookingOption === "ocular" ? "ocular" : "stay";
+  const isRoomBooking = selectedBookingOption === "room";
+  const selectedOption = BOOKING_OPTIONS.find(option => option.id === selectedBookingOption);
+  const calendarHeading = useRef<HTMLHeadingElement>(null);
+  const optionButtons = useRef<Partial<Record<BookingOption, HTMLButtonElement>>>({});
+  const previousBookingOption = useRef<BookingOption | null>(null);
+  useEffect(() => {
+    if (selectedBookingOption) {
+      previousBookingOption.current = selectedBookingOption;
+      calendarHeading.current?.focus({ preventScroll: true });
+    } else if (previousBookingOption.current) {
+      optionButtons.current[previousBookingOption.current]?.focus({ preventScroll: true });
+    }
+  }, [selectedBookingOption]);
   useEffect(() => {
     if (window.location.hash !== "#ocular") return;
-    const timer = window.setTimeout(() => setBookingType("ocular"), 0);
+    const timer = window.setTimeout(() => setSelectedBookingOption("ocular"), 0);
     return () => window.clearTimeout(timer);
   }, []);
   const [bookingMode, setBookingMode] = useState<BookingMode>("day");
+  const [roomDurationHours, setRoomDurationHours] = useState<RoomDurationHours | null>(null);
   const [wholeDayVariant, setWholeDayVariant] = useState<WholeDayVariant>("day_to_night");
   const [selectedStayDate, setSelectedStayDate] = useState<Date | null>(null);
   const [customStartTime, setCustomStartTime] = useState("08:00");
@@ -62,6 +88,7 @@ export default function Booking() {
   const [ocularAuthChecking, setOcularAuthChecking] = useState(false);
   const ocularAuthCheckingRef = useRef(false);
   const [ocularToast, setOcularToast] = useState<{ message: string } | null>(null);
+  const [roomInventory, setRoomInventory] = useState<CustomerRoomInventory[]>([]);
   const [reservedWindows, setReservedWindows] = useState<ReservedWindow[]>([]);
   const [blockedDateRanges, setBlockedDateRanges] = useState<MaintenanceWindow[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
@@ -108,13 +135,14 @@ export default function Booking() {
     const loadAvailability = async () => {
       const currentRequest = ++requestId;
       try {
-        const response = await fetch(`/api/booking/availability?month=${month}`, { cache: "no-store" });
+        const response = await fetch(isRoomBooking ? `/api/booking/rooms?month=${month}` : `/api/booking/availability?month=${month}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Availability request failed.");
-        const result = (await response.json()) as { reservations: ReservedWindow[]; blockedDates: MaintenanceWindow[]; maxBookingDate?: string };
+        const result = (await response.json()) as { reservations?: ReservedWindow[]; blockedDates?: MaintenanceWindow[]; rooms?: CustomerRoomInventory[]; maxBookingDate?: string };
         if (!active || currentRequest !== requestId) return;
         setMaxBookingDate(result.maxBookingDate ?? maximumBookingDate(DEFAULT_ADVANCE_BOOKING_DAYS));
-        setReservedWindows(result.reservations);
-        setBlockedDateRanges(result.blockedDates);
+        setReservedWindows(result.reservations ?? []);
+        setBlockedDateRanges(result.blockedDates ?? []);
+        setRoomInventory(result.rooms ?? []);
         setAvailabilityError(false);
       } catch {
         if (active && currentRequest === requestId) setAvailabilityError(true);
@@ -131,7 +159,7 @@ export default function Booking() {
       clearInterval(refresh);
       window.removeEventListener("focus", loadAvailability);
     };
-  }, [currentMonth]);
+  }, [currentMonth, isRoomBooking]);
 
   const handleContinueToReservation = () => {
     if (availabilityLoading || availabilityError) {
@@ -142,8 +170,21 @@ export default function Booking() {
       setStayError("Please select a booking date.");
       return;
     }
+    if (isRoomBooking && !selectedRoomSlot) {
+      setStayError("Please select a 3-hour or 12-hour room stay and an available check-in time.");
+      return;
+    }
     const advanceIssue = advanceBookingIssue(toDateKey(selectedStayDate), maxBookingDate);
     if (advanceIssue) { setStayError(advanceIssue); return; }
+    if (isRoomBooking && selectedRoomSlot) {
+      if (!isRoomBookingStartAllowed(selectedRoomSlot.startDatetime)) {
+        setNow(Date.now()); setStayError(ROOM_BOOKING_LEAD_MESSAGE); return;
+      }
+      resetBookingDraft();
+      setBookingWindow("custom", selectedRoomSlot.startDatetime, selectedRoomSlot.endDatetime, { customStartTime: selectedRoomSlot.startTime, customEndTime: selectedRoomSlot.endTime, customEndDate: selectedRoomSlot.customEndDate, customDurationHours: roomDurationHours! });
+      setBookingDraft({ commercialType: "room_accommodation", packageRateVersion: null, packageRates: null });
+      setStayError(null); router.push("/booking/form"); return;
+    }
     const selectedCustomEndDate =
       bookingMode === "custom"
         ? parseLocalDateValue(customEndDate || formatDateForStore(selectedStayDate))
@@ -234,9 +275,36 @@ export default function Booking() {
   };
 
   const isBookingWindowAvailable = (start: string, end: string) => {
+    if (isRoomBooking) return roomInventory.some(r => !r.unavailable && isWindowAvailable(start, end, r.blocks));
     if (!isWindowAvailable(start, end, reservedWindows)) return false;
     if (blockedDateRanges.some(block => maintenanceOverlaps(start, end, block))) return false;
     return true;
+  };
+
+  const roomSlotAvailable = (slot: NonNullable<ReturnType<typeof buildRoomStayWindow>>) =>
+    isRoomBookingStartAllowed(slot.startDatetime, now) && isBookingWindowAvailable(slot.startDatetime, slot.endDatetime);
+  const firstRoomTimeSlot = (date: Date, duration: RoomDurationHours) => {
+    const dateKey = toDateKey(date);
+    if ((!isRoomBooking && !packageSchedule) || dateKey < manilaDateKey(new Date(now)) || advanceBookingIssue(dateKey, maxBookingDate)) return null;
+    if (blockedDateRanges.some(block => !block.start_datetime && !block.end_datetime && block.start_date <= dateKey && block.end_date >= dateKey)) return null;
+    for (const startTime of ROOM_CHECK_IN_TIMES) {
+      const slot = buildRoomStayWindow(dateKey, startTime, duration)!;
+      if (roomSlotAvailable(slot)) return slot;
+    }
+    return null;
+  };
+  const availableRoomSlots = isRoomBooking && selectedStayDate
+    ? { 3: firstRoomTimeSlot(selectedStayDate, 3), 12: firstRoomTimeSlot(selectedStayDate, 12) }
+    : null;
+  const roomWindow = isRoomBooking && selectedStayDate && roomDurationHours
+    ? buildRoomStayWindow(toDateKey(selectedStayDate), customStartTime, roomDurationHours) : null;
+  const selectedRoomSlot = roomWindow && roomSlotAvailable(roomWindow) ? roomWindow : null;
+  const selectRoomTimeSlot = (duration: RoomDurationHours, slot: NonNullable<ReturnType<typeof buildRoomStayWindow>>) => {
+    setRoomDurationHours(duration);
+    setCustomStartTime(slot.startTime);
+    setCustomEndTime(slot.endTime);
+    setCustomEndDate(slot.customEndDate);
+    setStayError(null);
   };
 
   const packageAvailable = (date: Date, mode: BookingMode, variant: WholeDayVariant = "day_to_night") => {
@@ -255,6 +323,7 @@ export default function Booking() {
 
   const isDateBooked = (date: Date) => {
     if (advanceBookingIssue(toDateKey(date), maxBookingDate)) return true;
+    if (isRoomBooking) return !firstRoomTimeSlot(date, 3);
     if (bookingMode !== "custom") return !packageAvailable(date, bookingMode, wholeDayVariant);
     const { day, night, whole } = dateAvailability(date);
     return !day && !night && !whole;
@@ -281,6 +350,12 @@ export default function Booking() {
       if (isPast) return;
 
       setSelectedStayDate(date);
+      if (isRoomBooking) {
+        setRoomDurationHours(null);
+        setCustomEndDate(toDateKey(date));
+        setStayError(null);
+        return;
+      }
       if (bookingMode === "custom") {
         if (!customEndDate) {
           setCustomEndDate(formatDateForStore(date));
@@ -481,7 +556,7 @@ export default function Booking() {
     );
   }
 
-  const summaryWindow = selectedStayDate ? buildBookingWindow({ packageTimes: packageSchedule?.times,
+  const summaryWindow = selectedStayDate && (!isRoomBooking || selectedRoomSlot) ? buildBookingWindow({ packageTimes: packageSchedule?.times,
     bookingMode,
     date: toDateKey(selectedStayDate),
     wholeDayVariant,
@@ -502,7 +577,7 @@ export default function Booking() {
       customStartTime,
       customEndTime,
     }, packageSchedule?.times).valid ? { startDatetime: summaryWindow.startDatetime, endDatetime: summaryWindow.endDatetime } : null;
-  const summaryPricing = validSummaryWindow && packageSchedule ? computeBookingPricing({
+  const summaryPricing = !isRoomBooking && validSummaryWindow && packageSchedule ? computeBookingPricing({
     bookingMode,
     startDatetime: validSummaryWindow.startDatetime,
     endDatetime: validSummaryWindow.endDatetime,
@@ -516,7 +591,7 @@ export default function Booking() {
   return (
     <div className="min-h-screen bg-base">
       <Navigation />
-      <BookingGuide page={bookingType === "stay" ? "dates" : "ocular"} disabled={ocularSubmitting} />
+      <BookingGuide page={!selectedBookingOption ? "selection" : isRoomBooking ? "room" : bookingType === "stay" ? "dates" : "ocular"} publicSwimming={selectedBookingOption === "public"} disabled={ocularSubmitting} />
 
       {/* Hero Section */}
       <section className="relative h-80 flex items-center justify-center overflow-hidden mt-20">
@@ -529,55 +604,76 @@ export default function Booking() {
         />
         <div className="absolute inset-0 bg-neutral/40"></div>
         <div className="relative z-10 text-center px-4">
-          <h1 className="text-6xl font-bold text-base mb-4">
-            {bookingType === "stay" ? "Book Your Stay" : "Schedule a Visit"}
+          <h1 ref={calendarHeading} tabIndex={-1} className="text-4xl sm:text-6xl font-bold text-base mb-4 focus:outline-none">
+            {!selectedBookingOption ? "Plan Your Resort Visit" : selectedOption?.label}
           </h1>
           <p className="text-xl text-base/90">
-            {bookingType === "stay" ? "Select your dates and reserve paradise" : "See the resort before your stay"}
+            {!selectedBookingOption ? "Choose how you want to enjoy the resort" : bookingType === "stay" ? "Select your dates and reserve paradise" : "See the resort before your stay"}
           </p>
         </div>
       </section>
 
       {/* Booking Type Selector */}
-      <section data-booking-guide="booking-type" className="py-8 px-4 bg-white border-b border-neutral/10">
+      {!selectedBookingOption ? (
+      <section data-booking-guide="booking-type" aria-labelledby="booking-options-heading" className="py-12 sm:py-16 px-4">
         <div className="max-w-6xl mx-auto">
-          <div className="flex justify-center gap-4">
-            <button
-              onClick={() => {
-                setBookingType("stay");
-                setSelectedDate(null);
-                setSelectedTime("");
-                setBookingRef("");
-                setStayError(null);
-              }}
-              className={`px-8 py-4 rounded-full font-semibold transition-all ${
-                bookingType === "stay"
-                  ? "bg-primary text-base shadow-lg"
-                  : "bg-neutral/5 text-neutral hover:bg-neutral/10"
-              }`}
-            >
-              Full Stay Booking
-            </button>
-            <button
-              onClick={() => {
-                setBookingType("ocular");
-                setSelectedStayDate(null);
-              }}
-              className={`px-8 py-4 rounded-full font-semibold transition-all ${
-                bookingType === "ocular"
-                  ? "bg-accent text-base shadow-lg"
-                  : "bg-neutral/5 text-neutral hover:bg-neutral/10"
-              }`}
-            >
-              Ocular Visit
-            </button>
+          <div className="text-center mb-8">
+            <h2 id="booking-options-heading" className="text-2xl sm:text-3xl font-bold text-neutral mb-3">What would you like to book?</h2>
+            <p className="text-neutral/70">Select an option to view the calendar and choose your dates.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {BOOKING_OPTIONS.map(option => (
+              <button
+                key={option.id}
+                ref={element => { if (element) optionButtons.current[option.id] = element; }}
+                type="button"
+                aria-labelledby={`booking-option-${option.id}`}
+                onClick={() => {
+                  if (previousBookingOption.current !== option.id) {
+                    setSelectedStayDate(null);
+                    setSelectedDate(null);
+                    setSelectedTime("");
+                    setRoomDurationHours(null);
+                    if (option.id === "room") setBookingMode("custom");
+                    else if (previousBookingOption.current === "room") setBookingMode("day");
+                  }
+                  setBookingRef("");
+                  setStayError(null);
+                  setSelectedBookingOption(option.id);
+                }}
+                className="group flex flex-col items-start rounded-3xl border border-neutral/10 bg-white p-6 text-left shadow-sm transition-all hover:border-primary hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+              >
+                <span className={`mb-6 flex h-14 w-14 items-center justify-center rounded-2xl ${option.id === "ocular" ? "bg-accent/15 text-accent" : "bg-primary/15 text-primary"}`}>
+                  <svg aria-hidden="true" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d={option.icon} /></svg>
+                </span>
+                <span id={`booking-option-${option.id}`} className="mb-3 text-xl font-bold text-neutral">{option.label}</span>
+                <span className="mb-6 text-base text-neutral/70">{option.description}</span>
+                <span className="mt-auto text-sm font-semibold text-neutral group-hover:text-primary">Select dates</span>
+              </button>
+            ))}
           </div>
         </div>
       </section>
-
+      ) : (
+      <>
       {/* Booking Section */}
-      <section className="py-20 px-4">
+      <section className="py-10 sm:py-16 px-4">
         <div className="max-w-6xl mx-auto">
+          <div data-booking-guide="booking-type" className="mb-4">
+            <button
+              type="button"
+              aria-label="Back to booking options"
+              title="Back to booking options"
+              disabled={ocularSubmitting || ocularAuthChecking}
+              onClick={() => {
+                setSelectedBookingOption(null);
+                if (window.location.hash === "#ocular") window.history.replaceState(null, "", window.location.pathname + window.location.search);
+              }}
+              className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-neutral/20 bg-white text-neutral transition-colors hover:bg-neutral/5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary disabled:opacity-50"
+            >
+              <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M19 12H5m7 7-7-7 7-7" /></svg>
+            </button>
+          </div>
           {bookingType === "ocular" && (
             <div className="bg-accent/10 p-6 rounded-2xl mb-8">
               <div className="flex items-start gap-3">
@@ -592,10 +688,15 @@ export default function Booking() {
             </div>
           )}
 
-          {bookingType === "stay" && (
-            <div data-booking-guide="booking-mode" className="bg-primary/5 p-6 rounded-2xl mb-8">
-              <h3 className="font-bold text-neutral mb-4">Select Booking Mode</h3>
-              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          {selectedBookingOption === "public" && <PublicSwimmingSelection onChoose={(type, slot) => {
+            resetBookingDraft(); setBookingWindow(type.mode, slot.startDatetime, slot.endDatetime);
+            setBookingDraft({ commercialType: "public_swimming", publicSwimmingType: type, packageRates: null, packageRateVersion: null });
+            router.push("/booking/form");
+          }} />}
+          {bookingType === "stay" && !isRoomBooking && selectedBookingOption !== "public" && (
+            <div data-booking-guide="booking-mode" className="bg-primary/5 p-4 sm:p-5 rounded-2xl mb-6">
+              <h3 className="font-bold text-neutral mb-3">Select Booking Mode</h3>
+              <div className={`grid gap-3 ${ENABLE_CUSTOM_BOOKING ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
                 {(() => {
                   const modes: { value: BookingMode; label: string; subtitle: string }[] = [
                     { value: "day", label: "Day", subtitle: packageTimesLabel("day", packageSchedule?.times) },
@@ -634,7 +735,7 @@ export default function Booking() {
               </div>
 
               {bookingMode === "whole_day" && (
-                <div className="grid md:grid-cols-2 gap-3 mb-4">
+                <div className="mt-3 grid md:grid-cols-2 gap-3">
                   <button
                     type="button"
                     aria-pressed={wholeDayVariant === "day_to_night"}
@@ -657,7 +758,7 @@ export default function Booking() {
               )}
 
               {bookingMode === "custom" && (
-                <div className="grid sm:grid-cols-2 gap-3">
+                <div className="mt-3 grid sm:grid-cols-2 gap-3">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-neutral/70 mb-1">Custom End Date</label>
                     <input
@@ -704,14 +805,14 @@ export default function Booking() {
                 </div>
               )}
 
-              <p className="text-xs text-neutral/70 mt-3">
+              {ENABLE_CUSTOM_BOOKING && bookingMode === "custom" && <p className="text-xs text-neutral/70 mt-3">
                 Custom bookings must stay within 8:00 AM to 10:00 PM and be at least 3 hours.
-              </p>
+              </p>}
             </div>
           )}
           
 
-          <form
+          {selectedBookingOption !== "public" && <form
             onSubmit={(e) => {
               if (bookingType === "ocular") {
                 handleOcularSubmit(e);
@@ -742,7 +843,7 @@ export default function Booking() {
                   </div>
                 </div>
 
-                {bookingType === "stay" && <p className="mb-4 text-sm text-neutral/70" aria-live="polite">Showing dates available for {selectedModeLabel}, through {maxBookingDate}. Unavailable dates are disabled.</p>}
+                {bookingType === "stay" && <p className="mb-4 text-sm text-neutral/70" aria-live="polite">{isRoomBooking ? "Select a date to see 3-hour and 12-hour room stays" : `Showing dates available for ${selectedModeLabel}`}, through {maxBookingDate}. Unavailable dates are disabled.</p>}
                 <div className="mb-6">
                   <h3 className="text-lg sm:text-2xl font-semibold text-neutral text-center mb-2">
                     {monthNames[currentMonth.getUTCMonth()]} {currentMonth.getUTCFullYear()}
@@ -781,6 +882,25 @@ export default function Booking() {
                             ${isSelected ? "bg-accent text-base" : ""}
                             ${!isPast && !isSelected ? "hover:bg-accent/10 text-neutral" : ""}
                           `}
+                        >
+                          {index + 1}
+                        </button>
+                      );
+                    } else if (isRoomBooking) {
+                      const isBooked = !firstRoomTimeSlot(date, 3);
+                      const isMaintenance = blockedDateRanges.some(block => !block.start_datetime && !block.end_datetime && block.start_date <= toDateKey(date) && block.end_date >= toDateKey(date));
+                      const label = isPast ? "Past date" : advanceBookingIssue(toDateKey(date), maxBookingDate)
+                        ?? (isMaintenance ? "Closed for maintenance" : isBooked ? "No available room check-in times" : "Room check-in available");
+                      return (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => handleDateClick(date)}
+                          disabled={availabilityLoading || availabilityError || isBooked || isPast}
+                          aria-label={`${toDateKey(date)}: ${label}`}
+                          title={label}
+                          style={isMaintenance ? { backgroundColor: "#6A7282", color: "#FFFFFF" } : undefined}
+                          className={`min-h-11 aspect-square rounded-lg flex items-center justify-center font-medium transition-colors ${isBooked || isPast ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : isDateSelected(date) ? "bg-primary text-base" : "text-neutral hover:bg-primary/10"}`}
                         >
                           {index + 1}
                         </button>
@@ -835,10 +955,10 @@ export default function Booking() {
                         <span className="text-sm text-neutral/70">Fully booked / Unavailable</span>
                       </div>
                       <div className="flex items-center gap-2"><div className="h-4 w-4 rounded bg-gray-500" style={{ backgroundColor: "#6A7282" }} /><span className="text-sm text-neutral/70">Closed for maintenance</span></div>
-                      <div className="flex items-center gap-2">
+                      {!isRoomBooking && <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-amber-50 rounded"></div>
                         <span className="text-sm text-neutral/70">Day or night available</span>
-                      </div>
+                      </div>}
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-neutral/30 rounded"></div>
                         <span className="text-sm text-neutral/70">Available</span>
@@ -857,6 +977,60 @@ export default function Booking() {
                     </>
                   )}
                 </div>
+
+                {isRoomBooking && selectedStayDate && availableRoomSlots && (
+                  <div data-booking-guide="room-times" className="mt-8 pt-8 border-t border-neutral/10">
+                    <h3 className="text-xl font-semibold text-neutral mb-2">Select Check-in Time Slot</h3>
+                    <p className="text-sm text-neutral/70 mb-4">Choose your stay duration for {formatManilaDate(selectedStayDate)}.</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {([3, 12] as const).map(duration => (
+                        <button
+                          key={duration}
+                          type="button"
+                          aria-pressed={roomDurationHours === duration}
+                          disabled={availabilityLoading || availabilityError || !availableRoomSlots[duration]}
+                          onClick={() => {
+                            const slot = (roomWindow && buildRoomStayWindow(toDateKey(selectedStayDate), customStartTime, duration)) ?? availableRoomSlots[duration];
+                            if (slot && roomSlotAvailable(slot)) selectRoomTimeSlot(duration, slot);
+                            else if (availableRoomSlots[duration]) selectRoomTimeSlot(duration, availableRoomSlots[duration]);
+                          }}
+                          className={`rounded-xl border px-4 py-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40 ${roomDurationHours === duration ? "border-primary bg-primary/10" : "border-neutral/20 hover:border-primary"}`}
+                        >
+                          <span className="block text-lg font-semibold text-neutral">{duration} hours</span>
+                          <span className="text-sm text-neutral/70">{availableRoomSlots[duration] ? "Choose check-in time" : "Unavailable on this date"}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {roomDurationHours && (
+                      <div className="mt-5">
+                        <label htmlFor="room-check-in-time" className="block text-sm font-semibold text-neutral mb-2">Check-in time</label>
+                        <select
+                          id="room-check-in-time"
+                          value={customStartTime}
+                          disabled={availabilityLoading || availabilityError}
+                          aria-invalid={!selectedRoomSlot}
+                          aria-describedby="room-check-in-help"
+                          onChange={event => {
+                            setCustomStartTime(event.target.value);
+                            setStayError(null);
+                            const slot = buildRoomStayWindow(toDateKey(selectedStayDate), event.target.value, roomDurationHours);
+                            if (slot) selectRoomTimeSlot(roomDurationHours, slot);
+                          }}
+                          className="w-full rounded-xl border border-neutral/20 bg-white px-4 py-3 text-neutral"
+                        >
+                          <option value="" disabled>Choose check-in time</option>
+                          {ROOM_CHECK_IN_TIMES.map(time => {
+                            const slot = buildRoomStayWindow(toDateKey(selectedStayDate), time, roomDurationHours)!;
+                            return <option key={time} value={time} disabled={!roomSlotAvailable(slot)}>{formatManilaTime(slot.startDatetime, { hour: "numeric", minute: "2-digit", hour12: true })}</option>;
+                          })}
+                        </select>
+                        {roomWindow && <p className="mt-3 text-sm text-neutral/70" aria-live="polite">Check-out: {formatSummaryDate(roomWindow.endDatetime)}</p>}
+                        {!availabilityLoading && !availabilityError && !selectedRoomSlot && <p role="alert" className="mt-2 text-sm text-amber-800">{!roomWindow ? "Choose a check-in time." : !isRoomBookingStartAllowed(roomWindow.startDatetime, now) ? ROOM_BOOKING_LEAD_MESSAGE : "This stay overlaps a reservation or maintenance. Choose another check-in time."}</p>}
+                      </div>
+                    )}
+                    <p id="room-check-in-help" className="mt-3 text-sm text-neutral/60">Choose check-in in 30-minute intervals, at least one hour in advance, subject to availability. Check-out is 3 or 12 hours later and may fall on the next day. Times are in Philippine time.</p>
+                  </div>
+                )}
 
                 {/* Time Slots for Ocular Visit */}
                 {bookingType === "ocular" && selectedDate && (
@@ -920,9 +1094,9 @@ export default function Booking() {
                       </div>
                       {selectedStayDate && (
                         <div>
-                          <label className="text-sm text-neutral/70">Mode</label>
+                          <label className="text-sm text-neutral/70">{isRoomBooking ? "Stay duration" : "Mode"}</label>
                           <p className="text-lg font-semibold text-neutral">
-                            {bookingMode === "whole_day"
+                            {isRoomBooking ? roomDurationHours ? `${roomDurationHours} hours` : "Select 3 or 12 hours" : bookingMode === "whole_day"
                               ? wholeDayVariant === "day_to_night" ? "Whole Day – Daytime" : "Whole Day – Overnight"
                               : bookingMode.charAt(0).toUpperCase() + bookingMode.slice(1)}
                           </p>
@@ -936,7 +1110,7 @@ export default function Booking() {
                       )}
                     </div>
 
-                    <div className="border-t border-neutral/10 pt-6 mb-6">
+                    {!isRoomBooking && <div className="border-t border-neutral/10 pt-6 mb-6">
                       <h4 className="font-semibold text-neutral mb-3">Rate Information</h4>
                       {summaryPricing ? (
                         <>
@@ -945,9 +1119,9 @@ export default function Booking() {
                           <p className="text-xs text-neutral/60 mt-2">Extra guests and selected services are added in the next step.</p>
                         </>
                       ) : <p className="text-sm text-neutral/70">Select a valid date and time to see the package rate.</p>}
-                    </div>
+                    </div>}
 
-                    {packageRatesError && <p role="alert" className="mb-3 text-sm text-red-700">{packageRatesError}</p>}
+                    {!isRoomBooking && packageRatesError && <p role="alert" className="mb-3 text-sm text-red-700">{packageRatesError}</p>}
                     {stayError ? (
                       <div role="alert" className="mb-4 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-neutral/80">
                         {stayError}
@@ -959,13 +1133,13 @@ export default function Booking() {
                       data-booking-guide="dates-continue"
                       onClick={handleContinueToReservation}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                      disabled={!packageSchedule || Boolean(packageRatesError) || !selectedStayDate || Boolean(validSummaryWindow && !isBookingStartAllowed(validSummaryWindow.startDatetime, now))}
+                      disabled={(!isRoomBooking && (!packageSchedule || Boolean(packageRatesError))) || !selectedStayDate || (isRoomBooking && (!selectedRoomSlot || availabilityLoading || availabilityError)) || Boolean(validSummaryWindow && !isBookingStartAllowed(validSummaryWindow.startDatetime, now))}
                     >
                       Continue to Reservation
                     </button>
                     
                     <p className="text-xs text-neutral/60 text-center mt-4">
-                      Your date is held for 30 minutes after you save the booking. Submit your down payment proof before the deadline or the date becomes available again.
+                      {isRoomBooking ? "Your selected rooms are held for 30 minutes after saving. Submit full payment proof before the deadline or the rooms become available again." : "Your date is held for 30 minutes after you save the booking. Submit your down payment proof before the deadline or the date becomes available again."}
                     </p>
                   </>
                 ) : (
@@ -1010,7 +1184,7 @@ export default function Booking() {
               </div>
             </div>
           </div>
-          </form>
+          </form>}
         </div>
       </section>
 
@@ -1091,6 +1265,8 @@ export default function Booking() {
         </div>
       </section>
 
+      </>
+      )}
       <ConfirmationDialog isOpen={confirmOcular} title="Confirm ocular visit" message={`Schedule your visit on ${selectedDate ? formatManilaDate(selectedDate) : ""} at ${formatTimeSlot(selectedTime)} (Philippine time)? The available slot will be confirmed immediately.`} confirmText="Confirm schedule" isConfirming={ocularSubmitting} onConfirm={() => void submitOcular()} onCancel={() => setConfirmOcular(false)} />
       {ocularToast && <FormErrorToast error={ocularToast} onDismiss={() => setOcularToast(null)} dismissLabel="Dismiss ocular visit notification" />}
       <Footer />

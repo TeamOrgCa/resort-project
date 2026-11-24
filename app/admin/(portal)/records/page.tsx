@@ -1,5 +1,6 @@
 "use client";
 
+import { commercialTypeLabel } from "@/lib/booking/commercial-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTabs from "@/components/admin/AdminTabs";
@@ -16,7 +17,7 @@ import ReservationRecordDetails from "@/components/admin/ReservationRecordDetail
 
 const tabs = ["Reservation Records", "Reschedule History", "Ocular Visit Records"] as const;
 const reservationColumns: AdminTableColumn[] = [
-  { key: "reference", label: "Reference" }, { key: "guest", label: "Guest" },
+  { key: "reference", label: "Reference" }, { key: "reservationType", label: "Reservation type" }, { key: "guest", label: "Guest" },
   { key: "checkIn", label: "Check-in" }, { key: "checkOut", label: "Check-out" },
   { key: "guests", label: "Guests" }, { key: "status", label: "Status" },
 ];
@@ -70,7 +71,7 @@ export default function AdminRecordsPage() {
       try {
         const supabase = createClient();
         const [{ data: reservationData, error: reservationError }, { data: rescheduleData, error: rescheduleError }, { data: ocularData, error: ocularError }, { data: slotData, error: slotError }] = await Promise.all([
-          fetchAllPages((from, to) => supabase.from("reservations").select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, created_at").order("created_at", { ascending: false }).order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
+          fetchAllPages((from, to) => supabase.from("reservations").select("reservation_id, reference_number, commercial_type, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, status, created_at").order("created_at", { ascending: false }).order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
           fetchAllPages((from, to) => supabase.from("reservation_reschedules").select("reschedule_id, reservation_id, requested_by, old_start, old_end, new_start, new_end, reschedule_fee, rate_adjustment, reason, status, created_at").order("created_at", { ascending: false }).order("reschedule_id").range(from, to)).then(data => ({ data, error: null })),
           fetchAllPages((from, to) => supabase.from("ocular_visits").select("visit_id, reference_number, guest_id, scheduled_date, time_slot_id, status, review_reason, cancellation_reason, created_at").order("created_at", { ascending: false }).order("visit_id").range(from, to)).then(data => ({ data, error: null })),
           supabase.from("ocular_time_slots").select("slot_id, start_time, end_time"),
@@ -94,7 +95,7 @@ export default function AdminRecordsPage() {
           return profile ? `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim() || "Guest profile unavailable" : "Guest profile unavailable";
         };
         const guestName = (id: string | number | null) => guestMap[String(id ?? "")] ? `${guestMap[String(id)].first_name} ${guestMap[String(id)].last_name}` : "-";
-        setReservations(reservationRows.map((row) => ({ id: String(row.reservation_id), reference: String(row.reference_number), guest: reservationGuestName(row), checkIn: dateTime(String(row.start_datetime)), checkOut: dateTime(String(row.end_datetime)), guests: String(Number(row.adult_count ?? 0) + Number(row.child_count ?? 0)), status: titleCase(String(row.status ?? "")) })));
+        setReservations(reservationRows.map((row) => ({ id: String(row.reservation_id), reference: String(row.reference_number), reservationType: commercialTypeLabel(String(row.commercial_type ?? "")), guest: reservationGuestName(row), checkIn: dateTime(String(row.start_datetime)), checkOut: dateTime(String(row.end_datetime)), guests: String(Number(row.adult_count ?? 0) + Number(row.child_count ?? 0)), status: titleCase(String(row.status ?? "")) })));
         const reservationReference = reservationRows.reduce<Record<string, string>>((map, row) => ({ ...map, [String(row.reservation_id)]: String(row.reference_number) }), {});
         setReschedules((((rescheduleData as Array<Record<string, string | number | null>> | null) ?? []).map((row) => ({ id: String(row.reschedule_id), reference: reservationReference[String(row.reservation_id)] ?? "-", guest: reservationMap[String(row.reservation_id)] ? reservationGuestName(reservationMap[String(row.reservation_id)]) : guestName(row.requested_by), oldDates: `${dateTime(String(row.old_start))} - ${dateTime(String(row.old_end))}`, newDates: `${dateTime(String(row.new_start))} - ${dateTime(String(row.new_end))}`, additionalCharge: `₱${(Number(row.reschedule_fee ?? 0) + Number(row.rate_adjustment ?? 0)).toFixed(2)}`, reason: String(row.reason ?? "Not recorded"), status: rescheduleStatus(String(row.status ?? "")), recordedAt: dateTime(String(row.created_at)) }))));
         const slots = Object.fromEntries(((slotData as Array<{ slot_id: string; start_time: string; end_time: string }> | null) ?? []).map((slot) => [slot.slot_id, `${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)}`]));

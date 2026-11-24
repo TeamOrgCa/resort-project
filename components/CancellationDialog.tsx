@@ -1,5 +1,7 @@
 "use client";
 
+import { lockBodyScroll } from "@/lib/ui/body-scroll-lock";
+
 import ManageIcon from "@/components/manage/ManageIcon";
 
 import { useEffect, useRef, useState } from "react";
@@ -24,8 +26,8 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
   const { root: formRoot, requestClose, captureInitial, captureChange, captureClick, confirmation } = useReservationFormGuard(true, busy, `${reservationId}:${choosing}`);
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden"; dialog.current?.focus({ preventScroll: true });
+    const releaseScroll = lockBodyScroll();
+     dialog.current?.focus({ preventScroll: true });
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); return; }
       if (event.key !== "Tab") return;
@@ -36,7 +38,7 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
       else if (!event.shiftKey && (document.activeElement === last || !dialog.current?.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", keydown);
-    return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", keydown); previousFocus?.focus(); };
+    return () => { releaseScroll(); document.removeEventListener("keydown", keydown); previousFocus?.focus(); };
   }, []);
   const endpoint = staff ? "/api/admin/reservations/cancel" : "/api/reservations/cancel";
   useEffect(() => {
@@ -88,7 +90,7 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
       {staff && <div className="mt-4 space-y-3">
         <label className="block text-sm font-medium">Who initiated cancellation?<select disabled={busy} value={initiator} className="mt-1 w-full rounded-lg border p-2" onChange={e => {
           setInitiator(e.target.value as "guest" | "resort"); setPreview(null); setLoading(true); setConfirmed(false); setError(null);
-        }}><option value="guest">Guest request - retain the initial 20% deposit</option>{canCancelForResort && <option value="resort">Resort-attributable reason - full verified refund</option>}</select></label>
+        }}><option value="guest">{preview?.commercialType === "public_swimming" ? "Guest request - deduct 20% of verified payments" : "Guest request - retain the initial 20% deposit"}</option>{canCancelForResort && <option value="resort">Resort-attributable reason - full verified refund</option>}</select></label>
       </div>}
       <div className="mt-4">
         <label htmlFor="cancellation-reason" className="block text-sm font-medium">Reason for cancellation *</label>
@@ -104,8 +106,8 @@ export default function CancellationDialog({ reservationId, staff = false, canCa
         <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3"><dt>Verified payments</dt><dd className="text-right">{money(preview.verifiedPaid)}</dd>
           <dt>Previous completed refunds</dt><dd className="text-right">{money(preview.previousRefunds)}</dd>
           <dt>Remaining verified payments</dt><dd className="text-right">{money(preview.netPaid)}</dd>
-          <dt>Initial deposit basis</dt><dd className="text-right">{money(preview.depositBase)}</dd>
-          {preview.retainedDeposit !== undefined && <><dt>Retained deposit</dt><dd className="text-right">{money(preview.retainedDeposit)}</dd></>}
+          <dt>{preview.commercialType === "public_swimming" ? "Remaining verified payment" : "Initial deposit basis"}</dt><dd className="text-right">{money(preview.commercialType === "public_swimming" ? preview.netPaid : preview.depositBase)}</dd>
+          {preview.retainedDeposit !== undefined && <><dt>{preview.commercialType === "public_swimming" ? "20% cancellation deduction" : "Retained deposit"}</dt><dd className="text-right">{money(preview.retainedDeposit)}</dd></>}
           {Number(preview.retainedRescheduleFees) > 0 && <><dt>Non-refundable reschedule fees</dt><dd className="text-right">{money(Number(preview.retainedRescheduleFees))}</dd></>}
           <dt>{preview.retainedDeposit === undefined ? "Retained deposit / deduction" : "Total non-refundable deduction"}</dt><dd className="text-right">{money(preview.deduction)}</dd>
           <dt className="font-semibold">Refundable amount</dt><dd className="text-right font-semibold text-primary">{money(preview.refundableAmount)}</dd></dl>

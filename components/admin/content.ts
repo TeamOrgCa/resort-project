@@ -9,6 +9,7 @@ import type {
 export const adminNavigation: AdminNavItem[] = [
   { label: "Dashboard", href: "/admin", description: "Operational overview" },
   { label: "Reservations", href: "/admin/reservations", description: "Calendar and guest details" },
+  { label: "Room Management", href: "/admin/rooms", description: "Room occupancy and operations" },
   { label: "Records", href: "/admin/records", description: "Reservations, reschedules, ocular visits" },
   { label: "Transactions", href: "/admin/transactions", description: "Billing and invoicing" },
   { label: "Reports", href: "/admin/reports", description: "Sales and operations reports" },

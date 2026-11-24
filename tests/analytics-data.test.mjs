@@ -45,8 +45,8 @@ test("analytics counts received public and private collections on the correct Ph
 test("booking analysis compares equal elapsed durations and separates source, outcomes and lead time", async () => {
   const h = analytics({ reservations: [
     reservation("current-1", "2026-10-01T01:00:00Z"),
-    reservation("current-2", "2026-10-02T01:00:00Z", "completed", { booking_type: "walk_in" }),
-    reservation("current-3", "2026-10-03T00:00:00Z", "cancelled", { booking_type: null }),
+    reservation("current-2", "2026-10-02T01:00:00Z", "completed", { booking_type: "walk_in", commercial_type: "public_swimming" }),
+    reservation("current-3", "2026-10-03T00:00:00Z", "cancelled", { booking_type: null, commercial_type: "room_accommodation" }),
     reservation("future", "2026-10-03T08:00:00Z"),
     reservation("prior", "2026-09-28T01:00:00Z", "confirmed"),
     reservation("prior-after-cutoff", "2026-09-30T08:00:00Z", "no_show"),
@@ -59,8 +59,8 @@ test("booking analysis compares equal elapsed durations and separates source, ou
   assert.equal(report.comparison.startDate, "2026-09-28"); assert.equal(report.comparison.endDate, "2026-09-30");
   assert.equal(report.rows.find(row => row.source === "Offline booking").confirmationRate, "100%");
   assert.deepEqual(report.rows.map(row => row.source), ["Online booking", "Offline booking"]);
-  assert.deepEqual(report.split.map(point => point.label), ["Online booking", "Offline booking"]);
-  assert.equal(report.split.reduce((sum, point) => sum + point.value, 0), 2);
+  assert.deepEqual(report.split.map(point => point.label), ["Private Swimming", "Public Swimming", "Room Accommodation"]);
+  assert.deepEqual(report.split.map(point => point.value), [1, 1, 1]);
   assert.match(report.insights.find(item => item.title === "Channel contribution").description, /50% of bookings with a recorded source/);
   assert.match(report.note, /overall totals include every booking/);
   assert.match(report.insights.find(item => item.title === "Booking lead time").description, /8 calendar days/);

@@ -20,7 +20,12 @@ export async function GET(request: Request) {
   try {
     const detail = await loadReservationEditor(id); if (!detail) return NextResponse.json({ message: "Reservation not found." }, { status: 404 });
     const r = detail.reservation;
-    const packagePrice = computeBookingPricing({ bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count }, detail.packageRates).packageRate;
+    let packagePrice = computeBookingPricing({ bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count }, detail.packageRates).packageRate;
+    if (r.room_pricing || r.commercial_type && r.commercial_type !== "private_swimming") {
+      const charges = await createAdminClient().from("room_charges").select("amount").eq("reservation_id", id).eq("kind", "accommodation");
+      if (charges.error) throw new Error("Room discount basis unavailable");
+      packagePrice = (charges.data ?? []).reduce((total, charge) => total + Number(charge.amount), 0);
+    }
     return NextResponse.json({ headCount: r.adult_count + r.child_count, packagePrice, bill: detail.bill, locked: Boolean(detail.lockedReason) }, { headers: { "Cache-Control": "no-store" } });
   } catch { return NextResponse.json({ message: "Unable to load discounts. Check the discounts migration." }, { status: 503 }); }
 }

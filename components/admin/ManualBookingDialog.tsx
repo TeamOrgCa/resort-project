@@ -1,12 +1,17 @@
 "use client";
+
+import { lockBodyScroll } from "@/lib/ui/body-scroll-lock";
 import PromoCodeInput from "@/components/booking/PromoCodeInput";
+import PublicSwimmingForm from "@/components/booking/PublicSwimmingForm";
+import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
+import RoomActionDialog from "@/components/admin/rooms/RoomActionDialog";
+import type { RoomDashboard } from "@/lib/rooms/types";
 import type { PromoQuote } from "@/lib/booking/discounts";
 import { advanceBookingIssue } from "@/lib/booking/advance-window";
 
 import { serviceQuantityError, serviceQuantityLimit } from "@/lib/booking/service-quantity";
 import { serviceBilling } from "@/lib/booking/service-billing";
 
-import Skeleton, { SkeletonGroup } from "@/components/ui/Skeleton";
 import { AdminCardsSkeleton } from "@/components/admin/AdminSkeletons";
 
 import { useEffect, useRef, useState } from "react";
@@ -30,23 +35,39 @@ import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
 
-type Unit = { unit_id: string; name: string; capacity: number };
 type Service = { max_quantity?: number; billing_type?: string; service_id: string; name: string; description: string | null; price: number };
 type PackageMode = Exclude<BookingMode, "custom">;
 type ManualBookingDialogProps = { isOpen: boolean; onClose: () => void; onCreated: (booking: { date: string; id?: string; reference?: string }) => void };
-type BookingForm = { bookingDate: string; bookingMode: PackageMode; wholeDayVariant: WholeDayVariant; adultCount: string; childCount: string; unitId: string; specialRequests: string };
+type BookingForm = { bookingDate: string; bookingMode: PackageMode; wholeDayVariant: WholeDayVariant; adultCount: string; childCount: string; specialRequests: string };
 const money = (value: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value);
 const fieldClass = "admin-field mt-1 w-full";
 const validQuantity = (value: string) => Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10000;
 
 export default function ManualBookingDialog(props: ManualBookingDialogProps) {
   const portalTarget = usePortalTarget();
-  return props.isOpen && portalTarget ? createPortal(<ManualBookingForm {...props} />, portalTarget) : null;
+  const [type, setType] = useState("private_swimming");
+  if (!props.isOpen || !portalTarget) return null;
+  if (type === "public_swimming") return createPortal(<ManualPublicReservation {...props} onBack={() => setType("private_swimming")} />, portalTarget);
+  if (type === "room_accommodation") return createPortal(<ManualRoomReservation {...props} />, portalTarget);
+  return createPortal(<ManualBookingForm {...props} onChooseType={setType} />, portalTarget);
 }
 
-function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogProps) {
+function ManualPublicReservation({ onClose, onCreated, onBack }: ManualBookingDialogProps & { onBack: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const { root, captureChange, captureInitial, requestClose, reset, confirmation } = useReservationFormGuard(true);
+  return <CatalogDialog title="New Public Swimming Reservation" description="Choose a public session and record the guest's admission and services." busy={busy} size="wide" onClose={() => requestClose(onClose)}>{confirmation}<div ref={root} onChangeCapture={captureChange} onInputCapture={captureChange} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial}><button type="button" disabled={busy} className="admin-button-secondary mb-4" onClick={() => requestClose(onBack)}>Back to reservation types</button><PublicSwimmingForm onBusyChange={setBusy} onSaved={(reference, date) => { reset(); onCreated({ date: manilaDateKey(date || new Date()), reference }); onClose(); }} /></div></CatalogDialog>;
+}
+
+function ManualRoomReservation({ onClose, onCreated }: ManualBookingDialogProps) {
+  const [data, setData] = useState<(RoomDashboard & { canDiscount?: boolean }) | null>(null), [error, setError] = useState("");
+  const [now] = useState(() => Date.now());
+  useEffect(() => { const c = new AbortController(); fetch("/api/admin/rooms", { signal: c.signal, cache: "no-store" }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.message || "Unable to load rooms."); if (!c.signal.aborted) setData(d); }).catch(e => { if (!c.signal.aborted) setError(e.message); }); return () => c.abort(); }, []);
+  if (!data) return <CatalogDialog title="New Room Accommodation Reservation" description="Choose a physical room using the existing Room Management workflow." busy={false} onClose={onClose}><p role={error ? "alert" : "status"}>{error || "Loading room inventory…"}</p></CatalogDialog>;
+  return <RoomActionDialog action="reserve" rooms={data.rooms} classifications={data.classifications} initialRoomId={null} now={now} canDiscount={!!data.canDiscount} onClose={onClose} onSaved={message => { onCreated({ date: manilaDateKey(new Date()), reference: message }); onClose(); }} />;
+}
+
+function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualBookingDialogProps & { onChooseType: (type: string) => void }) {
   const { schedule: packageSchedule, error: packageRatesError } = usePackageRates(isOpen);
-  const [units, setUnits] = useState<Unit[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [serviceQuantities, setServiceQuantities] = useState<Record<string, string>>({});
   const [optionsError, setOptionsError] = useState<string | null>(null);
@@ -55,7 +76,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
   const [walkIn, setWalkIn] = useState({ firstName: "", lastName: "", email: "", phoneNumber: "", address: "" });
   const [checkingPromo, setCheckingPromo] = useState(false);
   const [promo, setPromo] = useState<PromoQuote | null>(null);
-  const [form, setForm] = useState<BookingForm>({ bookingDate: toIsoLocalDay(new Date()), bookingMode: "day", wholeDayVariant: "day_to_night", adultCount: "1", childCount: "0", unitId: "", specialRequests: "" });
+  const [form, setForm] = useState<BookingForm>({ bookingDate: toIsoLocalDay(new Date()), bookingMode: "day", wholeDayVariant: "day_to_night", adultCount: "1", childCount: "0", specialRequests: "" });
   const [calendarMonth, setCalendarMonth] = useState(() => toIsoLocalDay(new Date()).slice(0, 7));
   const availability = useBookingAvailability([calendarMonth, form.bookingDate.slice(0, 7)], isOpen);
   const [isSaving, setIsSaving] = useState(false);
@@ -72,15 +93,10 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
       setOptionsLoading(true); setOptionsError(null);
       try {
         const supabase = createClient();
-        const [unitResult, serviceResult] = await Promise.all([
-          supabase.from("units").select("unit_id, name, capacity").eq("is_active", true).is("archived_at", null).order("name"),
-          supabase.from("services").select("service_id, name, description, price, max_quantity, billing_type").eq("is_active", true).order("name"),
-        ]);
-        if ([unitResult, serviceResult].some(result => result.error)) throw new Error("Unable to load units or services. Please reload the booking options.");
+        const serviceResult = await supabase.from("services").select("service_id, name, description, price, max_quantity, billing_type").eq("is_active", true).order("name");
+        if (serviceResult.error) throw new Error("Unable to load services. Please reload the booking options.");
         if (!active) return;
-        const availableUnits = (unitResult.data as Unit[] | null) ?? [];
-        setUnits(availableUnits); setServices((serviceResult.data as Service[] | null) ?? []);
-        setForm(current => ({ ...current, unitId: current.unitId || availableUnits[0]?.unit_id || "" }));
+        setServices((serviceResult.data as Service[] | null) ?? []);
       } catch (cause) {
         if (active) setOptionsError(cause instanceof Error ? cause.message : "Unable to load booking options.");
       } finally { if (active) setOptionsLoading(false); }
@@ -92,8 +108,8 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
   useEffect(() => {
     if (!isOpen) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const releaseScroll = lockBodyScroll();
+
     formRoot.current?.querySelector<HTMLInputElement>('input[type="text"]')?.focus();
     const keydown = (event: KeyboardEvent) => {
       if (document.querySelector('[role="alertdialog"]')) return;
@@ -105,7 +121,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     };
     document.addEventListener("keydown", keydown);
-    return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", keydown); previousFocus?.focus(); };
+    return () => { releaseScroll(); document.removeEventListener("keydown", keydown); previousFocus?.focus(); };
   }, [isOpen, formRoot]);
 
   if (!isOpen) return null;
@@ -158,14 +174,14 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
     if (!packageSchedule || packageRatesError) { setError(packageRatesError ?? "Please wait for booking prices to load."); return; }
     if ("error" in previewWindow) { setError(previewWindow.error ?? "Invalid booking window."); return; }
     const adults = Number(form.adultCount), children = Number(form.childCount);
-    if (!form.unitId || !isValidGuestCounts(adults, children)) { setError("Select a unit and enter valid guest counts."); return; }
+    if (!isValidGuestCounts(adults, children)) { setError("Enter valid guest counts."); return; }
     if (Object.entries(walkIn).some(([key, value]) => key !== "email" && !value.trim())) { setError("Complete the required walk-in guest details. Email is optional."); return; }
     const firstName = normalizePersonName(walkIn.firstName), lastName = normalizePersonName(walkIn.lastName);
     if (!firstName || !lastName) { setError(PERSON_NAME_ERROR); return; }
     const phoneNumber = normalizePhilippineMobile(walkIn.phoneNumber);
     if (!phoneNumber) { setError(PH_MOBILE_ERROR); return; }
     if (!await confirm({ title: "Create manual reservation?", confirmText: "Confirm reservation", message:
-      `Create a reservation for ${firstName} ${lastName}?\n\n${formatManilaDateTime(previewWindow.startDatetime)} to ${formatManilaDateTime(previewWindow.endDatetime)} (Philippine time)\nPackage: ${form.bookingMode === "whole_day" ? "Whole day" : form.bookingMode === "night" ? "Overnight" : "Day"}\nNumber of guests: ${adults + children}\nAccommodation: ${units.find(unit => unit.unit_id === form.unitId)?.name ?? "Selected unit"}\nTotal: ${money(preview?.total ?? 0)}\n\nThis records the reservation. Payments are recorded separately.` })) return;
+      `Create a reservation for ${firstName} ${lastName}?\n\n${formatManilaDateTime(previewWindow.startDatetime)} to ${formatManilaDateTime(previewWindow.endDatetime)} (Philippine time)\nPackage: ${form.bookingMode === "whole_day" ? "Whole day" : form.bookingMode === "night" ? "Overnight" : "Day"}\nNumber of guests: ${adults + children}\nAll cottages included\nTotal: ${money(preview?.total ?? 0)}\n\nThis records the reservation. Payments are recorded separately.` })) return;
     if (checkingPromo) return;
     if (saving.current) return;
     if (!isStaffBookingWindowAllowed(previewWindow.startDatetime, previewWindow.endDatetime)) { setError(STAFF_BOOKING_WINDOW_MESSAGE); return; }
@@ -175,7 +191,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
         packageRateVersion: packageSchedule.version, guestType: "walk_in", walkInGuest: { ...walkIn, firstName, lastName, phoneNumber }, bookingMode: form.bookingMode,
         wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : null,
         startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime,
-        promoCode: promo?.code ?? null, adultCount: adults, childCount: children, unitId: form.unitId, specialRequests: form.specialRequests, selectedServices,
+        promoCode: promo?.code ?? null, adultCount: adults, childCount: children, specialRequests: form.specialRequests, selectedServices,
       }) });
       const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; reservation?: { id?: string; referenceNumber?: string } } | null;
       if (!response.ok || !result?.success) {
@@ -195,6 +211,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
         <div className="min-w-0"><h2 id="manual-booking-title" className="text-xl font-semibold text-neutral">New Manual Reservation</h2><p className="mt-1 text-sm text-neutral/60">Choose an available package and add any services requested by the guest.</p></div>
         <button type="button" disabled={isSaving} onClick={() => requestClose(onClose)} aria-label="Close booking dialog" className="flex h-11 w-11 items-center justify-center rounded-full border border-neutral/20 text-neutral hover:bg-base"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path d="m6 6 12 12M6 18 18 6" /></svg></button>
       </div>
+      <label className="mt-5 block text-sm font-medium">Reservation type<select className="admin-field mt-2 w-full" value="private_swimming" disabled={isSaving} onChange={e => requestClose(() => onChooseType(e.target.value))}><option value="private_swimming">Private Swimming</option><option value="public_swimming">Public Swimming</option><option value="room_accommodation">Room Accommodation</option></select></label>
       <form onSubmit={handleSubmit} className="mt-5">
         {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
         {success && <p role="status" className="mb-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-neutral">{success}</p>}
@@ -230,7 +247,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated }: ManualBookingDialogPr
                 { value: "night_to_day", label: `B - ${formatPackageTimeSlot((packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES).whole_day.night_to_day)}`, disabled: Boolean(packageIssue(form.bookingDate, "whole_day", "night_to_day")) },
               ]} />}
               {availability.ready && selectedIssue && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{selectedIssue} Choose another date or an available package.</p>}
-              {optionsLoading ? <SkeletonGroup label="Loading units..."><Skeleton className="mb-2 h-4 w-16" /><Skeleton className="h-11 w-full" /></SkeletonGroup> : <SelectField label="Unit" value={form.unitId} onChange={value => updateForm("unitId", value)} options={units.map(unit => ({ value: unit.unit_id, label: `${unit.name} - ${unit.capacity} pax` }))} />}
+              <p className="text-sm text-neutral/70">All cottages are included with private swimming.</p>
               <Input label="Number of guests" type="number" value={form.adultCount} onChange={value => updateForm("adultCount", value)} />
             </div>
           </div>

@@ -23,6 +23,7 @@ import ManageBookingSkeleton from "@/components/manage/ManageBookingSkeleton";
 import GuestBookingEditor from "@/components/manage/GuestBookingEditor";
 import BookingAmountBreakdown from "@/components/manage/BookingAmountBreakdown";
 import RescheduleCalendar from "@/components/manage/RescheduleCalendar";
+import { commercialTypeLabel } from "@/lib/booking/commercial-types";
 import { moveReservationToDate } from "@/lib/booking/reservation-edit";
 import { useGuestRescheduleAvailability } from "@/lib/booking/use-guest-reschedule-availability";
 import { reschedulePolicy, RESCHEDULE_POLICY_TEXT, RESCHEDULE_FEE_TEXT } from "@/lib/booking/reschedule-charge-policy";
@@ -33,6 +34,7 @@ type ManageTab = "bookings" | "ocular" | "refunds";
 type RecordMode = "view" | "edit" | "reschedule" | null;
 
 interface BookingRecord {
+  commercialType?: "private_swimming" | "public_swimming" | "room_accommodation";
   discount?: import("@/lib/booking/discounts").DiscountState;
   id: string;
   reference: string;
@@ -81,6 +83,7 @@ interface OcularRecord {
 }
 
 interface ReservationRow {
+  commercial_type?: "private_swimming" | "public_swimming" | "room_accommodation";
   reservation_id: string;
   reference_number: string;
   start_datetime: string;
@@ -279,12 +282,16 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const canRequestReschedule = !selectedBooking?.checkedInAt && selectedBooking?.status.toLowerCase() === "confirmed";
   const rescheduleAvailability = useGuestRescheduleAvailability(selectedBooking?.startDatetime ?? "", selectedBooking?.endDatetime ?? "",
     rescheduleCalendarMonth, rescheduleForm.checkIn,
-    recordMode === "reschedule" && canRequestReschedule);
+    recordMode === "reschedule" && canRequestReschedule, selectedBooking?.commercialType, selectedBooking?.id);
   const selectedRescheduleIssue = selectedBooking && rescheduleForm.checkIn ? rescheduleAvailability.dateIssue(rescheduleForm.checkIn) : null;
+  useEffect(() => {
+    const first = rescheduleAvailability.firstBookingDate?.slice(0, 7), last = rescheduleAvailability.maxBookingDate?.slice(0, 7);
+    if (recordMode === "reschedule" && selectedBooking?.commercialType === "public_swimming" && first && (rescheduleCalendarMonth < first || last && rescheduleCalendarMonth > last)) setRescheduleCalendarMonth(first);
+  }, [recordMode, selectedBooking?.commercialType, rescheduleAvailability.firstBookingDate, rescheduleAvailability.maxBookingDate, rescheduleCalendarMonth]);
   const requestedSchedule = selectedBooking && rescheduleForm.checkIn && !selectedRescheduleIssue
     ? moveReservationToDate({ start_datetime: selectedBooking.startDatetime, end_datetime: selectedBooking.endDatetime }, rescheduleForm.checkIn) : null;
   const rescheduleQuote = requestedSchedule && selectedBooking?.bookingMode && rescheduleRates?.reservationId === selectedBooking.id
-    ? calculateRescheduleCharges({ originalStart: selectedBooking.startDatetime, originalEnd: selectedBooking.endDatetime,
+    ? calculateRescheduleCharges({ commercialType: selectedBooking.commercialType, originalStart: selectedBooking.startDatetime, originalEnd: selectedBooking.endDatetime,
       newStart: requestedSchedule.startDatetime, newEnd: requestedSchedule.endDatetime, bookingMode: selectedBooking.bookingMode,
       discount: selectedBooking.discount, adultCount: selectedBooking.adultCount, childCount: selectedBooking.childCount, rates: rescheduleRates.rates, now }) : null;
   useEffect(() => {
@@ -348,6 +355,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
   const openPaymentPortal = (booking: BookingRecord) => {
     setBookingDraft({
+      commercialType: booking.commercialType ?? "private_swimming", roomSelections: [], eligibleGuests: 0, discountAmount: 0, discountKind: "none", roomRequestId: "",
       bookingMode: booking.bookingMode ?? "day",
       startDatetime: booking.startDatetime,
       endDatetime: booking.endDatetime,
@@ -545,7 +553,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           supabase.from("guests").select("email, phone_number").eq("id", user.id).maybeSingle<GuestRow>(),
           supabase
             .from("reservations")
-            .select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot, checked_in_at, checked_out_at")
+            .select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, commercial_type, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot, checked_in_at, checked_out_at")
             .eq("guest_id", user.id)
             .order("created_at", { ascending: false }),
           supabase
@@ -612,6 +620,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
           checkIn: toDateTimeLocal(reservation.start_datetime),
           checkOut: toDateTimeLocal(reservation.end_datetime),
           bookingMode: reservation.booking_mode,
+          commercialType: reservation.commercial_type ?? "private_swimming",
           guests: Number(reservation.adult_count ?? 0) + Number(reservation.child_count ?? 0),
           adultCount: Number(reservation.adult_count ?? 0), childCount: Number(reservation.child_count ?? 0),
           discount: transactionByReservationId[reservation.reservation_id]?.discount,
@@ -741,7 +750,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         const supabase = createClient();
         const [billResult, reservationResult] = await Promise.all([
           supabase.from("transactions").select("reservation_id, total_amount, paid_amount, balance, discount_amount, discount_eligible_guests, discount_promo_code, discount_promo_type, discount_promo_value").in("reservation_id", reservationIds),
-          supabase.from("reservations").select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot, checked_in_at, checked_out_at").in("reservation_id", reservationIds),
+          supabase.from("reservations").select("reservation_id, reference_number, start_datetime, end_datetime, booking_mode, commercial_type, adult_count, child_count, status, payment_deadline_at, cancellation_snapshot, checked_in_at, checked_out_at").in("reservation_id", reservationIds),
         ]);
         if (!active || revision !== bookingRevision.current || billResult.error || reservationResult.error) return;
         const reservations = new Map(((reservationResult.data as ReservationRow[] | null) ?? []).map(row => [row.reservation_id, row]));
@@ -753,7 +762,8 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             ...booking,
             startDatetime: reservation.start_datetime, endDatetime: reservation.end_datetime,
             checkIn: toDateTimeLocal(reservation.start_datetime), checkOut: toDateTimeLocal(reservation.end_datetime),
-            bookingMode: reservation.booking_mode, guests: reservation.adult_count + reservation.child_count,
+            bookingMode: reservation.booking_mode,
+          commercialType: reservation.commercial_type ?? "private_swimming", guests: reservation.adult_count + reservation.child_count,
             adultCount: reservation.adult_count, childCount: reservation.child_count,
             status: toTitleCase(reservation.status), paymentDeadlineAt: reservation.payment_deadline_at,
             cancellationOutcome: reservation.cancellation_snapshot?.outcome, checkedInAt: reservation.checked_in_at, checkedOutAt: reservation.checked_out_at,
@@ -879,7 +889,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                   <button type="button" aria-label={`View ${recordName} ${record.reference}`} aria-haspopup="dialog" onClick={() => openBookingRecord(record, "view")} className="absolute inset-0 z-[1] cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
                   <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
                     <div className="min-w-0"><p className="ui-reference text-black font-semibold text-neutral">{record.reference}</p>
-                      <p className="mt-1 flex items-center gap-2 text-xs text-neutral/60"><span className="capitalize">{record.bookingMode?.replace(/_/g, " ") || "Reservation"}</span><span aria-hidden="true">&middot;</span><ManageIcon name="guests" className="h-4 w-4" />{record.guests} guests</p>
+                      <p className="mt-1 flex items-center gap-2 text-xs text-neutral/60"><span className="capitalize">{commercialTypeLabel(record.commercialType)} · {record.bookingMode?.replace(/_/g, " ") || "Stay"}</span><span aria-hidden="true">&middot;</span><ManageIcon name="guests" className="h-4 w-4" />{record.guests} guests</p>
                       <span className={`status-badge mt-3 rounded-full px-3 py-1 text-xs font-medium ${statusStyle(record.status)}`}>{bookingStatus(record)}</span>
                     </div>
                     <div className="relative z-10 shrink-0"><RecordActionsMenu reference={record.reference} actions={[
@@ -943,7 +953,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 <div><dt className="text-neutral/55">Checked in at:</dt><dd className="mt-1 font-semibold">{selectedBooking.checkedInAt ? formatDateTime(selectedBooking.checkedInAt) : "Not recorded"}</dd></div>
                 <div><dt className="text-neutral/55">Checked out at:</dt><dd className="mt-1 font-semibold">{selectedBooking.checkedOutAt ? formatDateTime(selectedBooking.checkedOutAt) : "Not recorded"}</dd></div>
               </>}
-              <div><dt className="text-neutral/55">Package</dt><dd className="mt-1 font-medium capitalize">{selectedBooking.bookingMode?.replace(/_/g, " ") || "Reservation"}</dd></div>
+              <div><dt className="text-neutral/55">Reservation type / session</dt><dd className="mt-1 font-medium capitalize">{commercialTypeLabel(selectedBooking.commercialType)} · {selectedBooking.bookingMode?.replace(/_/g, " ") || "Stay"}</dd></div>
               <div><dt className="text-neutral/55">Guests</dt><dd className="mt-1 font-medium">{selectedBooking.guests} guests</dd></div>
               <div><dt className="text-neutral/55">Contact email</dt><dd className="mt-1 break-all font-medium">{selectedBooking.email}</dd></div>
             </dl>
@@ -1001,8 +1011,8 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               </div>
 
               <div className="rounded-xl border border-neutral/10 bg-white p-3 text-sm text-neutral">
-                <p>{RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
-                <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(selectedReschedulePolicy?.noticeFee ?? 0)}. Reschedule fees are non-refundable.</p>
+                <p>{selectedBooking.commercialType === "public_swimming" ? "Choose an available date within the three consecutive public booking dates. Your booked public session and admission rates stay the same." : RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
+                <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(selectedReschedulePolicy?.noticeFee ?? 0)}. {selectedBooking.commercialType === "public_swimming" ? "Public cancellations follow the 80% refund policy, subject to manager-approved exceptions." : "Reschedule fees are non-refundable."}</p>
                 {canRequestReschedule && !selectedReschedulePolicy?.allowed && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">Short-notice rescheduling is automatically approved when the selected date is available. The applicable notice fee and any higher date rate are added immediately when you save.</p>}
               </div>
               {!canRequestReschedule && <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
@@ -1011,6 +1021,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                   : `This reservation is now ${selectedBooking.status.toLowerCase()}. Only confirmed reservations can request a new date.`}</p>
               </div>}
               <RescheduleCalendar
+                publicSwimming={selectedBooking.commercialType === "public_swimming"}
                 disabled={!canRequestReschedule || isSubmittingReschedule}
                 disabledReason={selectedBooking.checkedInAt ? "Rescheduling is locked after check-in" : isSubmittingReschedule ? "Submitting your reschedule request" : "Only confirmed reservations can be rescheduled"}
                 value={rescheduleForm.checkIn}
