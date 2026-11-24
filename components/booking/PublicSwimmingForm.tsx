@@ -74,7 +74,8 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
     const latest = catalog?.types.find(t => t.type_id === session.type.type_id);
     if (!latest || latest.pricing_version !== session.type.pricing_version) { setError("Rates changed. Return to the calendar and choose your session again."); return; }
     const values = { firstName: profile.firstName.trim(), lastName: profile.lastName.trim(), phone, address: parsedAddress.value,
-      typeId: session.type.type_id, pricingVersion: session.type.pricing_version, ...session.slot, adultCount: adults, childCount: children,
+      typeId: session.type.type_id, pricingVersion: session.type.pricing_version,
+      startDatetime: session.slot.startDatetime, endDatetime: session.slot.endDatetime, adultCount: adults, childCount: children,
       eligibleGuests: eligible, promoCode: promo?.code ?? null, selectedServices: selections, specialRequests: requests, expectedTotal: quote.total };
     if (manual) {
       if (!await confirm({ title: "Create public swimming reservation?", message: `${profile.firstName} ${profile.lastName} · ${session.type.name}\n${formatManilaDateTime(session.slot.startDatetime)}\n${adults} adults, ${children} children\nTotal: ${money(quote.total)}. Full payment is required.`, confirmText: "Create reservation" })) return;
