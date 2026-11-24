@@ -29,6 +29,20 @@ export interface CatalogDefinition {
 }
 
 export const catalogResources = {
+  public_swimming_types: {
+    label: "Public swimming", singular: "public swimming type", description: "Configure Day and Night public admission rates, operating hours and shared guest capacity. Bookings require full payment.",
+    id: "type_id", select: "type_id,mode,name,start_time,end_time,end_day_offset,adult_rate,child_rate,max_guests,pricing_version,is_active,created_at", order: "mode", search: "name",
+    columns: ["name", "start_time", "end_time", "adult_rate", "child_rate", "max_guests"], fields: [
+      { key: "mode", label: "Session", kind: "select", required: true, options: [{ value: "day", label: "Day Public Swimming" }, { value: "night", label: "Night Public Swimming" }] },
+      { key: "name", label: "Name", kind: "text", required: true },
+      { key: "start_time", label: "Start time (PH)", kind: "time", required: true },
+      { key: "end_time", label: "End time (PH)", kind: "time", required: true },
+      { key: "end_day_offset", label: "Check-out day", kind: "integer", required: true, min: 0, max: 1, defaultValue: 0, help: "0 for the same day; 1 for the following day." },
+      { key: "adult_rate", label: "Adult entrance fee (PHP)", kind: "money", required: true, min: 0.01 },
+      { key: "child_rate", label: "Child entrance fee (PHP)", kind: "money", required: true, min: 0 },
+      { key: "max_guests", label: "Session guest capacity", kind: "integer", min: 1, max: 10000, help: "Optional limit across all bookings sharing this session. Leave blank when no session limit is configured." },
+    ],
+  },
   promo_codes: {
     label: "Promos / vouchers", singular: "promo code", description: "Create or archive voucher codes. Discounts apply to the package price; only the larger of the promo and eligible PWD/senior discount is used.",
     id: "promo_id", select: "promo_id,code,discount_type,discount_value,max_uses,starts_at,ends_at,is_active,created_at", order: "code", search: "code",

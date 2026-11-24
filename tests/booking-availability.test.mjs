@@ -9,6 +9,10 @@ const rows=[
  {reservation_id:"pending",start_datetime:"2027-06-18T08:00:00+08:00",end_datetime:"2027-06-18T16:00:00+08:00",status:"pending",payment_deadline_at:"2099-01-01T00:00:00Z"},
  {reservation_id:"cancelled",start_datetime:"2027-06-19T08:00:00+08:00",end_datetime:"2027-06-19T16:00:00+08:00",status:"cancelled"},
 ];
+// Existing rows retain private resort exclusivity. Physical room reservations
+// no longer block every private-booking date on the public calendar.
+for (const row of rows) row.commercial_type = "private_swimming";
+rows.push({ reservation_id: "room", commercial_type: "room_accommodation", start_datetime: "2027-06-14T09:00:00+08:00", end_datetime: "2027-06-14T12:00:00+08:00", status: "confirmed" });
 function harness({staff=true,permission=true}={}){
  let reads=0,authChecks=0;const filters=[];
  const {GET}=loadTsModule("app/api/booking/availability/route.ts",{

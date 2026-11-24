@@ -18,6 +18,7 @@ interface ReschedulePayload {
 }
 
 interface ReservationRow {
+  commercial_type?: string;
   package_rate_version: number | null;
   checked_in_at?: string | null;
   reservation_id: string;
@@ -128,7 +129,7 @@ export async function POST(request: Request) {
     ------------------------------*/
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, package_rate_version, checked_in_at")
+      .select("reservation_id, guest_id, reference_number, start_datetime, end_datetime, booking_mode, adult_count, child_count, status, package_rate_version, checked_in_at, commercial_type")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -150,6 +151,14 @@ export async function POST(request: Request) {
     }
 
     const adminSupabase = createAdminClient();
+    if (reservation.commercial_type === "public_swimming") {
+      const { data, error } = await adminSupabase.rpc("public_reschedule_booking", { p_reservation: reservation.reservation_id, p_guest: user.id,
+        p_start: payload.newStartDatetime, p_end: payload.newEndDatetime, p_expected_start: reservation.start_datetime,
+        p_expected_additional: payload.expectedAdditional ?? null, p_reason: payload.rescheduleReason });
+      if (error) return NextResponse.json({ success: false, message: ["22023", "40001", "42501"].includes(error.code) ? error.message : "Unable to reschedule public swimming." }, { status: error.code === "40001" ? 409 : error.code === "42501" ? 403 : 400 });
+      try { await createNotifications({ actorId: user.id, guestId: user.id, staffRoles: NOTIFICATION_AUDIENCES.reservation, title: "Public swimming rescheduled", message: `${reservation.reference_number} was rescheduled.`, entityType: "reservation", entityId: reservation.reservation_id, guestActionUrl: "/manage", staffActionUrl: "/admin/reservations" }); } catch { /* Booking already committed. */ }
+      return NextResponse.json({ success: true, ...data });
+    }
     const advanceIssue = await checkAdvanceBooking(payload.newStartDatetime, adminSupabase);
     if (advanceIssue) return NextResponse.json({ success: false, message: advanceIssue }, { status: 400 });
 

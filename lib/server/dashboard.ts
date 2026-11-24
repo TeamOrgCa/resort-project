@@ -1,3 +1,4 @@
+import { commercialTypeLabel } from "@/lib/booking/commercial-types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey, manilaTimestamp } from "@/lib/booking/manila-date";
 import { reportBucket, reportWindow } from "@/lib/reports/periods";
@@ -8,7 +9,7 @@ const DAY = 86_400_000;
 type Reservation = {
   reservation_id: string; reference_number: string; guest_id: string | null; walk_in_guest_id: string | null;
   start_datetime: string; end_datetime: string; adult_count: number; child_count: number;
-  booking_type: string | null; booking_mode: string | null; status: string; payment_deadline_at: string | null; created_at: string;
+  commercial_type?: string; booking_type: string | null; booking_mode: string | null; status: string; payment_deadline_at: string | null; created_at: string;
 };
 type Payment = { amount: number; created_at: string; verified_at: string | null };
 type Guest = { id: string; first_name: string; last_name: string };
@@ -39,11 +40,11 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
   };
   const [arrivals, bookings, verified, payments, reschedules, ocular, refundReview, refundPayout, publicSales] = await Promise.all([
     fetchAllPages<Reservation>((from, to) => client.from("reservations")
-      .select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, booking_type, booking_mode, status, payment_deadline_at, created_at")
+      .select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, commercial_type, booking_type, booking_mode, status, payment_deadline_at, created_at")
       .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"])
       .lt("start_datetime", arrivalEnd.toISOString()).gt("end_datetime", todayStart.toISOString())
       .order("start_datetime").order("reservation_id").range(from, to)),
-    fetchAllPages<Pick<Reservation, "reservation_id" | "booking_type" | "status" | "created_at">>((from, to) => client.from("reservations").select("reservation_id, booking_type, status, created_at")
+    fetchAllPages<Pick<Reservation, "reservation_id" | "booking_type" | "commercial_type" | "status" | "created_at">>((from, to) => client.from("reservations").select("reservation_id, commercial_type, booking_type, status, created_at")
       .gte("created_at", start).lt("created_at", end).order("created_at").order("reservation_id").range(from, to)),
     fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id, amount, created_at, verified_at")
       .eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`)
@@ -99,6 +100,7 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
     scheduledNow: active.filter(r => ["confirmed", "reschedule_requested"].includes(r.status) && Date.parse(r.start_datetime) <= now.getTime() && Date.parse(r.end_datetime) > now.getTime()).length,
     collectionsToday: rounded(collectionsToday), verifiedToday,
     collections: collections.map(p => ({ ...p, value: rounded(p.value) })),
+    bookingTypes: [...new Set(bookings.map(r => commercialTypeLabel(r.commercial_type)))].map(label => ({ label, value: bookings.filter(r => commercialTypeLabel(r.commercial_type) === label).length })),
     bookingStatuses: Array.from(statusCounts, ([label, value]) => ({ label, value })),
     bookingSources: Array.from(sources, ([label, value]) => ({ label, value })), bookingsCreated: bookings.length,
     queues: { payments, reschedules, ocular, refundReview, refundPayout },
@@ -109,7 +111,7 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
         checkIn: dateTime.format(new Date(r.start_datetime)), checkOut: dateTime.format(new Date(r.end_datetime)),
         startSort: r.start_datetime, endSort: r.end_datetime, arrivalDate: manilaDateKey(r.start_datetime),
         status: labels[r.status] ?? titleCase(r.status), statusCode: r.status, source: source(r.booking_type),
-        guests: String(Number(r.adult_count ?? 0) + Number(r.child_count ?? 0)), package: titleCase(r.booking_mode ?? "Unspecified"),
+        reservationType: commercialTypeLabel(r.commercial_type), guests: String(Number(r.adult_count ?? 0) + Number(r.child_count ?? 0)), package: titleCase(r.booking_mode ?? "Unspecified"),
       };
     }),
   };

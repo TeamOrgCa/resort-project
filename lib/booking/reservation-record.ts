@@ -1,5 +1,6 @@
 export type ReservationRecord = {
   reservation_id: string; reference_number: string; guest_id: string | null; walk_in_guest_id: string | null;
+  commercial_type?: string;
   start_datetime: string; end_datetime: string; booking_mode: string | null; booking_type: string | null;
   adult_count: number; child_count: number; status: string; special_requests: string | null;
   created_at: string; checked_in_at: string | null; checked_out_at: string | null;

@@ -1,5 +1,7 @@
 "use client";
 
+import { lockBodyScroll } from "@/lib/ui/body-scroll-lock";
+
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useReservationFormGuard } from "@/components/booking/use-reservation-form-guard";
@@ -18,8 +20,8 @@ export default function RecordDialog({ title, reference, busy, onClose, children
   useEffect(() => {
     if (!portalTarget) return;
     const previousFocus = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden"; close.current?.focus();
+    const releaseScroll = lockBodyScroll();
+     close.current?.focus();
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); return; }
       if (event.key !== "Tab") return;
@@ -30,7 +32,7 @@ export default function RecordDialog({ title, reference, busy, onClose, children
       else if (!event.shiftKey && (document.activeElement === last || !dialog.current?.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", keydown);
-    return () => { document.removeEventListener("keydown", keydown); document.body.style.overflow = previousOverflow; previousFocus?.focus(); };
+    return () => { document.removeEventListener("keydown", keydown); releaseScroll(); previousFocus?.focus(); };
   }, [portalTarget]);
   if (!portalTarget) return <LoadingState title="Opening reservation details..." description="Preparing your booking dialog." />;
   return createPortal(<div className={`fixed inset-0 z-[70] flex items-center justify-center backdrop-blur-sm ${variant === "admin" ? "admin-workspace bg-neutral/45 p-3 sm:p-4" : "bg-neutral/55 p-2 sm:p-5"}`}

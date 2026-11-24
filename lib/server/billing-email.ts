@@ -24,6 +24,8 @@ type NameRelation = { name: string } | { name: string }[] | null;
 type UnitRow = { quantity: number | null; price_per_night: number; units: NameRelation };
 type ServiceRow = { billing_type?: "quantity" | "duration" | "person" | "fixed"; quantity: number | null; price_at_time: number; services: NameRelation };
 type ReservationCharges = {
+  commercial_type?: string;
+  public_pricing_snapshot?: { adult_rate: number; child_rate: number } | null;
   booking_mode: string | null;
   adult_count: number;
   child_count: number;
@@ -98,7 +100,7 @@ export async function emailBillingDocuments(
     return result;
   }
 
-  const [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult, paymentResult] = await Promise.all([
+  const [receiptResult, invoiceResult, transactionResult, chargesResult, unitsResult, servicesResult, paymentResult, roomChargesResult] = await Promise.all([
     options.invoiceOnly ? Promise.resolve({ data: null, error: null }) : supabase.from("receipts").select("receipt_id, receipt_number, issued_at, email_sent, amount_paid, transaction_total_at_time, balance_after_payment, billed_to_name, discount_snapshot")
       .eq("payment_id", paymentId).maybeSingle(),
     supabase.from("invoices").select("invoice_id, created_at, status, total_amount, email_sent")
@@ -107,7 +109,7 @@ export async function emailBillingDocuments(
       .limit(1).maybeSingle(),
     supabase.from("transactions").select("total_amount, paid_amount, balance, discount_amount, discount_kind, discount_promo_code, discount_promo_type, discount_promo_value, discount_eligible_guests, discount_package_price")
       .eq("reservation_id", reservation.reservation_id).maybeSingle(),
-    supabase.from("reservations").select("booking_mode, adult_count, child_count, adult_rate_at_booking, child_rate_at_booking")
+    supabase.from("reservations").select("commercial_type, public_pricing_snapshot, booking_mode, adult_count, child_count, adult_rate_at_booking, child_rate_at_booking")
       .eq("reservation_id", reservation.reservation_id).maybeSingle<ReservationCharges>(),
     supabase.from("reservation_units").select("quantity, price_per_night, units(name)")
       .eq("reservation_id", reservation.reservation_id),
@@ -115,6 +117,7 @@ export async function emailBillingDocuments(
       .eq("reservation_id", reservation.reservation_id),
     // Read optional provider/beta metadata without requiring a new schema migration.
     options.invoiceOnly ? Promise.resolve({ data: null, error: null }) : supabase.from("payments").select("*,payment_methods(name)").eq("payment_id",paymentId).maybeSingle(),
+    supabase.from("room_charges").select("description,amount,created_at").eq("reservation_id", reservation.reservation_id),
   ]);
   const { data: receipt } = receiptResult;
   const { data: issuedInvoice } = invoiceResult;
@@ -159,7 +162,7 @@ export async function emailBillingDocuments(
     reservationReference: reservation.reference_number,
     checkInDate: reservation.start_datetime,
     checkOutDate: reservation.end_datetime,
-    bookingMode: ({ day: "Day swimming", night: "Overnight swimming", whole_day: "Whole day swimming", custom: "Custom booking" } as Record<string, string>)[charges.booking_mode ?? ""] ?? "Resort booking",
+    bookingMode: charges.commercial_type === "public_swimming" ? `${charges.booking_mode === "night" ? "Night" : "Day"} Public Swimming` : charges.commercial_type === "room_accommodation" ? "Room Accommodation" : ({ day: "Day swimming", night: "Overnight swimming", whole_day: "Whole day swimming", custom: "Custom booking" } as Record<string, string>)[charges.booking_mode ?? ""] ?? "Resort booking",
     adultCount: Number(charges.adult_count),
     childCount: Number(charges.child_count),
     paymentMethod: paymentResult.data ? relatedName(paymentResult.data.payment_methods as NameRelation, "Not recorded") : undefined,
@@ -171,15 +174,17 @@ export async function emailBillingDocuments(
   const balance = Number(transaction?.balance ?? Math.max(totalAmount - paidAmount, 0));
   const breakdownInput = {
     discount: billingDiscountSnapshot(transaction, Number(charges.adult_count) + Number(charges.child_count)),
+    commercialType: charges.commercial_type,
     bookingMode: charges.booking_mode,
     startDatetime: reservation.start_datetime,
     endDatetime: reservation.end_datetime,
     adultCount: Number(charges.adult_count),
     childCount: Number(charges.child_count),
-    adultRate: charges.adult_rate_at_booking === null ? null : Number(charges.adult_rate_at_booking),
-    childRate: charges.child_rate_at_booking === null ? null : Number(charges.child_rate_at_booking),
+    adultRate: charges.commercial_type === "public_swimming" ? Number(charges.public_pricing_snapshot?.adult_rate ?? 0) : charges.adult_rate_at_booking === null ? null : Number(charges.adult_rate_at_booking),
+    childRate: charges.commercial_type === "public_swimming" ? Number(charges.public_pricing_snapshot?.child_rate ?? 0) : charges.child_rate_at_booking === null ? null : Number(charges.child_rate_at_booking),
     units,
     services,
+    roomCharges: (roomChargesResult.data ?? []).map(charge => ({ description: charge.description, amount: Number(charge.amount) })),
   };
 
   if (receipt && !receipt.email_sent) {
@@ -194,6 +199,7 @@ export async function emailBillingDocuments(
       totalAmount: Number(receipt.transaction_total_at_time ?? totalAmount),
       balance: Number(receipt.balance_after_payment ?? balance),
       breakdown: buildBillingBreakdown({ ...breakdownInput,
+        roomCharges: (roomChargesResult.data ?? []).filter(charge => Date.parse(charge.created_at) <= Date.parse(receipt.issued_at)).map(charge => ({ description: charge.description, amount: Number(charge.amount) })),
         discount: savedDiscount,
         ...(savedDiscount ? { adultCount: savedDiscount.headCount, childCount: 0 } : {}),
         recordedTotal: Number(receipt.transaction_total_at_time ?? totalAmount),

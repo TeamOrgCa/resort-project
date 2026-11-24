@@ -5,8 +5,8 @@ import type { Driver } from "driver.js";
 import { bookingGuide, type BookingGuidePage } from "./booking-guide";
 import { keepBookingPopoverInView } from "./booking-guide-viewport";
 
-export default function BookingGuide({ page, saved = false, balance = false, disabled = false }: {
-  page: BookingGuidePage; saved?: boolean; balance?: boolean; disabled?: boolean;
+export default function BookingGuide({ page, saved = false, balance = false, disabled = false, room = false, publicSwimming = false }: {
+  page: BookingGuidePage; saved?: boolean; balance?: boolean; disabled?: boolean; room?: boolean; publicSwimming?: boolean;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const tour = useRef<Driver | null>(null);
@@ -14,10 +14,10 @@ export default function BookingGuide({ page, saved = false, balance = false, dis
   const starting = useRef(false);
   const restoreFocus = useRef(false);
   const stopFitting = useRef<(() => void) | null>(null);
-  const context = `${page}:${saved}:${balance}:${disabled}`;
+  const context = `${page}:${saved}:${balance}:${disabled}:${room}:${publicSwimming}`;
   const [state, setState] = useState({ context, status: "idle", error: "" });
   const status = state.context === context ? state.status : "idle";
-  const guide = bookingGuide(page, saved, balance);
+  const guide = bookingGuide(page, saved, balance, room, publicSwimming);
 
   useEffect(() => {
     if (status === "idle" && restoreFocus.current) {

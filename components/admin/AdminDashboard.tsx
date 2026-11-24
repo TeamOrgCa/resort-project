@@ -19,7 +19,8 @@ const columns: AdminTableColumn[] = [
   { key: "checkIn", label: "Arrival", sortType: "date", sortKey: "startSort" },
   { key: "checkOut", label: "Departure", sortType: "date", sortKey: "endSort" },
   { key: "guests", label: "Group size", sortType: "number" },
-  { key: "package", label: "Package", sortType: "text" },
+  { key: "reservationType", label: "Reservation type", sortType: "text" },
+  { key: "package", label: "Session", sortType: "text" },
   { key: "source", label: "Booked through", sortType: "text" },
   { key: "status", label: "Status", sortType: "text" },
 ];
@@ -35,7 +36,7 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [arrivalRange, setArrivalRange] = useState<ArrivalRange>("Next 7 days");
-  const [breakdown, setBreakdown] = useState<"status" | "source">("status");
+  const [breakdown, setBreakdown] = useState<"status" | "source" | "type">("status");
 
   useEffect(() => {
     let mounted = true;
@@ -127,9 +128,9 @@ export default function AdminDashboard() {
           <div className="min-w-0 xl:col-span-2"><ReportChart title="Verified collections" format="money" points={dashboard.collections} description="Actual payments by verification date, before refunds. Older payments without a verification date use their creation date. Today’s total may still change." /></div>
           <div className="min-w-0 rounded-xl border border-neutral/10 bg-white">
             <div className="flex gap-1 border-b border-neutral/10 bg-base/50 p-3" role="group" aria-label="Booking breakdown">
-              {(["status", "source"] as const).map(tab => <button key={tab} type="button" aria-pressed={breakdown === tab} onClick={() => setBreakdown(tab)} className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium ${breakdown === tab ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:bg-white/60"}`}>{tab === "status" ? "Booking status" : "Booking source"}</button>)}
+              {(["status", "source", "type"] as const).map(tab => <button key={tab} type="button" aria-label={tab === "status" ? "Booking status" : tab === "type" ? "Reservation type" : "Booking source"} aria-pressed={breakdown === tab} onClick={() => setBreakdown(tab)} className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium ${breakdown === tab ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:bg-white/60"}`}>{tab === "status" ? "Status" : tab === "type" ? "Type" : "Source"}</button>)}
             </div>
-            <ReportChart key={breakdown} title={breakdown === "status" ? "Status of new bookings" : "Where bookings came from"} initialType="pie" points={breakdown === "status" ? dashboard.bookingStatuses : dashboard.bookingSources} description={breakdown === "status" ? "Current recorded status of reservations created in the last 7 days, including cancelled or expired bookings." : "Reservations created in the last 7 days. Offline bookings include phone, Messenger and walk-in bookings."} />
+            <ReportChart key={breakdown} title={breakdown === "status" ? "Status of new bookings" : breakdown === "type" ? "Reservation types" : "Where bookings came from"} initialType="pie" points={breakdown === "status" ? dashboard.bookingStatuses : breakdown === "type" ? dashboard.bookingTypes ?? [] : dashboard.bookingSources} description={breakdown === "status" ? "Current recorded status of reservations created in the last 7 days, including cancelled or expired bookings." : "Reservations created in the last 7 days. Offline bookings include phone, Messenger and walk-in bookings."} />
           </div>
         </div>
       </section>

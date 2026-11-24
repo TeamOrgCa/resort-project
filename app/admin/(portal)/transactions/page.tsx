@@ -1,6 +1,8 @@
 "use client";
 
+import { commercialTypeLabel } from "@/lib/booking/commercial-types";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import AdminTabs from "@/components/admin/AdminTabs";
 import AdminMetricCard from "@/components/admin/AdminMetricCard";
@@ -180,6 +182,9 @@ const deriveTransactionStatus = (totalAmount: number, paidAmount: number, balanc
 };
 
 export default function AdminTransactionsPage() {
+  const routeParams = useSearchParams();
+  const requestedReservation = routeParams?.get("reservation") ?? "";
+  const targetReservation = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(requestedReservation) ? requestedReservation : "";
   const [activeTab, setActiveTab] = useModuleTab<(typeof transactionTabs)[number]>("Transaction Ledger", {
     payments: "Payment Verification Queue", refunds: "Refund Requests", ledger: "Transaction Ledger",
     invoices: "Generated Invoices", receipts: "Issued Receipts",
@@ -202,6 +207,7 @@ export default function AdminTransactionsPage() {
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
   const [reservationReferencesById, setReservationReferencesById] = useState<Record<string, string>>({});
   const [guestNamesByReservationId, setGuestNamesByReservationId] = useState<Record<string, string>>({});
+  const [commercialTypesById, setCommercialTypesById] = useState<Record<string, string>>({});
   const [bookingTypesById, setBookingTypesById] = useState<Record<string, string>>({});
   const [paymentReferencesById, setPaymentReferencesById] = useState<Record<string, string>>({});
   const [paymentReservationById, setPaymentReservationById] = useState<Record<string, string>>({});
@@ -276,7 +282,7 @@ export default function AdminTransactionsPage() {
         const [{ data: reservationsData, error: reservationsError }, { data: invoicesData, error: invoicesError }, { data: paymentsData, error: paymentsError }, { data: receiptsData, error: receiptsError }] =
           await Promise.all([
             fetchByIds<ReservationRow>(reservationIds, (ids, from, to) => supabase.from("reservations")
-              .select("reservation_id, guest_id, walk_in_guest_id, reference_number, booking_type, status").in("reservation_id", ids)
+              .select("reservation_id, guest_id, walk_in_guest_id, reference_number, commercial_type, booking_type, status").in("reservation_id", ids)
               .order("reservation_id").range(from, to)).then(data => ({ data, error: null })),
             fetchByIds<InvoiceRow>(ledgerReservationIds, (ids, from, to) => supabase.from("invoices")
               .select("invoice_id, reservation_id, total_amount, created_at").in("reservation_id", ids)
@@ -333,6 +339,7 @@ export default function AdminTransactionsPage() {
         setReservationReferencesById(nextReservationReferencesById);
         setGuestNamesByReservationId(guestNames);
         setBookingTypesById(nextBookingTypesById);
+        setCommercialTypesById(Object.fromEntries(((reservationsData as ReservationRow[] | null) ?? []).map(r => [r.reservation_id, commercialTypeLabel(r.commercial_type)])));
         setPaymentReferencesById(nextPaymentReferencesById);
         setPaymentReservationById(nextPaymentReservationById);
         setPayments(paymentRows);
@@ -353,12 +360,12 @@ export default function AdminTransactionsPage() {
     };
   }, [refreshRevision]);
 
-  const matchingTransactions = useMemo(() => transactions.filter(item => collectionSource!=="public" && withinDateRange(item.updated_at, dateRange)), [transactions, dateRange,collectionSource]);
-  const matchingInvoices = useMemo(() => invoices.filter(item => withinDateRange(item.created_at, dateRange)), [invoices, dateRange]);
-  const matchingReceipts = useMemo(() => receipts.filter(item => collectionSource!=="public" && withinDateRange(item.issued_at, dateRange)), [receipts, dateRange,collectionSource]);
-  const matchingPayments = useMemo(() => payments.filter(item => withinDateRange(item.paid_at, dateRange)), [payments, dateRange]);
+  const matchingTransactions = useMemo(() => transactions.filter(item => (!targetReservation || item.reservation_id === targetReservation) && collectionSource!=="public" && withinDateRange(item.updated_at, dateRange)), [transactions, dateRange,collectionSource,targetReservation]);
+  const matchingInvoices = useMemo(() => invoices.filter(item => (!targetReservation || item.reservation_id === targetReservation) && withinDateRange(item.created_at, dateRange)), [invoices, dateRange,targetReservation]);
+  const matchingReceipts = useMemo(() => receipts.filter(item => (!targetReservation || paymentReservationById[item.payment_id] === targetReservation) && collectionSource!=="public" && withinDateRange(item.issued_at, dateRange)), [receipts, dateRange,collectionSource,targetReservation,paymentReservationById]);
+  const matchingPayments = useMemo(() => payments.filter(item => (!targetReservation || item.reservation_id === targetReservation) && withinDateRange(item.paid_at, dateRange)), [payments, dateRange,targetReservation]);
 
-  const matchingPublicSales=useMemo(()=>publicSales.filter(sale=>collectionSource!=="private"&&withinDateRange(sale.paid_at,dateRange)),[publicSales,collectionSource,dateRange]);
+  const matchingPublicSales=useMemo(()=>publicSales.filter(sale=>!targetReservation&&collectionSource!=="private"&&withinDateRange(sale.paid_at,dateRange)),[publicSales,collectionSource,dateRange,targetReservation]);
   const publicCollected=matchingPublicSales.reduce((sum,sale)=>sum+Number(sale.amount),0);
 
   const transactionRows: AdminTableRow[] = useMemo(
@@ -369,7 +376,7 @@ export default function AdminTransactionsPage() {
         const balanceAmount = Number(transaction.balance ?? 0);
 
         return {
-          collectionSource:"Private booking", paymentFor:"Private reservation",
+          collectionSource: commercialTypesById[transaction.reservation_id] ?? "Private Swimming", paymentFor: commercialTypesById[transaction.reservation_id] ?? "Private Swimming",
           id: transaction.transaction_id,
           reference: reservationReferencesById[transaction.reservation_id] ?? "-",
           guest: guestNamesByReservationId[transaction.reservation_id] ?? "Guest unavailable",
@@ -383,7 +390,7 @@ export default function AdminTransactionsPage() {
           updatedAt: formatDateTime(transaction.updated_at),
         };
       }),...matchingPublicSales.map(sale=>({id:`public:${sale.sale_id}`,reference:sale.reference_number,guest:sale.guest_name,collectionSource:"Public access",paymentFor:sale.payment_for,bookingType:PUBLIC_ACCESS_TYPES[sale.access_type],total:formatCurrency(Number(sale.amount)),paid:formatCurrency(Number(sale.amount)),balance:formatCurrency(0),overpaid:formatCurrency(0),status:"Paid",updatedAt:formatDateTime(sale.paid_at)}))],
-    [bookingTypesById, reservationReferencesById, guestNamesByReservationId, matchingTransactions,matchingPublicSales]
+    [bookingTypesById, commercialTypesById, reservationReferencesById, guestNamesByReservationId, matchingTransactions,matchingPublicSales]
   );
 
   const invoiceRows: AdminTableRow[] = useMemo(
@@ -402,7 +409,7 @@ export default function AdminTransactionsPage() {
   const receiptRows: AdminTableRow[] = useMemo(
     () =>
       [...matchingReceipts.map((receipt) => ({
-        collectionSource:"Private booking",
+        collectionSource: commercialTypesById[paymentReservationById[receipt.payment_id] ?? ""] ?? "Private Swimming",
         id: receipt.receipt_id,
         receiptNumber: receipt.receipt_number,
         guest: receipt.billed_to_name?.trim() || guestNamesByReservationId[paymentReservationById[receipt.payment_id] ?? ""] || "Guest unavailable",
@@ -411,7 +418,7 @@ export default function AdminTransactionsPage() {
         issuedAt: formatDateTime(receipt.issued_at),
         status: receipt.is_active === false ? "Archived" : receipt.archived_at ? "Archived" : "Active",
       })),...matchingPublicSales.map(sale=>({id:`public:${sale.sale_id}`,collectionSource:"Public access",receiptNumber:sale.receipt_number,guest:sale.guest_name,reference:sale.reference_number,paymentReference:sale.payment_reference,issuedAt:formatDateTime(sale.paid_at),status:"Active"}))],
-    [paymentReferencesById, paymentReservationById, matchingReceipts, reservationReferencesById, guestNamesByReservationId,matchingPublicSales]
+    [commercialTypesById, paymentReferencesById, paymentReservationById, matchingReceipts, reservationReferencesById, guestNamesByReservationId,matchingPublicSales]
   );
 
   const paymentVerificationRows: AdminTableRow[] = useMemo(
@@ -455,7 +462,7 @@ export default function AdminTransactionsPage() {
   const liveTransactionMetrics = useMemo(
     () => [
       { label: "Recorded Bills", value: formatCurrency(totalDue+publicCollected), trend: "Historical totals; cancelled balances are not collectible" },
-      { label: "Collected", value: formatCurrency(collected+publicCollected), trend: "Public access received plus private net verified payments" },
+      { label: "Collected", value: formatCurrency(collected+publicCollected), trend: "Public access received plus reservation net verified payments" },
       { label: "Outstanding", value: formatCurrency(outstanding), trend: "Requires follow-up" },
       { label: "Overpaid", value: formatCurrency(overpaid), trend: "Above billed totals" },
       { label: "Pending Verifications", value: String(pendingVerifications), trend: "Unresolved proofs in the selected payment date range" },
@@ -690,10 +697,10 @@ export default function AdminTransactionsPage() {
         return;
       }
 
-      const [reservationResult, transactionResult, paymentsResult, reservationUnitsResult, reservationServicesResult] = await Promise.all([
+      const [reservationResult, transactionResult, paymentsResult, reservationUnitsResult, reservationServicesResult, roomChargesResult] = await Promise.all([
         supabase
           .from("reservations")
-          .select("reference_number, booking_type, status, start_datetime, end_datetime, booking_mode, adult_count, child_count")
+          .select("reference_number, commercial_type, public_pricing_snapshot, booking_type, status, start_datetime, end_datetime, booking_mode, adult_count, child_count")
           .eq("reservation_id", invoice.reservation_id)
           .maybeSingle<InvoiceDetailReservationRow>(),
         supabase
@@ -714,6 +721,7 @@ export default function AdminTransactionsPage() {
           .from("reservation_services")
           .select("quantity, price_at_time, billing_type, services(name)")
           .eq("reservation_id", invoice.reservation_id),
+        supabase.from("room_charges").select("description,amount").eq("reservation_id", invoice.reservation_id),
       ]);
 
       if (
@@ -794,6 +802,7 @@ export default function AdminTransactionsPage() {
         nights,
         unitBreakdown,
         serviceBreakdown,
+        roomCharges: (roomChargesResult.data ?? []).map(charge => ({ description: charge.description, amount: Number(charge.amount) })),
         unitsSubtotal,
         servicesSubtotal,
         computedTotal,
@@ -848,7 +857,7 @@ export default function AdminTransactionsPage() {
       const { data: reservationRecord, error: reservationError } = await supabase
         .from("reservations")
         .select(
-          "reservation_id, guest_id, walk_in_guest_id, reference_number, booking_type, booking_mode, status, start_datetime, end_datetime"
+          "reservation_id, guest_id, walk_in_guest_id, reference_number, commercial_type, booking_type, booking_mode, status, start_datetime, end_datetime"
         )
         .eq("reservation_id", paymentRecord.reservation_id)
         .maybeSingle<ReceiptDetailReservationRow>();
@@ -879,7 +888,7 @@ export default function AdminTransactionsPage() {
       ]);
       const guestName = [guestRecord?.first_name, guestRecord?.middle_name, guestRecord?.last_name].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
       const purpose = { downpayment: "Reservation down payment", full: "Reservation payment", additional: "Additional reservation payment" }[paymentRecord.payment_type] ?? "Reservation payment";
-      const packageLabel = ({ day: "Day swimming", night: "Overnight swimming", whole_day: "Whole-day stay", custom: "Custom stay" } as Record<string, string>)[reservationRecord.booking_mode ?? ""];
+      const packageLabel = reservationRecord.commercial_type === "public_swimming" ? `${reservationRecord.booking_mode === "night" ? "Night" : "Day"} Public Swimming` : reservationRecord.commercial_type === "room_accommodation" ? "Room Accommodation" : ({ day: "Day swimming", night: "Overnight swimming", whole_day: "Whole-day stay", custom: "Custom stay" } as Record<string, string>)[reservationRecord.booking_mode ?? ""];
 
       setViewDetails({
         title: "Receipt Details",
@@ -930,8 +939,9 @@ export default function AdminTransactionsPage() {
 
         {activeTab !== "Refund Requests" && <p className="mb-4 text-xs leading-relaxed text-neutral/65">Tables include records in the selected date range with pagination. CSV exports include every row matching the date range, table search and filters.</p>}
         {activeTab === "Generated Invoices" && <p className="mb-4 text-sm text-neutral/70">Invoices are generated automatically from reservation billing. Refresh to load the latest documents, or select View to inspect an invoice.</p>}
-        {activeTab === "Issued Receipts" && <p className="mb-4 text-sm text-neutral/70">Receipts are issued for verified private payments and cashier-recorded public collections. Select Print to print a receipt or save it as a PDF.</p>}
+        {activeTab === "Issued Receipts" && <p className="mb-4 text-sm text-neutral/70">Receipts are issued for verified reservation payments and cashier-recorded public collections. Select Print to print a receipt or save it as a PDF.</p>}
 
+        {targetReservation && <p className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">Showing billing for {reservationReferencesById[targetReservation] ?? "the selected room reservation"}. <a href="/admin/transactions" className="font-semibold text-primary underline">Show all transactions</a></p>}
         <section aria-label="Transaction date filters" className="mb-5 border-b border-neutral/10 pb-4">
           <div className="flex flex-wrap items-end gap-3">
             <label className="min-w-0 flex-1 text-sm font-medium sm:max-w-xs">Date range

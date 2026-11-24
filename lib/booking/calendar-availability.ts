@@ -6,10 +6,10 @@ import { maintenanceOverlaps, type MaintenanceWindow } from "./maintenance";
 import { manilaDateKey } from "./manila-date";
 
 type SlotStatus = "available" | "booked" | "started" | "maintenance";
-type ReservationWindow = ReservedWindow & { status: string; payment_deadline_at?: string | null };
+type ReservationWindow = ReservedWindow & { status: string; payment_deadline_at?: string | null; commercial_type?: string; room_pricing?: boolean };
 
 export function calendarAvailability(date: string, reservations: ReservationWindow[], blocks: (MaintenanceWindow & { status: string })[], now: number, times: PackageTimes = DEFAULT_PACKAGE_TIMES) {
-  const active = reservations.filter(row => ["pending", "payment_submitted", "confirmed", "reschedule_requested"].includes(row.status)
+  const active = reservations.filter(row => row.commercial_type !== "room_accommodation" && !(row.commercial_type === "public_swimming" && row.room_pricing) && ["pending", "payment_submitted", "confirmed", "reschedule_requested"].includes(row.status)
     && !(row.status === "pending" && row.payment_deadline_at && Date.parse(row.payment_deadline_at) <= now));
   const slot = (mode: "day" | "night" | "whole_day", variant: "day_to_night" | "night_to_day" = "day_to_night"): SlotStatus => {
     const window = buildBookingWindow({ bookingMode: mode, date, wholeDayVariant: variant, packageTimes: times });

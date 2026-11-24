@@ -199,14 +199,15 @@ function PaymentContent() {
   const acceptedTerms = Boolean(reservationId && acceptedTermsForReservation === reservationId);
   const reservationReferenceFromDraft = bookingDraft.reservationReference || "";
   const isBalancePayment = Boolean(reservationId && unitId === "balance-payment");
-  const [payOption, setPayOption] = useState<"downpayment" | "full">("downpayment");
+  const requiresFullPayment = bookingDraft.commercialType === "room_accommodation" || bookingDraft.commercialType === "public_swimming";
+  const [payOption, setPayOption] = useState<"downpayment" | "full">(requiresFullPayment ? "full" : "downpayment");
   const paidAmount = bookingDraft.paidAmount || 0;
 
   useEffect(() => {
-    if (isBalancePayment) {
+    if (isBalancePayment || requiresFullPayment) {
       setPayOption("full");
     }
-  }, [isBalancePayment]);
+  }, [isBalancePayment, requiresFullPayment]);
 
   // Check for pending payments when component mounts or reservation changes
   useEffect(() => {
@@ -278,7 +279,7 @@ function PaymentContent() {
   const roomName = bookingDraft.roomName || "Selected accommodation";
   const costSummary = buildBookingCostSummary(bookingDraft);
   const totalAmount = bookingDraft.total || 0;
-  const downPayment = downPaymentAmount(totalAmount);
+  const downPayment = requiresFullPayment ? totalAmount : downPaymentAmount(totalAmount);
   const selectedServices = bookingDraft.services || [];
   const selectedPaymentMethod = paymentMethods.find((method) => method.payment_method_id === selectedPaymentMethodId);
   const gcash = Boolean(selectedPaymentMethod && isGcashMethod(selectedPaymentMethod));
@@ -304,8 +305,8 @@ function PaymentContent() {
   const successPaidAmount = submittedSummary?.paidAmount ?? downPayment;
   const successPayOption = submittedSummary?.payOption ?? payOption;
   const remainingBalance = Math.max(totalAmount - paidAmount, 0);
-  const effectivePayOption = resolvePaymentType(isBalancePayment, hasVerifiedDownpayment || paidAmount > 0, payOption);
-  const payableNow = isBalancePayment
+  const effectivePayOption = requiresFullPayment ? "full" : resolvePaymentType(isBalancePayment, hasVerifiedDownpayment || paidAmount > 0, payOption);
+  const payableNow = requiresFullPayment ? remainingBalance : isBalancePayment
     ? hasVerifiedDownpayment || paidAmount > 0
       ? remainingBalance
       : payOption === "full"
@@ -375,7 +376,7 @@ function PaymentContent() {
       return;
     }
 
-    if (!startDateTime || !endDateTime || !reservationId || (!unitId && !isBalancePayment)) {
+    if (!startDateTime || !endDateTime || !reservationId) {
       setSubmitError("Missing reservation details. Please go back and review your booking.");
       return;
     }
@@ -529,8 +530,8 @@ function PaymentContent() {
                 </span>
               </div>
               {!isBalancePayment && <div className="flex justify-between">
-                <span className="text-neutral/70">Accommodation Type</span>
-                <span className="font-semibold text-neutral">{successRoomName}</span>
+                <span className="text-neutral/70">{bookingDraft.commercialType === "room_accommodation" ? "Accommodation" : bookingDraft.commercialType === "public_swimming" ? "Session" : "Cottages"}</span>
+                <span className="font-semibold text-neutral">{requiresFullPayment ? successRoomName : "All included"}</span>
               </div>}
               {!isBalancePayment && <div className="flex justify-between">
                 <span className="text-neutral/70">Number of guests</span>
@@ -617,7 +618,7 @@ function PaymentContent() {
       <Navigation />
 
       <BookingProgress currentStep={4} />
-      <BookingGuide page="payment" balance={isBalancePayment} disabled={isSubmitting} />
+      <BookingGuide room={bookingDraft.commercialType === "room_accommodation"} publicSwimming={bookingDraft.commercialType === "public_swimming"} page="payment" balance={isBalancePayment} disabled={isSubmitting} />
 
       <section className="px-4 py-6 sm:py-12">
         <div className="max-w-6xl mx-auto">
@@ -652,7 +653,7 @@ function PaymentContent() {
                     </div>
                   )}
 
-                  {isBalancePayment ? (
+                  {requiresFullPayment ? <section data-booking-guide="payment-amount" className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4"><h3 className="mb-2 text-lg font-semibold">Full Payment</h3><p className="text-sm text-neutral/70">{bookingDraft.commercialType === "public_swimming" ? "Public swimming" : "Room accommodation"} requires full payment. Submit the full outstanding balance for verification.</p><div className="mt-4 flex justify-between gap-3 rounded-lg bg-white p-3"><span className="font-semibold">Amount due now</span><strong className="text-xl text-primary">{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(payableNow)}</strong></div></section> : isBalancePayment ? (
                     <div data-booking-guide="payment-amount" className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4">
                       <h3 className="text-lg font-semibold text-neutral mb-2">Pay for This Reservation</h3>
                       <p className="text-sm text-neutral/70">
@@ -897,7 +898,7 @@ function PaymentContent() {
                   </div>
 
                   {!isBalancePayment && <div className="pb-4 border-b border-neutral/10">
-                    <div className="flex justify-between mb-1"><span className="text-neutral/70">Selected unit</span><span className="font-semibold text-neutral text-right">{roomName}</span></div>
+                    <div className="flex justify-between mb-1"><span className="text-neutral/70">{bookingDraft.commercialType === "room_accommodation" ? "Rooms" : bookingDraft.commercialType === "public_swimming" ? "Session" : "Cottages"}</span><span className="font-semibold text-neutral text-right">{requiresFullPayment ? roomName : "All included"}</span></div>
                     <div className="flex justify-between mb-1"><span className="text-neutral/70">Booking mode</span><span className="font-semibold text-neutral">{bookingDraft.bookingMode.replace("_", " ")}</span></div>
                     <div className="flex justify-between"><span className="text-neutral/70">Duration</span><span className="font-semibold text-neutral">{startDateTime && endDateTime ? Math.round((endDateTime.getTime() - startDateTime.getTime()) / 3_600_000 * 100) / 100 : 0} hours</span></div>
                   </div>}
@@ -926,7 +927,7 @@ function PaymentContent() {
                     <span className="whitespace-nowrap font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>}
 
-                  {!isBalancePayment && <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} />}
+                  {!isBalancePayment && <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} kind={costSummary.discountKind} />}
 
                   {!isBalancePayment && costSummary.tax > 0 && <div className="flex justify-between">
                     <span className="text-neutral/70">Tax</span>

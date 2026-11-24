@@ -13,18 +13,19 @@ export async function GET(request: Request) {
     const { data: { user }, error } = await client.auth.getUser();
     if (error || !user) return NextResponse.json({ message: "Sign in to view your bill." }, { status: 401 });
     const owned = await client.from("reservations")
-      .select("reservation_id,booking_mode,start_datetime,end_datetime,adult_count,child_count")
+      .select("reservation_id,commercial_type,public_pricing_snapshot,booking_mode,start_datetime,end_datetime,adult_count,child_count")
       .eq("reservation_id", id).eq("guest_id", user.id).maybeSingle();
     if (owned.error) throw owned.error;
     if (!owned.data) return NextResponse.json({ message: "Booking not found for this account." }, { status: 403 });
     // Staff reschedule history is private. Return only this owner's billed amounts,
     // never internal reasons, policy snapshots or staff identities.
     const admin = createAdminClient();
-    const [bill, services, guestChanges, staffChanges] = await Promise.all([
+    const [bill, services, guestChanges, staffChanges, roomCharges] = await Promise.all([
       admin.from("transactions").select("total_amount,paid_amount,balance,discount_amount,discount_kind,discount_promo_code,discount_promo_type,discount_promo_value,discount_eligible_guests,discount_package_price").eq("reservation_id", id).maybeSingle(),
       admin.from("reservation_services").select("quantity,price_at_time,billing_type,services(name)").eq("reservation_id", id),
       admin.from("reservation_reschedules").select("reschedule_fee,rate_adjustment").eq("reservation_id", id).eq("status", "approved"),
       admin.from("reservation_reschedule_adjustments").select("notice_fee,rate_adjustment").eq("reservation_id", id),
+      admin.from("room_charges").select("description,amount").eq("reservation_id", id),
     ]);
     if ([bill, services, guestChanges, staffChanges].some(result => result.error) || !bill.data) throw new Error("Billing details unavailable");
     const r = owned.data;
@@ -33,12 +34,14 @@ export async function GET(request: Request) {
     const rate = [...(guestChanges.data ?? []), ...(staffChanges.data ?? [])].reduce((sum, row) => sum + Number(row.rate_adjustment), 0);
     const breakdown = buildBillingBreakdown({
       bookingMode: r.booking_mode, startDatetime: r.start_datetime, endDatetime: r.end_datetime,
-      adultCount: Number(r.adult_count), childCount: Number(r.child_count), adultRate: null, childRate: null, units: [],
+      commercialType: r.commercial_type,
+      adultCount: Number(r.adult_count), childCount: Number(r.child_count), adultRate: r.commercial_type === "public_swimming" ? Number(r.public_pricing_snapshot?.adult_rate ?? 0) : null, childRate: r.commercial_type === "public_swimming" ? Number(r.public_pricing_snapshot?.child_rate ?? 0) : null, units: [],
       services: (services.data ?? []).map(row => ({
         name: (Array.isArray(row.services) ? row.services[0]?.name : (row.services as { name: string } | null)?.name) || "Additional service",
         quantity: Number(row.quantity), priceAtBooking: Number(row.price_at_time), billingType: row.billing_type,
       })),
       discount: billingDiscountSnapshot(bill.data, Number(r.adult_count) + Number(r.child_count)),
+      roomCharges: (roomCharges.data ?? []).map(charge => ({ description: charge.description, amount: Number(charge.amount) })),
       recordedTotal: Number(bill.data.total_amount), rescheduleFees: fee, dateRateAdjustment: rate,
     });
     if (breakdown.lines.some(line => !Number.isFinite(line.amount) || (line.amount < 0 && line.kind !== "discount"))) throw new Error("Inconsistent billing details");

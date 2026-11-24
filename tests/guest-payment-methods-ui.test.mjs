@@ -71,6 +71,16 @@ async function file(input) {
   });
 }
 
+test("room accommodation and public swimming checkout show full payment only and charge the full outstanding balance",async()=>{
+  for(const commercialType of ["room_accommodation","public_swimming"]){
+  const h=await mount(0,{commercialType,roomSelections:[{classificationId:"standard",occupants:2,pricingVersion:1,accommodation:5000,additionalGuestCharge:0}],eligibleGuests:0});
+  try{
+    assert.match(h.container.querySelector('[data-booking-guide="payment-amount"]').textContent,/Full Payment/);
+    assert.doesNotMatch(h.container.textContent,/Down Payment|down payment/);
+    assert.equal(h.container.querySelector("#amount-sent").value,"5000");assert.equal(h.container.querySelector("#amount-sent").min,"5000");
+  }finally{await h.close();}}
+});
+
 test("payment summaries retain the applied promo code and savings after booking review",async()=>{
   const h=await mount(0,{promo:{code:"SAVE20",discount_type:"percent",discount_value:20},promoCode:"SAVE20",total:4000});
   try {

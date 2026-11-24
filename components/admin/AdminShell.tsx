@@ -1,5 +1,7 @@
 "use client";
 
+import { lockBodyScroll } from "@/lib/ui/body-scroll-lock";
+
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import AdminSidebar from "@/components/admin/AdminSidebar";
@@ -34,10 +36,7 @@ export default function AdminShell({ children, role, permissions }: AdminShellPr
   }, [isSidebarOpen]);
 
   useEffect(() => {
-    document.body.style.overflow = isSidebarOpen ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
+    if (isSidebarOpen) return lockBodyScroll();
   }, [isSidebarOpen]);
 
   return (

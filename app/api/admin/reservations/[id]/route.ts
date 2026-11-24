@@ -47,6 +47,16 @@ export async function PATCH(request: Request, context: Context) {
     const detail = await loadReservationEditor(id);
     if (!detail) return fail("Reservation not found.", 404);
     if (detail.version !== edit.version) return fail("This reservation or bill changed. Reload it before saving.", 409);
+    if (detail.reservation.commercial_type === "public_swimming" && !detail.reservation.room_pricing) {
+      if (detail.lockedReason) return fail(detail.lockedReason, 409);
+      const preview = previewReservationEdit(detail.reservation, detail.bill, detail.services, detail.catalogServices, edit, detail.packageRates);
+      if (preview.total !== moneyRound(edit.expectedTotal)) return fail("The public admission bill changed. Review it again.", 409);
+      const { data, error } = await createAdminClient().rpc("public_staff_edit_booking", { p_reservation: id, p_staff: staff.staffUser.id,
+        p_expected: detail.snapshot, p_patch: { ...edit, expectedTotal: preview.interimTotal } });
+      if (error) return fail(["22023", "40001", "42501"].includes(error.code) ? error.message : "Unable to update public swimming.", error.code === "40001" ? 409 : error.code === "42501" ? 403 : 400);
+      const billingEmail = await emailUpdatedBillingStatement(id, Number(data.totalAmount));
+      return NextResponse.json({ success: true, ...data, billingEmail, message: "Public swimming guests, services and schedule updated. The bill has been recalculated." });
+    }
     const now = Date.now();
     const scheduleChanged = Date.parse(detail.reservation.start_datetime) !== Date.parse(edit.startDatetime)
       || Date.parse(detail.reservation.end_datetime) !== Date.parse(edit.endDatetime);
@@ -62,6 +72,7 @@ export async function PATCH(request: Request, context: Context) {
     if (packageChange) return fail(packageChange, 400);
     const oldUnit = detail.units.length === 1 && detail.units[0].quantity === 1 ? detail.units[0].unit_id : null;
     const unitChanged = edit.unitId !== oldUnit;
+    if (unitChanged && (detail.reservation.commercial_type ?? "private_swimming") === "private_swimming" && !detail.reservation.room_pricing) return fail("All cottages are included with private swimming. An accommodation selection is not required.", 400);
     const changed = detailsChanged(detail.reservation, edit);
     const manager = ["admin", "staff"].includes(staff.staffUser.role);
     if ((scheduleChanged || (unitChanged && !manager)) && !detail.canChangeDetails && !lateAuthorized) return fail("The stay has started. Schedule changes are locked; accommodation changes require a manager.", 409);

@@ -1,3 +1,4 @@
+import { commercialTypeLabel, COMMERCIAL_TYPES } from "@/lib/booking/commercial-types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey, manilaTimestamp, formatManilaDate } from "@/lib/booking/manila-date";
 import { reportBucket, reportWindow } from "@/lib/reports/periods";
@@ -7,7 +8,7 @@ import { DAY_MS, round, percentage, median, changeLabel, collectionForecast } fr
 import { fetchAllPages } from "./fetch-all-pages";
 import { PUBLIC_ACCESS_TYPES, type PublicAccessType } from "@/lib/public-access/sales";
 
-type Reservation = { reservation_id: string; booking_type: string | null; created_at: string; start_datetime: string; status: string };
+type Reservation = { reservation_id: string; commercial_type?: string; booking_type: string | null; created_at: string; start_datetime: string; status: string };
 type Payment = { payment_id: string; amount: number; status: string; payment_type: string; created_at: string; verified_at: string | null };
 const money = (value: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value);
 const metric = (label: string, value: number, help: string, format: ReportMetric["format"] = "count"): ReportMetric => ({ label, value: round(value), help, format });
@@ -28,7 +29,7 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
   const start = new Date(Math.min(previousStart, historyStart)).toISOString();
   const end = new Date(Math.max(observedEnd, historyEnd)).toISOString();
   const [allReservations, privatePayments, submissions, publicSales, backlog] = await Promise.all([
-    fetchAllPages<Reservation>((from, to) => client.from("reservations").select("reservation_id,booking_type,created_at,start_datetime,status").gte("created_at", new Date(previousStart).toISOString()).lt("created_at", new Date(observedEnd).toISOString()).order("created_at").order("reservation_id").range(from, to)),
+    fetchAllPages<Reservation>((from, to) => client.from("reservations").select("reservation_id,commercial_type,booking_type,created_at,start_datetime,status").gte("created_at", new Date(previousStart).toISOString()).lt("created_at", new Date(observedEnd).toISOString()).order("created_at").order("reservation_id").range(from, to)),
     fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,amount,status,payment_type,created_at,verified_at").eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`).order("created_at").order("payment_id").range(from, to)),
     fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,amount,status,payment_type,created_at,verified_at").gte("created_at", new Date(previousStart).toISOString()).lt("created_at", new Date(observedEnd).toISOString()).order("created_at").order("payment_id").range(from, to)),
     fetchAllPages<{sale_id:string;amount:number;paid_at:string;access_type:PublicAccessType}>((from,to)=>client.from("public_access_sales").select("sale_id,amount,paid_at,access_type").gte("paid_at",start).lt("paid_at",end).order("paid_at").order("sale_id").range(from,to)),
@@ -103,8 +104,8 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
   const allZero = forecast.activeDays === 0;
   return {
     booking: {
-      ...metadata, trend: bookingValues.map((value, i) => ({ label: window.labels[i], value })), split: sources.map(label => ({ label, value: reservations.filter(row => source(row) === label).length })),
-      trendTitle: "Booking demand versus previous period", splitTitle: "Share of recorded booking sources", tableTitle: "Booking source performance", comparison: comparison(bookingValues, bookingPrior, "count"),
+      ...metadata, trend: bookingValues.map((value, i) => ({ label: window.labels[i], value })), split: Object.values(COMMERCIAL_TYPES).map(label => ({ label, value: reservations.filter(row => commercialTypeLabel(row.commercial_type) === label).length })),
+      trendTitle: "Booking demand versus previous period", splitTitle: "Reservation types", tableTitle: "Booking source performance", comparison: comparison(bookingValues, bookingPrior, "count"),
       metrics: [metric("Reservations created", reservations.length, changeLabel(reservations.length, priorReservations.length)), { ...metric("Confirmed or completed", bookingRates.confirmed, `${reservations.filter(confirmed).length} of ${reservations.length}; previously ${priorReservations.length ? `${priorRates.confirmed}%` : "no bookings"}. Based on current status.`, "percent"), ...(!reservations.length ? { displayValue: "No bookings" } : {}) }, { ...metric("Cancelled or no-show", bookingRates.cancelled, `${reservations.filter(cancelled).length} of ${reservations.length}; previously ${priorReservations.length ? `${priorRates.cancelled}%` : "no bookings"}.`, "percent"), ...(!reservations.length ? { displayValue: "No bookings" } : {}) }],
       insights: [
         { title: "Demand movement", description: `${reservations.length} reservations versus ${priorReservations.length} in the comparable period. ${changeLabel(reservations.length, priorReservations.length)}.` },
@@ -112,14 +113,14 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
         { title: "Channel contribution", description: leadingSource.count ? `${leadingSource.label} supplied ${percentage(leadingSource.count, sourcedCount)}% of bookings with a recorded source. Compare source growth and cancellation shares below before deciding which channel needs attention.` : "No online or offline booking sources were recorded in the selected elapsed dates; channel performance cannot be compared yet." },
       ],
       rows: sources.map(label => { const rows = reservations.filter(row => source(row) === label), prior = priorReservations.filter(row => source(row) === label), rate = rates(rows); return { id: label, source: label, current: String(rows.length), previous: String(prior.length), change: changeLabel(rows.length, prior.length), confirmationRate: rows.length ? `${rate.confirmed}%` : "No bookings", cancellationRate: rows.length ? `${rate.cancelled}%` : "No bookings" }; }),
-      note: `${comparisonNote} Bookings are grouped by creation date, including cancelled and expired records. Confirmation and cancellation shares describe today's status of each creation cohort; newer bookings have had less time to finish. These are not occupancy rates. Source charts and the source table include only recorded online and offline sources; overall totals include every booking.`,
+      note: `${comparisonNote} Bookings are grouped by creation date, including cancelled and expired records. Confirmation and cancellation shares describe today's status of each creation cohort; newer bookings have had less time to finish. These are not occupancy rates. The type chart includes Private Swimming, Public Swimming and Room Accommodation. The source table compares online and offline channels; overall totals include every booking.`,
     },
     revenue: {
       ...metadata, trend: revenueValues.map((value, i) => ({ label: window.labels[i], value })), split: Array.from(paymentTypes, ([label, value]) => ({ label, value: round(value) })),
       trendTitle: "Collections versus previous period", splitTitle: "Collection mix", tableTitle: "Collection forecast scenarios", comparison: comparison(revenueValues, revenuePrior, "money"), forecastPoints: forecast.points,
       metrics: [metric("Actual collections", gross, changeLabel(gross, priorGross), "money"), metric(`Estimated next ${horizon} ${horizon === 1 ? "day" : "days"}`, forecast.estimate, `${forecast.method}; uses 56 complete Philippine calendar days before the selected end date or today, whichever comes first.`, "money"), { ...metric("Typical daily forecast error", forecast.backtest?.mae ?? 0, forecast.backtest ? "Mean absolute error from predicting the final 7 historical days using only earlier history. Lower means estimates were closer." : "Need at least 14 calendar days and 7 earlier days with collections for a held-out check.", "money"), ...(!forecast.backtest ? { displayValue: "Not enough history" } : {}) }],
       insights: [
-        { title: "Collection movement", description: `${money(gross)} collected versus ${money(priorGross)} previously. ${changeLabel(gross, priorGross)}. Both public access and verified private payments are included, before refunds.` },
+        { title: "Collection movement", description: `${money(gross)} collected versus ${money(priorGross)} previously. ${changeLabel(gross, priorGross)}. Standalone public access and verified private-swimming, public-swimming and room-accommodation payments are included, before refunds.` },
         { title: "Evidence behind the estimate", description: `${forecast.activeDays} of 56 complete days had collections. ${forecast.method}. ${allZero ? "No received payments: the estimate is zero." : forecast.activeDays < 14 ? "Limited active history: do not treat this estimate as a sales target." : "Weekday patterns influence the estimate; holidays and special events are not modelled."}` },
         { title: "Historical forecast check", description: forecast.backtest ? `Held-out actual collections: ${money(forecast.backtest.actual)}; estimated: ${money(forecast.backtest.estimated)}. Average daily absolute error: ${money(forecast.backtest.mae)}. The held-out days were not used to fit that test.` : "Not enough active history for a useful held-out check. Forecast quality has not yet been established." },
       ],
@@ -128,7 +129,7 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
         { id: "pattern", scenario: "Recent daily pattern", projectedRevenue: money(forecast.estimate), evidence: `${forecast.activeDays} collection days / 56 calendar days`, method: forecast.method },
         ...(forecast.upper === null ? [] : [{ id: "higher", scenario: "Higher historical activity", projectedRevenue: money(forecast.upper), evidence: "75th percentile of historical rolling collection totals", method: "Activity scenario; not a confidence bound" }]),
       ],
-      note: `${comparisonNote} Forecast dates: ${formatManilaDate(window.end)} through ${formatManilaDate(new Date(window.end.getTime() + (horizon - 1) * DAY_MS))}. Historical training excludes unfinished days and counts days with no collections as zero. Private collections use the verification date (creation date for older records without one); public collections use the server-recorded paid-at date. Scenarios use rolling ${horizon}-day historical totals; they are not statistical confidence intervals. Estimates exclude refunds, holidays, special events and future cancellations, and are not guaranteed income.`,
+      note: `${comparisonNote} Forecast dates: ${formatManilaDate(window.end)} through ${formatManilaDate(new Date(window.end.getTime() + (horizon - 1) * DAY_MS))}. Historical training excludes unfinished days and counts days with no collections as zero. Reservation collections use the verification date (creation date for older records without one); public collections use the server-recorded paid-at date. Scenarios use rolling ${horizon}-day historical totals; they are not statistical confidence intervals. Estimates exclude refunds, holidays, special events and future cancellations, and are not guaranteed income.`,
     },
     performance: {
       ...metadata, trend: bucketRate(cohort).map((value, i) => ({ label: window.labels[i], value: value ?? 0 })), split: aging.map(group => ({ label: group.label, value: group.rows.length })), trendFormat: "percent",
@@ -140,7 +141,7 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
         { title: "Bottleneck to investigate", description: aging[2].rows.length ? `${aging[2].rows.length} payments have waited 72 hours or more. Start with the oldest submissions and check whether missing proof or transaction details are delaying verification.` : "No pending submissions have waited 72 hours or more. Use the age groups below to prioritize follow-up." },
       ],
       rows: aging.map(group => ({ id: group.label, age: group.label, pending: String(group.rows.length), amount: money(total(group.rows)), meaning: group.rows.length ? "Verify the actual transaction and proof in Transactions; resolve oldest submissions first." : "No pending submissions in this age group." })),
-      note: `${comparisonNote} The trend compares resolved shares of private payment submission cohorts; a zero with no submissions is not a measured success rate. Backlog age and amount are a live snapshot of all private payments still pending as of ${manilaTimestamp(now)}, regardless of the date filter. Cashier-recorded public access sales are received collections and do not enter this approval queue. Verification time uses valid non-negative submission-to-verification durations only.`,
+      note: `${comparisonNote} The trend compares resolved shares of reservation payment submission cohorts; a zero with no submissions is not a measured success rate. Backlog age and amount are a live snapshot of all reservation payments still pending as of ${manilaTimestamp(now)}, regardless of the date filter. Cashier-recorded public access sales are received collections and do not enter this approval queue. Verification time uses valid non-negative submission-to-verification durations only.`,
     },
   };
 }

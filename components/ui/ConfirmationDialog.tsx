@@ -1,5 +1,7 @@
 "use client";
 
+import { lockBodyScroll } from "@/lib/ui/body-scroll-lock";
+
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { usePortalTarget } from "@/lib/use-portal-target";
@@ -11,6 +13,8 @@ interface ConfirmationDialogProps {
   confirmText?: string;
   cancelText?: string;
   isConfirming?: boolean;
+  confirmingText?: string;
+  pendingMessage?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -22,6 +26,8 @@ export default function ConfirmationDialog({
   confirmText = "Confirm",
   cancelText = "Cancel",
   isConfirming = false,
+  confirmingText = "Processing...",
+  pendingMessage,
   onConfirm,
   onCancel,
 }: ConfirmationDialogProps) {
@@ -36,8 +42,8 @@ export default function ConfirmationDialog({
       return;
     }
     const previousFocus = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const releaseScroll = lockBodyScroll();
+
     cancel.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -56,8 +62,8 @@ export default function ConfirmationDialog({
     document.addEventListener("keydown", handleKey, true);
     return () => {
       document.removeEventListener("keydown", handleKey, true);
-      document.body.style.overflow = previousOverflow;
-      if (previousFocus?.isConnected) previousFocus.focus();
+      releaseScroll();
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
   }, [isOpen, portalTarget]);
 
@@ -85,6 +91,7 @@ export default function ConfirmationDialog({
       >
         <h3 id={titleId} className="text-lg font-semibold text-neutral">{title}</h3>
         <p id={messageId} className="mt-2 whitespace-pre-line text-sm text-neutral/80">{message}</p>
+        {isConfirming && pendingMessage && <p role="status" className="mt-3 text-sm text-neutral/65">{pendingMessage}</p>}
 
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
@@ -102,7 +109,7 @@ export default function ConfirmationDialog({
             disabled={isConfirming}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-base hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isConfirming ? "Processing..." : confirmText}
+            {isConfirming ? confirmingText : confirmText}
           </button>
         </div>
       </div>

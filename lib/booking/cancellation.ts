@@ -1,4 +1,5 @@
 export type CancellationPreview = {
+  commercialType?: string;
   reservationId: string; reference: string; initiator: "guest" | "resort";
   totalAmount: number; verifiedPaid: number; previousRefunds: number; netPaid: number;
   depositBase: number; depositAmount: number; deduction: number; refundableAmount: number;

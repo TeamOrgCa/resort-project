@@ -12,6 +12,7 @@ export interface TransactionRow {
 }
 
 export interface ReservationRow {
+  commercial_type?: string;
   reservation_id: string;
   guest_id?: string | null;
   walk_in_guest_id?: string | null;
@@ -35,6 +36,8 @@ export interface InvoiceDetailInvoiceRow {
 }
 
 export interface InvoiceDetailReservationRow {
+  commercial_type?: string;
+  public_pricing_snapshot?: { adult_rate: number; child_rate: number } | null;
   booking_mode?: string | null;
   adult_count?: number;
   child_count?: number;
@@ -118,6 +121,7 @@ export interface InvoiceServiceBreakdownItem {
 }
 
 export interface InvoiceViewDetails {
+  roomCharges?: { description: string; amount: number }[];
   invoice: InvoiceDetailInvoiceRow;
   reservation: InvoiceDetailReservationRow | null;
   transaction: InvoiceDetailTransactionRow | null;
@@ -176,6 +180,7 @@ export interface ReceiptDetailPaymentRow {
 }
 
 export interface ReceiptDetailReservationRow {
+  commercial_type?: string;
   reservation_id: string;
   guest_id: string | null;
   walk_in_guest_id?: string | null;

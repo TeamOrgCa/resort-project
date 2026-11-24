@@ -6,6 +6,23 @@ export function buildBookingCostSummary(draft: BookingDraft) {
   const total = Number(draft.total || 0);
   const tax = Number(draft.tax || 0);
   const servicesTotal = draft.services.reduce((sum, service) => sum + Number(service.price || 0) * (service.quantity ?? 1), 0);
+  if (draft.commercialType === "public_swimming") {
+    const admission = Number(draft.roomPrice || 0);
+    const discount = calculateBookingDiscount(admission, Math.max(1, draft.adultCount + draft.childCount), draft.eligibleGuests ?? 0, draft.promo);
+    return { total, tax, servicesTotal, discountAmount: draft.discountAmount ?? discount.amount, discountKind: draft.discountKind ?? discount.kind,
+      promoCode: (draft.discountKind ?? discount.kind) === "promo" ? draft.promo?.code ?? null : null,
+      subtotal: admission + servicesTotal, packageCharge: admission, packageLabel: "Public swimming admission", extraGuestCharge: 0, extraGuests: null, includedGuests: null };
+  }
+  if (draft.commercialType === "room_accommodation") {
+    const rooms = draft.roomSelections ?? [];
+    const accommodation = rooms.reduce((sum, r) => sum + Number(r.accommodation ?? 0), 0);
+    const extraGuestCharge = rooms.reduce((sum, r) => sum + Number(r.additionalGuestCharge ?? 0), 0);
+    const discount = calculateBookingDiscount(accommodation, Math.max(1, draft.adultCount + draft.childCount), draft.eligibleGuests ?? 0, draft.promo);
+    return { total, tax, servicesTotal, discountAmount: draft.discountAmount ?? discount.amount, discountKind: draft.discountKind ?? discount.kind,
+      promoCode: (draft.discountKind ?? discount.kind) === "promo" ? draft.promo?.code ?? null : null,
+      subtotal: accommodation + extraGuestCharge + servicesTotal, packageCharge: accommodation, packageLabel: "Room accommodation",
+      extraGuestCharge, extraGuests: rooms.reduce((sum, r) => sum + Math.max(0, r.occupants - (r.includedCapacity ?? r.occupants)), 0), includedGuests: null };
+  }
   const packageRate = Number(draft.roomPrice || 0);
   const discountAmount = draft.promo ? calculateBookingDiscount(packageRate,
     Math.max(1, Number(draft.adultCount || 0) + Number(draft.childCount || 0)), 0, draft.promo).amount : 0;
@@ -28,6 +45,7 @@ export function buildBookingCostSummary(draft: BookingDraft) {
     tax,
     servicesTotal,
     discountAmount,
+    discountKind: discountAmount > 0 ? "promo" : "none",
     promoCode: draft.promo?.code ?? null,
     subtotal: grossTotal - tax,
     packageCharge: matchesPackagePricing ? packageRate : grossTotal - servicesTotal - tax,

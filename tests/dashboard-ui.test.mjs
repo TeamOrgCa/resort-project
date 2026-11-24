@@ -10,7 +10,7 @@ globalThis.window = dom.window; globalThis.document = dom.window.document; globa
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
-const button = (container, text) => [...container.querySelectorAll("button")].find(b => b.textContent.trim() === text);
+const button = (container, text) => [...container.querySelectorAll("button")].find(b => b.textContent.trim() === text || b.getAttribute("aria-label") === text);
 async function click(element) { assert.ok(element, "Button exists"); assert.equal(element.disabled, false, "Button is enabled"); await act(async () => element.click()); }
 async function value(element, nextValue) {
   assert.ok(element);
@@ -218,15 +218,16 @@ test("transaction details let cashiers settle payable bills and disable settleme
         assert.equal(document.querySelector('[aria-label="Transaction Details"]'), null);
         const payment = document.querySelector('[role="dialog"]'); assert.match(payment.textContent, /Record payment/);
         assert.equal(payment.querySelector("select").value, "r");
-        assert.equal(payment.querySelector('input[type="number"]').value, item.balance.toFixed(2));
+        const amount = [...payment.querySelectorAll("label")].find(label => label.textContent.startsWith("Amount applied to this bill"))?.querySelector('input[type="number"]');
+        assert.equal(amount?.value, item.balance.toFixed(2));
       } else if (item.proof) assert.match(modal.textContent, /Payment proof is awaiting review/);
     } finally { await h.close(); }
   }
 });
 
-test("view-only transaction details do not offer payment collection", async () => {
-  for (const role of ["admin", "cashier"]) {
-    const db = dashboardDatabase({ staff_users: [{ id: "staff", role, is_active: true }], role_permissions: [{ role: "cashier", permissions: ["transactions"] }],
+test("staff without payment-entry permission cannot collect from transaction details", async () => {
+  for (const role of ["staff", "cashier"]) {
+    const db = dashboardDatabase({ staff_users: [{ id: "staff", role, is_active: true }], role_permissions: [{ role, permissions: ["transactions"] }],
       transactions: [{ transaction_id: "t", reservation_id: "r", total_amount: 1000, paid_amount: 0, balance: 1000, status: "unpaid", updated_at: new Date().toISOString() }],
       reservations: [{ reservation_id: "r", reference_number: "MV-READONLY", status: "pending" }] });
     const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: { "@/lib/supabase/client": { createClient: () => db.client } } });

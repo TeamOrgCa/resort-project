@@ -9,7 +9,8 @@ export async function checkReservationOverlap(
 ) {
   let query = createAdminClient()
     .from("reservations")
-    .select("reservation_id, status, payment_deadline_at")
+    .select("reservation_id, status, payment_deadline_at, commercial_type, room_pricing")
+    .in("commercial_type", ["private_swimming", "public_swimming"])
     .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"])
     .lt("start_datetime", endDatetime)
     .gt("end_datetime", startDatetime);
@@ -25,9 +26,9 @@ export async function checkReservationOverlap(
   const now = Date.now();
   return {
     conflict: Boolean(blockResult.data?.length) || Boolean(data?.some((reservation) =>
-      reservation.status !== "pending" ||
+      !(reservation.commercial_type === "public_swimming" && reservation.room_pricing) && (reservation.status !== "pending" ||
       !reservation.payment_deadline_at ||
-      new Date(reservation.payment_deadline_at).getTime() > now
+      new Date(reservation.payment_deadline_at).getTime() > now)
     )),
     error: error ?? blockResult.error,
   };

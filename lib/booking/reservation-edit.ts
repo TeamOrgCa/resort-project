@@ -18,6 +18,11 @@ export type ReservationEdit = {
   lateRescheduleAcknowledged?: boolean;
 };
 export type EditableReservation = {
+  public_type_id?: string | null;
+  public_pricing_snapshot?: { adult_rate: number; child_rate: number } | null;
+  public_admission_amount?: number | null;
+  room_pricing?: boolean;
+  commercial_type?: "private_swimming" | "public_swimming" | "room_accommodation";
   reservation_id: string; reference_number: string; status: string; booking_mode: BookingMode;
   start_datetime: string; end_datetime: string; adult_count: number; child_count: number;
   special_requests: string | null; updated_at: string; payment_deadline_at: string | null;
@@ -127,6 +132,23 @@ export function validateEditWindow(edit: ReservationEdit, times: PackageTimes = 
 export function previewReservationEdit(r: EditableReservation, bill: Bill, existing: SelectedService[], catalog: CatalogService[], edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime" | "adultCount" | "childCount" | "services">, rates: PackageRates, now = Date.now()) {
   const quantityError = serviceQuantityError(edit.services, catalog, existing);
   if (quantityError) throw new Error(quantityError);
+  if (r.commercial_type === "public_swimming" && !r.room_pricing) {
+    if (!r.public_pricing_snapshot) throw new Error("The booked public admission rates are missing.");
+    const admission = moneyRound(edit.adultCount * Number(r.public_pricing_snapshot.adult_rate) + edit.childCount * Number(r.public_pricing_snapshot.child_rate));
+    const packageDelta = admission - Number(r.public_admission_amount ?? 0);
+    const oldServices = existing.reduce((sum, s) => sum + s.quantity * Number(s.price_at_time), 0);
+    const servicesTotal = moneyRound(edit.services.reduce((sum, s) => {
+      const previous = existing.find(old => old.service_id === s.serviceId), listed = catalog.find(c => c.service_id === s.serviceId);
+      if (!previous && (!listed || !listed.is_active)) throw new Error("A selected service is unavailable.");
+      return sum + s.quantity * Number(previous?.price_at_time ?? listed!.price);
+    }, 0));
+    const discount = calculateBookingDiscount(admission, edit.adultCount + edit.childCount, Number(bill.discount_eligible_guests ?? 0), savedPromo(bill));
+    const rescheduleFee = Date.parse(r.start_datetime) !== Date.parse(edit.startDatetime) ? rescheduleNoticeFee(r.start_datetime, now) : 0;
+    const interimTotal = moneyRound(Number(bill.total_amount) + packageDelta + servicesTotal - oldServices + rescheduleFee);
+    const total = moneyRound(interimTotal + Number(bill.discount_amount ?? 0) - discount.amount);
+    return { interimTotal, hasDiscount: true, discountAmount: discount.amount, packageDelta, rescheduleFee, dateRateAdjustment: 0, servicesTotal, total,
+      paid: Number(bill.paid_amount), balance: moneyRound(Math.max(0, total - Number(bill.paid_amount))), overpaid: moneyRound(Math.max(0, Number(bill.paid_amount) - total)) };
+  }
   const priceInput = { bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count };
   const changed = priceInput.bookingMode !== edit.bookingMode || Date.parse(priceInput.startDatetime) !== Date.parse(edit.startDatetime) ||
     Date.parse(priceInput.endDatetime) !== Date.parse(edit.endDatetime) || priceInput.adultCount !== edit.adultCount || priceInput.childCount !== edit.childCount;

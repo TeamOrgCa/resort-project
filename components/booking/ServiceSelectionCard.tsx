@@ -1,5 +1,7 @@
 "use client";
 
+import { lockBodyScroll } from "@/lib/ui/body-scroll-lock";
+
 import ManageIcon from "@/components/manage/ManageIcon";
 
 import ServicePhoto from "./ServicePhoto";
@@ -13,11 +15,11 @@ function PhotoPreview({ name, src, onClose }: { name: string; src: string | null
   const titleId = useId();
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const releaseScroll = lockBodyScroll();
+
     dialog.current?.showModal();
     dialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    return () => { document.body.style.overflow = overflow; previousFocus?.focus(); };
+    return () => { releaseScroll(); previousFocus?.focus(); };
   }, []);
   return createPortal(<dialog ref={dialog} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose(); }} onClose={onClose} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} className="m-auto w-[calc(100%-2rem)] max-w-3xl overflow-hidden rounded-2xl border-0 bg-white p-0 text-neutral shadow-2xl backdrop:bg-black/65">
     <div>

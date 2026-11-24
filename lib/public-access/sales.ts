@@ -5,7 +5,7 @@ import { isValidPaymentAmount } from "@/lib/booking/payment-policy";
 export const PUBLIC_ACCESS_TYPES = { swimming: "Public swimming", cottage: "Cottage usage", room: "Room usage", mixed: "Mixed public access" } as const;
 export type PublicAccessType = keyof typeof PUBLIC_ACCESS_TYPES;
 export type SalesSource = "all" | "public" | "private";
-export const SALES_SOURCES = { all: "All collections", public: "Public access", private: "Private booking" } as const;
+export const SALES_SOURCES = { all: "All collections", public: "Public access", private: "Reservation payments" } as const;
 export type PublicAccessSale = {
   sale_id: string; reference_number: string; receipt_number: string; guest_name: string; contact_number: string;
   access_type: PublicAccessType; payment_for: string; amount: number; payment_method_id: string; payment_method_name: string;

@@ -1,9 +1,10 @@
 import type { AdminNavItem } from "@/components/admin/types";
 import type { StaffRole } from "./staff-auth";
 
-export const PERMISSIONS = ["dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_approval", "refund_payout", "refund_verify", "records", "reports", "analytics", "feedback_archive", "feedback_moderation", "audit", "configuration", "catalog", "users"] as const;
+export const PERMISSIONS = ["rooms", "room_operations", "room_export", "dashboard", "reservations", "create_reservation", "edit_reservation", "cancel_reservation", "reschedule_approval", "ocular_approval", "transactions", "payment_approval", "payment_entry", "refund_approval", "refund_payout", "refund_verify", "records", "reports", "analytics", "feedback_archive", "feedback_moderation", "audit", "configuration", "catalog", "users"] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_LABELS: Record<Permission, string> = {
+  rooms: "View room occupancy and history", room_operations: "Manage room stays, housekeeping and maintenance", room_export: "Export room records",
   dashboard: "Dashboard", reservations: "View reservations", create_reservation: "Add reservation",
   edit_reservation: "Edit reservations and services",
   cancel_reservation: "Cancel reservation", reschedule_approval: "Resolve legacy reschedules",
@@ -20,6 +21,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
 export function isPermissionAssignable(role: StaffRole, permission: Permission): boolean {
   if (role === "admin") return false;
   if (["users", "configuration", "catalog"].includes(permission)) return false;
+  if (["room_operations", "room_export"].includes(permission) && role !== "staff") return false;
   if (["refund_approval", "refund_verify"].includes(permission) && role !== "staff") return false;
   if (permission === "refund_payout" && role !== "cashier") return false;
   if (permission === "feedback_moderation" && role !== "staff") return false;
@@ -39,6 +41,8 @@ export function isAdminReadOnlyRequest(_role: StaffRole, _path: string, _method:
 }
 
 export function routePermission(path: string): Permission | null {
+  if (path === "/admin/rooms/settings") return "configuration";
+  if (path === "/admin/rooms" || path.startsWith("/admin/rooms/")) return "rooms";
   if (path === "/admin") return "dashboard";
   for (const [segment, permission] of [["users", "users"], ["configuration", "configuration"], ["catalog", "catalog"], ["transactions", "transactions"], ["reservations", "reservations"], ["manual-booking", "reservations"], ["records", "records"], ["reports", "reports"], ["analytics", "analytics"], ["audit", "audit"]] as const) {
     if (path === `/admin/${segment}` || path.startsWith(`/admin/${segment}/`)) return permission;
@@ -47,6 +51,7 @@ export function routePermission(path: string): Permission | null {
 }
 
 export function apiPermission(path: string, method: string): Permission | null {
+  if (path.startsWith("/api/admin/rooms")) return "rooms"; // Individual operations enforce their additional permission.
   if (path.startsWith("/api/admin/auth/")) return null;
   if (path.startsWith("/api/admin/booking-discounts")) return null; // Endpoint enforces manager edit or cashier billing permissions.
   if (path === "/api/admin/dashboard") return "dashboard";
@@ -56,6 +61,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path.startsWith("/api/admin/catalog") || path.startsWith("/api/admin/payment-accounts")) return "catalog";
   if (path.startsWith("/api/admin/maintenance-blocks")) return "reservations";
   if (path.startsWith("/api/admin/reservations/create")) return "create_reservation";
+  if (path === "/api/admin/reservations/public-swimming") return "create_reservation";
   if (path.startsWith("/api/admin/records/")) return "records";
   if (path === "/api/admin/reservations/check-in") return "edit_reservation";
   if (path === "/api/admin/reservations/check-out") return "edit_reservation";
@@ -87,6 +93,6 @@ export function filterNavigationByRole(navigation: AdminNavItem[], role: StaffRo
 
 export function getDefaultRouteForRole(role: StaffRole, granted: readonly string[]): string {
   if (role === "admin") return "/admin/users";
-  const paths = ["/admin", "/admin/reservations", "/admin/transactions", "/admin/records", "/admin/reports", "/admin/analytics", "/admin/configuration", "/admin/catalog", "/admin/audit", "/admin/users"];
+  const paths = ["/admin", "/admin/reservations", "/admin/rooms", "/admin/transactions", "/admin/records", "/admin/reports", "/admin/analytics", "/admin/configuration", "/admin/catalog", "/admin/audit", "/admin/users"];
   return paths.find((path) => hasPermission(role, granted, routePermission(path)!)) ?? "/staff/no-access";
 }

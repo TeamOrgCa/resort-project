@@ -9,6 +9,7 @@ import AdminTabs from "@/components/admin/AdminTabs";
 import CatalogDialog from "./CatalogDialog";
 import CatalogEditorDialog from "./CatalogEditorDialog";
 import PackageRatesEditor from "./PackageRatesEditor";
+import RoomRatesEditor from "./RoomRatesEditor";
 import LegalPoliciesEditor from "./LegalPoliciesEditor";
 import { catalogResources, catalogResourceKeys, catalogRecordName, isCatalogActive, type CatalogDefinition, type CatalogRecord, type CatalogReferences, type CatalogResource, type CatalogStatus } from "@/lib/catalog/catalog";
 import { validateCatalogRecord } from "@/lib/catalog/validation";
@@ -36,6 +37,7 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 
 export default function CatalogClient() {
   const [showPackageRates, setShowPackageRates] = useState(false);
+  const [showRoomRates, setShowRoomRates] = useState(false);
   const [filters, setFilters] = useState<Filters>({ resource: "services", status: "active", search: "", unitId: "", page: 1 });
   const [searchDraft, setSearchDraft] = useState("");
   const [records, setRecords] = useState<CatalogRecord[]>([]);
@@ -169,13 +171,15 @@ export default function CatalogClient() {
     <AdminSectionHeader title="Business Catalog" subtitle="Keep your resort offerings and operational details organized." />
     {notice && <div role="status" className={`mb-5 flex items-center justify-between gap-4 rounded-xl border px-4 py-3 text-sm ${notice.warning ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}><span>{notice.text}</span><button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)} className="font-medium underline">Dismiss</button></div>}
     <section className="overflow-hidden rounded-2xl border border-neutral/10 bg-white shadow-sm">
-      <AdminTabs inset={false} tabs={["Package rates", ...visibleCatalogResources.map(resource => catalogResources[resource].label)]} value={showPackageRates ? "Package rates" : definition.label} label="Catalog categories" disabled={busy} onChange={label => {
+      <AdminTabs inset={false} tabs={["Package rates", "Room rates", ...visibleCatalogResources.map(resource => catalogResources[resource].label)]} value={showRoomRates ? "Room rates" : showPackageRates ? "Package rates" : definition.label} label="Catalog categories" disabled={busy} onChange={label => {
+        if (label === "Room rates") { setShowRoomRates(true); setShowPackageRates(false); return; }
+        setShowRoomRates(false);
         if (label === "Package rates") { setShowPackageRates(true); return; }
         const resource = visibleCatalogResources.find(key => catalogResources[key].label === label);
         if (!resource) return;
         setShowPackageRates(false); setLoading(true); setSearchDraft(""); setFilters({ resource, status: "active", search: "", unitId: "", page: 1 });
       }} />
-      {showPackageRates ? <PackageRatesEditor /> : filters.resource === "reservation_policies" ? <LegalPoliciesEditor /> : <div className="p-4 sm:p-6">
+      {showRoomRates ? <RoomRatesEditor /> : showPackageRates ? <PackageRatesEditor /> : filters.resource === "reservation_policies" ? <LegalPoliciesEditor /> : <div className="p-4 sm:p-6">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div><h2 className="text-xl font-semibold text-neutral">{definition.label}</h2><p className="mt-1 text-sm text-neutral/60">{definition.description}</p></div>
           <button type="button" onClick={() => openEditor(null)} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary/90 disabled:opacity-50"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add {definition.singular}</button>

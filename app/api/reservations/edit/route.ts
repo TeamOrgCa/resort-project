@@ -23,8 +23,8 @@ async function ownedDetail(request: Request) {
   if (refunds.error) throw new Error("Unable to check open refunds. Please retry.");
   const lockedReason = loaded.lockedReason ?? (refunds.data?.length ? "Resolve the open refund before editing this booking." : null);
   const detail: GuestEditDetail = { reservation: loaded.reservation, services: loaded.services,
-    units: loaded.units, catalogUnits: loaded.catalogUnits,
-    canChangeAccommodation: !lockedReason && loaded.canChangeDetails && loaded.units.length <= 1 && loaded.units.every(unit => unit.quantity === 1),
+    units: loaded.units, catalogUnits: loaded.reservation.commercial_type === "room_accommodation" || loaded.reservation.room_pricing ? loaded.catalogUnits : undefined,
+    canChangeAccommodation: false,
     catalogServices: loaded.catalogServices.filter(service => service.is_active || loaded.services.some(old => old.service_id === service.service_id)),
     bill: loaded.bill, packageRates: loaded.packageRates, version: loaded.version, lockedReason,
     canChangeGuests: !lockedReason && loaded.canChangeDetails,
@@ -56,8 +56,8 @@ export async function POST(request: Request) {
     const preview = previewReservationEdit(r, detail.bill, detail.services, detail.catalogServices,
       { ...edit, bookingMode: r.booking_mode, startDatetime: r.start_datetime, endDatetime: r.end_datetime }, detail.packageRates);
     if (Math.abs(preview.total - edit.expectedTotal) > 0.001) return NextResponse.json({ message: "The bill changed. Reload and review the new total." }, { status: 409 });
-    if (edit.adultCount + edit.childCount === r.adult_count + r.child_count) { edit.adultCount = r.adult_count; edit.childCount = r.child_count; }
-    const { data, error } = await createAdminClient().rpc(preview.hasDiscount ? "edit_guest_reservation_bill_with_discount" : "edit_guest_reservation_bill", { p_reservation: id, p_guest: user.id,
+    if (r.commercial_type !== "public_swimming" && edit.adultCount + edit.childCount === r.adult_count + r.child_count) { edit.adultCount = r.adult_count; edit.childCount = r.child_count; }
+    const { data, error } = await createAdminClient().rpc(r.commercial_type === "public_swimming" ? "public_edit_booking" : preview.hasDiscount ? "edit_guest_reservation_bill_with_discount" : "edit_guest_reservation_bill", { p_reservation: id, p_guest: user.id,
       p_expected: loaded.snapshot, p_patch: { adultCount: edit.adultCount, childCount: edit.childCount, ...(edit.unitId !== undefined ? { unitId: edit.unitId } : {}), services: edit.services, packageDelta: preview.packageDelta, expectedTotal: preview.interimTotal } });
     if (error) {
       const missing = ["PGRST202", "42883"].includes(error.code);
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     }
     try {
       await createNotifications({ actorId: user.id, guestId: user.id, staffRoles: NOTIFICATION_AUDIENCES.reservation,
-        title: "Booking updated", message: `Accommodation, guest counts or services for ${r.reference_number} were updated. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
+        title: "Booking updated", message: `Guest counts or services for ${r.reference_number} were updated. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
         entityType: "reservation", entityId: id, guestActionUrl: "/manage", staffActionUrl: "/admin/reservations" });
     } catch { /* The audited bill is committed; notification delivery must not prompt duplicate saves. */ }
     const originalUnit = detail.units?.length === 1 && detail.units[0].quantity === 1 ? detail.units[0].unit_id : null;

@@ -67,11 +67,11 @@ test("guest service edits reject exceeding a lowered cap before the bill RPC or 
   const h=harness({maxQuantity:1});const response=await h.post({adultCount:22,services:[{serviceId:service,quantity:3}],expectedTotal:8700});assert.equal(response.status,400);assert.match((await response.json()).message,/maximum quantity of 2/);assert.equal(h.calls.length,0);assert.equal(h.emails.length,0);
 });
 
-test("guest accommodation edits retain package pricing, email the revised statement and reject inactive or checked-in changes",async()=>{
+test("private swimming rejects forged accommodation changes without changing its bill or historical unit records",async()=>{
   const unit="66666666-6666-4666-8666-666666666666", next="77777777-7777-4777-8777-777777777777";
   const options={units:[{unit_id:unit,quantity:1,price_per_night:999}],catalogUnits:[{unit_id:unit,is_active:true,archived_at:null},{unit_id:next,is_active:true,archived_at:null}]};
   const h=harness(options);const response=await h.post({adultCount:22,services:[{serviceId:service,quantity:2}],unitId:next,expectedTotal:8600});
-  assert.equal(response.status,200);assert.equal(h.calls[0].args.p_patch.unitId,next);assert.equal(h.calls[0].args.p_patch.packageDelta,0);assert.equal(h.emails.length,1);
+  assert.equal(response.status,409);assert.match((await response.json()).message,/All cottages are included/);assert.equal(h.calls.length,0);assert.equal(h.emails.length,0);
   const during=harness({...options,canChangeDetails:false});assert.equal((await during.post({unitId:next})).status,409);assert.equal(during.calls.length,0);
   const unavailable=harness({...options,catalogUnits:[{unit_id:next,is_active:false,archived_at:null}]});assert.equal((await unavailable.post({unitId:next})).status,409);assert.equal(unavailable.calls.length,0);
 });

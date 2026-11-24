@@ -14,6 +14,7 @@ export type DashboardSnapshot = {
   verifiedToday: number;
   collections: { label: string; value: number }[];
   bookingStatuses: { label: string; value: number }[];
+  bookingTypes?: { label: string; value: number }[];
   bookingSources: { label: string; value: number }[];
   bookingsCreated: number;
   queues: { payments: number; reschedules: number; ocular: number; refundReview: number; refundPayout: number };

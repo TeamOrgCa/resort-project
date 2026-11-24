@@ -44,7 +44,7 @@ async function mount({ user = null, staff = false, expired = false } = {}) {
   }).default;
   const c = document.createElement("div"); document.body.append(c); const root = createRoot(c);
   await act(async () => root.render(createElement(Component)));
-  await click(findButton(c, "Ocular Visit"));
+  await click(c.querySelector('[aria-labelledby="booking-option-ocular"]'));
   await click(c.querySelector('[aria-label="Next month"]'));
   await click(findButton(c.querySelector('[data-booking-guide="dates-calendar"]'), "5"));
   await click(c.querySelector('[data-booking-guide="ocular-times"] button'));

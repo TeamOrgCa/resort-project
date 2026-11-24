@@ -18,7 +18,7 @@ export async function GET() {
     const ids = [...new Set(refunds.map(row => row.reservation_id as string))];
     const [reservations, bills, payments, paymentMethods, canPay, canVerify, canApprove] = await Promise.all([
       fetchByIds<ReservationGuestIdentity & { reference_number: string }>(ids, (batch, from, to) => staff.supabase.from("reservations")
-        .select("reservation_id, guest_id, walk_in_guest_id, reference_number, status, cancellation_initiator, cancellation_reason").in("reservation_id", batch).order("reservation_id").range(from, to)),
+        .select("reservation_id, guest_id, walk_in_guest_id, reference_number, commercial_type, status, cancellation_initiator, cancellation_reason").in("reservation_id", batch).order("reservation_id").range(from, to)),
       fetchByIds(ids, (batch, from, to) => staff.supabase.from("transactions").select("reservation_id, total_amount, paid_amount, cancellation_deposit_base").in("reservation_id", batch).order("reservation_id").range(from, to)),
       fetchByIds(ids, (batch, from, to) => staff.supabase.from("payments").select("payment_id, reservation_id, amount, status, payment_type, reference_number, verified_at, proof_path, account_name, account_number, payment_methods(name)")
         .in("reservation_id", batch).order("payment_id").range(from, to)),
@@ -45,9 +45,9 @@ export async function POST(request: Request) {
   const reference = typeof form?.get("reference") === "string" ? String(form?.get("reference")).trim() : null;
   const verified = form?.get("verified") === "true";
   const method = typeof form?.get("method") === "string" ? String(form?.get("method")) : "GCash";
-  if (typeof id !== "string" || !uuidPattern.test(id) || !["recalculate", "approved", "rejected", "payout_submitted", "refunded"].includes(action) || reason.length > 2000 || !method.trim() || method.length > 120)
+  if (typeof id !== "string" || !uuidPattern.test(id) || !["recalculate", "approved", "approved_full", "rejected", "payout_submitted", "refunded"].includes(action) || reason.length > 2000 || !method.trim() || method.length > 120)
     return NextResponse.json({ message: "Invalid refund action." }, { status: 400 });
-  const permission = ["recalculate", "approved", "rejected"].includes(action) ? "refund_approval" : action === "payout_submitted" ? "refund_payout" : "refund_verify";
+  const permission = ["recalculate", "approved", "approved_full", "rejected"].includes(action) ? "refund_approval" : action === "payout_submitted" ? "refund_payout" : "refund_verify";
   if (!await staffHasPermission(staff.supabase, staff.staffUser.role, permission) ||
     (staff.staffUser.role !== "admin" && (action === "payout_submitted" ? staff.staffUser.role !== "cashier" : staff.staffUser.role !== "staff")))
     return NextResponse.json({ message: "Permission required. Managers approve or reject refunds and verify transfers; cashiers record approved payouts." }, { status: 403 });
@@ -59,6 +59,12 @@ export async function POST(request: Request) {
     const { error } = await staff.supabase.rpc("recalculate_legacy_cancellation_refund", { p_id: id, p_initiator: initiator, p_reason: reason });
     if (error) return NextResponse.json({ message: workflowErrorMessage(error) }, { status: workflowErrorStatus(error.code) });
     return NextResponse.json({ success: true, message: "Legacy refund recalculated and guest notified in-app. A positive refund is awaiting manager approval.", emailSent: false });
+  }
+  if (action === "approved_full") {
+    if (reason.length < 5) return NextResponse.json({ message: "Document the valid reason for a 100% refund exception." }, { status: 400 });
+    const { error } = await staff.supabase.rpc("approve_public_full_refund", { p_id: id, p_reason: reason });
+    if (error) return NextResponse.json({ message: workflowErrorMessage(error) }, { status: workflowErrorStatus(error.code) });
+    return NextResponse.json({ success: true, message: "100% public swimming refund approved. The cashier must record the payout, followed by manager verification.", emailSent: false });
   }
   let proofPath: string | null = null;
   if (action === "payout_submitted") {

@@ -156,13 +156,13 @@ test("staff without approval cannot unlock late dates; ended confirmed stays can
 });
 
 
-test("checked-in stays enable guest counts while keeping accommodation and dates locked", async () => {
+test("checked-in stays enable guest counts with included cottages and locked dates", async () => {
   const detail={...fixture(),canChangeDetails:false}; detail.reservation.checked_in_at="2027-06-14T08:00:00+08:00";
   const h=await mount({detail});
   try {
     assert.equal(field(h.c,"Number of guests","input").disabled,false);
     assert.equal([...h.c.querySelectorAll("label")].some(label => label.textContent.startsWith("Children")), false);
-    assert.equal(field(h.c,"Accommodation").disabled,true);
+    assert.equal([...h.c.querySelectorAll("label")].some(label => label.textContent.startsWith("Accommodation")),false);
     await value(field(h.c,"Number of guests","input"),"22");
     await submit(h.c);
     assert.equal(h.saved[0].adultCount,22); assert.equal(h.saved[0].expectedTotal,8850);
@@ -170,7 +170,7 @@ test("checked-in stays enable guest counts while keeping accommodation and dates
   } finally {await h.close();}
 });
 
-test("manager can reduce and remove booked services and change accommodation during a stay, with bill confirmation",async()=>{
+test("manager can reduce and remove booked services during a private stay while retaining historical accommodations",async()=>{
  const service="22222222-2222-4222-8222-222222222222",unit="33333333-3333-4333-8333-333333333333";
  const detail=fixture();Object.assign(detail,{canChangeDetails:false,canReduceServices:true,canChangeAccommodation:true,
   services:[{service_id:service,quantity:2,price_at_time:100}],catalogServices:[{service_id:service,name:"Tables",price:500,is_active:true,max_quantity:5}]});
@@ -179,10 +179,10 @@ test("manager can reduce and remove booked services and change accommodation dur
  try{
   const c=h.c;const quantity=c.querySelector('[aria-label="Quantity for Tables"]');assert.equal(quantity.min,"1");await value(quantity,"1");
   const checkbox=c.querySelector('fieldset input[type="checkbox"]');assert.equal(checkbox.disabled,false);await click(checkbox);
-  await value(field(c,"Accommodation"),unit);await value(field(c,"Reason","textarea"),"Unused services returned and accommodation changed");
+  assert.equal([...c.querySelectorAll("label")].some(label => label.textContent.startsWith("Accommodation")),false);await value(field(c,"Reason","textarea"),"Unused services returned");
   await act(async()=>c.querySelector("form").dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
   assert.equal(h.saved.length,0);const confirm=document.querySelector('[role="alertdialog"]');assert.match(confirm.textContent,/8,400/);
   await click([...confirm.querySelectorAll("button")].find(button=>button.textContent==="Confirm changes"));
-  assert.deepEqual(h.saved[0].services,[]);assert.equal(h.saved[0].unitId,unit);assert.equal(h.saved[0].expectedTotal,8400);
+  assert.deepEqual(h.saved[0].services,[]);assert.equal(h.saved[0].unitId,detail.units[0].unit_id);assert.equal(h.saved[0].expectedTotal,8400);
  }finally{await h.close();}
 });

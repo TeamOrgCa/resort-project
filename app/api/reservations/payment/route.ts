@@ -32,6 +32,7 @@ interface ReservationPaymentPayload {
 }
 
 interface ReservationRow {
+  commercial_type?: string;
   reservation_id: string;
   guest_id: string;
   reference_number: string;
@@ -148,7 +149,7 @@ export async function POST(request: Request) {
 
     const { data: reservation, error: reservationError } = await supabase
       .from("reservations")
-      .select("reservation_id, guest_id, reference_number, status, payment_deadline_at")
+      .select("reservation_id, guest_id, reference_number, status, payment_deadline_at, commercial_type")
       .eq("reservation_id", payload.reservationId)
       .maybeSingle<ReservationRow>();
 
@@ -170,6 +171,9 @@ export async function POST(request: Request) {
         },
         { status: 403 }
       );
+    }
+    if (["room_accommodation", "public_swimming"].includes(reservation.commercial_type ?? "") && payload.payment.type !== "full") {
+      return NextResponse.json({ success: false, message: `${reservation.commercial_type === "public_swimming" ? "Public swimming" : "Room accommodation"} requires full payment of the outstanding balance.` }, { status: 400 });
     }
 
     const { data: pendingPayment, error: pendingPaymentError } = await supabase

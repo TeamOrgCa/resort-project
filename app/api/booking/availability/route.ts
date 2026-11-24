@@ -39,7 +39,8 @@ export async function GET(request: Request) {
     const admin = createAdminClient();
     const advanceWindow = await loadAdvanceBookingWindow(admin);
     let query = admin.from("reservations")
-      .select("start_datetime, end_datetime, status, payment_deadline_at")
+      .select("start_datetime, end_datetime, status, payment_deadline_at, commercial_type, room_pricing")
+      .in("commercial_type", ["private_swimming", "public_swimming"])
       .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"])
       .lt("start_datetime", end)
       .gt("end_datetime", start)
@@ -55,8 +56,8 @@ export async function GET(request: Request) {
 
     const now = Date.now();
     const reservations = (data ?? []).filter((reservation) =>
-      reservation.status !== "pending" || !reservation.payment_deadline_at ||
-      new Date(reservation.payment_deadline_at).getTime() > now
+      !(reservation.commercial_type === "public_swimming" && reservation.room_pricing) && (reservation.status !== "pending" || !reservation.payment_deadline_at ||
+      new Date(reservation.payment_deadline_at).getTime() > now)
     ).map(({ start_datetime, end_datetime }) => ({ start_datetime, end_datetime }));
 
     return NextResponse.json({ reservations, blockedDates: blocks ?? [], ...advanceWindow }, {

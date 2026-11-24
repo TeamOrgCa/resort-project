@@ -13,6 +13,7 @@ import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-p
 import { buildBookingCostSummary } from "@/lib/booking/summary";
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
 import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
+import { requiresFullBookingPayment } from "@/lib/booking/commercial-types";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -51,11 +52,13 @@ function BookingDetailsContent() {
   const hasValidDraft =
     Boolean(bookingDraft.startDatetime) &&
     Boolean(bookingDraft.endDatetime) &&
-    Boolean(bookingDraft.unitId) &&
     bookingDraft.adultCount > 0;
 
+  const isRoomBooking = bookingDraft.commercialType === "room_accommodation";
+  const isPublicBooking = bookingDraft.commercialType === "public_swimming";
+  const requiresFullPayment = requiresFullBookingPayment(bookingDraft.commercialType);
   const totalGuests = Number(bookingDraft.adultCount || 0) + Number(bookingDraft.childCount || 0);
-  const downPayment = downPaymentAmount(Number(bookingDraft.total || 0));
+  const downPayment = requiresFullPayment ? Number(bookingDraft.total || 0) : downPaymentAmount(Number(bookingDraft.total || 0));
   const remainingBalance = Math.max(Number(bookingDraft.total || 0) - downPayment, 0);
   const costSummary = buildBookingCostSummary(bookingDraft);
 
@@ -87,12 +90,26 @@ function BookingDetailsContent() {
     setIsSavingBooking(true);
 
     try {
-      const response = await fetch("/api/reservations/create", {
+      const response = await fetch(isRoomBooking ? "/api/reservations/rooms" : isPublicBooking ? "/api/reservations/public-swimming" : "/api/reservations/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
+        body: JSON.stringify(isRoomBooking ? {
+          requestId: bookingDraft.roomRequestId, rooms: bookingDraft.roomSelections,
+          firstName: bookingDraft.firstName, lastName: bookingDraft.lastName, phone: bookingDraft.phone, address: bookingDraft.address,
+          startDatetime: bookingDraft.startDatetime, endDatetime: bookingDraft.endDatetime, durationHours,
+          eligibleGuests: bookingDraft.eligibleGuests ?? 0, promoCode: bookingDraft.promoCode ?? null, expectedTotal: bookingDraft.total,
+          selectedServices: bookingDraft.services.map(s => ({ serviceId: s.id, quantity: s.quantity ?? 1 })), specialRequests: bookingDraft.specialRequests,
+          acceptedPoliciesVersion: legalPolicyVersion, bookingPolicyVersion,
+        } : isPublicBooking ? {
+          requestId: bookingDraft.publicRequestId, typeId: bookingDraft.publicSwimmingType?.type_id, pricingVersion: bookingDraft.publicSwimmingType?.pricing_version,
+          firstName: bookingDraft.firstName, lastName: bookingDraft.lastName, phone: bookingDraft.phone, address: bookingDraft.address,
+          startDatetime: bookingDraft.startDatetime, endDatetime: bookingDraft.endDatetime, adultCount: bookingDraft.adultCount, childCount: bookingDraft.childCount,
+          eligibleGuests: bookingDraft.eligibleGuests ?? 0, promoCode: bookingDraft.promoCode ?? null, expectedTotal: bookingDraft.total,
+          selectedServices: bookingDraft.services.map(s => ({ serviceId: s.id, quantity: s.quantity ?? 1 })), specialRequests: bookingDraft.specialRequests,
+          acceptedPoliciesVersion: legalPolicyVersion, bookingPolicyVersion,
+        } : {
           promoCode: bookingDraft.promoCode ?? null,
           bookingMode: bookingDraft.bookingMode,
           packageRateVersion: bookingDraft.packageRateVersion,
@@ -104,7 +121,6 @@ function BookingDetailsContent() {
           customEndTime: bookingDraft.customEndTime,
           adultCount: bookingDraft.adultCount,
           childCount: bookingDraft.childCount,
-          unitId: bookingDraft.unitId,
           specialRequests: bookingDraft.specialRequests,
           selectedServices: bookingDraft.services.map((service) => ({
             serviceId: service.id,
@@ -143,7 +159,7 @@ function BookingDetailsContent() {
         reservationReference:
           json.reservation.referenceNumber || "",
         ...(Number.isFinite(json.reservation.totalAmount)
-          ? { total: Number(json.reservation.totalAmount), downPayment: downPaymentAmount(Number(json.reservation.totalAmount)) }
+          ? { total: Number(json.reservation.totalAmount), downPayment: requiresFullPayment ? Number(json.reservation.totalAmount) : downPaymentAmount(Number(json.reservation.totalAmount)) }
           : {}),
       });
       setPaymentDeadlineAt(json.reservation.paymentDeadlineAt ?? null);
@@ -159,7 +175,7 @@ function BookingDetailsContent() {
   return (
     <div className="booking-flow min-h-screen bg-base">
       <Navigation />
-      <BookingGuide page="review" saved={isAlreadySaved} disabled={isSavingBooking} />
+      <BookingGuide room={isRoomBooking} publicSwimming={isPublicBooking} page="review" saved={isAlreadySaved} disabled={isSavingBooking} />
 
       <BookingProgress currentStep={3} />
 
@@ -211,8 +227,8 @@ function BookingDetailsContent() {
                       <p>
                         End: <span className="font-semibold text-neutral">{endDateTime?.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
                       </p>
-                      <p>Mode: <span className="font-semibold text-neutral">{bookingDraft.bookingMode === "whole_day" ? bookingDraft.wholeDayVariant === "day_to_night" ? "Whole Day – Daytime" : "Whole Day – Overnight" : { day: "Day", night: "Night", custom: "Custom" }[bookingDraft.bookingMode]}</span></p>
-                      <p>Accommodation: <span className="font-semibold text-neutral">{bookingDraft.roomName}</span></p>
+                      <p>Mode: <span className="font-semibold text-neutral">{isRoomBooking ? "Room accommodation" : bookingDraft.bookingMode === "whole_day" ? bookingDraft.wholeDayVariant === "day_to_night" ? "Whole Day – Daytime" : "Whole Day – Overnight" : { day: "Day", night: "Night", custom: "Custom" }[bookingDraft.bookingMode]}</span></p>
+                      {isRoomBooking ? <p>Accommodation: <span className="font-semibold text-neutral">{bookingDraft.roomName}</span></p> : !isPublicBooking && <p>Cottages: <span className="font-semibold text-neutral">All included</span></p>}
                       <p>Duration: <span className="font-semibold text-neutral">{durationHours === null ? "Unavailable" : `${durationHours.toLocaleString("en-PH", { maximumFractionDigits: 2 })} ${durationHours === 1 ? "hr" : "hrs"}`}</span></p>
 
 
@@ -220,6 +236,8 @@ function BookingDetailsContent() {
                     </div>
                   </div>
 
+                  {isRoomBooking && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="mb-3 text-lg font-semibold">Selected Rooms</h3><ul className="space-y-2 text-sm">{bookingDraft.roomSelections?.map((r, i) => <li key={i}>Room {i + 1}: {r.name} &middot; {r.occupants} guest(s) &middot; {durationHours} hours</li>)}</ul><p className="mt-3 text-sm">Declared PWD / senior guests: {bookingDraft.eligibleGuests ?? 0}. Bring valid IDs for staff verification at arrival.</p></section>}
+                  {isPublicBooking && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="font-semibold">{bookingDraft.publicSwimmingType?.name ?? "Public Swimming"}</h3><p className="mt-2 text-sm">{bookingDraft.adultCount} adults · {bookingDraft.childCount} children · {bookingDraft.eligibleGuests ?? 0} PWD / senior guests. Bring valid IDs for staff verification.</p></section>}
                   <div className="rounded-xl border border-neutral/10 p-4">
                     <h3 className="text-lg font-semibold text-neutral mb-3">Selected Services</h3>
                     {bookingDraft.services.length === 0 ? (
@@ -243,7 +261,7 @@ function BookingDetailsContent() {
                       {bookingDraft.services.map((service) => <div key={service.id} className="flex justify-between"><span>{service.name} × {serviceCount(service.quantity ?? 1, service.billingType)}</span><span className="font-semibold text-neutral">₱{(Number(service.price || 0) * (service.quantity ?? 1)).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
                       <div className="flex justify-between"><span>Subtotal</span><span className="font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       {costSummary.tax > 0 && <div className="flex justify-between"><span>Tax</span><span className="font-semibold text-neutral">₱{costSummary.tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
-                      <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} />
+                      <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} kind={costSummary.discountKind} />
                       <div className="flex justify-between border-t border-neutral/10 pt-2"><span className="font-semibold text-neutral">Total</span><span className="font-bold text-primary">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                     </div>
                   </div>
@@ -260,10 +278,10 @@ function BookingDetailsContent() {
                   </div>
                 )}
                 <div data-booking-guide="review-actions" aria-label="Booking actions" className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Link href={isAlreadySaved ? "/" : "/booking/form"} aria-disabled={isSavingBooking} tabIndex={isSavingBooking ? -1 : undefined}
+                  <Link href={isAlreadySaved ? requiresFullPayment ? "/manage" : "/" : "/booking/form"} aria-disabled={isSavingBooking} tabIndex={isSavingBooking ? -1 : undefined}
                     onClick={event => { if (saving.current) event.preventDefault(); }}
                     className="flex min-h-12 items-center justify-center rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
-                    {isAlreadySaved ? "Back to Home" : "Back to Edit"}
+                    {isAlreadySaved ? requiresFullPayment ? "View Saved Bookings" : "Back to Home" : requiresFullPayment ? "Back to Booking Details" : "Back to Edit"}
                   </Link>
                   {isAlreadySaved ? <Link href={bookingDraft.total === 0 ? "/manage" : "/booking/payment"} className="flex min-h-12 items-center justify-center rounded-full bg-primary px-6 py-4 text-center font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
                     {bookingDraft.total === 0 ? "Manage confirmed booking" : "Continue to Payment"}
@@ -280,14 +298,16 @@ function BookingDetailsContent() {
               <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-4">Quick Summary</h3>
                 <div className="space-y-3 text-sm text-neutral/80">
-                  <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} />
+                  <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} kind={costSummary.discountKind} />
                   <div className="flex justify-between"><span>Total</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                  {!requiresFullPayment && <>
                   <div className="flex justify-between"><span>{DOWN_PAYMENT_PERCENT}% Down Payment Option</span><span className="font-semibold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                   <div className="flex justify-between"><span>Balance</span><span className="font-semibold text-neutral">₱{remainingBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                  </>}
                 </div>
 
                 <div className="mt-6 rounded-lg bg-highlight/10 p-4 text-sm text-neutral/80">
-                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. At payment, choose the down payment or the full total. Payments remain subject to verification and the policy attached to your booking.
+                  Reservation is only created when you click <span className="font-semibold">Save Booking</span>. {requiresFullPayment ? "Public swimming and room accommodation require full payment of the outstanding balance." : "At payment, choose the down payment or the full total."} Payments remain subject to verification and the policy attached to your booking.
                 </div>
               </div>
             </div>

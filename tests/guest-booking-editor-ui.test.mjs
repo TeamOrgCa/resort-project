@@ -86,15 +86,16 @@ test("stale billing blocks retries until reload and repeated clicks submit just 
   } finally { await h.close(); }
 });
 
-test("guest accommodation changes require confirmation and send the selected accommodation",async()=>{
+test("private swimming includes cottages and preserves historical unit records when confirming service changes",async()=>{
  const unit="66666666-6666-4666-8666-666666666666";let posted;
  const loaded={...detail,units:[{unit_id:unit,quantity:1}],catalogUnits:[{unit_id:unit,name:"Cottage",is_active:true,archived_at:null},{unit_id:extra,name:"Family accommodation",is_active:true,archived_at:null}],canChangeAccommodation:true};
  const h=await mount({loaded,fetcher:async(_url,options)=>{posted=JSON.parse(options.body);return Response.json({success:true});}});
  try{
-  await input(h.c.querySelector('[aria-label="Accommodation type"]'),extra);await click(button(h.c,"Save Reservation Changes"));
+  assert.equal(h.c.querySelector('[aria-label="Accommodation type"]'),null);assert.match(h.c.textContent,/All cottages are included/);
+  await input(h.c.querySelector('[aria-label="Quantity for Table"]'),1);await click(button(h.c,"Save Reservation Changes"));
   assert.equal(posted,undefined);await click(button(document.body,"Cancel"));assert.equal(posted,undefined);
-  await click(button(h.c,"Save Reservation Changes"));await click(button(document.body,"Confirm changes"));assert.equal(posted.unitId,extra);assert.equal(posted.expectedTotal,8600);
+  await click(button(h.c,"Save Reservation Changes"));await click(button(document.body,"Confirm changes"));assert.equal(posted.unitId,unit);assert.equal(posted.expectedTotal,8500);
  }finally{await h.close();}
  const locked=await mount({loaded:{...loaded,canChangeAccommodation:false}});
- try{assert.equal(locked.c.querySelector('[aria-label="Accommodation type"]').disabled,true);}finally{await locked.close();}
+ try{assert.equal(locked.c.querySelector('[aria-label="Accommodation type"]'),null);}finally{await locked.close();}
 });

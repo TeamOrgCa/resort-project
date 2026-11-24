@@ -10,7 +10,7 @@ const {createRoot}=await import("react-dom/client");after(()=>dom.window.close()
 test("customer calendar distinguishes maintenance closures from fully booked dates and preserves partial overnight availability",async()=>{
  const saved=globalThis.fetch;const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Manila",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
  const [y,m]=today.split("-").map(Number);const month=new Date(Date.UTC(y,m,1)).toISOString().slice(0,7);
- globalThis.fetch=async url=>url.startsWith("/api/ocular-time-slots")?Response.json({slots:[]}):Response.json({reservations:[{start_datetime:month+"-06T08:00:00+08:00",end_datetime:month+"-07T06:00:00+08:00"}],blockedDates:[{start_date:month+"-05",end_date:month+"-05"},{start_date:month+"-08",end_date:month+"-08",start_datetime:month+"-08T13:00:00+08:00",end_datetime:month+"-08T14:00:00+08:00"}]});
+ globalThis.fetch=async url=>url.startsWith("/api/booking/public-swimming")?Response.json({success:true,types:[],slots:[],dates:[],services:[]}):url.startsWith("/api/ocular-time-slots")?Response.json({slots:[]}):Response.json({reservations:[{start_datetime:month+"-06T08:00:00+08:00",end_datetime:month+"-07T06:00:00+08:00"}],blockedDates:[{start_date:month+"-05",end_date:month+"-05"},{start_date:month+"-08",end_date:month+"-08",start_datetime:month+"-08T13:00:00+08:00",end_datetime:month+"-08T14:00:00+08:00"}]});
  const q={select:()=>q,in:()=>q,then:(yes,no)=>Promise.resolve({data:[],error:null}).then(yes,no)};
  const Component=loadTsModule("app/booking/page.tsx",{
   "next/link":({children,href})=>createElement("a",{href},children),"next/image":({src,alt})=>createElement("img",{src,alt}),
@@ -22,6 +22,20 @@ test("customer calendar distinguishes maintenance closures from fully booked dat
  const c=document.createElement("div");document.body.append(c);const root=createRoot(c);
  try {
   await act(async()=>root.render(createElement(Component)));
+  const options=c.querySelector('[aria-labelledby="booking-options-heading"]');
+  assert.equal(options.querySelectorAll('button').length,4);
+  assert.equal(c.querySelector('[data-booking-guide="dates-calendar"]'),null);
+  for(const [id,label] of [["private","Private Swimming"],["public","Public Swimming"],["ocular","Ocular Visit"],["room","Room Accommodation"]]){
+   await act(async()=>c.querySelector(`[aria-labelledby="booking-option-${id}"]`).click());
+   assert.equal(c.querySelector('[aria-labelledby="booking-options-heading"]'),null);
+   assert.ok(c.querySelector('[data-booking-guide="dates-calendar"]'));
+   assert.equal(document.activeElement.textContent,label);
+   assert.equal(c.querySelector('[data-booking-guide="booking-mode"]')===null,id==="ocular" || id==="room" || id==="public");
+   await act(async()=>c.querySelector('[aria-label="Back to booking options"]').click());
+   assert.equal(c.querySelector('[data-booking-guide="dates-calendar"]'),null);
+   assert.equal(document.activeElement.getAttribute('aria-labelledby'),`booking-option-${id}`);
+  }
+  await act(async()=>c.querySelector('[aria-labelledby="booking-option-private"]').click());
   await act(async()=>c.querySelector('[aria-label="Next month"]').click());
   const maintenance=c.querySelector('[aria-label="'+month+'-05: Closed for maintenance"]');assert.ok(maintenance);assert.equal(maintenance.disabled,true);assert.ok(maintenance.style.backgroundColor);assert.equal(maintenance.textContent.trim(),"5");assert.equal(maintenance.title,"Closed for maintenance");
   const booked=c.querySelector('[aria-label="'+month+'-06: Fully booked"]');assert.ok(booked);assert.equal(booked.disabled,true);assert.notEqual(booked.style.backgroundColor,maintenance.style.backgroundColor);
@@ -68,6 +82,7 @@ test("selected Day, Night and both Whole Day variants disable only their own con
  const c=document.createElement("div");document.body.append(c);const root=createRoot(c);
  try{
   await act(async()=>root.render(createElement(Component)));
+  await act(async()=>c.querySelector('[aria-labelledby="booking-option-private"]').click());
   await act(async()=>c.querySelector('[aria-label="Next month"]').click());
   const mode=name=>[...c.querySelectorAll('button')].find(button=>button.querySelector('p')?.textContent===name);
   const day=key=>c.querySelector(`[aria-label^="${month}-${key}:"]`);
@@ -109,12 +124,15 @@ test("guest booking respects the configured date boundary and ocular scheduling 
  const button=(scope,text)=>[...scope.querySelectorAll("button")].find(el=>el.textContent.trim()===text);
  const click=el=>act(async()=>{assert.ok(el);assert.equal(el.disabled,false);el.click();});
  try{
-  await act(async()=>root.render(createElement(Component)));await click(c.querySelector('[aria-label="Next month"]'));
+  await act(async()=>root.render(createElement(Component)));
+  await click(c.querySelector('[aria-labelledby="booking-option-private"]'));
+  await click(c.querySelector('[aria-label="Next month"]'));
   assert.equal(c.querySelector(`[aria-label^="${month}-06:"]`).disabled,false);
   assert.equal(c.querySelector(`[aria-label^="${month}-07:"]`).disabled,true);
   assert.match(c.querySelector(`[aria-label^="${month}-07:"]`).title,/Bookings are available only through/);
   assert.equal(c.querySelector('[aria-label="Next month"]').disabled,true);
-  await click(button(c,"Ocular Visit"));await click(button(c.querySelector('[data-booking-guide="dates-calendar"]'),"5"));
+  await click(c.querySelector('[aria-label="Back to booking options"]'));
+  await click(c.querySelector('[aria-labelledby="booking-option-ocular"]'));await click(button(c.querySelector('[data-booking-guide="dates-calendar"]'),"5"));
   await click(c.querySelector('[data-booking-guide="ocular-times"] button:not(:disabled)'));
   await click(button(c,"Schedule Visit"));assert.equal(posted.length,0);
   const confirm=document.querySelector('[role="alertdialog"]');assert.match(confirm.textContent,/Confirm ocular visit/);
