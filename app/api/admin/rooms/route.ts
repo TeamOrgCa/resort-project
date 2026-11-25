@@ -40,6 +40,18 @@ export async function POST(request: Request) {
     !integer(input.pricing_version, 1, Number.MAX_SAFE_INTEGER) || !integer(input.eligible_guests, 0, input.occupants) ||
     !money(input.expected_total) || (input.promo_code != null && (typeof input.promo_code !== "string" || input.promo_code.length > 40)) ||
     ((input.eligible_guests > 0 || input.promo_code) && (typeof input.discount_reason !== "string" || input.discount_reason.trim().length < 5 || input.discount_reason.length > 1000));
+  if (body.action === "reserve" && input.rooms !== undefined) {
+    const selections: unknown[] = Array.isArray(input.rooms) ? input.rooms : [];
+    const validSelections = selections.length >= 1 && selections.length <= 100 && selections.every((selection: unknown) => {
+      if (!selection || typeof selection !== "object" || Array.isArray(selection)) return false;
+      const room = selection as Record<string, unknown>;
+      return typeof room.room_id === "string" && uuidPattern.test(room.room_id) && integer(room.occupants, 1, 100) && integer(room.pricing_version, 1, Number.MAX_SAFE_INTEGER);
+    });
+    const selected = validSelections ? selections as { room_id: string; occupants: number; pricing_version: number }[] : [];
+    invalid ||= !validSelections || input.commercial_type !== "room_accommodation" || selected[0]?.room_id !== body.roomId ||
+      selected[0]?.pricing_version !== input.pricing_version || new Set(selected.map(room => room.room_id)).size !== selected.length ||
+      selected.reduce((total, room) => total + room.occupants, 0) !== input.occupants;
+  }
   if (["check_in", "check_out", "extend", "transfer", "charge"].includes(body.action)) invalid ||= !uuidPattern.test(input.assignment_id ?? "");
   if (body.action === "check_in" && input.occupants != null) invalid ||= !integer(input.occupants, 1, 100);
   if (body.action === "extend") invalid ||= !integer(input.hours, 1, 168) || !money(input.hourly_rate) || !date(input.expected_checkout);
@@ -63,12 +75,13 @@ export async function POST(request: Request) {
     if (!phone || !first || !last || typeof input.address !== "string" || input.address.trim().length < 3 || input.address.length > 1000) return NextResponse.json({ message: "Enter valid guest names, Philippine mobile number and address." }, { status: 400 });
     input.phone = phone; input.first_name = first; input.last_name = last;
   }
-  const { data, error } = await createAdminClient().rpc(body.action === "reserve" ? "room_reserve_priced" : "room_operate", { p_staff: staff.staffUser.id, p_room: body.roomId ?? null, ...(body.action === "reserve" ? {} : { p_action: body.action }), p_input: input });
+  const reserveAction = input.rooms === undefined ? "room_reserve_priced" : "room_reserve_multiple_priced";
+  const { data, error } = await createAdminClient().rpc(body.action === "reserve" ? reserveAction : "room_operate", { p_staff: staff.staffUser.id, p_room: body.roomId ?? null, ...(body.action === "reserve" ? {} : { p_action: body.action }), p_input: input });
   if (error) {
     const expected = ["22023", "23514", "23502", "22P02", "22007", "22008", "23505"].includes(error.code);
     const conflict = ["40001", "40P01", "23P01"].includes(error.code);
     const missing = ["PGRST202", "42P01", "42703", "42883"].includes(error.code);
-    return NextResponse.json({ ...(missing || expected || conflict || error.code === "42501" ? { outcome: "not_applied" } : {}), message: missing ? "Apply docs/room-management-migration.sql, then docs/room-rates-discounts-migration.sql before recording room operations." : error.code === "40P01" ? "Another staff member updated these records. Refresh and try again." : expected ? `Check the submitted values. ${error.code === "22023" ? error.message : "A value is missing, invalid, or already in use."}` : conflict || error.code === "42501" ? error.message : "Unable to save the room action. Refresh and try again." }, { status: error.code === "42501" ? 403 : conflict ? 409 : expected ? 400 : 503 });
+    return NextResponse.json({ ...(missing || expected || conflict || error.code === "42501" ? { outcome: "not_applied" } : {}), message: missing ? "Apply docs/room-management-migration.sql, docs/room-rates-discounts-migration.sql and docs/manual-multi-room-reservation-migration.sql before recording room operations." : error.code === "40P01" ? "Another staff member updated these records. Refresh and try again." : expected ? `Check the submitted values. ${error.code === "22023" ? error.message : "A value is missing, invalid, or already in use."}` : conflict || error.code === "42501" ? error.message : "Unable to save the room action. Refresh and try again." }, { status: error.code === "42501" ? 403 : conflict ? 409 : expected ? 400 : 503 });
   }
   return NextResponse.json({ success: true, result: data, message: "Room action recorded." });
 }
