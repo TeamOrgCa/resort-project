@@ -4,6 +4,9 @@ import PublicSwimmingForm from "@/components/booking/PublicSwimmingForm";
 import PromoCodeInput from "@/components/booking/PromoCodeInput";
 import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
 import type { PromoQuote } from "@/lib/booking/discounts";
+import SwimmingRoomSelection, { useSwimmingRooms } from "@/components/booking/SwimmingRoomSelection";
+import PrivatePackageDetails from "@/components/booking/PrivatePackageDetails";
+import type { SwimmingRoomSelection as RoomSelection } from "@/lib/booking/swimming-rooms";
 
 import BookingGuide from "@/components/booking/BookingGuide";
 import BookingProgress from "@/components/booking/BookingProgress";
@@ -23,7 +26,7 @@ import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 import { manilaDateKey } from "@/lib/booking/manila-date";
 import { usePackageRates } from "@/lib/booking/use-package-rates";
-import { DOWN_PAYMENT_PERCENT } from "@/lib/booking/payment-policy";
+import { DOWN_PAYMENT_PERCENT, downPaymentAmount } from "@/lib/booking/payment-policy";
 import { isValidName, sanitizeName } from "@/lib/helper/validation";
 import { isValidGuestCounts, MAX_GUESTS, MAX_EXTRA_GUESTS } from "@/lib/booking/guest-count";
 import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
@@ -73,6 +76,9 @@ function BookingFormContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
   const [checkingPromo, setCheckingPromo] = useState(false);
   const [promo, setPromo] = useState<PromoQuote | null>(bookingDraft.promo ?? null);
+  const [swimmingRooms, setSwimmingRooms] = useState<RoomSelection[]>(bookingDraft.swimmingRooms ?? []);
+  const roomsState = useSwimmingRooms(bookingDraft.startDatetime, bookingDraft.endDatetime, swimmingRooms, true);
+  const roomsTotal = roomsState.quote?.total ?? 0;
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [formData, setFormData] = useState({
     firstName: bookingDraft.firstName || "",
@@ -226,13 +232,14 @@ function BookingFormContent() {
     childCount: formData.childCount,
     servicesTotal: amenitiesTotal, promo,
   }, packageSchedule.rates);
-  const subtotal = pricing.subtotal;
+  const subtotal = pricing.subtotal + roomsTotal;
   const tax = pricing.tax;
-  const total = pricing.total;
-  const downPayment = pricing.downPaymentMin;
+  const total = Math.round((pricing.total + roomsTotal) * 100) / 100;
+  const downPayment = downPaymentAmount(total);
 
   const handleContinueToPayment = () => {
     if (checkingPromo) return;
+    if (roomsState.loading || roomsState.error || !roomsState.quote) { setFormError(roomsState.error || "Wait for room availability, then review your room choices."); return; }
     if (quantityError) { setFormError(quantityError); return; }
     if ((bookingDraft.packageRateVersion && bookingDraft.packageRateVersion !== packageSchedule.version)
       || !validateBookingWindow({ ...bookingDraft, startDatetime: effectiveStartDate.toISOString(), endDatetime: effectiveEndDate.toISOString() }, packageSchedule.times).valid) {
@@ -289,6 +296,7 @@ function BookingFormContent() {
       total,
       downPayment,
       services: selectedServiceItems,
+      swimmingRooms: roomsState.quote.selections,
       specialRequests: formData.specialRequests, promo, promoCode: promo?.code ?? null,
       reservationId: "",
       reservationReference: "",
@@ -312,6 +320,7 @@ function BookingFormContent() {
             <div ref={bookingFormRef} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} className="min-w-0 lg:col-span-2">
               <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
                 <h2 className="mb-6 text-2xl font-bold text-neutral sm:mb-8 sm:text-3xl">Reservation Details</h2>
+                <PrivatePackageDetails />
 
                 {/* Personal Information */}
                 <div data-booking-guide="guest-personal" className="mb-8">
@@ -375,6 +384,7 @@ function BookingFormContent() {
                   <p className="mt-4 text-sm text-neutral/70">All cottages are included with your private swimming reservation.</p>
                 </div>
 
+                <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={bookingDraft.startDatetime} end={bookingDraft.endDatetime} privateSwimming />
                 {/* Additional Services */}
                 <div data-booking-guide="guest-services" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Additional Services & Amenities</h3>
@@ -396,7 +406,7 @@ function BookingFormContent() {
                   {quantityError && <p role="alert" className="mt-3 text-sm text-red-700">{quantityError}</p>}
                 </div>
 
-                <div className="mb-6"><PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />{pricing.discountAmount > 0 && <p className="mt-2 text-sm font-semibold text-primary">Promo discount: -{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(pricing.discountAmount)}</p>}<p className="mt-2 text-xs text-neutral/65">PWD / senior discounts can be verified by resort staff. Only the larger discount applies.</p></div>
+                <div className="mb-6"><PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />{pricing.discountAmount > 0 && <p className="mt-2 text-sm font-semibold text-primary">Promo discount: -{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(pricing.discountAmount)}</p>}<p className="mt-2 text-xs text-neutral/65">PWD / senior discounts can be verified by resort staff. Only the larger discount applies to the pool package. Additional rooms and services are charged separately.</p></div>
                 {/* Special Requests */}
                 <div data-booking-guide="guest-requests" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Special Requests</h3>
@@ -419,7 +429,7 @@ function BookingFormContent() {
                   </Link>
                   <div className="flex-1">
                     <button data-booking-guide="guest-continue" type="button" onClick={handleContinueToPayment}
-                      disabled={checkingPromo || catalogLoading || Boolean(catalogError) || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || Boolean(quantityError)}
+                      disabled={checkingPromo || catalogLoading || roomsState.loading || !!roomsState.error || !roomsState.quote || Boolean(catalogError) || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || Boolean(quantityError)}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Review Full Details
@@ -481,6 +491,8 @@ function BookingFormContent() {
                     </div>
                   </div>
 
+                  <div className="flex justify-between text-sm"><span>2 Standard rooms</span><span className="font-semibold text-primary">Included</span></div>
+                  {roomsState.quote?.selections.map(r => <div key={r.classificationId} className="flex justify-between gap-3 text-sm"><span>Extra {r.name} × {r.quantity}</span><span className="whitespace-nowrap">₱{(r.unitPrice * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
                   {selectedServiceItems.length > 0 && (
                     <div className="pb-4 border-b border-neutral/10">
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>

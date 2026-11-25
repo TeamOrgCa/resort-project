@@ -34,6 +34,10 @@ import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 import { normalizePersonName, sanitizePersonName, PERSON_NAME_ERROR } from "@/lib/validation/name";
+import SwimmingRoomSelection, { useSwimmingRooms } from "@/components/booking/SwimmingRoomSelection";
+import PrivatePackageDetails from "@/components/booking/PrivatePackageDetails";
+import type { SwimmingRoomSelection as RoomSelection } from "@/lib/booking/swimming-rooms";
+import { downPaymentAmount } from "@/lib/booking/payment-policy";
 
 type Service = { max_quantity?: number; billing_type?: string; service_id: string; name: string; description: string | null; price: number };
 type PackageMode = Exclude<BookingMode, "custom">;
@@ -77,6 +81,10 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
   const [checkingPromo, setCheckingPromo] = useState(false);
   const [promo, setPromo] = useState<PromoQuote | null>(null);
   const [form, setForm] = useState<BookingForm>({ bookingDate: toIsoLocalDay(new Date()), bookingMode: "day", wholeDayVariant: "day_to_night", adultCount: "1", childCount: "0", specialRequests: "" });
+  const [swimmingRooms, setSwimmingRooms] = useState<RoomSelection[]>([]);
+  const previewWindow = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: form.bookingMode, date: form.bookingDate, wholeDayVariant: form.wholeDayVariant });
+  const roomsState = useSwimmingRooms("error" in previewWindow ? "" : previewWindow.startDatetime, "error" in previewWindow ? "" : previewWindow.endDatetime, swimmingRooms, true);
+  const roomsTotal = roomsState.quote?.total ?? 0;
   const [calendarMonth, setCalendarMonth] = useState(() => toIsoLocalDay(new Date()).slice(0, 7));
   const availability = useBookingAvailability([calendarMonth, form.bookingDate.slice(0, 7)], isOpen);
   const [isSaving, setIsSaving] = useState(false);
@@ -158,9 +166,9 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
   const quantityError = serviceQuantityError(selectedServices, services);
   const quantitiesValid = Object.values(serviceQuantities).every(validQuantity) && !quantityError;
   const servicesTotal = services.reduce((total, service) => total + (validQuantity(serviceQuantities[service.service_id] ?? "") ? Number(service.price) * Number(serviceQuantities[service.service_id]) : 0), 0);
-  const previewWindow = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: form.bookingMode, date: form.bookingDate, wholeDayVariant: form.wholeDayVariant });
   const preview = packageSchedule && !("error" in previewWindow) && isValidGuestCounts(Number(form.adultCount), Number(form.childCount))
     ? computeBookingPricing({ bookingMode: form.bookingMode, startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime, adultCount: Number(form.adultCount), childCount: Number(form.childCount), servicesTotal, promo }, packageSchedule.rates) : null;
+  const total = Math.round(((preview?.total ?? 0) + roomsTotal) * 100) / 100;
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -170,6 +178,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
     if (!("error" in previewWindow) && !isStaffBookingWindowAllowed(previewWindow.startDatetime, previewWindow.endDatetime)) { setError(STAFF_BOOKING_WINDOW_MESSAGE); return; }
     if (selectedIssue) { setError(selectedIssue); return; }
     if (optionsLoading || optionsError) { setError(optionsError ?? "Please wait for booking options to load."); return; }
+    if (roomsState.loading || roomsState.error || !roomsState.quote) { setError(roomsState.error || "Wait for room availability and review the room choices."); return; }
     if (!quantitiesValid) { setError(quantityError ?? "Enter a whole-number quantity within the service maximum per booking."); return; }
     if (!packageSchedule || packageRatesError) { setError(packageRatesError ?? "Please wait for booking prices to load."); return; }
     if ("error" in previewWindow) { setError(previewWindow.error ?? "Invalid booking window."); return; }
@@ -181,7 +190,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
     const phoneNumber = normalizePhilippineMobile(walkIn.phoneNumber);
     if (!phoneNumber) { setError(PH_MOBILE_ERROR); return; }
     if (!await confirm({ title: "Create manual reservation?", confirmText: "Confirm reservation", message:
-      `Create a reservation for ${firstName} ${lastName}?\n\n${formatManilaDateTime(previewWindow.startDatetime)} to ${formatManilaDateTime(previewWindow.endDatetime)} (Philippine time)\nPackage: ${form.bookingMode === "whole_day" ? "Whole day" : form.bookingMode === "night" ? "Overnight" : "Day"}\nNumber of guests: ${adults + children}\nAll cottages included\nTotal: ${money(preview?.total ?? 0)}\n\nThis records the reservation. Payments are recorded separately.` })) return;
+      `Create a reservation for ${firstName} ${lastName}?\n\n${formatManilaDateTime(previewWindow.startDatetime)} to ${formatManilaDateTime(previewWindow.endDatetime)} (Philippine time)\nPackage: ${form.bookingMode === "whole_day" ? "Whole day" : form.bookingMode === "night" ? "Overnight" : "Day"}\nNumber of guests: ${adults + children}\nAll cottages and 2 Standard rooms included\nExtra rooms: ${money(roomsTotal)}\nTotal: ${money(total)}\n\nThis records the reservation. Payments are recorded separately.` })) return;
     if (checkingPromo) return;
     if (saving.current) return;
     if (!isStaffBookingWindowAllowed(previewWindow.startDatetime, previewWindow.endDatetime)) { setError(STAFF_BOOKING_WINDOW_MESSAGE); return; }
@@ -191,7 +200,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
         packageRateVersion: packageSchedule.version, guestType: "walk_in", walkInGuest: { ...walkIn, firstName, lastName, phoneNumber }, bookingMode: form.bookingMode,
         wholeDayVariant: form.bookingMode === "whole_day" ? form.wholeDayVariant : null,
         startDatetime: previewWindow.startDatetime, endDatetime: previewWindow.endDatetime,
-        promoCode: promo?.code ?? null, adultCount: adults, childCount: children, specialRequests: form.specialRequests, selectedServices,
+        promoCode: promo?.code ?? null, adultCount: adults, childCount: children, specialRequests: form.specialRequests, selectedServices, swimmingRooms: roomsState.quote.selections, expectedTotal: total,
       }) });
       const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string; reservation?: { id?: string; referenceNumber?: string } } | null;
       if (!response.ok || !result?.success) {
@@ -217,6 +226,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
         {success && <p role="status" className="mb-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-neutral">{success}</p>}
         {optionsError && <div role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{optionsError}<button type="button" onClick={() => setOptionsRevision(value => value + 1)} className="ml-2 min-h-11 underline">Reload booking options</button></div>}
         <fieldset disabled={isSaving} className="min-w-0 space-y-5">
+          <PrivatePackageDetails />
           <div className="grid gap-4 md:grid-cols-2">
             <p className="text-sm text-neutral/65 md:col-span-2">For guests without an account who book by phone, Messenger or walk-in. Registered guests should book through their own account.</p>
             {(Object.keys(walkIn) as Array<keyof typeof walkIn>).map(key => key === "phoneNumber"
@@ -251,6 +261,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
               <Input label="Number of guests" type="number" value={form.adultCount} onChange={value => updateForm("adultCount", value)} />
             </div>
           </div>
+          {!("error" in previewWindow) && <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={previewWindow.startDatetime} end={previewWindow.endDatetime} privateSwimming />}
           <section aria-labelledby="manual-services-title" className="rounded-xl border border-neutral/10 p-4">
             <h3 id="manual-services-title" className="font-semibold text-neutral">Additional services</h3>
             <p className="mt-1 text-sm text-neutral/60">Optional. Select services and enter the quantities needed.</p>
@@ -274,11 +285,13 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
             <p className="font-semibold">{preview.rateTier === "weekend" ? "Weekend" : "Weekday"} package: {money(preview.packageRate)}</p>
             <p className="mt-1">Extra guests: {preview.extraGuests} x {money(preview.addOnPerHead)}</p>
             <p className="mt-1">Additional services: {money(preview.servicesTotal)}</p>
+            <p className="mt-1">2 Standard rooms: included</p>
+            <p className="mt-1">Extra rooms: {money(roomsTotal)}</p>
             {!quantitiesValid && <p role="alert" className="mt-2 text-red-700">{quantityError ?? "Enter a whole-number quantity within the service maximum per booking."}</p>}
-            <p className="mt-2 font-semibold text-primary">Total: {money(preview.total)}</p>
-            <p className="mt-1 text-xs text-neutral/60">Minimum 20% downpayment: {money(preview.downPaymentMin)}</p>
+            <p className="mt-2 font-semibold text-primary">Total: {money(total)}</p>
+            <p className="mt-1 text-xs text-neutral/60">Minimum 20% downpayment: {money(downPaymentAmount(total))}</p>
           </> : <p>Choose a valid date and guest count to view the current package price.</p>}</div>
-          <div className="flex flex-wrap justify-end gap-2"><button type="submit" disabled={checkingPromo || isSaving || !preview || Boolean(packageRatesError) || !quantitiesValid || Boolean(selectedIssue) || optionsLoading || Boolean(optionsError)} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
+          <div className="flex flex-wrap justify-end gap-2"><button type="submit" disabled={checkingPromo || isSaving || roomsState.loading || !!roomsState.error || !roomsState.quote || !preview || Boolean(packageRatesError) || !quantitiesValid || Boolean(selectedIssue) || optionsLoading || Boolean(optionsError)} className="min-h-11 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSaving ? "Creating..." : "Create Manual Reservation"}</button></div>
         </fieldset>
       </form>
     </div>

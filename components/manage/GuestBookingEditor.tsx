@@ -32,7 +32,8 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
     fetch(endpoint, { cache: "no-store", signal: controller.signal }).then(async response => {
       const data = await response.json(); if (!response.ok) throw new Error(data.message ?? "Unable to load your booking.");
       if (controller.signal.aborted) return;
-      if (!data.reservation || !data.bill || !Array.isArray(data.services) || !Array.isArray(data.catalogServices) || !data.packageRates) throw new Error("Booking details are incomplete. Please retry.");
+      const publicAdmission = data.reservation?.commercial_type === "public_swimming" && !data.reservation.room_pricing;
+      if (!data.reservation || !data.bill || !Array.isArray(data.services) || !Array.isArray(data.catalogServices) || !publicAdmission && !data.packageRates) throw new Error("Booking details are incomplete. Please retry.");
       const next = data as GuestEditDetail;
       setUnitId(next.units?.length === 1 ? next.units[0].unit_id : next.units ? null : undefined);
       setDetail(next); setCounts(next.reservation.commercial_type === "public_swimming" ? { adultCount: next.reservation.adult_count, childCount: next.reservation.child_count } : { adultCount: next.reservation.adult_count + next.reservation.child_count, childCount: 0 });
@@ -49,7 +50,7 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
   const isReservation = r.status?.toLowerCase() === "confirmed";
   const recordName = isReservation ? "reservation" : "booking";
   let preview: ReturnType<typeof previewReservationEdit> | null = null, previewError: string | null = null;
-  if (isValidGuestCounts(counts.adultCount, counts.childCount)) {
+  if (!detail.lockedReason && isValidGuestCounts(counts.adultCount, counts.childCount)) {
     try { preview = previewReservationEdit(r, detail.bill, detail.services, detail.catalogServices,
       { ...counts, services, bookingMode: r.booking_mode, startDatetime: r.start_datetime, endDatetime: r.end_datetime }, detail.packageRates); }
     catch (cause) { previewError = cause instanceof Error ? cause.message : "Unable to calculate the bill."; }

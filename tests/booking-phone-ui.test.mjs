@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { create } from "zustand";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 import { legacyRates } from "./helpers/package-rates.mjs";
+import { swimmingRoomCatalog } from "./helpers/swimming-rooms.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/booking/form" });
 globalThis.window = dom.window; globalThis.document = dom.window.document;
@@ -13,6 +14,7 @@ const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
 
 async function bookingFetch(url) {
+  if (url.startsWith("/api/booking/rooms?")) return Response.json({ success: true, ...swimmingRoomCatalog });
   if (url.startsWith("https://psgc.cloud/api/")) return Response.json(url.endsWith("/provinces")
     ? [{ code: "0405800000", name: "Rizal" }]
     : [{ code: "0405813000", name: "Taytay", type: "Mun" }, { code: "0405805000", name: "Cainta", type: "Mun" }]);
@@ -43,6 +45,10 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
     assert.equal(container.querySelector('select[name="roomType"]'),null);
     assert.equal(container.querySelector('input[name="roomType"]'),null);
     assert.match(container.textContent,/All cottages are included/);
+    assert.match(container.textContent,/2 Standard rooms included at no extra charge/);
+    const extraRooms=container.querySelector('[aria-label="Extra Standard Rooms"]');
+    assert.equal(extraRooms.options.length,9,'two of ten Standard rooms are already included');
+    await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set.call(extraRooms,'1');extraRooms.dispatchEvent(new window.Event('change',{bubbles:true}));});
     await act(async () => container.querySelector('input[aria-label="Add Extra mattress"]').click());
     await act(async () => container.querySelector('input[aria-label="Add Karaoke rental"]').click());
     const hours = container.querySelector('[aria-label="Duration (Hours) for Karaoke rental"]');
@@ -73,7 +79,8 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
         assert.equal(store.getState().bookingDraft.phone, "+639171234567");
         assert.equal(store.getState().bookingDraft.services[0].id, "mattress");
         assert.equal(store.getState().bookingDraft.services[0].price, 500);
-        assert.equal(store.getState().bookingDraft.services[0].quantity,2);assert.equal(store.getState().bookingDraft.total,legacyRates.weekday.night.baseRate+1600);
+        assert.equal(store.getState().bookingDraft.services[0].quantity,2);assert.equal(store.getState().bookingDraft.total,legacyRates.weekday.night.baseRate+1600+600);
+        assert.equal(store.getState().bookingDraft.swimmingRooms[0].quantity,1);assert.equal(store.getState().bookingDraft.swimmingRooms[0].unitPrice,600);
         assert.equal(store.getState().bookingDraft.services[1].billingType, "duration");
         assert.equal(store.getState().bookingDraft.services[1].quantity, 3);
         assert.equal(store.getState().bookingDraft.unitId,"");assert.equal(store.getState().bookingDraft.roomName,"All cottages included");

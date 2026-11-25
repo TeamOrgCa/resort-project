@@ -1,6 +1,6 @@
 import { calculateBookingDiscount, type PromoQuote } from "./discounts";
 import { isValidGuestCounts } from "./guest-count";
-import { isValidManilaDate } from "./manila-date";
+import { isValidManilaDate, manilaDateKey } from "./manila-date";
 import type { CustomerRoomService } from "./customer-rooms";
 
 export type PublicSwimmingType = {
@@ -9,7 +9,48 @@ export type PublicSwimmingType = {
   pricing_version: number; is_active: boolean;
 };
 export type PublicSwimmingSlot = { date: string; typeId: string; startDatetime: string; endDatetime: string; remainingCapacity: number };
-export type PublicSwimmingCatalog = { types: PublicSwimmingType[]; slots: PublicSwimmingSlot[]; dates: string[]; services: CustomerRoomService[] };
+export type PublicSwimmingAvailability = "available" | "private" | "maintenance" | "full" | "inactive";
+export type PublicSwimmingEligibility = "eligible" | "past" | "not_open" | "cutoff";
+export type PublicSwimmingSession = PublicSwimmingSlot & {
+  availability: PublicSwimmingAvailability; eligibility: PublicSwimmingEligibility; opensAt: string;
+};
+export type PublicSwimmingCatalog = {
+  types: PublicSwimmingType[]; slots: PublicSwimmingSlot[]; dates: string[]; services: CustomerRoomService[];
+  sessions: PublicSwimmingSession[]; today: string; now: string;
+};
+export const PUBLIC_SWIMMING_LEAD_MINUTES = 60;
+export const PUBLIC_SWIMMING_LEAD_MESSAGE = "Reserve public swimming at least one hour before the session begins (Philippine time).";
+export const isPublicSwimmingStartAllowed = (start: string, now = Date.now()) =>
+  Number.isFinite(Date.parse(start)) && Date.parse(start) >= now + PUBLIC_SWIMMING_LEAD_MINUTES * 60_000;
+export function addPublicSwimmingDays(date: string, days: number) {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+}
+export function publicSwimmingDates(now = new Date()) {
+  const today = manilaDateKey(now);
+  return [today, addPublicSwimmingDays(today, 1), addPublicSwimmingDays(today, 2)];
+}
+export function publicSwimmingSessionLabel(session: PublicSwimmingSession) {
+  if (session.eligibility === "past") return "Past Date";
+  if (session.eligibility === "not_open") return "Not Yet Open for Booking";
+  if (session.eligibility === "cutoff") return "Booking Cutoff Passed";
+  return publicSwimmingAvailabilityLabel(session.availability);
+}
+export function publicSwimmingAvailabilityLabel(availability: PublicSwimmingAvailability) {
+  return { available: "Available", private: "Unavailable — Private Reservation", maintenance: "Unavailable — Maintenance", full: "Fully Booked", inactive: "Unavailable — Session Disabled" }[availability];
+}
+export function publicSwimmingDateLabel(sessions: PublicSwimmingSession[]) {
+  if (!sessions.length) return "Loading availability";
+  const eligible = sessions.filter(s => s.eligibility === "eligible" && s.availability === "available" && s.remainingCapacity > 0);
+  if (eligible.length) return eligible.length === sessions.length ? "Available" : "Partially Available";
+  if (sessions.every(s => s.eligibility === "past")) return "Past Date";
+  if (sessions.every(s => s.eligibility === "not_open")) return "Not Yet Open for Booking";
+  if (sessions.every(s => s.eligibility === "cutoff")) return "Booking Cutoff Passed";
+  const remaining = sessions.filter(s => s.eligibility === "eligible");
+  if (remaining.some(s => s.availability === "maintenance")) return "Unavailable — Maintenance";
+  if (remaining.some(s => s.availability === "private")) return "Unavailable — Private Reservation";
+  if (remaining.some(s => s.availability === "inactive")) return "Unavailable — Session Disabled";
+  return "Fully Booked";
+}
 export function publicSwimmingWindow(date: string, type: PublicSwimmingType) {
   if (!isValidManilaDate(date)) throw new Error("Choose a valid public-swimming date.");
   const startDatetime = new Date(`${date}T${type.start_time}+08:00`).toISOString();

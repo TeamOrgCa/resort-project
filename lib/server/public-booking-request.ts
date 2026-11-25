@@ -8,6 +8,7 @@ import { isValidGuestCounts } from "@/lib/booking/guest-count";
 import { uuidPattern } from "@/lib/booking/reservation-edit";
 import { requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseSwimmingRooms } from "@/lib/booking/swimming-rooms";
 
 export async function savePublicBooking(request: Request, actor: string, client: SupabaseClient, staff = false) {
   const invalid = (field: string, message: string) => NextResponse.json({ success: false, field, message }, { status: 400 });
@@ -24,6 +25,8 @@ export async function savePublicBooking(request: Request, actor: string, client:
   if (!isValidGuestCounts(body.adultCount, body.childCount)) return invalid("guests", "Enter whole-number adult and child counts, with at least one adult and no more than 30 guests in total.");
   if (!Number.isSafeInteger(body.eligibleGuests) || body.eligibleGuests < 0 || body.eligibleGuests > body.adultCount + body.childCount) return invalid("eligibleGuests", "Enter a PWD / senior count from 0 up to the total number of guests. Use 0 if none.");
   if (!services || services.some(s => !uuidPattern.test(s.serviceId))) return invalid("selectedServices", "Review your selected services and enter a valid quantity or duration for each. Services are optional.");
+  const swimmingRooms = parseSwimmingRooms(body.swimmingRooms);
+  if (!swimmingRooms) return invalid("swimmingRooms", "Review your room choices. Choose each room type once with a valid quantity and saved rate.");
   if (typeof body.startDatetime !== "string" || !Number.isFinite(Date.parse(body.startDatetime)) || typeof body.endDatetime !== "string" || !Number.isFinite(Date.parse(body.endDatetime))) return invalid("session", "Choose a valid public swimming date and Day or Night session from the calendar.");
   if (typeof body.expectedTotal !== "number" || !Number.isFinite(body.expectedTotal) || body.expectedTotal < 0 || body.expectedTotal > 99999999.99) return invalid("expectedTotal", "The booking total is invalid. Return to Booking Details to refresh the total.");
   if (body.promoCode != null && (typeof body.promoCode !== "string" || body.promoCode.length > 40)) return invalid("promoCode", "Enter a valid promo code of up to 40 characters, or leave it blank. A promo code is optional.");
@@ -32,7 +35,7 @@ export async function savePublicBooking(request: Request, actor: string, client:
   const policies = staff ? null : await requireCurrentLegalPolicies(client, body.acceptedPoliciesVersion);
   const input = { firstName, lastName, phone, address: address.value, typeId: body.typeId, pricingVersion: body.pricingVersion,
     startDatetime: body.startDatetime, endDatetime: body.endDatetime, adultCount: body.adultCount, childCount: body.childCount,
-    eligibleGuests: body.eligibleGuests, promoCode: body.promoCode || null, selectedServices: services, specialRequests: body.specialRequests?.trim() || "",
+    eligibleGuests: body.eligibleGuests, promoCode: body.promoCode || null, selectedServices: services, swimmingRooms, specialRequests: body.specialRequests?.trim() || "",
     expectedTotal: body.expectedTotal, bookingPolicyVersion: body.bookingPolicyVersion ?? null, termsPolicyId: policies?.terms.policy_id ?? null,
     privacyPolicyId: policies?.privacy.policy_id ?? null, ...(staff ? { staffActor: actor } : {}) };
   const { data, error } = await createAdminClient().rpc("public_reserve", { p_actor: actor, p_request: body.requestId, p_input: input, p_staff: staff });

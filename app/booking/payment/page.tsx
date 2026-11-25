@@ -910,6 +910,8 @@ function PaymentContent() {
                     {costSummary.extraGuestCharge > 0 && <div className="flex justify-between text-sm"><span className="text-neutral/70">Extra guests ({costSummary.extraGuests})</span><span className="whitespace-nowrap text-neutral">₱{costSummary.extraGuestCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                   </div>}
 
+                  {!isBalancePayment && !requiresFullPayment && <div className="flex justify-between text-sm"><span>2 Standard rooms</span><span className="font-semibold text-primary">Included</span></div>}
+                  {!isBalancePayment && costSummary.roomsTotal > 0 && <div className="border-b border-neutral/10 pb-4 text-sm"><p className="mb-2 font-semibold text-neutral">Additional Rooms</p>{bookingDraft.swimmingRooms?.map(r => <div key={r.classificationId} className="mb-1 flex justify-between gap-3"><span>{r.name} × {r.quantity}</span><span className="whitespace-nowrap">₱{(Number(r.unitPrice || 0) * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}</div>}
                   {!isBalancePayment && selectedServices.length > 0 && (
                     <div className="pb-4 border-b border-neutral/10">
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>

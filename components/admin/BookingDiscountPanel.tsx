@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { calculateBookingDiscount, savedPromo, type DiscountState, type PromoQuote } from "@/lib/booking/discounts";
 import PromoCodeInput from "@/components/booking/PromoCodeInput";
 
-type Detail = { headCount: number; packagePrice: number; bill: DiscountState & { total_amount: number; paid_amount: number }; locked: boolean };
+type Detail = { headCount: number; packagePrice: number; packagePriceLabel?: string; bill: DiscountState & { total_amount: number; paid_amount: number }; locked: boolean };
 const money = (n: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(n);
 export default function BookingDiscountPanel({ reservationId, disabled = false, onChanged, onBusyChange }: {
   reservationId: string; disabled?: boolean; onChanged?: (result: { totalAmount: number; remainingBalance: number }) => void; onBusyChange?: (busy: boolean) => void;
@@ -36,7 +36,7 @@ export default function BookingDiscountPanel({ reservationId, disabled = false, 
   return <section aria-label="Booking discounts" className="space-y-3 rounded-xl border border-primary/20 bg-base/40 p-4 text-sm">
     <h3 className="font-semibold">PWD / senior discount and promo</h3>
     {detail && <fieldset disabled={busy || disabled || detail.locked} className="space-y-3">
-      <p>Package price {money(detail.packagePrice)} ÷ {detail.headCount} guests × 20% × eligible guests. Services, extra-guest charges and reschedule fees are excluded. Count each eligible guest once after verifying eligibility.</p>
+      <p>{detail.packagePriceLabel ?? "Package price"} {money(detail.packagePrice)} ÷ {detail.headCount} guests × 20% × eligible guests. Services, swimming room add-ons, extra-guest charges and reschedule fees are excluded. Count each eligible guest once after verifying eligibility.</p>
       <label className="block font-medium">Eligible PWD / senior guests<input aria-label="Eligible PWD / senior guests" type="number" min={0} max={detail.headCount} step={1} value={eligible} onChange={e => setEligible(e.target.value)} className="admin-field mt-1 w-full" /></label>
       <PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />
       {comparison ? <dl className="grid grid-cols-[1fr_auto] gap-2"><dt>PWD / senior discount</dt><dd>{money(comparison.eligibleDiscount)}</dd><dt>Promo discount</dt><dd>{money(comparison.promoDiscount)}</dd><dt className="font-semibold">Discount applied (larger amount)</dt><dd className="font-semibold">{money(comparison.amount)}</dd><dt>New total</dt><dd>{money(Number(detail.bill.total_amount) + Number(detail.bill.discount_amount ?? 0) - comparison.amount)}</dd></dl> : <p role="alert">Enter a whole-number eligible count from 0 to {detail.headCount}.</p>}

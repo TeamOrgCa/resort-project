@@ -28,12 +28,13 @@ type BookingDateCalendarProps = {
   className?: string;
   appearance?: "compact" | "customer";
   isPartiallyAvailable?: (date: string) => boolean;
+  allowUnavailableSelection?: boolean;
 };
 
 export default function BookingDateCalendar({ value, onChange, title = "Booking date", description = "Choose a date in Philippine time.",
   minDate, maxDate, initialDate, visibleMonth, minimumDateReason = "Before the earliest selectable date", getUnavailableReason, getDateHint, onMonthChange, disabled = false, disabledReason,
   emptyLabel = "Select a booking date.", footnote, className = "min-w-0 rounded-2xl border border-neutral/10 bg-white p-2 sm:p-5",
-  appearance = "compact", isPartiallyAvailable,
+  appearance = "compact", isPartiallyAvailable, allowUnavailableSelection = false,
 }: BookingDateCalendarProps) {
   const customer = appearance === "customer";
   const titleId = useId();
@@ -84,20 +85,21 @@ export default function BookingDateCalendar({ value, onChange, title = "Booking 
       {Array.from({ length: days }, (_, index) => {
         const date = `${month}-${String(index + 1).padStart(2, "0")}`;
         const reason = disabled && disabledReason ? disabledReason : minDate && date < minDate ? minimumDateReason : maxDate && date > maxDate ? `Beyond the advance booking limit (${maxDate})` : getUnavailableReason?.(date) ?? null;
-        const hint = !reason ? getDateHint?.(date) : undefined;
+        const hint = !reason || allowUnavailableSelection ? getDateHint?.(date) : undefined;
         const selected = date === value;
-        return <button key={date} type="button" data-date={date} disabled={disabled || Boolean(reason)} aria-pressed={selected}
-          aria-label={`${dateLabel(date)}: ${reason ?? (selected ? "Selected" : "Select date")}${hint ? `. ${hint}` : ""}`} title={reason ?? hint ?? dateLabel(date)} onClick={() => { if (!disabled && !reason) onChange(date); }}
-          className={`flex min-h-11 min-w-0 flex-col items-center justify-center rounded-lg font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${customer ? "aspect-square" : "text-sm sm:aspect-square"} ${disabled || reason ? customer ? "cursor-not-allowed bg-neutral/20 text-neutral/40" : "cursor-not-allowed bg-neutral/5 text-neutral/30" : selected ? "bg-primary text-white" : customer && isPartiallyAvailable?.(date) ? "bg-amber-50 text-amber-900 hover:bg-amber-100" : "text-neutral hover:bg-primary/10"}`}>
+        const blocked = disabled || Boolean(reason) && !allowUnavailableSelection;
+        return <button key={date} type="button" data-date={date} disabled={blocked} aria-pressed={selected}
+          aria-label={`${dateLabel(date)}: ${reason ?? (selected ? "Selected" : "Select date")}${hint ? `. ${hint}` : ""}`} title={reason ?? hint ?? dateLabel(date)} onClick={() => { if (!blocked) onChange(date); }}
+          className={`flex min-h-11 min-w-0 flex-col items-center justify-center rounded-lg font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${customer ? "aspect-square" : "text-sm sm:aspect-square"} ${blocked ? customer ? "cursor-not-allowed bg-neutral/20 text-neutral/40" : "cursor-not-allowed bg-neutral/5 text-neutral/30" : selected ? "bg-primary text-white" : reason ? "bg-neutral/10 text-neutral/60 hover:bg-neutral/20" : customer && isPartiallyAvailable?.(date) ? "bg-amber-50 text-amber-900 hover:bg-amber-100" : "text-neutral hover:bg-primary/10"}`}>
           {index + 1}
-          {hint && <span className="text-[9px] leading-tight">{hint}</span>}
+          {hint && <span className={allowUnavailableSelection ? "max-w-full break-words px-0.5 text-center text-[9px] leading-tight sm:text-xs" : "text-[9px] leading-tight"}>{hint}</span>}
         </button>;
       })}
     </div>
     {customer ? <div className="mt-8 flex flex-wrap gap-6 border-t border-neutral/10 pt-6 text-sm text-neutral/70">
       <span className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-primary" />Selected</span>
       <span className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-neutral/20" />Fully booked / Unavailable</span>
-      {isPartiallyAvailable && <span className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-amber-50" />Day or night available</span>}
+      {isPartiallyAvailable && <span className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-amber-50" />{allowUnavailableSelection ? "Partially Available" : "Day or night available"}</span>}
       <span className="flex items-center gap-2"><span className="h-4 w-4 rounded border-2 border-neutral/30" />Available</span>
     </div> : <><div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-neutral/10 pt-4 text-xs text-neutral/60">
       <span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-primary" />Selected</span>

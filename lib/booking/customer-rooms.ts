@@ -7,11 +7,11 @@ export type CustomerRoomSelection = {
   accommodation?: number; additionalGuestCharge?: number;
   includedCapacity?: number;
 };
-export type CustomerRoomInventory = { room_id: string; classification_id: string; unavailable: boolean; blocks: ReservedWindow[] };
+export type CustomerRoomInventory = { room_id: string; classification_id: string; private_swimming_only?: boolean; unavailable: boolean; blocks: ReservedWindow[] };
 export type CustomerRoomService = { service_id: string; name: string; price: number; description: string | null; image_url: string | null; max_quantity: number; billing_type: "quantity" | "duration" | "person" | "fixed" };
 export type CustomerRoomCatalog = { classifications: RoomClass[]; rooms: CustomerRoomInventory[]; services: CustomerRoomService[]; maxBookingDate?: string };
-export const availableRoomCount = (catalog: CustomerRoomCatalog, classificationId: string, start: string, end: string) =>
-  catalog.rooms.filter(r => r.classification_id === classificationId && !r.unavailable && isWindowAvailable(start, end, r.blocks)).length;
+export const availableRoomCount = (catalog: CustomerRoomCatalog, classificationId: string, start: string, end: string, privatePackageOnly = false) =>
+  catalog.rooms.filter(r => r.classification_id === classificationId && Boolean(r.private_swimming_only) === privatePackageOnly && !r.unavailable && isWindowAvailable(start, end, r.blocks)).length;
 
 export function customerRoomQuote(classes: RoomClass[], rooms: CustomerRoomSelection[], duration: number, eligible: number, promo: PromoQuote | null, servicesTotal: number) {
   if (![3, 12].includes(duration) || !rooms.length || rooms.length > 20) throw new Error("Select a 3-hour or 12-hour stay and at least one room.");

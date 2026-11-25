@@ -129,8 +129,8 @@ test("chatbot quotes saved prices and cannot fall back to the static swimming pr
   assert.doesNotMatch(resortContext, /7,500|14,500|15,000/);
 });
 
-function bookingHarness({ version = 2, insertError = null, manual = false, services = [], conflict = false, registered = false, permitted = true, times, promo = null } = {}) {
-  const writes = [], appliedPromos = [];
+function bookingHarness({ version = 2, insertError = null, manual = false, services = [], conflict = false, registered = false, permitted = true, times, promo = null, roomTotal = 0 } = {}) {
+  const writes = [], appliedPromos = [], finalizedRooms = [];
   const rates = copy(); rates.weekday.day = { baseRate: 4321.25, addOnPerHead: 123.45 };
   const client = {
     ...db({ version, rates, times }),
@@ -156,6 +156,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
   const previousRpc=client.rpc; client.rpc=(name,args)=>name==="get_legal_policies"?Promise.resolve({data:[legalPoliciesFixture().terms,legalPoliciesFixture().privacy],error:null}):previousRpc(name,args);
   const route = loadTsModule(manual ? "app/api/admin/reservations/create/route.ts" : "app/api/reservations/create/route.ts", {
     "@/lib/server/booking-discounts": { BookingPromoError: class extends Error {}, loadBookingPromo: async code => code ? promo : null, applyNewBookingPromo: async (...args) => { if (args[2]) appliedPromos.push(args); } },
+    "@/lib/server/swimming-rooms": { SwimmingRoomsError: class extends Error {}, quoteSwimmingRooms: async () => ({total:roomTotal}), finalizeSwimmingRooms: async (rid,actor,rooms,code,gross,net) => { finalizedRooms.push({rid,actor,rooms,gross,net}); if (code) appliedPromos.push([rid,actor,code,gross,!manual,net]); } },
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/server/role-permissions": { staffHasPermission: async () => permitted },
     "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: client, staffUser: { role: "admin", id: "staff" } }), createAuditLog: async () => true },
@@ -164,7 +165,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
     "@/lib/notifications": { createNotifications: async () => ({ error: null }), NOTIFICATION_AUDIENCES: { reservation: [] } },
   });
 
-  return { writes, appliedPromos, save: (overrides = {}) => route.POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({
+  return { writes, appliedPromos, finalizedRooms, save: (overrides = {}) => route.POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({
     bookingMode: "day", startDatetime: "2027-06-14T08:00:00+08:00", endDatetime: "2027-06-14T16:00:00+08:00",
     adultCount: 22, childCount: 0, packageRateVersion: 2, bookingPolicyVersion: 1, phoneNumber: "09171234567",
     ...(manual ? { guestType: "walk_in", walkInGuest: { firstName: "Test", lastName: "Guest", email: "test@example.com", phoneNumber: "09123456789", address: "Test address" } } : {}),
@@ -182,6 +183,16 @@ test("reservation creation stamps its schedule and bills server prices rather th
   assert.equal(h.writes.find(w => w.table === "reservations").payload.privacy_policy_id, legalPoliciesFixture().privacy.policy_id);
   assert.equal(h.writes.find(w => w.table === "transactions").payload.total_amount, 4568.15);
   assert.equal(h.writes.some(w => w.table === "reservation_units"), false, "Private cottages are included without claiming a catalog room");
+});
+
+test('customer and manual private bookings pass normalized room choices into atomic finalization and reject stale totals before writes',async()=>{
+ const choice={classificationId:'00000000-0000-4000-8000-000000000901',quantity:1,pricingVersion:1};
+ for(const manual of [false,true]){
+  const h=bookingHarness({manual,roomTotal:900}),response=await h.save({swimmingRooms:[{...choice,unitPrice:1}],expectedTotal:5468.15});
+  assert.equal(response.status,201);assert.equal((await response.json()).reservation.totalAmount,5468.15);
+  assert.deepEqual(h.finalizedRooms[0],{rid:'reservation',actor:manual?'staff':'guest',rooms:[choice],gross:5468.15,net:5468.15});
+  const stale=bookingHarness({manual,roomTotal:900});assert.equal((await stale.save({swimmingRooms:[choice],expectedTotal:1})).status,409);assert.equal(stale.writes.length,0);
+ }
 });
 
 test("customer and manual bookings apply server-validated promos to the package and seed the gross bill", async () => {

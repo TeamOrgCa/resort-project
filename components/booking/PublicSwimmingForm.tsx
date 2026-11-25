@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import BookingProgress from "./BookingProgress";
+import BookingGuide from "./BookingGuide";
+import BookingPromoDiscount from "./BookingPromoDiscount";
 import ServiceSelectionCard from "./ServiceSelectionCard";
 import PromoCodeInput from "./PromoCodeInput";
 import PublicSwimmingSelection from "./PublicSwimmingSelection";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
+import GuestCountInput from "@/components/ui/GuestCountInput";
 import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
 import { useReservationFormGuard } from "./use-reservation-form-guard";
 import { createClient } from "@/lib/supabase/client";
@@ -18,10 +21,12 @@ import { parsePhilippineAddress, validatePhilippineAddress } from "@/lib/address
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 import { sanitizeName, isValidName } from "@/lib/helper/validation";
 import { serviceQuantityError } from "@/lib/booking/service-quantity";
-import { isBookingStartAllowed, BOOKING_LEAD_MESSAGE } from "@/lib/booking/start-time";
+import { isPublicSwimmingStartAllowed, PUBLIC_SWIMMING_LEAD_MESSAGE } from "@/lib/booking/public-swimming";
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
 import type { PromoQuote } from "@/lib/booking/discounts";
 import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
+import SwimmingRoomSelection, { useSwimmingRooms } from "./SwimmingRoomSelection";
+import type { SwimmingRoomSelection as RoomSelection } from "@/lib/booking/swimming-rooms";
 
 const money = (n: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(n);
 export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?: (reference: string, date?: string) => void; onBusyChange?: (busy: boolean) => void }) {
@@ -34,6 +39,10 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
   const [eligible, setEligible] = useState(manual ? 0 : draft.eligibleGuests ?? 0), [promo, setPromo] = useState<PromoQuote | null>(manual ? null : draft.promo ?? null), [checkingPromo, setCheckingPromo] = useState(false);
   const [quantities, setQuantities] = useState<Record<string, number>>(() => manual ? {} : Object.fromEntries(draft.services.map(s => [s.id, s.quantity ?? 1])));
   const [requests, setRequests] = useState(manual ? "" : draft.specialRequests), [busy, setBusy] = useState(false);
+  const [swimmingRooms, setSwimmingRooms] = useState<RoomSelection[]>(manual ? [] : draft.swimmingRooms ?? []);
+  const roomsState = useSwimmingRooms(session?.slot.startDatetime ?? "", session?.slot.endDatetime ?? "", swimmingRooms, false);
+  const roomsTotal = roomsState.quote?.total ?? 0;
+  const roomsIssue = swimmingRooms.length > 0 && (roomsState.loading || !roomsState.quote || !!roomsState.error);
   const requestId = useRef(""), saving = useRef(false), guard = useReservationFormGuard(!loading);
   const { confirm, confirmation } = useActionConfirmation();
   useEffect(() => {
@@ -63,22 +72,27 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
   const serviceError = serviceQuantityError(selections, services);
   let quote: ReturnType<typeof publicSwimmingQuote> | null = null, quoteError = "";
   if (session) { try { quote = publicSwimmingQuote(session.type, adults, children, eligible, promo, selected.reduce((sum, s) => sum + Number(s.price) * quantities[s.service_id], 0)); } catch (e) { quoteError = e instanceof Error ? e.message : "Review the guest counts."; } }
+  const total = Math.round(((quote?.total ?? 0) + roomsTotal) * 100) / 100;
   async function submit(e: FormEvent) {
     e.preventDefault(); if (saving.current) return; setError("");
     const phone = normalizePhilippineMobile(profile.phone), parsedAddress = validatePhilippineAddress(address);
     if (!isValidName(profile.firstName) || !isValidName(profile.lastName)) { setError("Enter the guest's full name."); return; }
     if (!phone) { setError(PH_MOBILE_ERROR); return; }
     if (!parsedAddress.value) { setError(parsedAddress.error ?? "Complete the address."); return; }
-    if (!session || !isBookingStartAllowed(session.slot.startDatetime)) { setError(BOOKING_LEAD_MESSAGE); return; }
-    if (!quote || loading || checkingPromo || serviceError || quoteError) { setError(serviceError || quoteError || "Review your booking details."); return; }
+    if (!session || !isPublicSwimmingStartAllowed(session.slot.startDatetime)) { setError(PUBLIC_SWIMMING_LEAD_MESSAGE); return; }
+    if (!quote || loading || checkingPromo || serviceError || quoteError || roomsIssue) { setError(serviceError || quoteError || roomsState.error || "Review your booking details."); return; }
     const latest = catalog?.types.find(t => t.type_id === session.type.type_id);
     if (!latest || latest.pricing_version !== session.type.pricing_version) { setError("Rates changed. Return to the calendar and choose your session again."); return; }
+    if (!catalog?.slots.some(s => s.typeId === session.type.type_id && Date.parse(s.startDatetime) === Date.parse(session.slot.startDatetime)
+      && Date.parse(s.endDatetime) === Date.parse(session.slot.endDatetime) && s.remainingCapacity >= adults + children)) {
+      setError("This session is unavailable or has insufficient capacity. Return to the calendar and choose another session."); return;
+    }
     const values = { firstName: profile.firstName.trim(), lastName: profile.lastName.trim(), phone, address: parsedAddress.value,
       typeId: session.type.type_id, pricingVersion: session.type.pricing_version,
       startDatetime: session.slot.startDatetime, endDatetime: session.slot.endDatetime, adultCount: adults, childCount: children,
-      eligibleGuests: eligible, promoCode: promo?.code ?? null, selectedServices: selections, specialRequests: requests, expectedTotal: quote.total };
+      eligibleGuests: eligible, promoCode: promo?.code ?? null, selectedServices: selections, swimmingRooms: roomsState.quote?.selections ?? [], specialRequests: requests, expectedTotal: total };
     if (manual) {
-      if (!await confirm({ title: "Create public swimming reservation?", message: `${profile.firstName} ${profile.lastName} · ${session.type.name}\n${formatManilaDateTime(session.slot.startDatetime)}\n${adults} adults, ${children} children\nTotal: ${money(quote.total)}. Full payment is required.`, confirmText: "Create reservation" })) return;
+      if (!await confirm({ title: "Create public swimming reservation?", message: `${profile.firstName} ${profile.lastName} · ${session.type.name}\n${formatManilaDateTime(session.slot.startDatetime)}\n${adults} adults, ${children} children\nTotal: ${money(total)}. Full payment is required.`, confirmText: "Create reservation" })) return;
       if (saving.current) return;
       saving.current = true; setBusy(true); onBusyChange?.(true); requestId.current ||= crypto.randomUUID();
       try {
@@ -90,21 +104,122 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
     } else {
       setDraft({ ...values, email: profile.email, commercialType: "public_swimming", publicSwimmingType: session.type, publicRequestId: draft.publicRequestId || crypto.randomUUID(),
         roomPrice: quote.admission, roomName: session.type.name, unitId: "public-swimming", eligibleGuests: eligible, discountAmount: quote.discount.amount, discountKind: quote.discount.kind,
-        subtotal: quote.admission + quote.servicesTotal, tax: 0, total: quote.total, downPayment: quote.total, paidAmount: 0, promo, packageRates: null, packageRateVersion: null,
+        subtotal: quote.admission + quote.servicesTotal + roomsTotal, tax: 0, total, downPayment: total, paidAmount: 0, promo, packageRates: null, packageRateVersion: null,
         services: selected.map(s => ({ id: s.service_id, name: s.name, price: Number(s.price), quantity: quantities[s.service_id], billingType: s.billing_type })), reservationId: "", reservationReference: "" });
       guard.reset(); router.push("/booking/details");
     }
   }
-  const field = "mt-2 min-h-12 w-full rounded-xl border border-neutral/20 bg-white px-4 py-3 focus:border-primary focus:outline-none";
-  const content = <>{guard.confirmation}{confirmation}{!session ? <PublicSwimmingSelection onChoose={(type, slot) => { setSession({ type, slot }); setError(""); }} /> : !manual && draft.reservationId ? <p className="rounded-xl bg-white p-5">Booking {draft.reservationReference} is already saved. <Link className="text-primary underline" href="/booking/details">View saved details</Link></p> : <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-    <div ref={guard.root} onFocusCapture={guard.captureInitial} onPointerDownCapture={guard.captureInitial} onClickCapture={guard.captureClick} onChangeCapture={guard.captureChange} onInputCapture={guard.captureChange}><form onSubmit={submit} className="space-y-5">
-      <section className="rounded-2xl bg-white p-5 shadow-sm"><h2 className="text-xl font-semibold">Guest and contact information</h2><div className="mt-4 grid gap-4 sm:grid-cols-2">{(["firstName", "lastName"] as const).map(k => <label key={k} className="text-sm font-medium">{k === "firstName" ? "First name" : "Last name"}<input required maxLength={100} className={field} value={profile[k]} onChange={e => setProfile(p => ({ ...p, [k]: sanitizeName(e.target.value) }))} /></label>)}<label className="text-sm font-medium">Contact number<div className="mt-2"><PhilippinePhoneInput name="phone" value={profile.phone} onChange={phone => setProfile(p => ({ ...p, phone }))} /></div></label>{!manual && <div className="text-sm"><p className="font-medium">Account email</p><p className="mt-3 break-all">{profile.email}</p></div>}</div><div className="mt-5"><PhilippineAddressFields value={address} onChange={setAddress} /></div></section>
-      <section className="rounded-2xl bg-white p-5 shadow-sm"><h2 className="text-xl font-semibold">Swimming guests</h2><div className="mt-4 grid gap-4 sm:grid-cols-3">{[{ label: "Adults", value: adults, min: 1, set: setAdults }, { label: "Children", value: children, min: 0, set: setChildren }, { label: "PWD / senior guests", value: eligible, min: 0, set: setEligible }].map(f => <label key={f.label} className="text-sm font-medium">{f.label}<input aria-label={f.label} type="number" min={f.min} max={f.label === "PWD / senior guests" ? adults + children : 30} step={1} required className={field} value={f.value} onChange={e => f.set(Number(e.target.value))} /></label>)}</div><p className="mt-3 text-sm text-neutral/60">Count each eligible guest once and bring valid IDs for arrival verification. Only the larger eligible PWD/senior discount or promo applies.</p><div className="mt-4"><PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} /></div></section>
-      <section className="rounded-2xl bg-white p-5 shadow-sm"><h2 className="text-xl font-semibold">Additional services</h2><p className="mt-2 text-sm text-neutral/65">Hourly services may be selected for up to {duration} hours, the duration of this session.</p>{loading && <p role="status" className="mt-4">Loading services…</p>}<div className="mt-4 grid gap-4 sm:grid-cols-2">{services.map(s => <ServiceSelectionCard key={s.service_id} service={{ id: s.service_id, name: s.name, description: s.description || "", price: Number(s.price), imageUrl: s.image_url, maxQuantity: s.max_quantity, billingType: s.billing_type }} selected={quantities[s.service_id] !== undefined} quantity={quantities[s.service_id] ?? 1} onToggle={() => setQuantities(q => { const next = { ...q }; if (next[s.service_id] === undefined) next[s.service_id] = 1; else delete next[s.service_id]; return next; })} onQuantityChange={n => setQuantities(q => ({ ...q, [s.service_id]: n }))} />)}</div></section>
-      <label className="block rounded-2xl bg-white p-5 text-sm font-medium">Special requests<textarea rows={3} maxLength={2000} className={field} value={requests} onChange={e => setRequests(e.target.value)} /></label>
-      {(error || quoteError || serviceError) && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{error || quoteError || serviceError}</p>}
-      <div className="flex flex-wrap gap-3">{manual ? <button type="button" disabled={busy} className="admin-button-secondary" onClick={() => setSession(null)}>Change session</button> : <Link href="/booking" className="rounded-full bg-neutral/10 px-6 py-4 font-semibold">Back to dates</Link>}<button type="submit" disabled={busy || loading || checkingPromo || !quote || !!serviceError} className="rounded-full bg-primary px-6 py-4 font-semibold text-white disabled:opacity-50">{busy ? "Saving reservation…" : manual ? "Create Public Swimming Reservation" : "Continue to Full Booking Details"}</button></div>
-    </form></div><aside className="h-fit rounded-2xl bg-white p-5 shadow-sm lg:sticky lg:top-28"><h2 className="text-xl font-semibold">{session.type.name}</h2><p className="mt-3 text-sm text-neutral/65">{formatManilaDateTime(session.slot.startDatetime)} – {formatManilaDateTime(session.slot.endDatetime)}</p><p className="mt-2 text-sm">{adults} adult(s) · {children} child(ren)</p>{quote && <dl className="mt-5 space-y-3 text-sm">{[["Admission", quote.admission], ["Services", quote.servicesTotal], [quote.discount.kind === "pwd_senior" ? "PWD / senior discount" : "Promo discount", -quote.discount.amount], ["Total", quote.total]].map(([label, value]) => <div key={label} className="flex justify-between gap-3"><dt>{label}</dt><dd className="font-semibold">{money(Number(value))}</dd></div>)}</dl>}<p className="mt-5 rounded-xl bg-base p-3 text-sm">Full payment is required within 30 minutes of saving. Payments remain subject to verification.</p></aside>
+  const field = "mt-2 w-full rounded-lg border border-neutral/20 bg-white px-4 py-3 text-neutral focus:border-primary focus:outline-none";
+  const content = <>{guard.confirmation}{confirmation}{!session ? <PublicSwimmingSelection onChoose={(type, slot) => { setSession({ type, slot }); setError(""); }} /> : !manual && draft.reservationId ? <section className="rounded-3xl bg-white p-4 shadow-xl sm:p-8"><p>Booking {draft.reservationReference} is already saved. <Link className="font-semibold text-primary underline" href="/booking/details">View saved details</Link></p></section> : <div className="grid min-w-0 gap-6 lg:grid-cols-3 lg:gap-8">
+    <div ref={guard.root} onFocusCapture={guard.captureInitial} onPointerDownCapture={guard.captureInitial} onClickCapture={guard.captureClick} onChangeCapture={guard.captureChange} onInputCapture={guard.captureChange} className="min-w-0 lg:col-span-2">
+      <form onSubmit={submit} className="rounded-3xl bg-white p-4 shadow-xl sm:p-8">
+        <h2 className="mb-6 text-2xl font-bold text-neutral sm:mb-8 sm:text-3xl">Reservation Details</h2>
+        <section data-booking-guide="guest-personal" className="mb-8">
+          <h3 className="mb-4 text-xl font-semibold text-neutral">Personal Information</h3>
+          <div className="grid gap-4 md:grid-cols-2">
+            {(["firstName", "lastName"] as const).map(k => <label key={k} className="block text-sm font-medium text-neutral/70">
+              {k === "firstName" ? "First name" : "Last name"} *
+              <input name={k} required autoComplete={k === "firstName" ? "given-name" : "family-name"} maxLength={100} className={field} value={profile[k]} onChange={e => setProfile(p => ({ ...p, [k]: sanitizeName(e.target.value) }))} />
+            </label>)}
+            {!manual && <label className="block text-sm font-medium text-neutral/70">Account email
+              <input name="email" type="email" readOnly aria-readonly="true" className={field + " bg-neutral/5 text-neutral/70"} value={profile.email} autoComplete="email" />
+            </label>}
+            <label className="block text-sm font-medium text-neutral/70">Phone Number *
+              <div className="mt-2"><PhilippinePhoneInput name="phone" value={profile.phone} onChange={phone => setProfile(p => ({ ...p, phone }))} /></div>
+            </label>
+            <div className="md:col-span-2"><PhilippineAddressFields value={address} onChange={setAddress} /></div>
+          </div>
+        </section>
+        <section data-booking-guide="guest-group" className="mb-8">
+          <h3 className="mb-4 text-xl font-semibold text-neutral">Swimming Guests</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[{ label: "Adults", value: adults, min: 1, set: setAdults }, { label: "Children", value: children, min: 0, set: setChildren }].map(f => <label key={f.label} className="block text-sm font-medium text-neutral/70">{f.label}
+              <GuestCountInput aria-label={f.label} min={f.min} max={30} required className={field} value={f.value} onValueChange={f.set} />
+            </label>)}
+          </div>
+          <p className="mt-3 text-sm text-neutral/70">Include at least one adult, with up to 30 guests per booking. Adult and child entrance rates are shown in the billing summary.</p>
+        </section>
+        <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={session.slot.startDatetime} end={session.slot.endDatetime} />
+        <section data-booking-guide="guest-services" className="mb-8">
+          <h3 className="mb-4 text-xl font-semibold text-neutral">Additional Services &amp; Amenities</h3>
+          <p className="mb-4 text-sm text-neutral/70">Services are optional. Hourly rentals may be selected for up to {duration} hours, the duration of this session.</p>
+          {loading && <p role="status" className="mb-4 text-sm text-neutral/70">Loading available services...</p>}
+          <div className="grid gap-3 sm:grid-cols-2">{services.map(s => <ServiceSelectionCard key={s.service_id}
+            service={{ id: s.service_id, name: s.name, description: s.description || "", price: Number(s.price), imageUrl: s.image_url, maxQuantity: s.max_quantity, billingType: s.billing_type }}
+            selected={quantities[s.service_id] !== undefined} quantity={quantities[s.service_id] ?? 1}
+            onToggle={() => setQuantities(q => { const next = { ...q }; if (next[s.service_id] === undefined) next[s.service_id] = 1; else delete next[s.service_id]; return next; })}
+            onQuantityChange={n => setQuantities(q => ({ ...q, [s.service_id]: n }))} />)}</div>
+          {!loading && !services.length && <p className="text-sm text-neutral/60">No additional services are available right now.</p>}
+        </section>
+        <section className="mb-8" aria-labelledby="public-discounts-heading">
+          <h3 id="public-discounts-heading" className="mb-4 text-xl font-semibold text-neutral">Discounts &amp; Promo Code</h3>
+          <label className="block max-w-sm text-sm font-medium text-neutral/70">PWD / senior guests
+            <GuestCountInput aria-label="PWD / senior guests" min={0} max={adults + children} required className={field} value={eligible} onValueChange={setEligible} />
+          </label>
+          <p className="mb-4 mt-3 text-sm text-neutral/70">Count each eligible guest once and bring valid IDs for arrival verification. Only the larger eligible PWD/senior discount or promo applies to admission. Rooms and services are charged separately.</p>
+          <PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />
+        </section>
+        <section data-booking-guide="guest-requests" className="mb-8">
+          <h3 className="mb-4 text-xl font-semibold text-neutral"><label htmlFor="public-special-requests">Special Requests</label></h3>
+          <textarea id="public-special-requests" name="specialRequests" rows={4} maxLength={2000} placeholder="Any special requests or dietary requirements?" className={field} value={requests} onChange={e => setRequests(e.target.value)} />
+        </section>
+        {(error || quoteError || serviceError) && <p role="alert" className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error || quoteError || serviceError}</p>}
+        <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+          {manual ? <button type="button" disabled={busy} className="flex-1 rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20 disabled:opacity-50" onClick={() => setSession(null)}>Change session</button>
+            : <Link href="/booking" className="flex-1 rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20">Back to dates</Link>}
+          <button data-booking-guide="guest-continue" type="submit" disabled={busy || loading || checkingPromo || !quote || !!serviceError || roomsIssue}
+            className="flex-1 rounded-full bg-primary px-6 py-4 font-semibold text-base transition-all hover:bg-primary/90 sm:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100">
+            {busy ? "Saving reservation..." : manual ? "Create Public Swimming Reservation" : "Review Full Details"}
+          </button>
+        </div>
+      </form>
+    </div>
+    <div className="min-w-0 lg:col-span-1">
+      <aside data-booking-guide="guest-summary" className="booking-summary rounded-3xl bg-white p-4 shadow-xl sm:p-8 lg:sticky lg:top-28">
+        <h3 className="mb-6 text-2xl font-bold text-neutral">Billing Summary</h3>
+        <div className="mb-6 space-y-4">
+          <dl className="space-y-2 border-b border-neutral/10 pb-4">
+            <div className="flex justify-between gap-3"><dt className="text-neutral/70">Start</dt><dd className="text-right font-semibold text-neutral">{formatManilaDateTime(session.slot.startDatetime)}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-neutral/70">End</dt><dd className="text-right font-semibold text-neutral">{formatManilaDateTime(session.slot.endDatetime)}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-neutral/70">Mode</dt><dd className="text-right font-semibold text-neutral">{session.type.name}</dd></div>
+          </dl>
+          <div className="border-b border-neutral/10 pb-4">
+            <h4 className="mb-2 text-sm font-semibold text-neutral">Guest Pricing</h4>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between gap-3"><dt className="text-neutral/70">Adults ({adults} × {money(Number(session.type.adult_rate))})</dt><dd className="whitespace-nowrap text-neutral">{money(adults * Number(session.type.adult_rate))}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-neutral/70">Children ({children} × {money(Number(session.type.child_rate))})</dt><dd className="whitespace-nowrap text-neutral">{money(children * Number(session.type.child_rate))}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-neutral/70">Total guests</dt><dd className="font-semibold text-neutral">{adults + children}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-neutral/70">Admission</dt><dd className="whitespace-nowrap font-semibold text-neutral">{money(quote?.admission ?? 0)}</dd></div>
+            </dl>
+          </div>
+          {selected.length > 0 && <div className="border-b border-neutral/10 pb-4">
+            <h4 className="mb-2 text-sm font-semibold text-neutral">Additional Services</h4>
+            <dl className="space-y-2 text-sm">{selected.map(s => <div key={s.service_id} className="flex justify-between gap-3">
+              <dt className="text-neutral/70">{s.name} × {quantities[s.service_id]}{s.billing_type === "duration" ? " hour(s)" : ""}</dt>
+              <dd className="whitespace-nowrap text-neutral">{money(Number(s.price) * quantities[s.service_id])}</dd>
+            </div>)}</dl>
+          </div>}
+          {roomsState.quote?.selections.map(r => <div key={r.classificationId} className="flex justify-between gap-3 text-sm"><span>{r.name} × {r.quantity}</span><span className="whitespace-nowrap">{money(r.unitPrice * r.quantity)}</span></div>)}
+          {quote && <>
+            <dl className="border-b border-neutral/10 pb-4">
+              <div className="flex justify-between gap-3"><dt className="text-neutral/70">Subtotal (before discount)</dt><dd className="whitespace-nowrap font-semibold text-neutral">{money(quote.admission + quote.servicesTotal + roomsTotal)}</dd></div>
+            </dl>
+            <BookingPromoDiscount code={promo?.code ?? null} amount={quote.discount.amount} kind={quote.discount.kind} />
+            <dl><div className="flex justify-between gap-3 text-xl font-bold"><dt className="text-neutral">Total</dt><dd className="whitespace-nowrap text-primary">{money(total)}</dd></div></dl>
+            <div className="rounded-lg bg-accent/10 p-4">
+              <div className="flex justify-between gap-3"><span className="text-sm font-semibold text-neutral">Full Payment</span><strong className="whitespace-nowrap text-lg text-accent">{money(total)}</strong></div>
+              <p className="mt-2 text-xs text-neutral/60">Full payment is due within 30 minutes of saving. Payments remain subject to staff verification.</p>
+            </div>
+          </>}
+        </div>
+        <p className="rounded-lg bg-highlight/10 p-4 text-sm text-neutral/80"><span className="font-semibold">Note:</span> Review your session, guest counts and services before saving your reservation.</p>
+      </aside>
+    </div>
   </div>}</>;
-  return manual ? content : <div className="booking-flow min-h-screen bg-base"><Navigation /><BookingProgress currentStep={2} /><main className="mx-auto max-w-7xl px-4 py-10 sm:px-6"><h1 className="mb-6 text-3xl font-bold">Public Swimming Booking Details</h1>{content}</main><Footer /></div>;
+  return manual ? content : <div className="booking-flow min-h-screen bg-base">
+    <Navigation /><BookingProgress currentStep={session ? 2 : 1} />
+    {session && !draft.reservationId && <BookingGuide page="guest" publicSwimming disabled={busy || checkingPromo} />}
+    <main className="px-4 py-6 sm:py-12"><div className="mx-auto max-w-6xl">{content}</div></main>
+    <Footer />
+  </div>;
 }

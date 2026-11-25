@@ -1,4 +1,6 @@
-import { BookingPromoError, loadBookingPromo, applyNewBookingPromo } from "@/lib/server/booking-discounts";
+import { BookingPromoError, loadBookingPromo } from "@/lib/server/booking-discounts";
+import { parseSwimmingRooms, type SwimmingRoomSelection } from "@/lib/booking/swimming-rooms";
+import { quoteSwimmingRooms, finalizeSwimmingRooms, SwimmingRoomsError } from "@/lib/server/swimming-rooms";
 import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { NextResponse } from "next/server";
@@ -30,6 +32,8 @@ interface ServiceSelectionInput {
 }
 
 interface ManualReservationPayload {
+  swimmingRooms?: SwimmingRoomSelection[];
+  expectedTotal?: number;
   packageRateVersion: number;
   guestType?: GuestType;
   guestEmail?: string;
@@ -102,6 +106,8 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
   }
 
   const payload = value as Partial<ManualReservationPayload>;
+  const swimmingRooms = parseSwimmingRooms(payload.swimmingRooms);
+  if (!swimmingRooms || payload.expectedTotal !== undefined && (typeof payload.expectedTotal !== "number" || !Number.isFinite(payload.expectedTotal) || payload.expectedTotal < 0)) return null;
   if (payload.promoCode !== undefined && payload.promoCode !== null && (typeof payload.promoCode !== "string" || payload.promoCode.length > 40)) return null;
 
   if (
@@ -142,6 +148,8 @@ const parsePayload = (value: unknown): ManualReservationPayload | null => {
 
   return {
     guestType,
+    swimmingRooms,
+    expectedTotal: payload.expectedTotal,
     packageRateVersion: Number(payload.packageRateVersion),
     guestEmail: typeof payload.guestEmail === "string" ? payload.guestEmail.trim() : undefined,
     guestId: typeof payload.guestId === "string" ? payload.guestId.trim() : undefined,
@@ -291,6 +299,16 @@ export async function POST(request: Request) {
     if (quantityError) return NextResponse.json({ success: false, message: quantityError }, { status: 400 });
 
     const promo = await loadBookingPromo(payload.promoCode);
+    const roomQuote = await quoteSwimmingRooms(payload.swimmingRooms ?? [], payload.startDatetime, payload.endDatetime);
+    const servicesTotal = selectedServices.reduce((sum, service) => sum + Number(servicesById.get(service.serviceId)!.price) * (service.quantity ?? 1), 0);
+    const pricing = computeBookingPricing({
+      bookingMode: payload.bookingMode, startDatetime: payload.startDatetime, endDatetime: payload.endDatetime,
+      adultCount: payload.adultCount, childCount: payload.childCount, servicesTotal, promo,
+    }, packageSchedule.rates);
+    const totalAmount = Math.round((pricing.total + roomQuote.total) * 100) / 100;
+    if (payload.expectedTotal !== undefined && Math.abs(payload.expectedTotal - totalAmount) > 0.001) {
+      return NextResponse.json({ success: false, message: "Prices changed. Refresh the room and package choices, then review the total." }, { status: 409 });
+    }
     const guestId: string | null = null;
     let walkInGuestId: string | null = null;
 
@@ -340,20 +358,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const servicesTotal = selectedServices.reduce((sum, service) => {
-      const matchedService = servicesById.get(service.serviceId);
-      if (!matchedService) return sum;
-      return sum + Number(matchedService.price) * (service.quantity ?? 1);
-    }, 0);
-    const pricing = computeBookingPricing({
-      bookingMode: payload.bookingMode,
-      startDatetime: payload.startDatetime,
-      endDatetime: payload.endDatetime,
-      adultCount: payload.adultCount,
-      childCount: payload.childCount,
-      servicesTotal, promo,
-    }, packageSchedule.rates);
-
     const { data: reservation, error: reservationError } = await staffContext.supabase
       .from("reservations")
       .insert({
@@ -377,7 +381,7 @@ export async function POST(request: Request) {
       if (walkInGuestId) {
         await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
       }
-      if (reservationError?.code === "40001") return NextResponse.json({ success: false, message: "Package rates changed. Reload the booking prices before saving." }, { status: 409 });
+      if (reservationError?.code === "40001") return NextResponse.json({ success: false, message: /room/i.test(reservationError.message ?? "") ? reservationError.message : "Package rates changed. Reload the booking prices before saving." }, { status: 409 });
       if (reservationError?.code === "22023") return NextResponse.json({ success: false, message: "The selected package has already started. Choose a future start time (Philippine time)." }, { status: 400 });
       if (reservationError?.code === "23P01") {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved." }, { status: 409 });
@@ -438,7 +442,7 @@ export async function POST(request: Request) {
       );
     }
 
-    try { await applyNewBookingPromo(reservation.reservation_id, staffContext.staffUser.id, promo?.code ?? null, pricing.grossTotal, false, pricing.total); }
+    try { await finalizeSwimmingRooms(reservation.reservation_id, staffContext.staffUser.id, payload.swimmingRooms ?? [], promo?.code ?? null, Math.round((pricing.grossTotal + roomQuote.total) * 100) / 100, totalAmount); }
     catch (error) { await staffContext.supabase.from("reservations").delete().eq("reservation_id", reservation.reservation_id); if (walkInGuestId) await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId); throw error; }
     const auditSuccess = await createAuditLog(staffContext, {
       action: "Created manual reservation",
@@ -459,8 +463,8 @@ export async function POST(request: Request) {
         reservation: {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
-          status: pricing.total === 0 ? "confirmed" : reservation.status,
-          totalAmount: pricing.total,
+          status: totalAmount === 0 ? "confirmed" : reservation.status,
+          totalAmount,
           bookingType: "walk_in",
         },
       },
@@ -468,6 +472,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     if (error instanceof BookingPromoError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
+    if (error instanceof SwimmingRoomsError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     return NextResponse.json(
       {

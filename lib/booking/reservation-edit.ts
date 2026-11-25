@@ -18,6 +18,7 @@ export type ReservationEdit = {
   lateRescheduleAcknowledged?: boolean;
 };
 export type EditableReservation = {
+  swimming_room_choices?: { classificationId: string; quantity: number; pricingVersion: number }[] | null;
   public_type_id?: string | null;
   public_pricing_snapshot?: { adult_rate: number; child_rate: number } | null;
   public_admission_amount?: number | null;
@@ -40,7 +41,7 @@ export type EditDetail = {
   reservation: EditableReservation; guest: { first_name: string; last_name: string; email: string | null; phone_number: string | null } | null;
   services: SelectedService[]; units: SelectedUnit[]; catalogServices: CatalogService[]; catalogUnits: CatalogUnit[];
   bill: Bill; version: string; canEdit: boolean; canChangeDetails: boolean; lockedReason: string | null;
-  packageRates: PackageRates; packageTimes?: PackageTimes;
+  packageRates: PackageRates | null; packageTimes?: PackageTimes;
   canManageDiscount?: boolean;
   canApproveLateReschedule?: boolean;
   canRescheduleException?: boolean;
@@ -129,7 +130,7 @@ export function validateEditWindow(edit: ReservationEdit, times: PackageTimes = 
 
 // Apply the package difference to the recorded bill. This retains historical
 // discounts, reschedule fees and negotiated charges, including on service-only edits.
-export function previewReservationEdit(r: EditableReservation, bill: Bill, existing: SelectedService[], catalog: CatalogService[], edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime" | "adultCount" | "childCount" | "services">, rates: PackageRates, now = Date.now()) {
+export function previewReservationEdit(r: EditableReservation, bill: Bill, existing: SelectedService[], catalog: CatalogService[], edit: Pick<ReservationEdit, "bookingMode" | "startDatetime" | "endDatetime" | "adultCount" | "childCount" | "services">, rates: PackageRates | null, now = Date.now()) {
   const quantityError = serviceQuantityError(edit.services, catalog, existing);
   if (quantityError) throw new Error(quantityError);
   if (r.commercial_type === "public_swimming" && !r.room_pricing) {
@@ -149,6 +150,7 @@ export function previewReservationEdit(r: EditableReservation, bill: Bill, exist
     return { interimTotal, hasDiscount: true, discountAmount: discount.amount, packageDelta, rescheduleFee, dateRateAdjustment: 0, servicesTotal, total,
       paid: Number(bill.paid_amount), balance: moneyRound(Math.max(0, total - Number(bill.paid_amount))), overpaid: moneyRound(Math.max(0, Number(bill.paid_amount) - total)) };
   }
+  if (!rates) throw new Error("The booked private package rates are missing. Reload the reservation.");
   const priceInput = { bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count };
   const changed = priceInput.bookingMode !== edit.bookingMode || Date.parse(priceInput.startDatetime) !== Date.parse(edit.startDatetime) ||
     Date.parse(priceInput.endDatetime) !== Date.parse(edit.endDatetime) || priceInput.adultCount !== edit.adultCount || priceInput.childCount !== edit.childCount;

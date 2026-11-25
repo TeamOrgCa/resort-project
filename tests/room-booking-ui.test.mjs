@@ -25,7 +25,7 @@ test("room stays reveal durations after date selection and carry available 3-hou
       {start_datetime:`${month}-05T00:00:00+08:00`,end_datetime:`${month}-05T10:00:00+08:00`},
       {start_datetime:`${month}-05T13:00:00+08:00`,end_datetime:`${month}-06T08:00:00+08:00`},
       {start_datetime:`${month}-07T00:00:00+08:00`,end_datetime:`${month}-08T00:00:00+08:00`}
-    ]}],
+    ]},{room_id:"S02",classification_id:"standard",private_swimming_only:true,unavailable:false,blocks:[]}],
     reservations: [{ start_datetime: `${month}-05T00:00:00+08:00`, end_datetime: `${month}-05T10:00:00+08:00` }],
     blockedDates: [
       { start_date: `${month}-05`, end_date: `${month}-06`, start_datetime: `${month}-05T13:00:00+08:00`, end_datetime: `${month}-06T08:00:00+08:00` },

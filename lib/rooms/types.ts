@@ -9,7 +9,7 @@ export type RoomAssignment = {
   assignment_id: string; room_id: string; reservation_id: string; occupants: number;
   starts_at: string; expected_checkout: string; checked_in_at: string | null; checked_out_at: string | null;
   state: "reserved" | "occupied" | "completed" | "cancelled" | "transferred";
-  reservation: { reference_number: string; commercial_type: string; status: string; start_datetime: string; end_datetime: string };
+  reservation: { reference_number: string; commercial_type: string; room_pricing?: boolean; status: string; start_datetime: string; end_datetime: string };
   guest_name: string; contact: string;
 };
 export type RoomActivity = {
@@ -17,6 +17,7 @@ export type RoomActivity = {
   activity_type: string; description: string; created_at: string; staff_name: string;
 };
 export type Room = {
+  private_swimming_only?: boolean;
   room_id: string; room_number: string; name: string; classification_id: string; status: RoomStatus;
   is_active: boolean; condition_notes: string | null; classification: RoomClass;
   current: RoomAssignment | null; upcoming: RoomAssignment[];

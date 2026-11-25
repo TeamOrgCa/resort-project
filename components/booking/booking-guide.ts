@@ -15,8 +15,15 @@ export function bookingGuide(page: BookingGuidePage, saved = false, balance = fa
     description: "Choose a public session, complete guest information, review and save, then submit full payment within 30 minutes.",
     steps: page === "dates" ? [
       step("public-times", "Choose Day or Night", "Choose an available Day or Night Public Swimming session. Read the Philippine times and entrance rates."),
-      step("dates-calendar", "Choose a public date", "The booking window covers three consecutive dates from the next available public date, including that first date. Private bookings and maintenance block the affected sessions."),
+      step("dates-calendar", "Choose a public date", "Browse any month and inspect both sessions. Public booking is open today and the next two calendar days in Philippine time. Reserve at least one hour before the chosen session. Later dates show when booking opens; future availability is tentative because private reservations may still be made."),
       step("dates-continue", "Continue to guest details", "Enter adults, children, PWD/senior eligibility, optional services and a promo. Hourly services cannot exceed the session duration."),
+    ] : page === "guest" ? [
+      step("guest-personal", "Personal information", "Review the guest's name, phone number and address. Your signed-in account email is shown with your contact details."),
+      step("guest-group", "Swimming guests", "Enter adults and children separately. Public entrance rates and the total update in the billing summary."),
+      step("guest-services", "Optional services", "Choose any services you need. Hourly rentals cannot exceed your swimming session. Enter eligible PWD/senior guests and an optional promo in the discounts section below."),
+      step("guest-requests", "Special requests", "Add any requests you would like the resort to review."),
+      step("guest-summary", "Review your bill", "Check your session, adult and child admission, services, applicable discount and full payment amount."),
+      step("guest-continue", "Review full details", "Continue to review the complete booking before saving. Full payment is due within 30 minutes after saving your reservation."),
     ] : page === "payment" ? [step("payment-amount", "Full payment", "Public swimming requires full payment of the outstanding balance. Submit payment within 30 minutes of saving. Payments awaiting review preserve the booking.")]
       : [step("review-summary", "Review public swimming details", "Check the public session, adults, children, services and the single applicable discount. Save the booking, then continue to full payment.")],
   };

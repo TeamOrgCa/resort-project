@@ -56,6 +56,17 @@ test("staff verify an eligible count, compare promo savings, and save only the g
   } finally { await h.close(); }
 });
 
+test('transaction discount panel previews public swimming discounts against admission and excludes services', async () => {
+  const h = await mount('components/admin/BookingDiscountPanel.tsx', { reservationId: 'public-booking' }, async () =>
+    Response.json({ headCount: 3, packagePrice: 420, packagePriceLabel: 'Public swimming admission', bill: { total_amount: 620, paid_amount: 0 }, locked: false }));
+  try {
+    assert.match(h.c.textContent, /Public swimming admission.*420\.00/);
+    await change(h.c.querySelector('[aria-label="Eligible PWD / senior guests"]'), 1);
+    assert.match(h.c.textContent, /PWD \/ senior discount₱28\.00/);
+    assert.match(h.c.textContent, /New total₱592\.00/);
+  } finally { await h.close(); }
+});
+
 test("cashier bill adjustment refreshes the collectible balance before recording payment", async () => {
   let changed = false, refreshes = 0;
   const h = await mount("components/admin/transactions/RecordPaymentDialog.tsx", {

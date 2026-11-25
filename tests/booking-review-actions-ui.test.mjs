@@ -34,12 +34,26 @@ const actions = container => container.querySelector('[aria-label="Booking actio
 const labels = container => [...actions(container).children].map(child => child.textContent.trim());
 const click = el => act(async () => el.click());
 
+test('private review shows package inclusions and paid extra rooms separately and sends them with the full quote',async()=>{
+ const posts=[],rooms=[{classificationId:'standard',quantity:1,pricingVersion:1,name:'Standard Rooms',unitPrice:900}];
+ const h=await mount(async(url,options)=>{posts.push({url,body:JSON.parse(options.body)});return Response.json({success:true,reservation:{id:'booking',totalAmount:8400}});},false,{swimmingRooms:rooms,total:8400,packageRates:legacyRates});
+ try{
+  assert.match(h.container.textContent,/2 Standard rooms included at no extra charge/);
+  assert.match(h.container.textContent,/Additional Rooms.*Standard Rooms × 1.*900\.00 for the full swimming session/);
+  assert.match(h.container.querySelector('[data-booking-guide="review-bill"]').textContent,/Private pool package.*7,500\.00.*Additional rooms.*900\.00.*Subtotal.*8,400\.00/);
+  assert.match(h.container.textContent,/20% Down Payment:.*1,680\.00/);
+  await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector('button'));
+  assert.deepEqual(posts[0].body.swimmingRooms,rooms);assert.equal(posts[0].body.expectedTotal,8400);
+ }finally{await h.close();}
+});
+
 test("room booking review saves room selections through the room API and then offers full payment", async () => {
   const posts=[];
   const h=await mount(async(url,options)=>{posts.push({url,body:JSON.parse(options.body)});return Response.json({success:true,reservation:{id:"room-reservation",referenceNumber:"RM-SAVED",totalAmount:270}});},false,
     {commercialType:"room_accommodation",unitId:"room-accommodation",roomRequestId:"room-request",roomSelections:[{classificationId:"standard",pricingVersion:1,occupants:2,name:"Standard Rooms",accommodation:300,additionalGuestCharge:0,includedCapacity:2}],adultCount:2,eligibleGuests:1,discountAmount:30,discountKind:"pwd_senior",roomPrice:300,total:270,endDatetime:"2027-06-14T11:00:00+08:00"});
   try{
-    assert.deepEqual(labels(h.container),["Back to Booking Details","Save Booking"]);assert.doesNotMatch(h.container.textContent,/Down Payment Option/);
+    assert.deepEqual(labels(h.container),["Back to Booking Details","Save Booking"]);assert.doesNotMatch(h.container.textContent,/Down Payment/);
+    assert.match(h.container.textContent,/Full Payment:.*₱270\.00/);
     assert.ok(h.container.querySelector('[aria-label="Applied PWD / senior discount"]'));
     await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector("button"));
     assert.equal(posts[0].url,"/api/reservations/rooms");assert.equal(posts[0].body.rooms.length,1);assert.equal(posts[0].body.durationHours,3);assert.equal(posts[0].body.eligibleGuests,1);
@@ -52,6 +66,7 @@ test("booking review has exactly two actions and switches them only after a succ
   const h = await mount(async () => { posts++; return new Promise(resolve => { finish = () => resolve(Response.json({ success: true, reservation: { id: "reservation", referenceNumber: "MV-TEST", totalAmount: 7500, paymentDeadlineAt: "2027-06-14T01:00:00Z" } })); }); });
   try {
     assert.deepEqual(labels(h.container), ["Back to Edit", "Save Booking"]);
+    assert.match(h.container.textContent,/20% Down Payment:/);
     assert.equal(actions(h.container).querySelector("a").getAttribute("href"), "/booking/form");
     const save = actions(h.container).querySelector("button"); assert.equal(save.disabled, true);
     await click(h.container.querySelector('[aria-label="Accept terms"]'));
@@ -69,14 +84,28 @@ test("booking review has exactly two actions and switches them only after a succ
 
 test("public swimming review saves adult/child eligibility and services through its API with full payment",async()=>{
   const posts=[];
+  const date=new Date(Date.now()+86400000).toLocaleDateString('en-CA',{timeZone:'Asia/Manila'});
   const h=await mount(async(url,options)=>{posts.push({url,body:JSON.parse(options.body)});return Response.json({success:true,reservation:{id:'public-reservation',referenceNumber:'PS-SAVED',totalAmount:420}});},false,
-    {commercialType:'public_swimming',unitId:'public-swimming',publicRequestId:'public-request',publicSwimmingType:{type_id:'day',name:'Day Public Swimming',pricing_version:1},adultCount:2,childCount:1,eligibleGuests:0,discountAmount:0,roomPrice:420,total:420});
+    {commercialType:'public_swimming',unitId:'public-swimming',publicRequestId:'public-request',publicSwimmingType:{type_id:'day',name:'Day Public Swimming',pricing_version:1},adultCount:2,childCount:1,eligibleGuests:0,discountAmount:0,roomPrice:420,total:420,startDatetime:date+'T08:00:00+08:00',endDatetime:date+'T16:00:00+08:00'});
   try{
-    assert.doesNotMatch(h.container.textContent,/Down Payment Option/);assert.match(h.container.textContent,/Public swimming admission/);
+    assert.doesNotMatch(h.container.textContent,/Down Payment/);assert.match(h.container.textContent,/Public swimming admission/);
+    assert.match(h.container.textContent,/Full Payment:.*₱420\.00/);
     await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector('button'));
     assert.equal(posts[0].url,'/api/reservations/public-swimming');assert.equal(posts[0].body.typeId,'day');assert.equal(posts[0].body.adultCount,2);assert.equal(posts[0].body.childCount,1);assert.equal(posts[0].body.eligibleGuests,0);
     assert.equal(h.store.getState().bookingDraft.downPayment,420);
+    assert.doesNotMatch(h.container.textContent,/Down Payment/);assert.match(h.container.textContent,/Full Payment:.*₱420\.00/);
   }finally{await h.close();}
+});
+
+test("public review rejects a passed one-hour cutoff and dates outside the rolling window before posting",async()=>{
+  for(const [start,message] of [[new Date(Date.now()+30*60000).toISOString(),/at least one hour/],[new Date(Date.now()+4*86400000).toISOString(),/today and the next two calendar days/]]){
+    let posts=0;
+    const h=await mount(async()=>{posts++;return Response.json({success:true});},false,{commercialType:'public_swimming',startDatetime:start,endDatetime:new Date(Date.parse(start)+8*3600000).toISOString()});
+    try{
+      await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector('button'));
+      assert.equal(posts,0);assert.match(h.container.querySelector('[role="alert"]').textContent,message);
+    }finally{await h.close();}
+  }
 });
 
 test("failed saves retain the edit/save actions and show the retry error directly above them", async () => {

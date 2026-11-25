@@ -9,7 +9,7 @@ import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "./start-time";
 import { useBookingAvailability } from "./use-booking-availability";
 import { advanceBookingIssue } from "./advance-window";
 import { useEffect, useState } from "react";
-import type { PublicSwimmingCatalog } from "./public-swimming";
+import { isPublicSwimmingStartAllowed, type PublicSwimmingCatalog } from "./public-swimming";
 
 export function useGuestRescheduleAvailability(start: string, end: string, month: string, selectedDate: string, enabled: boolean, commercialType?: string, reservationId?: string) {
   const publicBooking = commercialType === "public_swimming";
@@ -60,7 +60,7 @@ export function useGuestRescheduleAvailability(start: string, end: string, month
       if (publicError) return publicError;
       if (!publicData) return requireReady ? "Loading public swimming dates..." : null;
       const moved = moveReservationToDate({ start_datetime: start, end_datetime: end }, date);
-      return publicData.slots.some(s => Date.parse(s.startDatetime) === Date.parse(moved.startDatetime) && Date.parse(s.endDatetime) === Date.parse(moved.endDatetime) && isBookingStartAllowed(s.startDatetime)) ? null : "This public swimming session is unavailable within the three-day booking window.";
+      return publicData.slots.some(s => Date.parse(s.startDatetime) === Date.parse(moved.startDatetime) && Date.parse(s.endDatetime) === Date.parse(moved.endDatetime) && isPublicSwimmingStartAllowed(s.startDatetime)) ? null : "This public swimming session is unavailable within the three-day booking window or its one-hour cutoff has passed.";
     }
     if (availability.maxBookingDate) { const issue = advanceBookingIssue(date, availability.maxBookingDate); if (issue) return issue; }
     const moved = moveReservationToDate({ start_datetime: start, end_datetime: end }, date);

@@ -1,4 +1,5 @@
 import { serviceBilling } from "./service-billing";
+import { formatHourDurations } from "@/lib/format-hour-durations";
 import { describeBillingDiscount, type BillingDiscountSnapshot } from "./billing-discount";
 export type BillingLine = {
   kind?: "discount";
@@ -80,7 +81,7 @@ export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
     quantity: 1, unitPrice: -money(discountAmount), amount: -money(discountAmount),
   }] : [];
   const roomLines: BillingLine[] = (input.roomCharges ?? []).map(charge => ({
-    description: charge.description, detail: "Room operations · recorded charge", quantity: 1,
+    description: formatHourDurations(charge.description), detail: "Room operations · recorded charge", quantity: 1,
     unitPrice: money(Number(charge.amount)), amount: money(Number(charge.amount)),
   }));
   const detailedLines = [...unitLines, ...guestLines, ...serviceLines, ...roomLines, ...adjustmentLines, ...discountLines];

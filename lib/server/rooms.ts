@@ -19,7 +19,7 @@ export async function loadRooms(): Promise<RoomDashboard> {
   const ids = [...new Set(assignments.map(a => a.reservation_id as string))];
   // Fetch by IDs rather than relying on legacy PostgREST relationships, some of
   // which are absent in the deployed schema. Do not fetch unrelated guest data.
-  const reservations = { data: await fetchByIds(ids, (batch, from, to) => db.from("reservations").select("reservation_id,reference_number,commercial_type,status,start_datetime,end_datetime,payment_deadline_at,guest_id,walk_in_guest_id").in("reservation_id", batch).order("reservation_id").range(from, to)) };
+  const reservations = { data: await fetchByIds(ids, (batch, from, to) => db.from("reservations").select("reservation_id,reference_number,commercial_type,room_pricing,status,start_datetime,end_datetime,payment_deadline_at,guest_id,walk_in_guest_id").in("reservation_id", batch).order("reservation_id").range(from, to)) };
   const guestIds = [...new Set((reservations.data ?? []).map(r => r.guest_id).filter(Boolean))];
   const walkIds = [...new Set((reservations.data ?? []).map(r => r.walk_in_guest_id).filter(Boolean))];
   const people = await Promise.all([
