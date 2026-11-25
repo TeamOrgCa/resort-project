@@ -14,6 +14,9 @@ import { buildBookingCostSummary } from "@/lib/booking/summary";
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
 import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
 import { requiresFullBookingPayment } from "@/lib/booking/commercial-types";
+import { isPublicSwimmingStartAllowed, PUBLIC_SWIMMING_LEAD_MESSAGE, publicSwimmingDates } from "@/lib/booking/public-swimming";
+import { manilaDateKey } from "@/lib/booking/manila-date";
+import PrivatePackageDetails from "@/components/booking/PrivatePackageDetails";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -84,6 +87,15 @@ function BookingDetailsContent() {
       return;
     }
 
+    if (isPublicBooking && !isPublicSwimmingStartAllowed(bookingDraft.startDatetime)) {
+      setSaveError(PUBLIC_SWIMMING_LEAD_MESSAGE);
+      return;
+    }
+    if (isPublicBooking && !publicSwimmingDates().includes(manilaDateKey(bookingDraft.startDatetime))) {
+      setSaveError("Public swimming is open for booking today and the next two calendar days. Return to the calendar to choose an eligible session.");
+      return;
+    }
+
     setSaveError(null);
     setSaveSuccess(null);
     saving.current = true;
@@ -104,12 +116,14 @@ function BookingDetailsContent() {
           acceptedPoliciesVersion: legalPolicyVersion, bookingPolicyVersion,
         } : isPublicBooking ? {
           requestId: bookingDraft.publicRequestId, typeId: bookingDraft.publicSwimmingType?.type_id, pricingVersion: bookingDraft.publicSwimmingType?.pricing_version,
+          swimmingRooms: bookingDraft.swimmingRooms ?? [],
           firstName: bookingDraft.firstName, lastName: bookingDraft.lastName, phone: bookingDraft.phone, address: bookingDraft.address,
           startDatetime: bookingDraft.startDatetime, endDatetime: bookingDraft.endDatetime, adultCount: bookingDraft.adultCount, childCount: bookingDraft.childCount,
           eligibleGuests: bookingDraft.eligibleGuests ?? 0, promoCode: bookingDraft.promoCode ?? null, expectedTotal: bookingDraft.total,
           selectedServices: bookingDraft.services.map(s => ({ serviceId: s.id, quantity: s.quantity ?? 1 })), specialRequests: bookingDraft.specialRequests,
           acceptedPoliciesVersion: legalPolicyVersion, bookingPolicyVersion,
         } : {
+          swimmingRooms: bookingDraft.swimmingRooms ?? [], expectedTotal: bookingDraft.total,
           promoCode: bookingDraft.promoCode ?? null,
           bookingMode: bookingDraft.bookingMode,
           packageRateVersion: bookingDraft.packageRateVersion,
@@ -200,11 +214,11 @@ function BookingDetailsContent() {
                     <h3 className="text-lg font-semibold text-neutral mb-3">To Pay First</h3>
                     <div className="grid sm:grid-cols-2 gap-2 text-sm">
                       <p>
-                        {DOWN_PAYMENT_PERCENT}% Down Payment: <span className="font-semibold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        {requiresFullPayment ? "Full Payment" : `${DOWN_PAYMENT_PERCENT}% Down Payment`}: <span className="font-semibold text-primary">₱{downPayment.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </p>
-                      <p>
+                      {requiresFullPayment ? <p className="text-neutral/70">Pay the full amount within 30 minutes after saving your booking.</p> : <p>
                         Remaining Balance: <span className="font-semibold text-neutral">₱{remainingBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      </p>
+                      </p>}
                     </div>
                   </div>
 
@@ -236,6 +250,8 @@ function BookingDetailsContent() {
                     </div>
                   </div>
 
+                  {!isRoomBooking && !isPublicBooking && <PrivatePackageDetails />}
+                  {!isRoomBooking && !!bookingDraft.swimmingRooms?.length && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="mb-3 text-lg font-semibold">Additional Rooms</h3><ul className="space-y-2 text-sm">{bookingDraft.swimmingRooms.map(r => <li key={r.classificationId}>{r.name} × {r.quantity} · ₱{(Number(r.unitPrice || 0) * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2 })} for the full swimming session</li>)}</ul></section>}
                   {isRoomBooking && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="mb-3 text-lg font-semibold">Selected Rooms</h3><ul className="space-y-2 text-sm">{bookingDraft.roomSelections?.map((r, i) => <li key={i}>Room {i + 1}: {r.name} &middot; {r.occupants} guest(s) &middot; {durationHours} hours</li>)}</ul><p className="mt-3 text-sm">Declared PWD / senior guests: {bookingDraft.eligibleGuests ?? 0}. Bring valid IDs for staff verification at arrival.</p></section>}
                   {isPublicBooking && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="font-semibold">{bookingDraft.publicSwimmingType?.name ?? "Public Swimming"}</h3><p className="mt-2 text-sm">{bookingDraft.adultCount} adults · {bookingDraft.childCount} children · {bookingDraft.eligibleGuests ?? 0} PWD / senior guests. Bring valid IDs for staff verification.</p></section>}
                   <div className="rounded-xl border border-neutral/10 p-4">
@@ -258,6 +274,7 @@ function BookingDetailsContent() {
                     <div className="space-y-2 text-sm text-neutral/80">
                       <div className="flex justify-between"><span>{costSummary.packageLabel}</span><span className="font-semibold text-neutral">₱{costSummary.packageCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       {costSummary.extraGuestCharge > 0 && <div className="flex justify-between"><span>Extra guests ({costSummary.extraGuests})</span><span className="font-semibold text-neutral">₱{costSummary.extraGuestCharge.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                      {costSummary.roomsTotal > 0 && <div className="flex justify-between"><span>Additional rooms</span><span className="font-semibold text-neutral">₱{costSummary.roomsTotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                       {bookingDraft.services.map((service) => <div key={service.id} className="flex justify-between"><span>{service.name} × {serviceCount(service.quantity ?? 1, service.billingType)}</span><span className="font-semibold text-neutral">₱{(Number(service.price || 0) * (service.quantity ?? 1)).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
                       <div className="flex justify-between"><span>Subtotal</span><span className="font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                       {costSummary.tax > 0 && <div className="flex justify-between"><span>Tax</span><span className="font-semibold text-neutral">₱{costSummary.tax.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}

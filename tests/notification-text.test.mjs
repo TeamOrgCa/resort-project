@@ -15,3 +15,9 @@ test("notification currency uses two decimal places without changing references,
   assert.equal(formatNotificationText("PHP 0, PHP 1,200.100000 and ₱-50.5."), "PHP 0.00, PHP 1,200.10 and ₱-50.50.");
   assert.equal(formatNotificationText("Reference PAY-000000; phone 09171234567; 08:30."), "Reference PAY-000000; phone 09171234567; 08:30.");
 });
+
+test('room notifications trim padded hour durations while retaining fractional stays and other numbers',()=>{
+  assert.equal(formatNotificationText('S03 - extra Standard Rooms for swimming session (5.0000000000000000 hours) — PHP 900.00'), 'S03 - extra Standard Rooms for swimming session (5 hours) — PHP 900.00');
+  assert.equal(formatNotificationText('Room (5.2500000000000000 hours); extension (0.500000 hours).'), 'Room (5.25 hours); extension (0.5 hours).');
+  assert.equal(formatNotificationText('MV-5.000000; 2026-11-25 18:00; 2 guests; 5 hours.'), 'MV-5.000000; 2026-11-25 18:00; 2 guests; 5 hours.');
+});

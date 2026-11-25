@@ -18,8 +18,9 @@ export async function loadReservationEditor(id: string) {
   for (const result of [r, s, u, b, cs, cu, payments, reschedules]) if (result.error) throw new Error("Unable to load reservation details.");
   if (!r.data) return null;
   if (!b.data) throw new Error("This reservation has no billing record. Resolve it before editing.");
-  if (!r.data.package_rate_version) throw new Error("This reservation needs the package-rates migration before editing.");
-  const packageSchedule = await loadPackageRates(admin, r.data.package_rate_version);
+  const publicAdmission = r.data.commercial_type === "public_swimming" && !r.data.room_pricing;
+  if (!publicAdmission && !r.data.package_rate_version) throw new Error("This reservation needs the package-rates migration before editing.");
+  const packageSchedule = publicAdmission ? null : await loadPackageRates(admin, r.data.package_rate_version);
   const services = (s.data ?? []) as SelectedService[];
   const units = (u.data ?? []) as SelectedUnit[];
   const bill = { ...b.data, total_amount: Number(b.data.total_amount), paid_amount: Number(b.data.paid_amount ?? 0) };
@@ -39,9 +40,11 @@ export async function loadReservationEditor(id: string) {
   const catalogServices = ((cs.data ?? []) as CatalogService[]).map(service => reservation.commercial_type === "public_swimming" && service.billing_type === "duration"
     ? { ...service, max_quantity: Math.min(service.max_quantity ?? 10000, Math.floor((Date.parse(reservation.end_datetime) - Date.parse(reservation.start_datetime)) / 3600000)) } : service);
   const access = reservationEditAccess(r.data, Boolean(payments.data?.length), Boolean(reschedules.data?.length));
+  const billingLocked = Boolean(access.lockedReason);
   if (r.data.commercial_type === "room_accommodation" || r.data.room_pricing) { access.lockedReason = "Use Room Management to update room assignments, guest stays and charges."; access.canChangeDetails = false; }
-  return { reservation: r.data, guest, services, units, bill, packageRates: packageSchedule.rates, packageTimes: packageSchedule.times, catalogServices,
+  if (r.data.swimming_room_choices?.length) { access.lockedReason ??= "This booking includes paid room add-ons. Contact resort staff to manage the rooms and billing through Room Management."; access.canChangeDetails = false; }
+  return { reservation: r.data, guest, services, units, bill, packageRates: packageSchedule?.rates ?? null, packageTimes: packageSchedule?.times, catalogServices,
     catalogUnits: r.data.commercial_type === "public_swimming" ? [] : (cu.data ?? []) as CatalogUnit[], snapshot, version,
-    lateRescheduleEligible: r.data.status === "confirmed" && !r.data.checked_in_at && !payments.data?.length && !reschedules.data?.length,
-    ...access };
+    lateRescheduleEligible: !r.data.swimming_room_choices?.length && r.data.status === "confirmed" && !r.data.checked_in_at && !payments.data?.length && !reschedules.data?.length,
+    billingLocked, ...access };
 }

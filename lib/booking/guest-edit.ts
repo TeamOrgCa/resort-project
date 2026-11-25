@@ -5,7 +5,7 @@ import { isValidGuestCounts } from "./guest-count";
 export type GuestBookingEdit = { adultCount: number; childCount: number; unitId?: string | null; services: { serviceId: string; quantity: number }[]; version: string; expectedTotal: number };
 export type GuestEditDetail = {
   reservation: EditableReservation; services: SelectedService[]; catalogServices: CatalogService[];
-  bill: Bill; packageRates: PackageRates;
+  bill: Bill; packageRates: PackageRates | null;
   version: string; lockedReason: string | null; canChangeGuests: boolean; canReduceServices: boolean;
   units?: SelectedUnit[]; catalogUnits?: CatalogUnit[]; canChangeAccommodation?: boolean;
 };

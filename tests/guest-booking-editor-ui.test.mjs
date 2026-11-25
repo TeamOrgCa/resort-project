@@ -39,6 +39,24 @@ test("customer edits use rental hours while keeping the original booked type aft
   } finally { await h.close(); }
 });
 
+test('public guest edits load without private rates and retain separate adult and child admission pricing', async () => {
+  let posted;
+  const h = await mount({ loaded: { ...detail, packageRates: null,
+    reservation: { ...detail.reservation, commercial_type: 'public_swimming', package_rate_version: null,
+      adult_count: 2, child_count: 1, public_admission_amount: 420, public_pricing_snapshot: { adult_rate: 150, child_rate: 120 } },
+    bill: { total_amount: 620, paid_amount: 0, status: 'unpaid' },
+  }, fetcher: async (_url, options) => { posted = JSON.parse(options.body); return Response.json({ success: true, totalAmount: 770 }); } });
+  try {
+    assert.equal(h.c.querySelector('[aria-label="Adults"]').value, '2');
+    assert.equal(h.c.querySelector('[aria-label="Children"]').value, '1');
+    await input(h.c.querySelector('[aria-label="Adults"]'), 3);
+    assert.match(h.c.querySelector('[aria-label="Updated bill preview"]').textContent, /770\.00/);
+    await click(button(h.c, 'Save Reservation Changes'));
+    await click(button(document.body, 'Confirm changes'));
+    assert.equal(posted.adultCount, 3); assert.equal(posted.childCount, 1); assert.equal(posted.expectedTotal, 770);
+  } finally { await h.close(); }
+});
+
 test("partial-payment edits preview headcount charges and allow reducing/removing every service before saving", async () => {
   let posted; const h = await mount({ fetcher: async (_url, options) => { posted = JSON.parse(options.body); return Response.json({ success: true, totalAmount: 8150 }); } });
   try {

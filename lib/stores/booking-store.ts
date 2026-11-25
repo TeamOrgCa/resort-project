@@ -12,6 +12,7 @@ export interface BookingServiceItem {
 }
 
 export interface BookingDraft {
+  swimmingRooms?: import("@/lib/booking/swimming-rooms").SwimmingRoomSelection[];
   commercialType?: "private_swimming" | "public_swimming" | "room_accommodation";
   roomSelections?: import("@/lib/booking/customer-rooms").CustomerRoomSelection[];
   eligibleGuests?: number;
@@ -77,6 +78,7 @@ interface BookingStoreState {
 }
 
 const initialDraft: BookingDraft = {
+  swimmingRooms: [],
   commercialType: "private_swimming",
   roomSelections: [],
   eligibleGuests: 0,
@@ -152,7 +154,7 @@ export const useBookingStore = create<BookingStoreState>()(
         })),
       setBookingDraft: (draft) =>
         set((state) => {
-          const changesReservation = ["bookingMode", "startDatetime", "endDatetime", "unitId", "adultCount", "childCount", "services", "promoCode", "commercialType", "roomSelections", "eligibleGuests", "publicSwimmingType"]
+          const changesReservation = ["bookingMode", "startDatetime", "endDatetime", "unitId", "adultCount", "childCount", "services", "promoCode", "commercialType", "roomSelections", "swimmingRooms", "eligibleGuests", "publicSwimmingType"]
             .some((key) => key in draft);
           return {
             bookingDraft: {

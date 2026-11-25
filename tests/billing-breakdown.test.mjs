@@ -26,6 +26,15 @@ test("room accommodation, extra guests and extension charges reconcile with the 
   assert.ok(result.lines.some(line => line.description.includes("extension") && line.amount === 200));
 });
 
+test('historical room descriptions display clean hour durations in receipts without changing the saved charges or totals',()=>{
+  const roomCharges=[{description:'S03 - extra Standard Rooms for swimming session (5.0000000000000000 hours)',amount:900},
+    {description:'S04 - extra Standard Rooms for swimming session (5.2500000000000000 hours)',amount:900}];
+  const result=buildBillingBreakdown({...booking,units:[],services:[],adultRate:null,roomCharges,recordedTotal:1800});
+  assert.deepEqual(result.lines.map(line=>line.description),['S03 - extra Standard Rooms for swimming session (5 hours)','S04 - extra Standard Rooms for swimming session (5.25 hours)']);
+  assert.equal(result.total,1800);assert.equal(result.lines.reduce((sum,line)=>sum+line.amount,0),1800);
+  assert.match(roomCharges[0].description,/5\.0000000000000000 hours/);
+});
+
 test("hourly service statements show rental hours and multiply the hourly rate", () => {
   const result = buildBillingBreakdown({ ...booking, services: [{ name: "Karaoke", quantity: 3, priceAtBooking: 200, billingType: "duration" }], recordedTotal: 8300 });
   const line = result.lines.find(line => line.description === "Karaoke");

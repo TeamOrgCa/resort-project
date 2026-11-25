@@ -20,14 +20,24 @@ export async function GET(request: Request) {
   try {
     const detail = await loadReservationEditor(id); if (!detail) return NextResponse.json({ message: "Reservation not found." }, { status: 404 });
     const r = detail.reservation;
-    let packagePrice = computeBookingPricing({ bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count }, detail.packageRates).packageRate;
-    if (r.room_pricing || r.commercial_type && r.commercial_type !== "private_swimming") {
+    let packagePrice: number, packagePriceLabel = "Package price";
+    if (r.commercial_type === "public_swimming" && !r.room_pricing) {
+      if (r.public_admission_amount == null || !Number.isFinite(Number(r.public_admission_amount)) || Number(r.public_admission_amount) < 0) {
+        return NextResponse.json({ message: "The saved public swimming admission amount is unavailable. Reload the reservation or contact the administrator." }, { status: 503 });
+      }
+      packagePrice = Number(r.public_admission_amount);
+      packagePriceLabel = "Public swimming admission";
+    } else if (r.room_pricing || r.commercial_type === "room_accommodation") {
       const charges = await createAdminClient().from("room_charges").select("amount").eq("reservation_id", id).eq("kind", "accommodation");
       if (charges.error) throw new Error("Room discount basis unavailable");
       packagePrice = (charges.data ?? []).reduce((total, charge) => total + Number(charge.amount), 0);
+      packagePriceLabel = "Accommodation";
+    } else {
+      if (!detail.packageRates) throw new Error("Booked private package rates unavailable");
+      packagePrice = computeBookingPricing({ bookingMode: r.booking_mode ?? "day", startDatetime: r.start_datetime, endDatetime: r.end_datetime, adultCount: r.adult_count, childCount: r.child_count }, detail.packageRates).packageRate;
     }
-    return NextResponse.json({ headCount: r.adult_count + r.child_count, packagePrice, bill: detail.bill, locked: Boolean(detail.lockedReason) }, { headers: { "Cache-Control": "no-store" } });
-  } catch { return NextResponse.json({ message: "Unable to load discounts. Check the discounts migration." }, { status: 503 }); }
+    return NextResponse.json({ headCount: r.adult_count + r.child_count, packagePrice, packagePriceLabel, bill: detail.bill, locked: detail.billingLocked ?? Boolean(detail.lockedReason) }, { headers: { "Cache-Control": "no-store" } });
+  } catch { return NextResponse.json({ message: "Unable to load booking discounts. Reload the transaction and try again." }, { status: 503 }); }
 }
 export async function POST(request: Request) {
   const staff = await authorized(); if (!staff) return NextResponse.json({ message: "Manager or cashier billing permission required." }, { status: 403 });

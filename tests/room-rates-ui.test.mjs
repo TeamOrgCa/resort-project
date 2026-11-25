@@ -28,6 +28,24 @@ async function mount(file, props, fetcher, mocks = {}) {
   await act(async () => root.render(createElement(Component,props)));
   return { container, close: async () => { await act(async () => root.unmount()); container.remove(); globalThis.fetch=saved; } };
 }
+test('staff room reservation choices exclude the protected pair and transfers admit only private pool packages',async()=>{
+  const dedicated={...room,room_id:'dedicated',room_number:'S01',private_swimming_only:true};
+  const general={...room,room_id:'general',room_number:'S03'};
+  const props={rooms:[dedicated,general],classifications:[c],now:Date.now(),onClose(){},onSaved(){}};
+  const h=await mount('components/admin/rooms/RoomActionDialog.tsx',{...props,action:'reserve',initialRoomId:dedicated.room_id},async()=>Response.json({}));
+  try{
+    const choices=field('Room');assert.equal(choices.value,'general');
+    assert.equal(choices.querySelector('option[value="dedicated"]'),null);
+    assert.match(h.container.textContent,/dedicated to private swimming packages are excluded/);
+  }finally{await h.close();}
+  for(const [commercial_type,room_pricing,allowed] of [['public_swimming',false,false],['room_accommodation',true,false],['private_swimming',true,false],['private_swimming',false,true]]){
+    const source={...general,current:{assignment_id:'active',expected_checkout:'2030-01-01T06:00:00Z',reservation:{commercial_type,room_pricing}}};
+    const transfer=await mount('components/admin/rooms/RoomActionDialog.tsx',{...props,rooms:[dedicated,source],action:'transfer',initialRoomId:source.room_id},async()=>Response.json({}));
+    try{assert.equal(!!field('Replacement room').querySelector('option[value="dedicated"]'),allowed,commercial_type+' '+room_pricing);}
+    finally{await transfer.close();}
+  }
+});
+
 test("walk-in duration, extension and non-stacking discount preview match the confirmed server payload",async()=>{
   const posts=[], saved=[];
   const h=await mount("components/admin/rooms/RoomActionDialog.tsx",{action:"reserve",rooms:[room],classifications:[c],initialRoomId:room.room_id,now:Date.parse("2030-01-01T00:00:00Z"),canDiscount:true,onClose(){},onSaved:message=>saved.push(message)},async(url,options)=>{

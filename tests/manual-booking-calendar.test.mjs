@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 import { legacyRates } from "./helpers/package-rates.mjs";
+import { swimmingRoomCatalog } from "./helpers/swimming-rooms.mjs";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/admin/reservations" });
 globalThis.window = dom.window; globalThis.document = dom.window.document;
@@ -28,6 +29,7 @@ async function select(container, label, next) {
 async function mount(fetcher = () => Response.json({ success: true, reservation: { referenceNumber: "MB-CALENDAR" } }), { availabilityFetcher = () => Response.json({ reservations: [], blockedDates: [] }), times } = {}) {
   const originalFetch = globalThis.fetch, requests = []; let created = 0, closed = 0;
   globalThis.fetch = async (url, options) => {
+    if (url.startsWith("/api/booking/rooms?")) return Response.json({success:true,...swimmingRoomCatalog});
     if (url.startsWith("/api/booking/availability")) return availabilityFetcher(url, options);
     requests.push({ url, body: JSON.parse(options.body) }); return fetcher();
   };
@@ -73,6 +75,9 @@ test("manual creation waits for confirmation and cancelling keeps the guest and 
     const c = h.container;
     await click(c.querySelector('[aria-label="Next month"]'));
     await click(c.querySelector("[data-date]")); await fillGuest(c);
+    assert.match(c.textContent,/2 Standard rooms included at no extra charge/);
+    const extras=c.querySelector('[aria-label="Extra Standard Rooms"]');
+    await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set.call(extras,'2');extras.dispatchEvent(new window.Event('change',{bubbles:true}));});
     const selected = c.querySelector('[data-date][aria-pressed="true"]').dataset.date;
     const submit = () => act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
     await submit();
@@ -87,6 +92,7 @@ test("manual creation waits for confirmation and cancelling keeps the guest and 
     assert.equal(c.querySelector('input[type="email"]').value, "walkin@example.com");
     await submit(); await confirmReservationIfOpen();
     assert.equal(h.requests.length, 1);
+    assert.equal(h.requests[0].body.swimmingRooms[0].quantity,2);assert.ok(h.requests[0].body.expectedTotal>1200);
   } finally { await h.close(); }
 });
 

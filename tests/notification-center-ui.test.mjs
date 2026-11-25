@@ -62,6 +62,17 @@ test("legacy currency precision is corrected in popups and both notification men
   }
 });
 
+test('padded room durations display cleanly in existing guest and admin notification popups and menus',async()=>{
+  for(const menus of ['guest','admin']){
+    const h=await mount({menus,rows:[row('room',{message:'S03 - extra Standard Rooms for swimming session (5.0000000000000000 hours) — PHP 900.00'})]});
+    try{
+      assert.match(alerts().textContent,/\(5 hours\)/);assert.doesNotMatch(alerts().textContent,/5\.000/);
+      await click(h.container.querySelector(`[aria-label="${menus==='guest'?'Open user menu':'Open admin notifications'}"]`));
+      assert.match(document.body.textContent,/\(5 hours\)/);assert.doesNotMatch(document.body.textContent,/5\.000/);
+    }finally{await h.close();}
+  }
+});
+
 test("manager notification popups and bell entries focus the matching booking, reservation or reschedule", async () => {
   for (const [entity_type, parameter, title] of [["reservation", "reservation", "Booking saved"], ["reservation", "reservation", "Reservation confirmed"], ["reservation_reschedule", "reschedule", "Reservation rescheduled"]]) {
     const h = await mount({ menus: "admin", staffRole: "staff", rows: [row("target", { title, entity_type, entity_id: "record-id", action_url: "/admin/reservations" })] });

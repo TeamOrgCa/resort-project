@@ -1,4 +1,6 @@
-import { BookingPromoError, loadBookingPromo, applyNewBookingPromo } from "@/lib/server/booking-discounts";
+import { BookingPromoError, loadBookingPromo } from "@/lib/server/booking-discounts";
+import { parseSwimmingRooms, type SwimmingRoomSelection } from "@/lib/booking/swimming-rooms";
+import { quoteSwimmingRooms, finalizeSwimmingRooms, SwimmingRoomsError } from "@/lib/server/swimming-rooms";
 import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { LegalPolicyError, requireCurrentLegalPolicies } from "@/lib/server/legal-policies";
 import { parseServiceSelections, serviceQuantityError } from "@/lib/booking/service-quantity";
@@ -26,6 +28,8 @@ interface ServiceSelectionInput {
 }
 
 interface CreateReservationPayload {
+  swimmingRooms?: SwimmingRoomSelection[];
+  expectedTotal?: number;
   packageRateVersion: number;
   phoneNumber?: string;
   bookingMode: BookingMode;
@@ -93,6 +97,8 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
   if (payload.promoCode !== undefined && payload.promoCode !== null && (typeof payload.promoCode !== "string" || payload.promoCode.length > 40)) return null;
   const selectedServices = parseServiceSelections(payload.selectedServices);
   if (!selectedServices) return null;
+  const swimmingRooms = parseSwimmingRooms(payload.swimmingRooms);
+  if (!swimmingRooms || payload.expectedTotal !== undefined && (typeof payload.expectedTotal !== "number" || !Number.isFinite(payload.expectedTotal) || payload.expectedTotal < 0)) return null;
   if (payload.phoneNumber !== undefined && typeof payload.phoneNumber !== "string") return null;
 
   if (
@@ -117,6 +123,8 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
   }
 
   return {
+    swimmingRooms,
+    expectedTotal: payload.expectedTotal,
     phoneNumber: payload.phoneNumber,
     bookingMode: payload.bookingMode,
     startDatetime: payload.startDatetime,
@@ -157,6 +165,7 @@ const generateReferenceNumber = async (supabase: Awaited<ReturnType<typeof creat
 
 export async function POST(request: Request) {
   let reservationId: string | null = null;
+  let committed = false;
 
   try {
     const requestBody = await request.json();
@@ -303,7 +312,11 @@ export async function POST(request: Request) {
       childCount: payload.childCount,
       servicesTotal, promo,
     }, packageSchedule.rates);
-    const totalAmount = pricing.total;
+    const roomQuote = await quoteSwimmingRooms(payload.swimmingRooms ?? [], payload.startDatetime, payload.endDatetime);
+    const totalAmount = Math.round((pricing.total + roomQuote.total) * 100) / 100;
+    if (payload.expectedTotal !== undefined && Math.abs(payload.expectedTotal - totalAmount) > 0.001) {
+      return NextResponse.json({ success: false, message: "Prices changed. Return to the booking form and review the total." }, { status: 409 });
+    }
 
     await saveGuestBookingPhone(supabase, user.id, payload.phoneNumber);
     const reservationReference = await generateReferenceNumber(supabase);
@@ -345,6 +358,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved. Please choose another date." }, { status: 409 });
       }
       if (reservationError?.code === "40001") {
+        if (/room/i.test(reservationError.message ?? "")) return NextResponse.json({ success: false, message: reservationError.message }, { status: 409 });
         if (reservationError.message?.includes("Package rates")) return NextResponse.json({ success: false, code: "RATES_CHANGED", message: "Package rates changed. Return to the booking form to review the new total." }, { status: 409 });
         return NextResponse.json({ success: false, code: "POLICY_CHANGED", message: "The booking policy changed. Refresh this page and review it again before saving." }, { status: 409 });
       }
@@ -397,22 +411,25 @@ export async function POST(request: Request) {
       );
     }
 
-    await applyNewBookingPromo(reservation.reservation_id, user.id, promo?.code ?? null, pricing.grossTotal, true, pricing.total);
-    const { error: notificationError } = await createNotifications({
-      actorId: user.id,
-      guestId: user.id,
-      staffRoles: NOTIFICATION_AUDIENCES.reservation,
-      title: "Booking saved",
-      message: totalAmount === 0 ? `Reservation ${reservation.reference_number} is confirmed; your promo covers the bill.` : `Reservation ${reservation.reference_number} is pending payment.`,
-      entityType: "reservation",
-      entityId: reservation.reservation_id,
-      guestActionUrl: "/manage",
-      staffActionUrl: "/admin/reservations",
-    });
+    await finalizeSwimmingRooms(reservation.reservation_id, user.id, payload.swimmingRooms ?? [], promo?.code ?? null, Math.round((pricing.grossTotal + roomQuote.total) * 100) / 100, totalAmount);
+    committed = true;
+    try {
+      const { error: notificationError } = await createNotifications({
+        actorId: user.id,
+        guestId: user.id,
+        staffRoles: NOTIFICATION_AUDIENCES.reservation,
+        title: "Booking saved",
+        message: totalAmount === 0 ? `Reservation ${reservation.reference_number} is confirmed; your promo covers the bill.` : `Reservation ${reservation.reference_number} is pending payment.`,
+        entityType: "reservation",
+        entityId: reservation.reservation_id,
+        guestActionUrl: "/manage",
+        staffActionUrl: "/admin/reservations",
+      });
 
-    if (notificationError) {
-      console.warn("Failed to create booking notifications:", notificationError);
-    }
+      if (notificationError) {
+        console.warn("Failed to create booking notifications:", notificationError);
+      }
+    } catch (error) { console.warn("Failed to create booking notifications:", error); }
 
     return NextResponse.json(
       {
@@ -420,7 +437,7 @@ export async function POST(request: Request) {
         reservation: {
           id: reservation.reservation_id,
           referenceNumber: reservation.reference_number,
-          status: pricing.total === 0 ? "confirmed" : reservation.status,
+          status: totalAmount === 0 ? "confirmed" : reservation.status,
           paymentDeadlineAt: totalAmount === 0 ? null : reservation.payment_deadline_at,
           totalAmount,
         },
@@ -431,12 +448,13 @@ export async function POST(request: Request) {
     if (error instanceof LegalPolicyError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "LEGAL_POLICY_CHANGED" : "LEGAL_POLICY_UNAVAILABLE" }, { status: error.status });
     if (error instanceof GuestBookingPhoneError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     if (error instanceof PackageRatesError) return NextResponse.json({ success: false, message: error.message, code: error.status === 409 ? "RATES_CHANGED" : "RATES_UNAVAILABLE" }, { status: error.status });
-    if (reservationId) {
+    if (reservationId && !committed) {
       const supabase = await createClient();
       await supabase.from("reservations").delete().eq("reservation_id", reservationId);
     }
 
     if (error instanceof BookingPromoError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
+    if (error instanceof SwimmingRoomsError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
 
     return NextResponse.json(
       {

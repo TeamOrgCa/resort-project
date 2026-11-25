@@ -71,6 +71,12 @@ async function file(input) {
   });
 }
 
+test('checkout itemizes paid swimming rooms alongside the package inclusion',async()=>{
+ const h=await mount(0,{total:5900,swimmingRooms:[{classificationId:'standard',quantity:1,pricingVersion:1,name:'Standard Rooms',unitPrice:900}]});
+ try { assert.match(h.container.textContent,/2 Standard roomsIncluded/);assert.match(h.container.textContent,/Additional RoomsStandard Rooms × 1₱900\.00/);assert.match(h.container.textContent,/Subtotal₱5,900\.00/); }
+ finally { await h.close(); }
+});
+
 test("room accommodation and public swimming checkout show full payment only and charge the full outstanding balance",async()=>{
   for(const commercialType of ["room_accommodation","public_swimming"]){
   const h=await mount(0,{commercialType,roomSelections:[{classificationId:"standard",occupants:2,pricingVersion:1,accommodation:5000,additionalGuestCharge:0}],eligibleGuests:0});

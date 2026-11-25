@@ -25,6 +25,7 @@ export default function RoomGrid({ rooms, now, expanded, onSelect }: {
             <RoomBadge indicator={occupancyIndicator(room, now)} />
           </div>
           <p className="mt-1 text-xs text-neutral/60">{room.classification.name}</p>
+          {room.private_swimming_only && <p className="mt-2 text-xs font-semibold text-primary">Private swimming package only</p>}
 
           <div className="my-4 min-w-0 space-y-2 text-sm">
             {room.current ? (

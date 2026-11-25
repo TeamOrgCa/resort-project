@@ -1,6 +1,8 @@
+import { formatHourDurations } from "@/lib/format-hour-durations";
+
 /** Keep saved notification copy readable and omit internal payment-review mechanics. */
 export function formatNotificationText(value: string): string {
-  const text = value
+  const text = formatHourDurations(value)
     .replace(/\bPayment automatically approved\b/gi, "Payment approved")
     .replace(/\bwas confirmed after automatic OCR payment approval\b/gi, "is confirmed. Your payment was approved")
     .replace(/\bwas automatically approved because its receipt passed OCR validation\b/gi, "was approved");

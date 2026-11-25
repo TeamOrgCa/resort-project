@@ -45,6 +45,15 @@ test('public booking identifies the invalid field and accepts bookings without s
 test('public manual reservations use the existing creation permission in middleware',()=>{
  const {apiPermission}=loadTsModule('lib/auth/role-access.ts');assert.equal(apiPermission('/api/admin/reservations/public-swimming','POST'),'create_reservation');
 });
+test('public room choices validate quantities and saved versions and discard submitted prices',async()=>{
+ const h=harness(),choice={classificationId:id(40),quantity:2,pricingVersion:1};
+ for(const swimmingRooms of [[{...choice,quantity:0}],[{...choice,quantity:1.5}],[{...choice,quantity:21}],[choice,choice],[{...choice,pricingVersion:0}],null]) {
+  const response=await h.post({...body,swimmingRooms});assert.equal(response.status,400);assert.equal((await response.json()).field,'swimmingRooms');
+ }
+ assert.equal(h.calls.length,0);
+ assert.equal((await h.post({...body,swimmingRooms:[{...choice,unitPrice:1,name:'Forged'}]})).status,201);
+ assert.deepEqual(h.calls[0].args.p_input.swimmingRooms,[choice]);
+});
 test('reschedule availability exclusions require the booking owner or authorized staff and are never publicly cached',async()=>{
  for(const access of ['anonymous','other','owner','manager']){
   const calls=[],q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:access==='owner'?{reservation_id:id(1)}:null,error:null})};
@@ -58,4 +67,31 @@ test('reschedule availability exclusions require the booking owner or authorized
   assert.equal(response.status,access==='anonymous'?401:access==='other'?403:200);
   if(response.status===200){assert.deepEqual(calls,[id(1)]);assert.equal(response.headers.get('cache-control'),'private, no-store');}else assert.equal(calls.length,0);
  }
+});
+
+test('public availability validates a browsable month and passes it independently of the booking window',async()=>{
+ const calls=[],route=loadTsModule('app/api/booking/public-swimming/route.ts',{
+  '@/lib/server/public-swimming':{loadPublicSwimmingCatalog:async(...args)=>{calls.push(args);return{types:[],slots:[],dates:['2030-11-25','2030-11-26','2030-11-27'],sessions:[]};}},
+ });
+ for(const month of ['2030-00','2030-13','2030-1','2030-11-01','invalid','0000-01','9999-01']){
+  assert.equal((await route.GET(new Request('http://localhost/api/booking/public-swimming?month='+month))).status,400);
+ }
+ assert.equal(calls.length,0);
+ const response=await route.GET(new Request('http://localhost/api/booking/public-swimming?month=2031-01'));
+ assert.equal(response.status,200);assert.deepEqual(calls,[[undefined,'2031-01']]);assert.equal(response.headers.get('cache-control'),'no-store');
+ assert.deepEqual((await response.json()).dates,['2030-11-25','2030-11-26','2030-11-27']);
+});
+
+test('catalog loading retains the actual booking window when no bookable slots exist',async()=>{
+ const calls=[],row={booking_date:'2031-01-01',type_id:id(1),starts_at:'2031-01-01T08:00:00+08:00',ends_at:'2031-01-01T16:00:00+08:00',remaining_capacity:42,availability:'private',eligibility:'not_open',opens_at:'2030-12-30T00:00:00+08:00',evaluated_at:'2030-11-24T16:30:00Z'};
+ const loader=loadTsModule('lib/server/public-swimming.ts',{
+  '@/lib/supabase/admin':{createAdminClient:()=>({
+    from:()=>{const q={select:()=>q,eq:()=>q,order:async()=>({data:[],error:null})};return q;},
+    rpc:async(name,args)=>{calls.push({name,args});return{data:name==='public_swimming_calendar'?[row]:[],error:null};},
+  })},
+ });
+ const catalog=await loader.loadPublicSwimmingCatalog(undefined,'2031-01');
+ assert.deepEqual(catalog.dates,['2030-11-25','2030-11-26','2030-11-27']);assert.equal(catalog.today,'2030-11-25');assert.deepEqual(catalog.slots,[]);
+ assert.equal(catalog.sessions[0].availability,'private');assert.equal(catalog.sessions[0].eligibility,'not_open');assert.equal(catalog.sessions[0].remainingCapacity,42);
+ assert.deepEqual(calls.find(c=>c.name==='public_swimming_calendar').args,{p_from:'2031-01-01',p_to:'2031-01-31',p_exclude:null});
 });

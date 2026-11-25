@@ -27,6 +27,7 @@ import { CALENDAR_COLORS, CALENDAR_LEGEND_KEYS, URGENT_CALENDAR_COLOR, calendarT
 import { useCalendarAppearance } from "@/components/admin/use-calendar-appearance";
 import { useActionConfirmation } from "@/components/ui/use-action-confirmation";
 import { focusCalendarNotification } from "@/lib/booking/calendar-notification-focus";
+import { COMMERCIAL_TYPES, type CommercialType } from "@/lib/booking/commercial-types";
 
 type Reservation = {
   commercial_type?: string;
@@ -74,6 +75,7 @@ type MaintenanceBlock = { block_id: string; name: string; reason: string; start_
 type EventKind = "booking" | "reservation" | "closed" | "ocular" | "maintenance";
 
 type CalendarEvent = {
+  commercialType?: CommercialType;
   id: string;
   kind: EventKind;
   date: string;
@@ -162,6 +164,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [signals, setSignals] = useState<Record<string, CalendarSignals>>({});
   const [attentionFilter, setAttentionFilter] = useState<"all" | "attention" | AttentionFlag>("all");
   const [entryFilter, setEntryFilter] = useState<CalendarEntryFilter>("all");
+  const [commercialFilter, setCommercialFilter] = useState<CommercialType | "all">("all");
   const [selectedDay, setSelectedDay] = useState(initialDate ?? manilaDateKey(new Date()));
   const [mobileView, setMobileView] = useState<"Week" | "Month" | "Agenda">("Month");
   const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
@@ -199,8 +202,8 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(() => initialReservationId && !highlightOnly ? { id: initialReservationId, kind: "reservation", date: initialDate ?? "", label: "Reservation details", reservationId: initialReservationId } : null);
   const [now, setNow] = useState(() => Date.now());
-  const hasActiveFilters = Boolean(searchTerm.trim() || attentionFilter !== "all" || entryFilter !== "all");
-  const clearFilters = () => { setSearchTerm(""); setAttentionFilter("all"); setEntryFilter("all"); setHighlightMatches(false); setNotificationFocusId(null); };
+  const hasActiveFilters = Boolean(searchTerm.trim() || attentionFilter !== "all" || entryFilter !== "all" || commercialFilter !== "all");
+  const clearFilters = () => { setSearchTerm(""); setAttentionFilter("all"); setEntryFilter("all"); setCommercialFilter("all"); setHighlightMatches(false); setNotificationFocusId(null); };
   useEffect(() => {
     if (selectedEvent?.reservationId) appearance.markViewed(selectedEvent.reservationId);
   }, [selectedEvent?.reservationId, appearance]);
@@ -375,6 +378,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
         if (occupiedDate < gridStart || occupiedDate >= gridEnd) continue;
         events.push({
           id: `${reservation.reservation_id}:${occupiedDate}`,
+          commercialType: reservation.commercial_type === "public_swimming" || reservation.commercial_type === "room_accommodation" ? reservation.commercial_type : "private_swimming",
           kind: calendarBookingKind(reservation.status, signals[reservation.reservation_id]?.paidAmount),
           flags: reservationAttention(reservation, signals[reservation.reservation_id]),
           date: occupiedDate,
@@ -418,12 +422,13 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       const matchingEvents = events.filter((event) =>
         `${event.label} ${event.reference ?? ""} ${eventStyles[event.kind].label} ${event.status ?? ""} ${event.checkedIn ? "Checked in" : ""} ${(event.flags ?? []).map(flag => ATTENTION_LABELS[flag]).join(" ")}`.toLowerCase().includes(normalizedSearch)
         && matchesCalendarEntry(event, entryFilter)
+        && (commercialFilter === "all" || event.commercialType === commercialFilter)
         && (attentionFilter === "all" || (attentionFilter === "attention" ? Boolean(event.flags?.length) : event.flags?.includes(attentionFilter)))
       );
       if (matchingEvents.length) map[date] = matchingEvents;
       return map;
     }, {});
-  }, [eventsByDay, searchTerm, attentionFilter, entryFilter]);
+  }, [eventsByDay, searchTerm, attentionFilter, entryFilter, commercialFilter]);
   const notificationDate = initialDate ?? calendarEvents.find(event => event.reservationId === notificationFocusId)?.date;
   const visibleMonth = dateKey(month).slice(0, 7);
   useEffect(() => {
@@ -459,7 +464,7 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
       finish = setTimeout(() => setHighlightMatches(false), 2400);
     }, 450);
     return () => { window.clearTimeout(timer); clearTimeout(finish); };
-  }, [searchTerm, attentionFilter, entryFilter, hasActiveFilters, matchingDates, isLoading]);
+  }, [searchTerm, attentionFilter, entryFilter, commercialFilter, hasActiveFilters, matchingDates, isLoading]);
   useEffect(() => {
     if (!newBooking || isLoading) return;
     const created = reservations.find(row => newBooking.id ? row.reservation_id === newBooking.id : row.reference_number === newBooking.reference);
@@ -602,19 +607,23 @@ export default function ReservationCalendar({ initialReservationId, initialDate,
     </RecordDialog>}
     <div className="hidden gap-4 md:grid md:grid-cols-3">{[{ label: "Upcoming reservations", value: upcomingCount, detail: "In the visible calendar period" }, { label: "Ocular visits", value: ocularVisits.length, detail: "In the visible calendar period" }, { label: "Needs attention", value: attentionCount, detail: "No-shows, cancellations and pending refunds" }].map(metric => <div key={metric.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-neutral/50">{metric.label}</p>{isLoading ? <Skeleton className="mt-2 h-9 w-14" /> : <p className="mt-2 text-3xl font-semibold text-neutral">{error ? "-" : metric.value}</p>}<p className="mt-1 text-xs text-neutral/50">{metric.detail}</p></div>)}</div>
     <section aria-label="Calendar filters" className="@container my-4 rounded-2xl border border-neutral/10 bg-white p-4 shadow-sm">
-      <div className="grid grid-cols-1 items-end gap-3 @sm:grid-cols-[minmax(0,1fr)_auto] @3xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+      <div className="grid grid-cols-1 items-end gap-3 @sm:grid-cols-[minmax(0,1fr)_auto] @3xl:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))_auto]">
       <label className="min-w-0 text-xs font-medium text-neutral/65">Search bookings<input type="search" value={searchTerm} onChange={event => { setNotificationFocusId(null); setSearchTerm(event.target.value); }} placeholder="Guest or booking reference" className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm" /></label>
-      <div className="grid min-w-0 gap-3 @sm:order-3 @sm:col-span-2 @sm:grid-cols-2 @3xl:contents">
-      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-2">Type or status<select aria-label="Filter calendar by type or status" value={entryFilter} onChange={event => { setNotificationFocusId(null); setEntryFilter(event.target.value as CalendarEntryFilter); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
+      <div className="grid min-w-0 gap-3 @sm:order-3 @sm:col-span-2 @sm:grid-cols-2 @xl:grid-cols-3 @3xl:contents">
+      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-2">Reservation type<select aria-label="Filter calendar by reservation type" value={commercialFilter} onChange={event => { setNotificationFocusId(null); setCommercialFilter(event.target.value as CommercialType | "all"); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
+        <option value="all">All reservation types</option>
+        {Object.entries(COMMERCIAL_TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select></label>
+      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-3">Type or status<select aria-label="Filter calendar by type or status" value={entryFilter} onChange={event => { setNotificationFocusId(null); setEntryFilter(event.target.value as CalendarEntryFilter); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
         <option value="all">All types and statuses</option>
         <optgroup label="Entry type">{calendarTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>
         <optgroup label="Status">{calendarStatusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>
       </select></label>
-      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-3">Attention<select aria-label="Filter calendar entries" value={attentionFilter} onChange={event => { setNotificationFocusId(null); setAttentionFilter(event.target.value as typeof attentionFilter); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
+      <label className="min-w-0 text-xs font-medium text-neutral/65 @3xl:order-4">Attention<select aria-label="Filter calendar entries" value={attentionFilter} onChange={event => { setNotificationFocusId(null); setAttentionFilter(event.target.value as typeof attentionFilter); }} className="mt-1 min-h-11 w-full rounded-xl border border-neutral/20 bg-white px-3 text-base text-black md:text-sm">
         <option value="all">All attention levels</option><option value="attention">Needs attention ({attentionCount})</option>{(Object.keys(ATTENTION_LABELS) as AttentionFlag[]).map(flag => <option key={flag} value={flag}>{ATTENTION_LABELS[flag]} ({flagCount(flag)})</option>)}
       </select></label>
       </div>
-      <button type="button" onClick={clearFilters} disabled={!hasActiveFilters} className="min-h-11 whitespace-nowrap rounded-xl border border-neutral/20 px-3 text-sm font-semibold hover:bg-base disabled:opacity-45 @sm:order-2 @3xl:order-4">Clear filters</button>
+      <button type="button" onClick={clearFilters} disabled={!hasActiveFilters} className="min-h-11 whitespace-nowrap rounded-xl border border-neutral/20 px-3 text-sm font-semibold hover:bg-base disabled:opacity-45 @sm:order-2 @3xl:order-5">Clear filters</button>
       </div>
     </section>
     {showColorSettings && <CatalogDialog title="Calendar colors" description="Choose your category colors. No-shows, cancellations and pending refunds always use red. Your choices are saved automatically for your account in this browser." busy={false} onClose={() => setShowColorSettings(false)}>

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
+import { swimmingRoomCatalog } from "./helpers/swimming-rooms.mjs";
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/admin/reservations" });
 globalThis.window = dom.window; globalThis.document = dom.window.document; globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,7 +21,7 @@ async function confirmMaintenanceIfOpen() {
   const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Confirm maintenance block");
   if (confirm) await click(confirm);
 }
-async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, ocularGuestDetails = true, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, paidReview = false, calendarProps = {}, emptyCalendar = false } = {}) {
+async function mount({ role = "staff", permissions = ["dashboard","reservations","transactions","records","create_reservation","edit_reservation","cancel_reservation","payment_approval","ocular_approval"], failure = null, initialAccess, blockFailure = false, paymentFollowUpError = false, fullyPaid = false, arrived = false, includeOcular = false, ocularGuestDetails = true, userId = "staff", clearStorage = true, ocularStatus = "pending", manualCreation = false, realManual = false, ended = false, mixedEntries = false, mixedCommercialTypes = false, paidReview = false, calendarProps = {}, emptyCalendar = false } = {}) {
   if (clearStorage) window.localStorage.clear();
   const saved = globalThis.fetch, calls = [], blocks = [];
   const data = {
@@ -32,6 +33,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     units: [{unit_id:"unit",name:"Resort",capacity:30}], services: [],
   };
   if (emptyCalendar) { data.reservations = []; data.payments = []; data.reservation_reschedules = []; data.refund_requests = []; data.transactions = []; }
+  if (mixedCommercialTypes) data.reservations.forEach((reservation, i) => { reservation.commercial_type = ["private_swimming", "public_swimming", "room_accommodation"][i]; });
   if (ended) { data.reservations[0].start_datetime = new Date(Date.now() - 3600000).toISOString(); data.reservations[0].end_datetime = new Date(Date.now() - 1000).toISOString(); }
   if (arrived) data.reservations[0].checked_in_at = new Date().toISOString();
   if (fullyPaid) { data.payments = []; data.reservation_reschedules = []; data.transactions[0].balance = 0; }
@@ -57,6 +59,7 @@ async function mount({ role = "staff", permissions = ["dashboard","reservations"
     const q = { select:()=>q,neq:()=>q,lt:()=>q,gt:()=>q,order:()=>q,limit:()=>q,gte:()=>q,in:()=>q,eq:(key,value)=>{filters.push(row=>row[key]===value);return q;},maybeSingle:async()=>{const r=result();return {...r,data:Array.isArray(r.data)?r.data[0]??null:r.data};},then:(yes,no)=>Promise.resolve(result()).then(yes,no) }; return q;
   } };
   globalThis.fetch = async (url, options) => {
+    if (url.startsWith("/api/booking/rooms?")) return Response.json({success:true,...swimmingRoomCatalog});
     if (url.startsWith("/api/booking/availability")) return Response.json({reservations:[],blockedDates:[]});
     if (url.startsWith("/api/admin/maintenance-blocks")) {
       if (options?.method === "POST") {
@@ -175,6 +178,41 @@ test("type and status filters work in both calendars, combine with search and at
     assert.equal(h.c.querySelector(selector).value, "all"); assert.equal(h.c.querySelector('input[type="search"]').value, "");
     assert.deepEqual(visible(agenda()), all);
     assert.equal(h.c.querySelector(".calendar-match-pulse"), null);
+    assert.equal(button(h.c, "Clear filters").disabled, true);
+  } finally { await h.close(); }
+});
+
+test("reservation type filter isolates private, public and room bookings in both calendars and combines with existing filters", async () => {
+  const h = await mount({ includeOcular: true, mixedEntries: true, mixedCommercialTypes: true });
+  const selector = '[aria-label="Filter calendar by reservation type"]';
+  const visible = root => new Set([...root.querySelectorAll('[data-calendar-event]')].map(el => el.getAttribute("data-calendar-event").split(":")[0]));
+  const desktop = h.c.querySelector('[aria-label="Desktop reservation calendar"]');
+  const availability = () => [...desktop.querySelectorAll("p[title]")].map(p => p.textContent);
+  try {
+    const original = visible(agenda()), originalAvailability = availability();
+    assert.deepEqual([...h.c.querySelector(selector).options].map(option => option.textContent), ["All reservation types", "Private Swimming", "Public Swimming", "Room Accommodation"]);
+    for (const [type, expected] of [
+      ["private_swimming", [id, "awaiting", "checked-in", "completed", "no-show", "rejected", "rescheduled"]],
+      ["public_swimming", ["pending"]], ["room_accommodation", ["cancelled"]],
+    ]) {
+      await filter(h.c, type, selector);
+      assert.deepEqual(visible(desktop), new Set(expected), type + " desktop");
+      for (const view of ["Week", "Month", "Agenda"]) {
+        await click(button(h.c, view));
+        assert.deepEqual(visible(agenda()), new Set(expected), type + " " + view);
+      }
+      assert.deepEqual(availability(), originalAvailability);
+    }
+    await filter(h.c, "refund");
+    assert.deepEqual(visible(agenda()), new Set(["cancelled"]));
+    await filter(h.c, "confirmed", '[aria-label="Filter calendar by type or status"]');
+    assert.deepEqual(visible(agenda()), new Set());
+    await filter(h.c, "all", '[aria-label="Filter calendar by type or status"]');
+    await input(h.c.querySelector('input[type="search"]'), "no-such-room");
+    assert.match(h.c.textContent, /No entries match your search and filters/);
+    await click(button(h.c, "Clear filters"));
+    assert.equal(h.c.querySelector(selector).value, "all");
+    assert.deepEqual(visible(agenda()), original);
     assert.equal(button(h.c, "Clear filters").disabled, true);
   } finally { await h.close(); }
 });

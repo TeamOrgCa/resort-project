@@ -16,6 +16,7 @@ import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { DEFAULT_PACKAGE_TIMES, PACKAGE_TIME_KEYS, packageTimeSlot, formatPackageTimeSlot, packageTimesLabel } from "@/lib/booking/package-times";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
+import PrivatePackageDetails from "@/components/booking/PrivatePackageDetails";
 import type { CustomerRoomInventory } from "@/lib/booking/customer-rooms";
 import { buildRoomStayWindow, isRoomBookingStartAllowed, ROOM_BOOKING_LEAD_MESSAGE, ROOM_CHECK_IN_TIMES, type RoomDurationHours } from "@/lib/booking/room-stay";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
@@ -275,7 +276,7 @@ export default function Booking() {
   };
 
   const isBookingWindowAvailable = (start: string, end: string) => {
-    if (isRoomBooking) return roomInventory.some(r => !r.unavailable && isWindowAvailable(start, end, r.blocks));
+    if (isRoomBooking) return roomInventory.some(r => !r.private_swimming_only && !r.unavailable && isWindowAvailable(start, end, r.blocks));
     if (!isWindowAvailable(start, end, reservedWindows)) return false;
     if (blockedDateRanges.some(block => maintenanceOverlaps(start, end, block))) return false;
     return true;
@@ -695,6 +696,7 @@ export default function Booking() {
           }} />}
           {bookingType === "stay" && !isRoomBooking && selectedBookingOption !== "public" && (
             <div data-booking-guide="booking-mode" className="bg-primary/5 p-4 sm:p-5 rounded-2xl mb-6">
+              <PrivatePackageDetails />
               <h3 className="font-bold text-neutral mb-3">Select Booking Mode</h3>
               <div className={`grid gap-3 ${ENABLE_CUSTOM_BOOKING ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
                 {(() => {
