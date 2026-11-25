@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 
 function formSnapshot(root: HTMLElement | null) {
   const fields = Array.from(root?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea") ?? [])
-    .filter(field => field.type !== "hidden")
+    .filter(field => field.type !== "hidden" && !field.closest("[data-reservation-guard-ignore]"))
     .map(field => [field.tagName, field.getAttribute("name"), field.getAttribute("aria-label"), field instanceof window.HTMLInputElement && ["checkbox", "radio"].includes(field.type) ? field.checked : field.value]);
   const dates = Array.from(root?.querySelectorAll('[data-reservation-date]') ?? []).map(day => day.getAttribute("data-reservation-date"));
   return JSON.stringify({ fields, dates });
@@ -111,8 +111,12 @@ export function useReservationFormGuard(enabled = true, busy = false, resetKey =
   return {
     root, requestClose, reset,
     captureInitial: () => { if (!touched.current) initial.current = formSnapshot(root.current); },
-    captureChange: () => { touched.current = true; checkAfterEvent(); },
+    captureChange: (event?: SyntheticEvent) => {
+      if (event?.target instanceof window.Element && event.target.closest("[data-reservation-guard-ignore]")) return;
+      touched.current = true; checkAfterEvent();
+    },
     captureClick: (event: ReactMouseEvent) => {
+      if (event.target instanceof window.Element && event.target.closest("[data-reservation-guard-ignore]")) return;
       const button = event.target instanceof window.Element ? event.target.closest("button") : null;
       if (!button || button.type === "submit" || /month/i.test(button.getAttribute("aria-label") ?? "")) return;
       if (!touched.current) initial.current = formSnapshot(root.current);

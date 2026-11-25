@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
@@ -9,7 +9,7 @@ import BookingGuide from "./BookingGuide";
 import BookingPromoDiscount from "./BookingPromoDiscount";
 import ServiceSelectionCard from "./ServiceSelectionCard";
 import PromoCodeInput from "./PromoCodeInput";
-import PublicSwimmingSelection from "./PublicSwimmingSelection";
+import PublicSwimmingSelection, { type PublicSwimmingSelectionChange } from "./PublicSwimmingSelection";
 import PhilippinePhoneInput from "@/components/ui/PhilippinePhoneInput";
 import GuestCountInput from "@/components/ui/GuestCountInput";
 import PhilippineAddressFields from "@/components/ui/PhilippineAddressFields";
@@ -20,7 +20,8 @@ import { publicSwimmingQuote, publicServiceCatalog, type PublicSwimmingCatalog, 
 import { parsePhilippineAddress, validatePhilippineAddress } from "@/lib/address/philippine-address";
 import { normalizePhilippineMobile, PH_MOBILE_ERROR } from "@/lib/validation/phone";
 import { sanitizeName, isValidName } from "@/lib/helper/validation";
-import { serviceQuantityError } from "@/lib/booking/service-quantity";
+import { serviceQuantityError, serviceQuantityLimit } from "@/lib/booking/service-quantity";
+import { serviceBilling } from "@/lib/booking/service-billing";
 import { isPublicSwimmingStartAllowed, PUBLIC_SWIMMING_LEAD_MESSAGE } from "@/lib/booking/public-swimming";
 import { formatManilaDateTime } from "@/lib/booking/manila-date";
 import type { PromoQuote } from "@/lib/booking/discounts";
@@ -43,8 +44,11 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
   const roomsState = useSwimmingRooms(session?.slot.startDatetime ?? "", session?.slot.endDatetime ?? "", swimmingRooms, false);
   const roomsTotal = roomsState.quote?.total ?? 0;
   const roomsIssue = swimmingRooms.length > 0 && (roomsState.loading || !roomsState.quote || !!roomsState.error);
-  const requestId = useRef(""), saving = useRef(false), guard = useReservationFormGuard(!loading);
+  const requestId = useRef(""), saving = useRef(false), guard = useReservationFormGuard(!manual && !loading);
   const { confirm, confirmation } = useActionConfirmation();
+  const chooseManualSession = useCallback<PublicSwimmingSelectionChange>((selection, data) => {
+    setSession(selection); if (data) setCatalog(data);
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
@@ -109,8 +113,45 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
       guard.reset(); router.push("/booking/details");
     }
   }
+  if (manual) return <>{confirmation}<form onSubmit={submit} className="mt-5 space-y-5" aria-label="Public swimming manual reservation">
+    {(error || quoteError || serviceError) && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error || quoteError || serviceError}</p>}
+    <fieldset disabled={busy} className="min-w-0 space-y-5">
+      <p className="text-sm text-neutral/60">For guests who book by phone, Messenger or walk-in. Public swimming uses adult and child admission rates.</p>
+      <div className="grid gap-4 md:grid-cols-2">
+        {(["firstName", "lastName"] as const).map(k => <label key={k} className="block text-sm text-neutral">{k === "firstName" ? "First name" : "Last name"}<input name={k} required maxLength={100} className="admin-field mt-1 w-full" value={profile[k]} onChange={event => setProfile(p => ({ ...p, [k]: sanitizeName(event.target.value) }))} /></label>)}
+        <label className="block text-sm text-neutral">Phone<div className="mt-1"><PhilippinePhoneInput name="phone" value={profile.phone} onChange={phone => setProfile(p => ({ ...p, phone }))} /></div></label>
+      </div>
+      <fieldset className="space-y-3"><legend className="mb-2 text-sm font-medium text-neutral">Address</legend><div className="grid gap-3 sm:grid-cols-2">
+        {([['streetAddress', 'Street address'], ['city', 'City / Municipality'], ['province', 'Province'], ['zipCode', 'ZIP code']] as const).map(([key, label]) => <label key={key} className="block text-sm text-neutral">{label}<input name={key} required inputMode={key === 'zipCode' ? 'numeric' : 'text'} maxLength={key === 'zipCode' ? 4 : 200} className="admin-field mt-1 w-full" value={address[key]} onChange={event => setAddress(current => ({ ...current, [key]: event.target.value }))} /></label>)}
+      </div></fieldset>
+      <PublicSwimmingSelection appearance="admin" onSelectionChange={chooseManualSession} />
+      <div className="grid gap-4 sm:grid-cols-2">{[{ label: "Adults", value: adults, min: 1, set: setAdults }, { label: "Children", value: children, min: 0, set: setChildren }].map(f => <label key={f.label} className="block text-sm text-neutral">{f.label}<GuestCountInput aria-label={f.label} min={f.min} max={30} required className="admin-field mt-1 w-full" value={f.value} onValueChange={f.set} /></label>)}</div>
+      <p className="text-sm text-neutral/60">Include at least one adult, with up to 30 guests per reservation.</p>
+      {session && <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={session.slot.startDatetime} end={session.slot.endDatetime} />}
+      <section aria-labelledby="manual-public-services-title"><h3 id="manual-public-services-title" className="font-semibold text-neutral">Additional services</h3><p className="mt-1 text-sm text-neutral/60">Optional. Select a session to see rental limits for its duration.</p>
+        <div className="mt-3 space-y-3">{services.map(s => {
+          const chosen = quantities[s.service_id] !== undefined, billing = serviceBilling(s.billing_type, serviceQuantityLimit(s.max_quantity));
+          return <div key={s.service_id} className="rounded-xl border border-neutral/10 p-3"><label className="flex cursor-pointer items-start gap-3 text-sm text-neutral">
+            <input type="checkbox" aria-label={`Add ${s.name}`} disabled={!session} checked={chosen} onChange={() => setQuantities(q => { const next = { ...q }; if (next[s.service_id] === undefined) next[s.service_id] = 1; else delete next[s.service_id]; return next; })} className="mt-0.5 h-5 w-5 shrink-0" />
+            <span className="min-w-0 flex-1"><span className="block font-medium">{s.name}</span>{s.description && <span className="mt-1 block text-xs text-neutral/60">{s.description}</span>}<span className="mt-1 block text-xs">{billing.typeLabel} · {money(Number(s.price))} {billing.rateLabel}</span></span>
+          </label>{chosen && billing.hasQuantity && <label className="mt-3 block max-w-40 text-sm text-neutral">{billing.inputLabel}<input aria-label={`${billing.inputLabel} for ${s.name}`} type="number" min={1} max={serviceQuantityLimit(s.max_quantity)} step={1} required value={Number.isFinite(quantities[s.service_id]) ? quantities[s.service_id] : ""} onChange={event => setQuantities(q => ({ ...q, [s.service_id]: Number(event.target.value) }))} className="admin-field mt-1 w-full" /></label>}</div>;
+        })}</div>
+        {loading && <p role="status" className="mt-3 text-sm text-neutral/60">Loading services...</p>}{!loading && !services.length && <p className="mt-3 text-sm text-neutral/60">No active services are available.</p>}
+      </section>
+      <label className="block max-w-sm text-sm text-neutral">PWD / senior guests<GuestCountInput aria-label="PWD / senior guests" min={0} max={adults + children} required className="admin-field mt-1 w-full" value={eligible} onValueChange={setEligible} /><span className="mt-1 block text-xs text-neutral/60">Verify eligible guest IDs at arrival. The larger eligible discount or promo applies to admission.</span></label>
+      <PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />
+      <label className="block text-sm text-neutral">Special requests<textarea name="specialRequests" rows={3} maxLength={2000} className="admin-field mt-1 w-full" value={requests} onChange={event => setRequests(event.target.value)} /></label>
+      <div aria-label="Billing preview" className="rounded-xl bg-base p-4 text-sm text-neutral">{session && quote ? <>
+        <p className="font-semibold">{session.type.name}</p><p className="mt-1">{formatManilaDateTime(session.slot.startDatetime)} – {formatManilaDateTime(session.slot.endDatetime)}</p>
+        <p className="mt-2">Adults: {adults} × {money(Number(session.type.adult_rate))}</p><p className="mt-1">Children: {children} × {money(Number(session.type.child_rate))}</p>
+        <p className="mt-1">Additional services: {money(quote.servicesTotal)}</p><p className="mt-1">Optional rooms: {money(roomsTotal)}</p>
+        {quote.discount.amount > 0 && <p className="mt-1">Discount: −{money(quote.discount.amount)}</p>}<p className="mt-2 font-semibold text-primary">Total: {money(total)}</p><p className="mt-1 text-xs text-neutral/60">Full payment is required within 30 minutes of saving. Submitted payments awaiting review preserve the booking.</p>
+      </> : <p>Choose an available date and session to view admission rates and the total.</p>}</div>
+      <div className="flex flex-wrap justify-end gap-2"><button type="submit" disabled={busy || loading || checkingPromo || !session || !quote || !!serviceError || roomsIssue} className="admin-button-primary">{busy ? "Creating..." : "Create Manual Reservation"}</button></div>
+    </fieldset>
+  </form></>;
   const field = "mt-2 w-full rounded-lg border border-neutral/20 bg-white px-4 py-3 text-neutral focus:border-primary focus:outline-none";
-  const content = <>{guard.confirmation}{confirmation}{!session ? <PublicSwimmingSelection onChoose={(type, slot) => { setSession({ type, slot }); setError(""); }} /> : !manual && draft.reservationId ? <section className="rounded-3xl bg-white p-4 shadow-xl sm:p-8"><p>Booking {draft.reservationReference} is already saved. <Link className="font-semibold text-primary underline" href="/booking/details">View saved details</Link></p></section> : <div className="grid min-w-0 gap-6 lg:grid-cols-3 lg:gap-8">
+  const content = <>{guard.confirmation}{confirmation}{!session ? <PublicSwimmingSelection onChoose={(type, slot) => { setSession({ type, slot }); setError(""); }} /> : draft.reservationId ? <section className="rounded-3xl bg-white p-4 shadow-xl sm:p-8"><p>Booking {draft.reservationReference} is already saved. <Link className="font-semibold text-primary underline" href="/booking/details">View saved details</Link></p></section> : <div className="grid min-w-0 gap-6 lg:grid-cols-3 lg:gap-8">
     <div ref={guard.root} onFocusCapture={guard.captureInitial} onPointerDownCapture={guard.captureInitial} onClickCapture={guard.captureClick} onChangeCapture={guard.captureChange} onInputCapture={guard.captureChange} className="min-w-0 lg:col-span-2">
       <form onSubmit={submit} className="rounded-3xl bg-white p-4 shadow-xl sm:p-8">
         <h2 className="mb-6 text-2xl font-bold text-neutral sm:mb-8 sm:text-3xl">Reservation Details</h2>
@@ -121,9 +162,9 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
               {k === "firstName" ? "First name" : "Last name"} *
               <input name={k} required autoComplete={k === "firstName" ? "given-name" : "family-name"} maxLength={100} className={field} value={profile[k]} onChange={e => setProfile(p => ({ ...p, [k]: sanitizeName(e.target.value) }))} />
             </label>)}
-            {!manual && <label className="block text-sm font-medium text-neutral/70">Account email
+            <label className="block text-sm font-medium text-neutral/70">Account email
               <input name="email" type="email" readOnly aria-readonly="true" className={field + " bg-neutral/5 text-neutral/70"} value={profile.email} autoComplete="email" />
-            </label>}
+            </label>
             <label className="block text-sm font-medium text-neutral/70">Phone Number *
               <div className="mt-2"><PhilippinePhoneInput name="phone" value={profile.phone} onChange={phone => setProfile(p => ({ ...p, phone }))} /></div>
             </label>
@@ -165,11 +206,10 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
         </section>
         {(error || quoteError || serviceError) && <p role="alert" className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error || quoteError || serviceError}</p>}
         <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
-          {manual ? <button type="button" disabled={busy} className="flex-1 rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20 disabled:opacity-50" onClick={() => setSession(null)}>Change session</button>
-            : <Link href="/booking" className="flex-1 rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20">Back to dates</Link>}
+          <Link href="/booking" className="flex-1 rounded-full bg-neutral/10 px-6 py-4 text-center font-semibold text-neutral transition-colors hover:bg-neutral/20">Back to dates</Link>
           <button data-booking-guide="guest-continue" type="submit" disabled={busy || loading || checkingPromo || !quote || !!serviceError || roomsIssue}
             className="flex-1 rounded-full bg-primary px-6 py-4 font-semibold text-base transition-all hover:bg-primary/90 sm:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100">
-            {busy ? "Saving reservation..." : manual ? "Create Public Swimming Reservation" : "Review Full Details"}
+            {busy ? "Saving reservation..." : "Review Full Details"}
           </button>
         </div>
       </form>
@@ -216,7 +256,7 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
       </aside>
     </div>
   </div>}</>;
-  return manual ? content : <div className="booking-flow min-h-screen bg-base">
+  return <div className="booking-flow min-h-screen bg-base">
     <Navigation /><BookingProgress currentStep={session ? 2 : 1} />
     {session && !draft.reservationId && <BookingGuide page="guest" publicSwimming disabled={busy || checkingPromo} />}
     <main className="px-4 py-6 sm:py-12"><div className="mx-auto max-w-6xl">{content}</div></main>
