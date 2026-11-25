@@ -13,7 +13,8 @@ import { contentText, useSiteContent } from "@/components/content/SiteContent";
 import { downloadReportCsv } from "@/lib/reports/export";
 import { reportConfig } from "@/lib/reports/config";
 import type { ReportData, ReportDateRange, ReportPeriod, ReportRow, ReportTab } from "@/lib/reports/types";
-import { SALES_SOURCES, type SalesSource } from "@/lib/public-access/sales";
+import ReservationTypeFilter from "@/components/admin/ReservationTypeFilter";
+import type { ReservationTypeFilter as TypeFilter } from "@/lib/booking/commercial-types";
 export type { ReportTab } from "@/lib/reports/types";
 
 const money = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 });
@@ -22,7 +23,7 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
   const [activeTab, setActiveTab] = useState<ReportTab>(tabs[0]);
   const [generation, setGeneration] = useState(0);
   const [period, setPeriod] = useState<ReportPeriod>("Daily");
-  const [salesSource,setSalesSource]=useState<SalesSource>("all");
+  const [reservationType, setReservationType] = useState<TypeFilter>("all");
   const [customRange, setCustomRange] = useState<ReportDateRange>(defaultReportDateRange);
   const [result, setResult] = useState<{ key: string; data: ReportData } | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
@@ -32,7 +33,7 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
   const [splitType, setSplitType] = useState<ChartType>("pie");
   const content = useSiteContent();
   const params = new URLSearchParams({ tab: activeTab, period });
-  if(activeTab==="Sales Report")params.set("source",salesSource);
+  if (activeTab !== "Staff Report") params.set("reservationType", reservationType);
   if (period === "Custom") { params.set("startDate", customRange.startDate); params.set("endDate", customRange.endDate); }
   const query = params.toString();
   const key = `${query}:${generation}`;
@@ -68,7 +69,7 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
     if (!report || !rows.length || printSnapshot) return;
     setActionError(null);
     try {
-      if (action === "Export CSV") downloadReportCsv(config.columns, rows, `${activeTab.toLowerCase().replaceAll(" ", "-")}${activeTab === "Sales Report" ? `-${salesSource}` : ""}-${report.startDate}-to-${report.endDate}.csv`);
+      if (action === "Export CSV") downloadReportCsv(config.columns, rows, `${activeTab.toLowerCase().replaceAll(" ", "-")}${activeTab !== "Staff Report" ? `-${reservationType}` : ""}-${report.startDate}-to-${report.endDate}.csv`);
       if (action === "Print report") setPrintSnapshot({ tab: activeTab, report, columns: config.columns, rows, resort: contentText(content, "resort.name"), charts: [
         { title: config.trendTitle, points: report.trend, type: trendType, format: activeTab === "Sales Report" ? "money" : "count" },
         { title: config.splitTitle, points: report.split, type: splitType, format: activeTab === "Sales Report" ? "money" : "count" },
@@ -81,8 +82,8 @@ export default function ReportPanel({ tabs }: { tabs: readonly ReportTab[] }) {
     <p className="mt-4 text-sm leading-relaxed text-neutral/75">{config.description}</p>
     <div className="mt-5 flex flex-wrap items-end gap-3 rounded-xl bg-base p-4">
       <ReportPeriodFilter key={period === "Custom" ? `${customRange.startDate}:${customRange.endDate}` : "preset"} period={period} range={customRange} onPeriodChange={setPeriod} onRangeChange={setCustomRange} />
-      {activeTab==="Sales Report"&&<label className="text-sm font-medium">Collection source<select aria-label="Sales collection source" value={salesSource} onChange={e=>setSalesSource(e.target.value as SalesSource)} className="admin-field mt-1 block">{Object.entries(SALES_SOURCES).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>}
-      <button type="button" onClick={() => { setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral hover:bg-neutral/5">Reset period</button>
+      {activeTab !== "Staff Report" && <ReservationTypeFilter value={reservationType} onChange={setReservationType} />}
+      <button type="button" onClick={() => { setPeriod("Daily"); setReservationType("all"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm text-neutral hover:bg-neutral/5">Reset period</button>
     </div>
     <p className="mt-3 text-xs text-neutral/65">Reports update automatically when dates are applied. All dates and times use Philippine time.</p>
 

@@ -209,6 +209,52 @@ test("guests search bookings and ocular visits by date, combine it with referenc
   } finally { await h.close(); }
 });
 
+test("booking status and reservation type filters combine with reference and date search, clear together and reset between tabs", async () => {
+  const originalLength = rows.length;
+  rows.push(
+    { ...rows[0], reservation_id: "public-confirmed", reference_number: "MV-PUBLIC", commercial_type: "public_swimming" },
+    { ...rows[0], reservation_id: "public-pending", reference_number: "MV-PUBLIC-PENDING", commercial_type: "public_swimming", status: "pending" },
+    { ...rows[0], reservation_id: "room-confirmed", reference_number: "MV-ROOM", commercial_type: "room_accommodation" },
+    { ...rows[0], reservation_id: "room-pending", reference_number: "MV-ROOM-PENDING", commercial_type: "room_accommodation", status: "pending" },
+  );
+  const h = await mount();
+  try {
+    const status = () => h.container.querySelector('[aria-label="Filter by status"]');
+    const type = () => h.container.querySelector('[aria-label="Filter by reservation type"]');
+    const cards = () => [...h.container.querySelectorAll('article[aria-label^="Booking "]')].map(el => el.getAttribute("aria-label"));
+    assert.equal(cards().length, 7);
+    await value(status(), "confirmed");
+    for (const [commercialType, reference] of [["private_swimming", "MV-CONFIRMED"], ["public_swimming", "MV-PUBLIC"], ["room_accommodation", "MV-ROOM"]]) {
+      await value(type(), commercialType);
+      assert.deepEqual(cards(), [`Booking ${reference}`]);
+    }
+    await value(status(), "pending");
+    assert.deepEqual(cards(), ["Booking MV-ROOM-PENDING"]);
+    await value(h.container.querySelector('[aria-label="Search booking date"]'), day(21));
+    assert.deepEqual(cards(), []); assert.match(h.container.textContent, /No matching records/);
+    await value(h.container.querySelector('[aria-label="Search booking date"]'), day(20));
+    await value(h.container.querySelector('[type="search"]'), "PUBLIC");
+    assert.deepEqual(cards(), []);
+    await value(type(), "public_swimming");
+    assert.deepEqual(cards(), ["Booking MV-PUBLIC-PENDING"]);
+    await click(button(h.container, "Clear filters"));
+    assert.equal(status().value, "all"); assert.equal(type().value, "all");
+    assert.equal(h.container.querySelector('[type="search"]').value, "");
+    assert.equal(h.container.querySelector('[type="date"]').value, "");
+    assert.equal(cards().length, 7);
+    await value(status(), "payment_submitted"); assert.deepEqual(cards(), ["Booking MV-REVIEW"]);
+    await value(status(), "cancelled"); assert.deepEqual(cards(), ["Booking MV-CLOSED"]);
+    await value(type(), "room_accommodation");
+    await click([...h.container.querySelectorAll('[aria-label="Record type"] button')].find(el => el.textContent.includes("Ocular visits")));
+    assert.equal(status().value, "all"); assert.equal(type(), null);
+    assert.ok(h.container.querySelector('article[aria-label="Ocular visit OC-VISIT"]'));
+    await click(button(h.container, "Refunds"));
+    assert.equal(status(), null); assert.equal(type(), null);
+    await click([...h.container.querySelectorAll('[aria-label="Record type"] button')].find(el => el.textContent.includes("Bookings")));
+    assert.equal(status().value, "all"); assert.equal(type().value, "all"); assert.equal(cards().length, 7);
+  } finally { await h.close(); rows.length = originalLength; }
+});
+
 test("service errors and recalculated amounts remain visible in the selected dialog, which cannot close during save", async () => {
   const calls = []; let rejectSave = true, resolveSave;
   const h = await mount(async (url, options) => {

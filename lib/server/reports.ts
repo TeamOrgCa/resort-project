@@ -1,4 +1,4 @@
-import { commercialTypeLabel } from "@/lib/booking/commercial-types";
+import { commercialTypeLabel, COMMERCIAL_TYPES, isReservationTypeFilter, matchesReservationType, reservationTypeFilterLabel, standaloneSaleType, type ReservationTypeFilter } from "@/lib/booking/commercial-types";
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { InvalidDateRangeError } from "@/lib/server/custom-date-range";
@@ -6,12 +6,13 @@ import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { fetchAllPages } from "@/lib/server/fetch-all-pages";
 import { parseReportPeriod, reportBucket, reportWindow } from "@/lib/reports/periods";
 import type { ReportData, ReportMetric, ReportRow, ReportTab } from "@/lib/reports/types";
-import { PUBLIC_ACCESS_TYPES, SALES_SOURCES, type PublicAccessSale, type SalesSource } from "@/lib/public-access/sales";
+import type { PublicAccessSale } from "@/lib/public-access/sales";
+import { reservationTypesById } from "./reservation-type-filter";
 export type { ReportTab } from "@/lib/reports/types";
 
 type Window = ReturnType<typeof reportWindow>;
 type Client = ReturnType<typeof createAdminClient>;
-type Payment = { payment_id: string; amount: number; payment_type: string; created_at: string; verified_at: string | null };
+type Payment = { reservation_id?: string; payment_id: string; amount: number; payment_type: string; created_at: string; verified_at: string | null };
 type Reservation = { reservation_id: string; guest_id: string | null; walk_in_guest_id: string | null; reference_number: string; commercial_type?: string; booking_type: string | null; adult_count: number; child_count: number; status: string; start_datetime: string; created_at: string };
 type Guest = { id: string; first_name: string; last_name: string; phone_number: string; email: string };
 type WalkIn = Omit<Guest, "id"> & { walk_in_guest_id: string };
@@ -49,41 +50,51 @@ async function byIds<T>(client: Client, table: string, columns: string, idColumn
   }
   return rows;
 }
-async function reservations(client: Client, window: Window) {
-  return fetchAllPages<Reservation>((from, to) => client.from("reservations")
+async function reservations(client: Client, window: Window, filter: ReservationTypeFilter = "all") {
+  const rows = await fetchAllPages<Reservation>((from, to) => client.from("reservations")
     .select("reservation_id, guest_id, walk_in_guest_id, reference_number, commercial_type, booking_type, adult_count, child_count, status, start_datetime, created_at")
     .gte("created_at", window.start.toISOString()).lt("created_at", window.end.toISOString()).order("created_at").order("reservation_id").range(from, to));
+  return rows.filter(row => matchesReservationType(row.commercial_type, filter));
 }
 
-async function salesReport(client: Client, window: Window, now: Date, source: SalesSource): Promise<ReportData> {
+async function salesReport(client: Client, window: Window, now: Date, filter: ReservationTypeFilter): Promise<ReportData> {
   const start = window.start.toISOString(), end = window.end.toISOString();
-  const [payments, bookings, admissions] = await Promise.all([
-    source === "public" ? Promise.resolve([] as Payment[]) : fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id, amount, payment_type, created_at, verified_at")
+  const [allPayments, bookings, allAdmissions] = await Promise.all([
+    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,reservation_id,amount,payment_type,created_at,verified_at")
       .eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`)
-      .order("created_at").order("payment_id").range(from, to)), source === "public" ? Promise.resolve([] as Reservation[]) : reservations(client, window),
-    source === "private" ? Promise.resolve([] as Pick<PublicAccessSale,"sale_id"|"amount"|"access_type"|"paid_at">[]) : fetchAllPages<Pick<PublicAccessSale,"sale_id"|"amount"|"access_type"|"paid_at">>((from,to)=>client.from("public_access_sales")
-      .select("sale_id,amount,access_type,paid_at").gte("paid_at",start).lt("paid_at",end).order("paid_at").order("sale_id").range(from,to)),
+      .order("created_at").order("payment_id").range(from, to)),
+    reservations(client, window, filter),
+    filter === "private_swimming" ? Promise.resolve([] as Pick<PublicAccessSale, "sale_id" | "amount" | "access_type" | "paid_at">[])
+      : fetchAllPages<Pick<PublicAccessSale, "sale_id" | "amount" | "access_type" | "paid_at">>((from, to) => client.from("public_access_sales")
+        .select("sale_id,amount,access_type,paid_at").gte("paid_at", start).lt("paid_at", end).order("paid_at").order("sale_id").range(from, to)),
   ]);
-  const privateValues=payments.map(p=>({date:p.verified_at??p.created_at,value:number(p.amount)})), publicValues=admissions.map(p=>({date:p.paid_at,value:number(p.amount)}));
-  const values = trend(window, [...privateValues,...publicValues]);
-  const privateTrend=trend(window,privateValues), publicTrend=trend(window,publicValues), admissionCounts=trend(window,admissions.map(p=>({date:p.paid_at,value:1})));
-  const counts = trend(window, [...payments.map(p => ({ date: p.verified_at ?? p.created_at, value: 1 })),...admissions.map(p=>({date:p.paid_at,value:1}))]);
-  const bookingCounts = trend(window, bookings.map(r => ({ date: r.created_at, value: 1 })));
-  const byType = new Map<string, number>();
-  const types: Record<string, string> = { downpayment: "Down payments", full: "Full / balance payments", additional: "Additional payments" };
-  for (const p of payments) { const label = types[p.payment_type] ?? "Other payments"; byType.set(label, (byType.get(label) ?? 0) + number(p.amount)); }
-  for(const sale of admissions){const label=PUBLIC_ACCESS_TYPES[sale.access_type]??"Public access";byType.set(label,(byType.get(label)??0)+number(sale.amount));}
-  const publicTotal=rounded(admissions.reduce((sum,p)=>sum+number(p.amount),0)),privateTotal=rounded(payments.reduce((sum,p)=>sum+number(p.amount),0));
-  return { ...base(window, now), trend: values, split: [...byType].map(([label, value]) => ({ label, value: rounded(value) })),
-    metrics: [metric("Payments collected", rounded(publicTotal+privateTotal), "Gross received collections before refunds", "money"), metric("Received payments", payments.length+admissions.length, "Verified reservation payments and cashier-recorded public collections"), metric("Reservations created", bookings.length, "All reservation types and statuses included"),
-      metric("Public access collections",publicTotal,"Swimming, cottage and room usage payments","money"),metric("Reservation collections",privateTotal,"Verified reservation payments","money"),metric("Public access sales",admissions.length,"Collection records, not a count of swimmers")],
-    rows: values.map((item, index) => ({ id: `sales-${index}`, collectionSource: SALES_SOURCES[source], label: item.label, periodStart: window.boundaries[index].toISOString(), revenue: money.format(item.value), publicRevenue:money.format(publicTrend[index].value),privateRevenue:money.format(privateTrend[index].value),payments: String(counts[index].value), publicAdmissions:String(admissionCounts[index].value),bookings: String(bookingCounts[index].value) })),
-    note: `Collection source: ${SALES_SOURCES[source]}. Reservation collections use payment approval dates; legacy payments without that date use submission dates. Public collections use their server-recorded paid-at dates. These are gross collections before refunds. Booking counts include private swimming, public swimming and room accommodation reservation records. Standalone public-access sales do not create a reservation.`,
+  const types = await reservationTypesById(client, allPayments);
+  const payments = allPayments.filter(row => filter === "all" || row.reservation_id && types.has(row.reservation_id) && matchesReservationType(types.get(row.reservation_id), filter));
+  const admissions = allAdmissions.filter(row => matchesReservationType(standaloneSaleType(row.access_type), filter));
+  const collections = [
+    ...payments.map(row => ({ date: row.verified_at ?? row.created_at, value: number(row.amount), type: types.get(row.reservation_id ?? "") ?? "private_swimming" })),
+    ...admissions.map(row => ({ date: row.paid_at, value: number(row.amount), type: standaloneSaleType(row.access_type) })),
+  ];
+  const values = trend(window, collections);
+  const counts = trend(window, collections.map(row => ({ ...row, value: 1 })));
+  const bookingCounts = trend(window, bookings.map(row => ({ date: row.created_at, value: 1 })));
+  const byType = Object.entries(COMMERCIAL_TYPES).map(([type, label]) => ({ type, label, value: rounded(collections.filter(row => row.type === type).reduce((sum, row) => sum + row.value, 0)) }));
+  const typeTrends = Object.fromEntries(byType.map(({ type }) => [type, trend(window, collections.filter(row => row.type === type))]));
+  return { ...base(window, now), trend: values, split: byType.filter(row => row.value > 0).map(({ label, value }) => ({ label, value })),
+    metrics: [metric("Payments collected", rounded(collections.reduce((sum, row) => sum + row.value, 0)), "Gross received collections before refunds", "money"),
+      metric("Received payments", collections.length, "Verified reservation payments and recorded standalone sales"),
+      metric("Reservations created", bookings.length, "Selected reservation types, including all statuses"),
+      ...byType.map(row => metric(row.label, row.value, "Received collections for this reservation type", "money"))],
+    rows: values.map((item, index) => ({ id: `sales-${index}`, reservationType: reservationTypeFilterLabel(filter), label: item.label,
+      periodStart: window.boundaries[index].toISOString(), revenue: money.format(item.value),
+      privateRevenue: money.format(typeTrends.private_swimming[index].value), publicRevenue: money.format(typeTrends.public_swimming[index].value), roomRevenue: money.format(typeTrends.room_accommodation[index].value),
+      payments: String(counts[index].value), bookings: String(bookingCounts[index].value) })),
+    note: `Reservation type: ${reservationTypeFilterLabel(filter)}. Reservation collections use payment approval dates; legacy payments without that date use submission dates. Standalone collections use their server-recorded paid-at dates. These are gross collections before refunds. Standalone room sales count as Room Accommodation; swimming, cottage and mixed sales count as Public Swimming and do not create a reservation.`,
   };
 }
 
-async function guestReport(client: Client, window: Window, now: Date): Promise<ReportData> {
-  const bookings = await reservations(client, window);
+async function guestReport(client: Client, window: Window, now: Date, filter: ReservationTypeFilter): Promise<ReportData> {
+  const bookings = await reservations(client, window, filter);
   const guestIds = [...new Set(bookings.flatMap(r => r.guest_id ? [r.guest_id] : []))];
   const walkInIds = [...new Set(bookings.flatMap(r => !r.guest_id && r.walk_in_guest_id ? [r.walk_in_guest_id] : []))];
   const [guests, walkIns, priorGuests, priorWalkIns] = await Promise.all([
@@ -104,7 +115,7 @@ async function guestReport(client: Client, window: Window, now: Date): Promise<R
   });
   return { ...base(window, now), rows, trend: trend(window, bookings.map(r => ({ date: r.created_at, value: 1 }))), split: [{ label: "Online booking", value: online }, { label: "Offline booking", value: staffEntry }, { label: "Unspecified", value: bookings.length - online - staffEntry }],
     metrics: [metric("Reservations created", bookings.length, "All statuses, including cancelled bookings"), metric("Booked headcount", bookings.reduce((sum, r) => sum + number(r.adult_count) + number(r.child_count), 0), "Adults and children on those reservations"), metric("First-time bookers", keys.size - returningCount, "Guest profiles with no reservation before this period"), metric("Returning bookers", returningCount, "Guest profiles with an earlier reservation")],
-    note: "Dates filter when a reservation was created. Scheduled arrival appears in the table. Headcount includes every reservation status. First-time and returning totals count distinct guest profiles, including walk-ins, based on reservations before the selected period.",
+    note: `Reservation type: ${reservationTypeFilterLabel(filter)}. Dates filter when a reservation was created. Scheduled arrival appears in the table. Headcount includes every reservation status. First-time and returning totals count distinct guest profiles, including walk-ins, based on reservations before the selected period.`,
   };
 }
 
@@ -136,12 +147,12 @@ async function staffReport(client: Client, window: Window, now: Date): Promise<R
 export async function generateReport(request: Request, tab: ReportTab) {
   try {
     const params = new URL(request.url).searchParams, period = parseReportPeriod(params.get("period"));
-    const source=params.get("source")??"all";
-    if(tab==="Sales Report"&&!Object.hasOwn(SALES_SOURCES,source))return NextResponse.json({success:false,message:"Choose All collections, Public access or Private booking."},{status:400});
+    const filter = params.get("reservationType") ?? "all";
+    if (!isReservationTypeFilter(filter)) return NextResponse.json({ success: false, message: "Choose a valid reservation type." }, { status: 400 });
     const now = new Date();
     const window = reportWindow(period, period === "Custom" ? { startDate: params.get("startDate") ?? "", endDate: params.get("endDate") ?? "" } : undefined, now);
     const client = createAdminClient();
-    const report = tab === "Sales Report" ? await salesReport(client, window, now, source as SalesSource) : tab === "Guest Report" ? await guestReport(client, window, now) : await staffReport(client, window, now);
+    const report = tab === "Sales Report" ? await salesReport(client, window, now, filter) : tab === "Guest Report" ? await guestReport(client, window, now, filter) : await staffReport(client, window, now);
     return NextResponse.json({ success: true, report }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof InvalidDateRangeError) return NextResponse.json({ success: false, message: error.message }, { status: 400 });

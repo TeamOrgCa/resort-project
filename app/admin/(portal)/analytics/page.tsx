@@ -15,6 +15,8 @@ import { downloadReportCsv } from "@/lib/reports/export";
 import type { AnalyticsReport, AnalyticsReports, SentimentData } from "@/lib/reports/analytics-types";
 import type { ReportDateRange, ReportPeriod, ReportRow } from "@/lib/reports/types";
 import type { AdminTableColumn, AdminTableSort } from "@/components/admin/types";
+import ReservationTypeFilter from "@/components/admin/ReservationTypeFilter";
+import type { ReservationTypeFilter as TypeFilter } from "@/lib/booking/commercial-types";
 import GuestFeedbackPanel from "@/components/admin/GuestFeedbackPanel";
 
 import { useAdminReadOnly } from "@/components/admin/AdminReadOnlyContext";
@@ -36,6 +38,7 @@ const money = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP
 export default function AdminAnalyticsPage() {
   const readOnly = useAdminReadOnly();
   const [activeTab, setActiveTab] = useState<Tab>("Bookings");
+  const [reservationType, setReservationType] = useState<TypeFilter>("all");
   const [period, setPeriod] = useState<ReportPeriod>("Daily");
   const [customRange, setCustomRange] = useState<ReportDateRange>(defaultReportDateRange);
   const [generation, setGeneration] = useState(0);
@@ -50,6 +53,7 @@ export default function AdminAnalyticsPage() {
   const feedbackController = useRef<AbortController | null>(null);
   const content = useSiteContent();
   const params = new URLSearchParams({ period });
+  if (activeTab !== "Guest feedback") params.set("reservationType", reservationType);
   if (period === "Custom") { params.set("startDate", customRange.startDate); params.set("endDate", customRange.endDate); }
   const query = params.toString(), key = `${query}:${generation}`;
   const reports = result?.key === key ? result.reports : null;
@@ -101,7 +105,7 @@ export default function AdminAnalyticsPage() {
     if (!report || !rows.length || printSnapshot) return;
     setActionFailure(null);
     try {
-      if (action === "Export CSV") downloadReportCsv(config.columns, rows, `analytics-${activeTab.toLowerCase().replaceAll(" ", "-")}-${report.startDate}-to-${report.endDate}.csv`);
+      if (action === "Export CSV") downloadReportCsv(config.columns, rows, `analytics-${activeTab.toLowerCase().replaceAll(" ", "-")}-${activeTab === "Guest feedback" ? "reviews" : reservationType}-${report.startDate}-to-${report.endDate}.csv`);
       if (action === "Print report") setPrintSnapshot({ tab: `Analytics: ${activeTab}`, report: { ...report, note: [report.note, ...(report.insights ?? []).map(insight => `${insight.title}: ${insight.description}`)].join("\n\n") }, columns: config.columns, rows, resort: contentText(content, "resort.name"), charts: [
         ...(activeTab === "Guest feedback" ? [] : report.comparison ? [
           { title: `${report.trendTitle}: selected period`, points: report.comparison.points.map(point => ({ label: point.label, value: point.current })), format: report.comparison.format, type: "line" as const },
@@ -119,7 +123,8 @@ export default function AdminAnalyticsPage() {
       <p className="mt-4 text-sm text-neutral/75">{tabs.find(tab => tab.title === activeTab)?.description}</p>
       <div className="mt-5 flex flex-wrap items-end gap-3 rounded-xl bg-base p-4">
         <ReportPeriodFilter key={period === "Custom" ? `${customRange.startDate}:${customRange.endDate}` : "preset"} period={period} range={customRange} onPeriodChange={value => { setPeriod(value); refresh(); }} onRangeChange={value => { setCustomRange(value); refresh(); }} />
-        <button type="button" onClick={() => { setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm">Reset period</button>
+        {activeTab !== "Guest feedback" && <ReservationTypeFilter value={reservationType} onChange={setReservationType} />}
+        <button type="button" onClick={() => { setReservationType("all"); setPeriod("Daily"); setCustomRange(defaultReportDateRange()); refresh(); }} className="rounded-xl border border-neutral/20 bg-white px-3 py-2 text-sm">Reset period</button>
       </div>
       <p className="mt-3 text-xs text-neutral/65">Dates update automatically when applied. Chart selectors change how the same values are displayed.</p>
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-800">{error} Use Refresh analytics to retry.</p>}

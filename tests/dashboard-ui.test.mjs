@@ -100,7 +100,7 @@ async function mount({ filename = "components/admin/AdminDashboard.tsx", fetcher
 test("dashboard search, filters, numeric sorting, paging, CSV and reservation View work", async () => {
   const h = await mount();
   try {
-    assert.equal(h.requests[0].url, "/api/admin/dashboard"); assert.equal(h.requests[0].options.cache, "no-store"); assert.match(h.container.textContent, /1,500/); assert.match(h.container.textContent, /Philippine time/);
+    assert.equal(h.requests[0].url, "/api/admin/dashboard?reservationType=all"); assert.equal(h.requests[0].options.cache, "no-store"); assert.match(h.container.textContent, /1,500/); assert.match(h.container.textContent, /Philippine time/);
     assert.equal(h.container.querySelectorAll("tbody tr").length, 10); await click(button(h.container, "Next")); assert.match(h.container.textContent, /Page 2 of 3/);
     await click(button(h.container, "Last")); assert.match(h.container.textContent, /Page 3 of 3/); await click(button(h.container, "Previous")); await click(button(h.container, "First"));
     await click(button(h.container, "Export CSV")); assert.equal((await h.downloads[0].blob.text()).split("\r\n").length, 26); assert.match(await h.downloads[0].blob.text(), /Guest 24/);
@@ -349,5 +349,60 @@ test("managers can cancel a confirmed ocular visit from Records only after docum
     await click(cancel);
     assert.equal(submitted.visitId, "visit"); assert.match(submitted.cancellationReason, /Maintenance/);
     assert.match(dialog.textContent, /Ocular visit cancelled/);
+  } finally { await h.close(); }
+});
+
+
+test("dashboard reservation type changes hide stale totals, abort old requests and scope CSV exports", async () => {
+  let finishPublic;
+  const h = await mount({ fetcher: (url) => {
+    const type = new URL(url, "http://localhost").searchParams.get("reservationType");
+    if (type === "public_swimming") return new Promise(resolve => { finishPublic = resolve; });
+    return Response.json({ success: true, dashboard: { ...snapshot(1), collectionsToday: type === "room_accommodation" ? 777 : 1500 } });
+  } });
+  try {
+    const filter = h.container.querySelector('[aria-label="Reservation type filter"]');
+    assert.deepEqual([...filter.options].map(option => option.value), ["all", "private_swimming", "public_swimming", "room_accommodation"]);
+    await value(filter, "public_swimming");
+    const oldRequest = h.requests.at(-1);
+    assert.doesNotMatch(h.container.textContent, /1,500/);
+    await value(filter, "room_accommodation");
+    assert.equal(oldRequest.options.signal.aborted, true);
+    assert.match(h.container.textContent, /777/);
+    await act(async () => finishPublic(Response.json({ success: true, dashboard: { ...snapshot(1), collectionsToday: 999999 } })));
+    assert.doesNotMatch(h.container.textContent, /999,999/);
+    await click(button(h.container, "Export CSV"));
+    assert.match(h.downloads[0].filename, /room_accommodation/);
+  } finally { await h.close(); }
+});
+
+test("transaction reservation types filter ledger, invoices, payments, receipts and refunds and persist across tabs", async () => {
+  const at = new Date().toISOString();
+  const reservations = ["private_swimming", "public_swimming", "room_accommodation"].map((commercial_type, i) => ({ reservation_id: `typed-${i}`, reference_number: `TYPE-${i}`, commercial_type, booking_type: "online", status: "confirmed" }));
+  const db = dashboardDatabase({ staff_users: [{ id: "staff", role: "admin", is_active: true }], reservations,
+    transactions: reservations.map((row, i) => ({ transaction_id: `t${i}`, reservation_id: row.reservation_id, total_amount: 100, paid_amount: 20, balance: 80, status: "partial", created_at: at, updated_at: at })),
+    invoices: reservations.map((row, i) => ({ invoice_id: `i${i}`, reservation_id: row.reservation_id, total_amount: 100, created_at: at })),
+    payments: reservations.map((row, i) => ({ payment_id: `p${i}`, reservation_id: row.reservation_id, reference_number: `PAY-${i}`, amount: 20, status: "pending", paid_at: at, ocr_status: "consistent" })),
+    receipts: reservations.map((row, i) => ({ receipt_id: `receipt${i}`, payment_id: `p${i}`, receipt_number: `RCPT-${i}`, issued_at: at })),
+  });
+  const exported = [];
+  const h = await mount({ filename: "app/admin/(portal)/transactions/page.tsx", extraMocks: {
+    "@/lib/supabase/client": { createClient: () => db.client },
+    "@/lib/reports/export": { downloadReportCsv: (_columns, rows) => exported.push(rows) },
+  }, fetcher: () => Response.json({ refunds: reservations.map((row, i) => ({ refund_id: `f${i}`, reservation_id: row.reservation_id, amount: 20, status: "pending", requested_at: at })), reservations }) });
+  try {
+    assert.equal(h.container.querySelector('[aria-label="Transaction collection source"]'), null);
+    for (const [type, index] of [["private_swimming", 0], ["public_swimming", 1], ["room_accommodation", 2]]) {
+      await click(button(h.container, "Transaction Ledger"));
+      await value(h.container.querySelector('[aria-label="Reservation type filter"]'), type);
+      await click(button(h.container, "Export Ledger"));
+      assert.equal(exported.at(-1).length, 1); assert.equal(exported.at(-1)[0].reference, `TYPE-${index}`);
+      for (const tab of ["Generated Invoices", "Payment Verification Queue", "Issued Receipts", "Refund Requests"]) {
+        await click(button(h.container, tab));
+        assert.equal(h.container.querySelector('[aria-label="Reservation type filter"]').value, type);
+        assert.equal(h.container.querySelectorAll("tbody tr").length, 1);
+        assert.match(h.container.querySelector("tbody").textContent, new RegExp(`TYPE-${index}`));
+      }
+    }
   } finally { await h.close(); }
 });

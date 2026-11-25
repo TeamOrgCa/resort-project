@@ -381,7 +381,7 @@ test("all report types including Guest Report use the Reports endpoint",async()=
  finally{await h.close();}
 });
 
-test("New payment records public access without a private bill; retries preserve identity and receipts respect source filters", async () => {
+test("New payment records public access without a private bill; retries preserve identity and receipts respect reservation type filters", async () => {
   const cashier = "11111111-1111-4111-8111-111111111111", cash = "22222222-2222-4222-8222-222222222222";
   let sale = null; const posts = [];
   const client = { auth: { getUser: async () => ({ data: { user: { id: cashier } } }) }, from: table => {
@@ -410,30 +410,30 @@ test("New payment records public access without a private bill; retries preserve
     assert.match(receipt.textContent, /Contact No\./); assert.match(receipt.textContent, /Paid At/); assert.match(receipt.textContent, /Cash/);
     await click(receipt.querySelector('button[aria-label="Close dialog"]') ?? button(receipt, "Close"));
     assert.match(h.container.querySelector("tbody").textContent, /PA-TEST/);
-    const source = h.container.querySelector('select[aria-label="Transaction collection source"]');
-    await value(source, "private"); assert.doesNotMatch(h.container.querySelector("tbody")?.textContent ?? "", /PA-TEST/);
-    await value(source, "public"); await click(button(h.container, "Export Ledger"));
-    assert.match(await h.downloads.at(-1).blob.text(), /Public access/);
+    const source = h.container.querySelector('select[aria-label="Reservation type filter"]');
+    await value(source, "private_swimming"); assert.doesNotMatch(h.container.querySelector("tbody")?.textContent ?? "", /PA-TEST/);
+    await value(source, "public_swimming"); await click(button(h.container, "Export Ledger"));
+    assert.match(await h.downloads.at(-1).blob.text(), /Public Swimming/);
     await click(button(h.container, "Issued Receipts")); assert.match(h.container.querySelector("tbody").textContent, /PA-RCPT-TEST/);
-    await value(h.container.querySelector('select[aria-label="Transaction collection source"]'), "private"); assert.doesNotMatch(h.container.querySelector("tbody")?.textContent ?? "", /PA-RCPT-TEST/);
+    await value(h.container.querySelector('select[aria-label="Reservation type filter"]'), "private_swimming"); assert.doesNotMatch(h.container.querySelector("tbody")?.textContent ?? "", /PA-RCPT-TEST/);
   } finally { await h.close(); }
 });
 
-test("Sales Report source changes refetch totals, hide stale exports, and label CSV and printing", async () => {
+test("Sales Report reservation type changes refetch totals, hide stale exports, and label CSV and printing", async () => {
   let resolvePublic;
   const h = await mount({ tabs: ["Sales Report"], fetcher: url => {
-    const source = new URL(url, "http://localhost").searchParams.get("source");
-    if (source === "public") return new Promise(resolve => { resolvePublic = resolve; });
+    const source = new URL(url, "http://localhost").searchParams.get("reservationType");
+    if (source === "public_swimming") return new Promise(resolve => { resolvePublic = resolve; });
     return Response.json({ success: true, report: makeReport("Sales Report", 1) });
   } });
   try {
-    await value(h.container.querySelector('select[aria-label="Sales collection source"]'), "public");
-    assert.match(h.requests.at(-1).url, /source=public/); assert.equal(button(h.container, "Export CSV"), undefined);
-    const report = makeReport("Sales Report", 1); report.note = "Collection source: Public access"; report.rows[0].collectionSource = "Public access";
+    await value(h.container.querySelector('select[aria-label="Reservation type filter"]'), "public_swimming");
+    assert.match(h.requests.at(-1).url, /reservationType=public_swimming/); assert.equal(button(h.container, "Export CSV"), undefined);
+    const report = makeReport("Sales Report", 1); report.note = "Reservation type: Public Swimming"; report.rows[0].reservationType = "Public Swimming";
     await act(async () => resolvePublic(Response.json({ success: true, report })));
-    await click(button(h.container, "Export CSV")); assert.match(h.downloads[0].filename, /sales-report-public-/); assert.match(await h.downloads[0].blob.text(), /Public access/);
-    await click(button(h.container, "Print report")); await act(async () => new Promise(resolve => setTimeout(resolve, 180))); assert.match(h.printed(), /Collection source: Public access/);
-    await value(h.container.querySelector('select[aria-label="Sales collection source"]'), "private"); assert.match(h.requests.at(-1).url, /source=private/);
+    await click(button(h.container, "Export CSV")); assert.match(h.downloads[0].filename, /sales-report-public_swimming-/); assert.match(await h.downloads[0].blob.text(), /Public Swimming/);
+    await click(button(h.container, "Print report")); await act(async () => new Promise(resolve => setTimeout(resolve, 180))); assert.match(h.printed(), /Reservation type: Public Swimming/);
+    await value(h.container.querySelector('select[aria-label="Reservation type filter"]'), "private_swimming"); assert.match(h.requests.at(-1).url, /reservationType=private_swimming/);
   } finally { await h.close(); }
 });
 
@@ -460,4 +460,32 @@ test("long printed charts are split into readable SVG sections instead of shrink
  try {await click(button(h.container,"Print report"));await act(async()=>new Promise(resolve=>setTimeout(resolve,180)));
  assert.deepEqual(h.printedCharts(),["Line graph","Line graph","Line graph","Pie chart"]);assert.match(h.printed(),/Oct 31, 2026/);assert.match(h.printed(),/\(3\/3\)/);}
  finally{await h.close();}
+});
+
+
+test("analytics reservation type selector scopes requests and exports, hides stale data and keeps feedback independent", async () => {
+  let finishPublic;
+  const h = await mount({ filename: "app/admin/(portal)/analytics/page.tsx", fetcher: url => {
+    const type = new URL(url, "http://localhost").searchParams.get("reservationType");
+    if (type === "public_swimming") return new Promise(resolve => { finishPublic = resolve; });
+    return Response.json({ success: true, reports: makeAnalytics() });
+  } });
+  try {
+    const filter = h.container.querySelector('[aria-label="Reservation type filter"]');
+    assert.deepEqual([...filter.options].map(option => option.value), ["all", "private_swimming", "public_swimming", "room_accommodation"]);
+    await value(filter, "public_swimming");
+    const old = h.requests.at(-1);
+    assert.equal(button(h.container, "Export CSV"), undefined);
+    await value(filter, "room_accommodation");
+    assert.equal(old.options.signal.aborted, true);
+    await act(async () => finishPublic(Response.json({ success: true, reports: { ...makeAnalytics(), booking: { ...makeAnalytics().booking, tableTitle: "STALE PUBLIC DATA" } } })));
+    assert.doesNotMatch(h.container.textContent, /STALE PUBLIC DATA/);
+    await click(button(h.container, "Export CSV"));
+    assert.match(h.downloads.at(-1).filename, /room_accommodation/);
+    await click(button(h.container, "Collection forecast"));
+    assert.equal(filter.value, "room_accommodation");
+    await click(button(h.container, "Guest feedback"));
+    assert.equal(h.container.querySelector('[aria-label="Reservation type filter"]'), null);
+    assert.ok(h.requests.filter(row => row.url.startsWith("/api/admin/analytics/feedback")).every(row => !row.url.includes("reservationType=")));
+  } finally { await h.close(); }
 });

@@ -1,9 +1,10 @@
-import { commercialTypeLabel } from "@/lib/booking/commercial-types";
+import { commercialTypeLabel, matchesReservationType, standaloneSaleType, type ReservationTypeFilter } from "@/lib/booking/commercial-types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey, manilaTimestamp } from "@/lib/booking/manila-date";
 import { reportBucket, reportWindow } from "@/lib/reports/periods";
 import type { DashboardSnapshot } from "@/lib/dashboard/types";
 import { fetchAllPages } from "./fetch-all-pages";
+import { filterReservationRecords } from "./reservation-type-filter";
 
 const DAY = 86_400_000;
 type Reservation = {
@@ -11,7 +12,7 @@ type Reservation = {
   start_datetime: string; end_datetime: string; adult_count: number; child_count: number;
   commercial_type?: string; booking_type: string | null; booking_mode: string | null; status: string; payment_deadline_at: string | null; created_at: string;
 };
-type Payment = { amount: number; created_at: string; verified_at: string | null };
+type Payment = { reservation_id?: string; amount: number; created_at: string; verified_at: string | null };
 type Guest = { id: string; first_name: string; last_name: string };
 type WalkInGuest = Omit<Guest, "id"> & { walk_in_guest_id: string };
 const labels: Record<string, string> = {
@@ -24,7 +25,7 @@ const source = (value: string | null) => value === "online" ? "Online booking" :
 const rounded = (value: number) => Math.round(value * 100) / 100;
 
 /** No illustration values or response-size caps. Calendar boundaries use Philippine time. */
-export async function generateDashboard(now = new Date()): Promise<Omit<DashboardSnapshot, "permissions">> {
+export async function generateDashboard(now = new Date(), filter: ReservationTypeFilter = "all"): Promise<Omit<DashboardSnapshot, "permissions">> {
   const client = createAdminClient();
   const window = reportWindow("Daily", undefined, now);
   const today = manilaDateKey(now);
@@ -32,13 +33,21 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
   const arrivalEnd = new Date(todayStart.getTime() + 30 * DAY);
   const start = window.start.toISOString(), end = window.end.toISOString();
   const count = async (table: string, status: string | string[]) => {
+    if (filter !== "all" && table !== "ocular_visits") {
+      const rows = await fetchAllPages<{ reservation_id: string }>((from, to) => {
+        let query = client.from(table).select("reservation_id");
+        query = Array.isArray(status) ? query.in("status", status) : query.eq("status", status);
+        return query.order(table === "payments" ? "payment_id" : table === "reservation_reschedules" ? "reschedule_id" : "refund_id").range(from, to);
+      });
+      return (await filterReservationRecords(client, rows, filter)).length;
+    }
     const query = client.from(table).select("*", { count: "exact", head: true });
     const { count, error } = await (Array.isArray(status) ? query.in("status", status) : query.eq("status", status));
     if (error) throw new Error(error.message);
     if (count == null) throw new Error(`Unable to count ${table}`);
     return count;
   };
-  const [arrivals, bookings, verified, payments, reschedules, ocular, refundReview, refundPayout, publicSales] = await Promise.all([
+  const [arrivalRows, bookingRows, verifiedRows, payments, reschedules, ocular, refundReview, refundPayout, publicSales] = await Promise.all([
     fetchAllPages<Reservation>((from, to) => client.from("reservations")
       .select("reservation_id, reference_number, guest_id, walk_in_guest_id, start_datetime, end_datetime, adult_count, child_count, commercial_type, booking_type, booking_mode, status, payment_deadline_at, created_at")
       .in("status", ["pending", "payment_submitted", "confirmed", "reschedule_requested"])
@@ -46,14 +55,17 @@ export async function generateDashboard(now = new Date()): Promise<Omit<Dashboar
       .order("start_datetime").order("reservation_id").range(from, to)),
     fetchAllPages<Pick<Reservation, "reservation_id" | "booking_type" | "commercial_type" | "status" | "created_at">>((from, to) => client.from("reservations").select("reservation_id, commercial_type, booking_type, status, created_at")
       .gte("created_at", start).lt("created_at", end).order("created_at").order("reservation_id").range(from, to)),
-    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id, amount, created_at, verified_at")
+    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id, reservation_id, amount, created_at, verified_at")
       .eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`)
       .order("created_at").order("payment_id").range(from, to)),
     count("payments", "pending"), count("reservation_reschedules", "pending"), count("ocular_visits", "confirmed"),
     count("refund_requests", ["pending", "reviewed"]), count("refund_requests", ["approved", "payout_submitted"]),
-    fetchAllPages<{sale_id:string;amount:number;paid_at:string}>((from,to)=>client.from("public_access_sales").select("sale_id,amount,paid_at").gte("paid_at",start).lt("paid_at",end).order("paid_at").order("sale_id").range(from,to)),
+    fetchAllPages<{sale_id:string;amount:number;paid_at:string;access_type:string}>((from,to)=>client.from("public_access_sales").select("sale_id,amount,paid_at,access_type").gte("paid_at",start).lt("paid_at",end).order("paid_at").order("sale_id").range(from,to)),
   ]);
-  verified.push(...publicSales.map(sale=>({amount:sale.amount,created_at:sale.paid_at,verified_at:sale.paid_at})));
+  const arrivals = arrivalRows.filter(row => matchesReservationType(row.commercial_type, filter));
+  const bookings = bookingRows.filter(row => matchesReservationType(row.commercial_type, filter));
+  const verified = await filterReservationRecords(client, verifiedRows, filter);
+  verified.push(...publicSales.filter(row => matchesReservationType(standaloneSaleType(row.access_type), filter)).map(sale=>({amount:sale.amount,created_at:sale.paid_at,verified_at:sale.paid_at})));
 
   // An overdue unpaid hold is not a usable reservation, even before the expiry job runs.
   const active = arrivals.filter(r => r.status !== "pending" || !r.payment_deadline_at || Date.parse(r.payment_deadline_at) > now.getTime());
