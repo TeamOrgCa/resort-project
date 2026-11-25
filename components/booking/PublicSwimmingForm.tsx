@@ -79,7 +79,7 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
     if (!isValidName(profile.firstName) || !isValidName(profile.lastName)) { setError("Enter the guest's full name."); return; }
     if (!phone) { setError(PH_MOBILE_ERROR); return; }
     if (!parsedAddress.value) { setError(parsedAddress.error ?? "Complete the address."); return; }
-    if (!session || !isPublicSwimmingStartAllowed(session.slot.startDatetime)) { setError(PUBLIC_SWIMMING_LEAD_MESSAGE); return; }
+    if (!session || !isPublicSwimmingStartAllowed(session.slot.startDatetime, Date.now(), new Date(Date.parse(session.slot.startDatetime) - (catalog?.policy?.minimumAdvanceMinutes ?? 60) * 60000).toISOString())) { setError(PUBLIC_SWIMMING_LEAD_MESSAGE); return; }
     if (!quote || loading || checkingPromo || serviceError || quoteError || roomsIssue) { setError(serviceError || quoteError || roomsState.error || "Review your booking details."); return; }
     const latest = catalog?.types.find(t => t.type_id === session.type.type_id);
     if (!latest || latest.pricing_version !== session.type.pricing_version) { setError("Rates changed. Return to the calendar and choose your session again."); return; }

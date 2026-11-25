@@ -13,12 +13,12 @@ const rows=[
 // no longer block every private-booking date on the public calendar.
 for (const row of rows) row.commercial_type = "private_swimming";
 rows.push({ reservation_id: "room", commercial_type: "room_accommodation", start_datetime: "2027-06-14T09:00:00+08:00", end_datetime: "2027-06-14T12:00:00+08:00", status: "confirmed" });
-function harness({staff=true,permission=true}={}){
+function harness({staff=true,permission=true,sessions=[],bufferMinutes=0}={}){
  let reads=0,authChecks=0;const filters=[];
  const {GET}=loadTsModule("app/api/booking/availability/route.ts",{
   "@/lib/server/admin-audit":{requireActiveStaff:async()=>{authChecks++;return staff?{supabase:{},staffUser:{role:"staff"}}:null;}},
   "@/lib/server/role-permissions":{staffHasPermission:async()=>permission},
-  "@/lib/supabase/admin":{createAdminClient:()=>({from(table){
+  "@/lib/supabase/admin":{createAdminClient:()=>({rpc:async(name)=>({error:null,data:name==='swimming_policy'?{bufferMinutes}:sessions}),from(table){
    reads++;const predicates=[];
    const q={select:()=>q,limit:()=>q,maybeSingle:async()=>({data:{setting_value:45},error:null}),
     in:(key,values)=>{predicates.push(row=>values.includes(row[key]));return q;},
@@ -40,6 +40,21 @@ test("public availability includes every active hold and booking, strips identif
  assert.equal(data.reservations.length,3);assert.equal(data.reservations[0].start_datetime,rows[0].start_datetime);
  assert.deepEqual(Object.keys(data.reservations[0]).sort(),["end_datetime","start_datetime"]);
  assert.equal(data.blockedDates[0].start_date,"2027-07-01");assert.equal(h.filters.length,0);
+});
+
+test('private previews include disabled policy windows and expand physical allocations by the configured buffer',async()=>{
+ const session={booking_date:'2027-06-21',period:'day',starts_at:'2027-06-21T08:00:00+08:00',ends_at:'2027-06-21T16:00:00+08:00',access_mode:'public_only',reason:'Public Only'};
+ const response=await harness({staff:false,sessions:[session],bufferMinutes:60}).get('');const data=await response.json();
+ assert.equal(response.status,200);assert.deepEqual(data.swimmingSessions,[session]);
+ assert.equal(data.reservations[0].start_datetime,'2027-06-13T23:00:00.000Z');
+ assert.equal(data.reservations[0].end_datetime,'2027-06-14T09:00:00.000Z');
+ assert.ok(data.reservations.some(s=>s.start_datetime===session.starts_at));assert.doesNotMatch(JSON.stringify(data),/reservation_id|reference_number/);
+});
+
+test('arrival-window restrictions do not become next-day resource claims for whole-day packages',async()=>{
+ const session={booking_date:'2027-06-21',period:'day',starts_at:'2027-06-21T08:00:00+08:00',ends_at:'2027-06-21T16:00:00+08:00',access_mode:'flexible',reason:'Not Yet Open for Booking'};
+ const data=await(await harness({sessions:[session]}).get('')).json();
+ assert.equal(data.reservations.length,3);assert.equal(data.swimmingSessions[0].reason,'Not Yet Open for Booking');
 });
 test("authorized staff can exclude the edited reservation without removing other occupied slots",async()=>{
  const h=harness();const response=await h.get("&excludeReservationId="+id);const data=await response.json();

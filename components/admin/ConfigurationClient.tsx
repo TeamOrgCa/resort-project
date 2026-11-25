@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import AdminSectionHeader from "@/components/admin/AdminSectionHeader";
 import { AdminFormSkeleton } from "@/components/admin/AdminSkeletons";
 import AdminTabs from "@/components/admin/AdminTabs";
+import SwimmingSessionsEditor from "@/components/admin/SwimmingSessionsEditor";
 import PolicyEditor from "@/components/admin/PolicyEditor";
 import SettingEditor from "@/components/admin/SettingEditor";
 import WebsiteContentEditor from "@/components/admin/WebsiteContentEditor";
@@ -16,7 +17,7 @@ import type { SettingCategory, SettingDefinition, SettingValue, SettingsMap } fr
 export default function ConfigurationClient() {
   const { settings, isLoading, isRefreshing, error, save, restoreContentDefaults } = useSettings();
   const [draft, setDraft] = useState<SettingsMap>({});
-  const [activeCategory, setActiveCategory] = useState<SettingCategory>(settingCategories[0].key);
+  const [activeCategory, setActiveCategory] = useState<SettingCategory | "swimming">(settingCategories[0].key);
   const [message, setMessage] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,11 +71,12 @@ export default function ConfigurationClient() {
   return <div>
     <AdminSectionHeader title="Configuration" subtitle="Manage resort information, policies, and operational settings." />
     <section className="admin-panel">
-      <AdminTabs tabs={settingCategories.map(category => category.label)} value={settingCategories.find(category => category.key === activeCategory)?.label ?? ""} label="Configuration sections" disabled={saving || uploadingImages > 0} onChange={label => { const category = settingCategories.find(item => item.label === label); if (category) { setActiveCategory(category.key); setMessage(null); } }} />
+      <AdminTabs tabs={[...settingCategories.map(category => category.label), "Swimming Sessions"]} value={activeCategory === "swimming" ? "Swimming Sessions" : settingCategories.find(category => category.key === activeCategory)?.label ?? ""} label="Configuration sections" disabled={saving || uploadingImages > 0} onChange={label => { if (label === "Swimming Sessions") { setActiveCategory("swimming"); return; } const category = settingCategories.find(item => item.label === label); if (category) { setActiveCategory(category.key); setMessage(null); } }} />
       {message && <p role={saveFailed ? "alert" : "status"} className={`mb-5 rounded-xl border px-4 py-3 text-sm ${saveFailed ? "border-red-200 bg-red-50 text-red-800" : "border-green-200 bg-green-50 text-green-800"}`}>{message}</p>}
       {isLoading && <AdminFormSkeleton label="Loading configuration..." />}
       {error && <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-      {!isLoading && <div className={activeCategory === "content" ? "space-y-4" : "space-y-5"}>
+      {activeCategory === "swimming" && <SwimmingSessionsEditor />}
+      {!isLoading && activeCategory !== "swimming" && <div className={activeCategory === "content" ? "space-y-4" : "space-y-5"}>
         {activeCategory === "content" && <div className="flex flex-wrap items-center justify-between gap-3">
           <div role="group" aria-label="Website page" className="flex flex-wrap gap-2">{(["Branding", "Home page", "About page"] as const).map((group) => <button key={group} type="button" aria-pressed={contentGroup === group} disabled={saving || uploadingImages > 0} onClick={() => { setContentGroup(group); setMessage(null); }} className={`min-h-11 rounded-xl border px-4 py-2 text-sm ${contentGroup === group ? "border-primary bg-primary/10 font-semibold text-primary" : "border-neutral/20 text-neutral/65 hover:bg-base"}`}>{group}</button>)}</div>
           <button type="button" disabled={saving || uploadingImages > 0 || Boolean(error)} onClick={() => { setRestoreError(null); setRestoreOpen(true); }} className="admin-button-secondary w-full sm:w-auto">Restore website defaults</button>

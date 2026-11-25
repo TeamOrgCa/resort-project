@@ -57,7 +57,7 @@ export function apiPermission(path: string, method: string): Permission | null {
   if (path === "/api/admin/dashboard") return "dashboard";
   if (path.startsWith("/api/admin/permissions") || path.startsWith("/api/admin/users")) return "users";
   if (path === "/api/admin/settings" && method === "GET") return null;
-  if (path.startsWith("/api/admin/settings") || path.startsWith("/api/admin/booking-policy")) return "configuration";
+  if (path.startsWith("/api/admin/settings") || path.startsWith("/api/admin/booking-policy") || path.startsWith("/api/admin/swimming-sessions")) return "configuration";
   if (path.startsWith("/api/admin/catalog") || path.startsWith("/api/admin/payment-accounts")) return "catalog";
   if (path.startsWith("/api/admin/maintenance-blocks")) return "reservations";
   if (path.startsWith("/api/admin/reservations/create")) return "create_reservation";

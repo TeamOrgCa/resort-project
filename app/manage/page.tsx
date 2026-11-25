@@ -286,10 +286,6 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     rescheduleCalendarMonth, rescheduleForm.checkIn,
     recordMode === "reschedule" && canRequestReschedule, selectedBooking?.commercialType, selectedBooking?.id);
   const selectedRescheduleIssue = selectedBooking && rescheduleForm.checkIn ? rescheduleAvailability.dateIssue(rescheduleForm.checkIn) : null;
-  useEffect(() => {
-    const first = rescheduleAvailability.firstBookingDate?.slice(0, 7), last = rescheduleAvailability.maxBookingDate?.slice(0, 7);
-    if (recordMode === "reschedule" && selectedBooking?.commercialType === "public_swimming" && first && (rescheduleCalendarMonth < first || last && rescheduleCalendarMonth > last)) setRescheduleCalendarMonth(first);
-  }, [recordMode, selectedBooking?.commercialType, rescheduleAvailability.firstBookingDate, rescheduleAvailability.maxBookingDate, rescheduleCalendarMonth]);
   const requestedSchedule = selectedBooking && rescheduleForm.checkIn && !selectedRescheduleIssue
     ? moveReservationToDate({ start_datetime: selectedBooking.startDatetime, end_datetime: selectedBooking.endDatetime }, rescheduleForm.checkIn) : null;
   const rescheduleQuote = requestedSchedule && selectedBooking?.bookingMode && rescheduleRates?.reservationId === selectedBooking.id
@@ -1030,7 +1026,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
               </div>
 
               <div className="rounded-xl border border-neutral/10 bg-white p-3 text-sm text-neutral">
-                <p>{selectedBooking.commercialType === "public_swimming" ? "Choose an available date within the three consecutive public booking dates. Your booked public session and admission rates stay the same." : RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
+                <p>{selectedBooking.commercialType === "public_swimming" ? "Choose an available date according to the session's configured access mode, booking window and cutoff. Your booked public session and admission rates stay the same." : RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
                 <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(selectedReschedulePolicy?.noticeFee ?? 0)}. {selectedBooking.commercialType === "public_swimming" ? "Public cancellations follow the 80% refund policy, subject to manager-approved exceptions." : "Reschedule fees are non-refundable."}</p>
                 {canRequestReschedule && !selectedReschedulePolicy?.allowed && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">Short-notice rescheduling is automatically approved when the selected date is available. The applicable notice fee and any higher date rate are added immediately when you save.</p>}
               </div>
@@ -1046,7 +1042,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 value={rescheduleForm.checkIn}
                 onChange={date => { setRescheduleForm(current => ({ ...current, checkIn: date })); setRescheduleFormError(null); }}
                 minDate={minRescheduleDate}
-                maxDate={rescheduleAvailability.maxBookingDate}
+                maxDate={selectedBooking.commercialType === "room_accommodation" ? rescheduleAvailability.maxBookingDate : undefined}
                 originalDate={manilaDateKey(selectedBooking.startDatetime)}
                 onMonthChange={setRescheduleCalendarMonth}
                 month={rescheduleCalendarMonth}

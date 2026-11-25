@@ -35,7 +35,7 @@ export default function PublicSwimmingSelection({ onChoose }: { onChoose: (type:
   const selectedSessions = dateSessions(date);
   const selected = selectedSessions.find(s => s.typeId === typeId);
   const slot = selected?.eligibility === "eligible" && selected.availability === "available" && selected.remainingCapacity > 0
-    && isPublicSwimmingStartAllowed(selected.startDatetime) ? selected : undefined;
+    && isPublicSwimmingStartAllowed(selected.startDatetime, Date.now(), selected.cutoffAt) ? selected : undefined;
   const type = catalog?.types.find(t => t.type_id === typeId);
   const changeMonth = (next: string) => { setMonth(next); setDate(""); setLoading(true); };
   return <div className="space-y-6">
@@ -53,10 +53,11 @@ export default function PublicSwimmingSelection({ onChoose }: { onChoose: (type:
           <span className="mt-2 block text-sm text-neutral/70">Adult ₱{Number(t.adult_rate)} · Child ₱{Number(t.child_rate)}</span>
           {date && <span className="mt-3 block border-t border-neutral/10 pt-3 text-sm" aria-live="polite">
             <span className="block font-semibold">{session ? publicSwimmingSessionLabel(session) : "Loading availability"}</span>
+            {session?.accessMode && <span className="block">{session.accessMode === "public_only" ? "Public Only" : session.accessMode === "private_only" ? "Private Only" : "Flexible"}</span>}
             {session && <>
               <span className="mt-1 block">Remaining capacity: {session.availability === "available" && t.max_guests === null ? "No configured limit" : session.remainingCapacity}</span>
-              <span className="mt-1 block text-neutral/70">Booking cutoff: {formatManilaTime(new Date(Date.parse(session.startDatetime) - 3600000).toISOString())}</span>
-              {session.eligibility === "not_open" && <span className="mt-2 block text-neutral/70">Reservations open {formatManilaDateTime(session.opensAt)}. Tentative availability: {publicSwimmingAvailabilityLabel(session.availability)}. Private reservations may still be made.</span>}
+              <span className="mt-1 block text-neutral/70">Booking cutoff: {formatManilaTime(session.cutoffAt ?? new Date(Date.parse(session.startDatetime) - 3600000).toISOString())}</span>
+              {session.eligibility === "not_open" && <span className="mt-2 block text-neutral/70">Reservations open {formatManilaDateTime(session.opensAt)}. Tentative availability: {publicSwimmingAvailabilityLabel(session.availability)}. {session.accessMode !== "public_only" ? "Private reservations may still be made." : "This session is reserved for public swimming."}</span>}
               {session.eligibility !== "eligible" && session.eligibility !== "not_open" && session.availability !== "available" && <span className="mt-1 block">{publicSwimmingAvailabilityLabel(session.availability)}</span>}
             </>}
           </span>}
@@ -68,7 +69,7 @@ export default function PublicSwimmingSelection({ onChoose }: { onChoose: (type:
         {loading && !catalog ? <section className="rounded-3xl bg-white p-4 shadow-xl sm:p-8"><h2 className="text-xl font-bold sm:text-3xl">Select Public Swimming Date</h2><div role="status" className="mt-5 h-80 animate-pulse rounded-2xl bg-base" aria-label="Loading public swimming dates" /></section> : error ? <section className="rounded-3xl bg-white p-5 shadow-xl sm:p-8"><p role="alert" className="text-red-700">{error}</p><button type="button" className="mt-4 min-h-11 rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral hover:bg-base" onClick={() => { setLoading(true); setRetry(n => n + 1); }}>Retry availability</button></section> : catalog && <>
           <div data-booking-guide="dates-calendar">
             <BookingDateCalendar value={date} onChange={setDate} appearance="customer" allowUnavailableSelection
-              title="Select Booking Date" description={`Browse any month. Booking is open ${formatManilaDate(catalog.dates[0])} – ${formatManilaDate(catalog.dates.at(-1)!)} (Philippine time). Select any date to inspect both sessions.`}
+              title="Select Booking Date" description="Browse any month. Select a date to inspect each session's access mode, booking opening date and capacity (Philippine time)."
               visibleMonth={month} onMonthChange={changeMonth} disabled={loading}
               getUnavailableReason={day => {
                 const label = publicSwimmingDateLabel(dateSessions(day));
@@ -77,7 +78,7 @@ export default function PublicSwimmingSelection({ onChoose }: { onChoose: (type:
               getDateHint={day => { const label = publicSwimmingDateLabel(dateSessions(day)); return compactStatus[label] ?? label; }}
               isPartiallyAvailable={day => publicSwimmingDateLabel(dateSessions(day)) === "Partially Available"}
               emptyLabel="Select a date to inspect the sessions."
-              footnote="Public bookings open at midnight two days before the swimming date. Book at least one hour before the session: Day cutoff 7:00 AM; Night cutoff 5:00 PM with the standard hours. Future availability is tentative; private reservations may still be made."
+              footnote="Public opening dates follow each session's access mode and configured booking window. Future Flexible availability is tentative. Active payment holds allocate the pool or public capacity."
               className="min-w-0 rounded-3xl bg-white p-4 shadow-xl sm:p-8" />
           </div>
           {!catalog.types.length && <p role="status" className="rounded-xl bg-white p-5">No public swimming sessions are configured. Please contact the resort.</p>}
@@ -96,7 +97,7 @@ export default function PublicSwimmingSelection({ onChoose }: { onChoose: (type:
             {type ? <dl className="space-y-2 text-sm"><div className="flex justify-between gap-3"><dt className="text-neutral/70">Adult entrance</dt><dd className="font-semibold text-primary">₱{Number(type.adult_rate).toLocaleString("en-PH")}</dd></div><div className="flex justify-between gap-3"><dt className="text-neutral/70">Child entrance</dt><dd className="font-semibold text-primary">₱{Number(type.child_rate).toLocaleString("en-PH")}</dd></div></dl> : <p className="text-sm text-neutral/70">Select Day or Night to see the entrance rates.</p>}
             <p className="mt-2 text-xs text-neutral/60">Guest counts and optional services are added in the next step.</p>
           </div>
-          <button type="button" data-booking-guide="dates-continue" disabled={!slot || !type || loading || !!error} className="w-full rounded-full bg-primary px-6 py-4 font-semibold text-base transition-all hover:bg-primary/90 sm:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100" onClick={() => { if (slot && type && isPublicSwimmingStartAllowed(slot.startDatetime)) onChoose(type, slot); else setError("This session is no longer available. Refresh the dates."); }}>Continue to Reservation</button>
+          <button type="button" data-booking-guide="dates-continue" disabled={!slot || !type || loading || !!error} className="w-full rounded-full bg-primary px-6 py-4 font-semibold text-base transition-all hover:bg-primary/90 sm:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100" onClick={() => { if (slot && type && isPublicSwimmingStartAllowed(slot.startDatetime, Date.now(), slot.cutoffAt)) onChoose(type, slot); else setError("This session is no longer available. Refresh the dates."); }}>Continue to Reservation</button>
           <p className="mt-4 text-center text-xs text-neutral/60">Full payment is required within 30 minutes after saving. Submitted payments awaiting review preserve the booking.</p>
         </aside>
       </div>

@@ -14,8 +14,6 @@ import { buildBookingCostSummary } from "@/lib/booking/summary";
 import PolicyAgreement from "@/components/legal/PolicyAgreement";
 import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
 import { requiresFullBookingPayment } from "@/lib/booking/commercial-types";
-import { isPublicSwimmingStartAllowed, PUBLIC_SWIMMING_LEAD_MESSAGE, publicSwimmingDates } from "@/lib/booking/public-swimming";
-import { manilaDateKey } from "@/lib/booking/manila-date";
 import PrivatePackageDetails from "@/components/booking/PrivatePackageDetails";
 
 const parseDateTimeString = (value: string | null) => {
@@ -84,15 +82,6 @@ function BookingDetailsContent() {
 
     if (isAlreadySaved) {
       setSaveSuccess((bookingDraft.total === 0 ? "Booking confirmed. Your promo covers the bill; no payment is needed." : "Your booking is saved. Continue to payment to secure your reservation."));
-      return;
-    }
-
-    if (isPublicBooking && !isPublicSwimmingStartAllowed(bookingDraft.startDatetime)) {
-      setSaveError(PUBLIC_SWIMMING_LEAD_MESSAGE);
-      return;
-    }
-    if (isPublicBooking && !publicSwimmingDates().includes(manilaDateKey(bookingDraft.startDatetime))) {
-      setSaveError("Public swimming is open for booking today and the next two calendar days. Return to the calendar to choose an eligible session.");
       return;
     }
 

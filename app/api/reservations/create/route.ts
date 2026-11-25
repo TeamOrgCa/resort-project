@@ -11,6 +11,7 @@ import { computeBookingPricing } from "@/lib/booking/pricing";
 import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-rates";
 import { validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "@/lib/booking/start-time";
+import { swimmingBookingConflict } from "@/lib/booking/swimming-sessions";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { checkReservationOverlap } from "@/lib/server/reservation-availability";
 import { isValidGuestCounts } from "@/lib/booking/guest-count";
@@ -352,6 +353,8 @@ export async function POST(request: Request) {
       .single();
 
     if (reservationError || !reservation) {
+      const swimmingConflict = swimmingBookingConflict(reservationError?.message);
+      if (reservationError?.code === "40001" && swimmingConflict) return NextResponse.json({ success: false, code: "SESSION_UNAVAILABLE", message: swimmingConflict }, { status: 409 });
       if (reservationError?.code === "40001" && /polic|legal/i.test(reservationError.message ?? "")) return NextResponse.json({ success: false, code: "LEGAL_POLICY_CHANGED", message: "Policies changed while saving. Read and agree to the refreshed policies." }, { status: 409 });
       if (reservationError?.code === "22023") return NextResponse.json({ success: false, message: "The selected package has already started. Choose a future start time (Philippine time)." }, { status: 400 });
       if (reservationError?.code === "23P01") {

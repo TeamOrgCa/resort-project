@@ -38,6 +38,12 @@ export async function GET(request: Request) {
   try {
     const admin = createAdminClient();
     const advanceWindow = await loadAdvanceBookingWindow(admin);
+    const [sessionResult, policyResult] = await Promise.all([
+      admin.rpc("private_swimming_calendar", { p_from: firstDay, p_to: nextMonth, p_exclude: excludeReservationId ?? null }),
+      admin.rpc("swimming_policy"),
+    ]);
+    if (sessionResult.error || policyResult.error) throw sessionResult.error ?? policyResult.error;
+    const bufferMs = Number(policyResult.data?.bufferMinutes ?? 0) * 60000;
     let query = admin.from("reservations")
       .select("start_datetime, end_datetime, status, payment_deadline_at, commercial_type, room_pricing")
       .in("commercial_type", ["private_swimming", "public_swimming"])
@@ -58,9 +64,16 @@ export async function GET(request: Request) {
     const reservations = (data ?? []).filter((reservation) =>
       !(reservation.commercial_type === "public_swimming" && reservation.room_pricing) && (reservation.status !== "pending" || !reservation.payment_deadline_at ||
       new Date(reservation.payment_deadline_at).getTime() > now)
-    ).map(({ start_datetime, end_datetime }) => ({ start_datetime, end_datetime }));
+    ).map(({ start_datetime, end_datetime }) => ({
+      start_datetime: bufferMs ? new Date(Date.parse(start_datetime) - bufferMs).toISOString() : start_datetime,
+      end_datetime: bufferMs ? new Date(Date.parse(end_datetime) + bufferMs).toISOString() : end_datetime,
+    }));
+    const sessions = sessionResult.data ?? [];
+    // Arrival limits are checked against the booking's start date by callers.
+    // They must not consume next-day pool time for an eligible whole-day stay.
+    reservations.push(...sessions.filter((s: { reason: string | null }) => s.reason && s.reason !== "Not Yet Open for Booking").map((s: { starts_at: string; ends_at: string }) => ({ start_datetime: s.starts_at, end_datetime: s.ends_at })));
 
-    return NextResponse.json({ reservations, blockedDates: blocks ?? [], ...advanceWindow }, {
+    return NextResponse.json({ reservations, blockedDates: blocks ?? [], swimmingSessions: sessions, ...advanceWindow }, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

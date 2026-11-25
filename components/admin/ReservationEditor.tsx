@@ -178,7 +178,7 @@ export default function ReservationEditor({ reservationId, onSaved, onBusyChange
         {(canChange || detail.canRescheduleException) && !availability.ready && !availability.error && <p role="status" className="text-sm text-neutral/60">Loading available dates...</p>}
         {(canChange || detail.canRescheduleException) && availability.error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
         <BookingDateCalendar value={draft.startDatetime.slice(0, 10)} onChange={chooseDate} onMonthChange={setCalendarMonth}
-          minDate={manilaDateKey(new Date(availability.now))} maxDate={availability.maxBookingDate} minimumDateReason="Past date" title="Arrival date"
+          minDate={manilaDateKey(new Date(availability.now))} maxDate={detail.reservation.commercial_type === "room_accommodation" ? availability.maxBookingDate : undefined} minimumDateReason="Past date" title="Arrival date"
           disabled={busy || !canMove} getUnavailableReason={canMove ? dateIssue : undefined}
           footnote="Choose a date available for the booked package. Its original times and duration stay fixed. The current reservation is excluded from conflicts; other bookings and maintenance closures are checked." />
       </div>

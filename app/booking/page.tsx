@@ -1,5 +1,6 @@
 "use client";
 
+import { SWIMMING_MODE_LABELS, type PrivateSwimmingCalendarSession } from "@/lib/booking/swimming-sessions";
 import ConfirmationDialog from "@/components/ui/ConfirmationDialog";
 import FormErrorToast from "@/components/ui/FormErrorToast";
 import { createClient } from "@/lib/supabase/client";
@@ -90,6 +91,7 @@ export default function Booking() {
   const ocularAuthCheckingRef = useRef(false);
   const [ocularToast, setOcularToast] = useState<{ message: string } | null>(null);
   const [roomInventory, setRoomInventory] = useState<CustomerRoomInventory[]>([]);
+  const [swimmingSessions, setSwimmingSessions] = useState<PrivateSwimmingCalendarSession[]>([]);
   const [reservedWindows, setReservedWindows] = useState<ReservedWindow[]>([]);
   const [blockedDateRanges, setBlockedDateRanges] = useState<MaintenanceWindow[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
@@ -138,10 +140,11 @@ export default function Booking() {
       try {
         const response = await fetch(isRoomBooking ? `/api/booking/rooms?month=${month}` : `/api/booking/availability?month=${month}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Availability request failed.");
-        const result = (await response.json()) as { reservations?: ReservedWindow[]; blockedDates?: MaintenanceWindow[]; rooms?: CustomerRoomInventory[]; maxBookingDate?: string };
+        const result = (await response.json()) as { reservations?: ReservedWindow[]; blockedDates?: MaintenanceWindow[]; rooms?: CustomerRoomInventory[]; maxBookingDate?: string; swimmingSessions?: PrivateSwimmingCalendarSession[] };
         if (!active || currentRequest !== requestId) return;
         setMaxBookingDate(result.maxBookingDate ?? maximumBookingDate(DEFAULT_ADVANCE_BOOKING_DAYS));
         setReservedWindows(result.reservations ?? []);
+        setSwimmingSessions(result.swimmingSessions ?? []);
         setBlockedDateRanges(result.blockedDates ?? []);
         setRoomInventory(result.rooms ?? []);
         setAvailabilityError(false);
@@ -451,7 +454,7 @@ export default function Booking() {
   };
 
   const nextMonth = () => {
-    if (bookingType === "stay" && toDateKey(currentMonth).slice(0, 7) >= maxBookingDate.slice(0, 7)) return;
+    if (isRoomBooking && toDateKey(currentMonth).slice(0, 7) >= maxBookingDate.slice(0, 7)) return;
     setSelectedStayDate(null);
     setCurrentMonth(manilaMonthDate(currentMonth, 1));
   };
@@ -837,7 +840,7 @@ export default function Booking() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <button type="button" onClick={nextMonth} disabled={bookingType === "stay" && toDateKey(currentMonth).slice(0, 7) >= maxBookingDate.slice(0, 7)} aria-label="Next month" className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
+                    <button type="button" onClick={nextMonth} disabled={isRoomBooking && toDateKey(currentMonth).slice(0, 7) >= maxBookingDate.slice(0, 7)} aria-label="Next month" className="p-2 hover:bg-neutral/5 rounded-lg transition-colors">
                       <svg className="w-6 h-6 text-neutral" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
@@ -845,6 +848,12 @@ export default function Booking() {
                   </div>
                 </div>
 
+                {selectedBookingOption === "private" && <div className="mb-4 rounded-xl bg-primary/5 p-3 text-sm">
+                  <p className="mb-2 font-semibold">Private swimming session availability</p>
+                  <div className="max-h-64 space-y-2 overflow-y-auto">{swimmingSessions.filter(s => s.booking_date.startsWith(toDateKey(currentMonth).slice(0, 7))).map(s => <p key={`${s.booking_date}-${s.period}`}>
+                    {s.booking_date} · {s.period === "day" ? "Day" : "Night / Overnight"}: {s.reason ?? "Available"} · {SWIMMING_MODE_LABELS[s.access_mode]}
+                  </p>)}</div>
+                </div>}
                 {bookingType === "stay" && <p className="mb-4 text-sm text-neutral/70" aria-live="polite">{isRoomBooking ? "Select a date to see 3-hour and 12-hour room stays" : `Showing dates available for ${selectedModeLabel}`}, through {maxBookingDate}. Unavailable dates are disabled.</p>}
                 <div className="mb-6">
                   <h3 className="text-lg sm:text-2xl font-semibold text-neutral text-center mb-2">
@@ -917,7 +926,10 @@ export default function Booking() {
                     const noRemainingStarts = PACKAGE_TIME_KEYS.every(key => !isBookingStartAllowed(
                       `${toDateKey(date)}T${packageTimeSlot(packageSchedule?.times ?? DEFAULT_PACKAGE_TIMES,key).start}:00+08:00`,now));
                     const advanceIssue = advanceBookingIssue(toDateKey(date), maxBookingDate);
-                    const unavailableLabel = advanceIssue ?? (isMaintenance ? "Closed for maintenance" : noRemainingStarts ? "No remaining start times" : !day && !night && !whole ? "Fully booked" : `Unavailable for ${selectedModeLabel}`);
+                    const sessionDetails = swimmingSessions.filter(s => s.booking_date === toDateKey(date));
+                    const sessionDescription = sessionDetails.map(s => `${s.period === "day" ? "Day" : "Night / Overnight"}: ${s.reason ?? "Available"} (${SWIMMING_MODE_LABELS[s.access_mode]})`).join("; ");
+                    const policyReason = sessionDetails.find(s => s.period === bookingMode)?.reason;
+                    const unavailableLabel = policyReason ?? advanceIssue ?? (isMaintenance ? "Closed for maintenance" : noRemainingStarts ? "No remaining start times" : !day && !night && !whole ? "Fully booked" : `Unavailable for ${selectedModeLabel}`);
                     const isSelected = isDateSelected(date);
 
                       return (
@@ -927,7 +939,7 @@ export default function Booking() {
                           onClick={() => handleDateClick(date)}
                           disabled={availabilityLoading || availabilityError || isBooked || isPast}
                           aria-label={`${toDateKey(date)}: ${isBooked ? unavailableLabel : `${day ? "day available" : "day unavailable"}, ${night ? "night available" : "night unavailable"}, ${whole ? "whole day available" : "whole day unavailable"}`}`}
-                          title={isBooked ? unavailableLabel : `${day ? "Day available" : "Day unavailable"} · ${night ? "Night available" : "Night unavailable"} · ${whole ? "Whole day available" : "Whole day unavailable"}`}
+                          title={sessionDescription || (isBooked ? unavailableLabel : `${day ? "Day available" : "Day unavailable"} · ${night ? "Night available" : "Night unavailable"} · ${whole ? "Whole day available" : "Whole day unavailable"}`)}
                           style={isMaintenance ? { backgroundColor: "#6A7282", border: "1px solid #6A7282", color: "#FFFFFF" } : undefined}
                           className={`min-h-11 aspect-square rounded-lg flex flex-col items-center justify-center font-medium transition-all
                             ${isMaintenance ? "border border-gray-500 bg-gray-500 text-white cursor-not-allowed" : isBooked ? "bg-neutral/20 text-neutral/40 cursor-not-allowed" : ""}

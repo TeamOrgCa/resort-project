@@ -168,3 +168,16 @@ If a user tries to access these routes without being logged in, they'll be redir
 For issues with Supabase setup, visit:
 - [Supabase Documentation](https://supabase.com/docs)
 - [Supabase Discord](https://discord.supabase.com)
+
+
+## Configurable swimming sessions
+
+Apply `docs/swimming-session-management-migration.sql` last, after the public swimming calendar, package time validation, swimming room add-ons, and private swimming room reserve migrations. It is also included at the end of `updated-schema.sql` for new installations. Deploy the application after applying the migration; the calendar endpoints require its RPCs.
+
+Administrators can manage this feature in **Configuration > Swimming Sessions**. It reuses `business_settings` for the policy, `public_swimming_types` for public hours, activation and capacity, versioned private package hours, and `reservation.maximum_advance_booking_days` for the private advance limit. The last setting remains shared with existing room booking policies. No reservation records or historical pricing snapshots are rewritten.
+
+Flexible is the initial access mode. Its public window defaults to three calendar days including today. Public Only permits dates up to 30 calendar days ahead, including that last date. Weekly rules are independent for Day and Night/Overnight, and inclusive date-range overrides take precedence. All dates use Asia/Manila. The minimum advance time supports 30 minutes through seven days, retaining the existing private booking minimum as its lower bound; its initial swimming value is 60 minutes. Same-day eligibility, preparation buffers and session activation apply to both types of swimming booking.
+
+Swimming saves are confirmed, version checked, audited, and validated atomically under the same inventory lock used by reservations. Conflicting changes return affected reservation references without modifying the saved configuration. Capacity, modes, maintenance and preparation buffers protect active holds and confirmed reservations; expired pending holds release their claims. Changing advance limits or cutoffs does not cancel an existing allocation. Private hours remain versioned, so existing bookings keep their saved timestamps and rates.
+
+Run the focused checks with `node --test tests/swimming-session-management-db.test.mjs tests/swimming-session-management-api.test.mjs tests/swimming-session-management-ui.test.mjs`. Database tests use PGlite locally; production concurrency relies on the existing PostgreSQL transaction advisory lock and reservation constraints. A multi-connection staging test should also be run before production rollout.

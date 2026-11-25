@@ -3,13 +3,13 @@
 
 import { maintenanceOverlaps } from "@/lib/booking/maintenance";
 import { isWindowAvailable } from "./availability";
-import { manilaDateKey } from "./manila-date";
+import { formatManilaDateTime, manilaDateKey } from "./manila-date";
 import { moveReservationToDate } from "./reservation-edit";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed } from "./start-time";
 import { useBookingAvailability } from "./use-booking-availability";
 import { advanceBookingIssue } from "./advance-window";
 import { useEffect, useState } from "react";
-import { isPublicSwimmingStartAllowed, type PublicSwimmingCatalog } from "./public-swimming";
+import { isPublicSwimmingStartAllowed, publicSwimmingSessionLabel, type PublicSwimmingCatalog } from "./public-swimming";
 
 export function useGuestRescheduleAvailability(start: string, end: string, month: string, selectedDate: string, enabled: boolean, commercialType?: string, reservationId?: string) {
   const publicBooking = commercialType === "public_swimming";
@@ -18,14 +18,14 @@ export function useGuestRescheduleAvailability(start: string, end: string, month
     if (!enabled || !publicBooking) return;
     const controller = new AbortController();
     async function load() {
-      try { const r = await fetch(`/api/booking/public-swimming${reservationId ? `?excludeReservationId=${encodeURIComponent(reservationId)}` : ""}`, { cache: "no-store", signal: controller.signal }), data = await r.json();
+      try { const r = await fetch(`/api/booking/public-swimming?month=${month}${reservationId ? `&excludeReservationId=${encodeURIComponent(reservationId)}` : ""}`, { cache: "no-store", signal: controller.signal }), data = await r.json();
         if (!r.ok || !data.success) throw new Error("Unable to load public swimming dates.");
         if (!controller.signal.aborted) { setPublicData(data); setPublicError(null); }
       } catch { if (!controller.signal.aborted) setPublicError("Unable to load public swimming dates. Please retry."); }
     }
     void load(); const timer = window.setInterval(load, 15000); window.addEventListener("focus", load);
     return () => { controller.abort(); window.clearInterval(timer); window.removeEventListener("focus", load); };
-  }, [enabled, publicBooking, revision, reservationId]);
+  }, [enabled, publicBooking, revision, reservationId, month]);
   const duration = Date.parse(end) - Date.parse(start);
   const months = new Set<string>();
   if (/^\d{4}-\d{2}$/.test(month) && duration > 0) {
@@ -60,7 +60,9 @@ export function useGuestRescheduleAvailability(start: string, end: string, month
       if (publicError) return publicError;
       if (!publicData) return requireReady ? "Loading public swimming dates..." : null;
       const moved = moveReservationToDate({ start_datetime: start, end_datetime: end }, date);
-      return publicData.slots.some(s => Date.parse(s.startDatetime) === Date.parse(moved.startDatetime) && Date.parse(s.endDatetime) === Date.parse(moved.endDatetime) && isPublicSwimmingStartAllowed(s.startDatetime)) ? null : "This public swimming session is unavailable within the three-day booking window or its one-hour cutoff has passed.";
+      const session = publicData.sessions?.find(s => Date.parse(s.startDatetime) === Date.parse(moved.startDatetime) && Date.parse(s.endDatetime) === Date.parse(moved.endDatetime));
+      if (session && (session.eligibility !== "eligible" || session.availability !== "available")) return `${publicSwimmingSessionLabel(session)}${session.eligibility === "not_open" ? `. Reservations open ${formatManilaDateTime(session.opensAt)}` : ""}`;
+      return publicData.slots.some(s => Date.parse(s.startDatetime) === Date.parse(moved.startDatetime) && Date.parse(s.endDatetime) === Date.parse(moved.endDatetime) && isPublicSwimmingStartAllowed(s.startDatetime, Date.now(), s.cutoffAt)) ? null : "This public swimming session is unavailable under the configured access mode, capacity, booking window or cutoff.";
     }
     if (availability.maxBookingDate) { const issue = advanceBookingIssue(date, availability.maxBookingDate); if (issue) return issue; }
     const moved = moveReservationToDate({ start_datetime: start, end_datetime: end }, date);

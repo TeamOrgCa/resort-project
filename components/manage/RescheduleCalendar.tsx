@@ -22,7 +22,7 @@ export default function RescheduleCalendar({ value, onChange, minDate, maxDate, 
     minimumDateReason="Too early for the original start time"
     getUnavailableReason={date => date === originalDate ? "Current reservation date" : getUnavailableReason?.(date) ?? null}
     emptyLabel="Select a new date to continue."
-    footnote={publicSwimming ? "Choose the same public session within the three consecutive public booking dates. Private bookings, maintenance and full sessions are unavailable. The booked admission rates and duration stay the same." : "Booked time slots, maintenance dates and dates beyond the advance booking limit are unavailable. Available reschedules apply automatically when confirmed. Your package, start time and duration stay the same."} />
+    footnote={publicSwimming ? "Choose the same public session according to its configured access mode, booking window and cutoff. Private bookings, maintenance and full sessions are unavailable. The booked admission rates and duration stay the same." : "Booked time slots, maintenance dates and dates beyond the advance booking limit are unavailable. Available reschedules apply automatically when confirmed. Your package, start time and duration stay the same."} />
     {!disabled && !loading && !error && !hasAvailableDate && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{maxDate && month && month >= maxDate.slice(0, 7)
       ? "No available dates within the advance booking limit this month. Check an earlier month or contact the resort."
       : "No available dates this month. Use the Next month arrow to check another month."}</p>}
