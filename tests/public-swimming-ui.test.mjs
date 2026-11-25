@@ -19,6 +19,24 @@ function monthCatalog(month=today.slice(0,7)){
 }
 const click=el=>act(async()=>{assert.ok(el);assert.equal(el.disabled,false);el.click();});
 async function change(el,value){assert.ok(el);await act(async()=>{const proto=el.tagName==='SELECT'?window.HTMLSelectElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,String(value));el.dispatchEvent(new window.Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));});}
+
+test('Public Only sessions remain bookable beyond three days and display their configured cutoff',async()=>{
+ const oldFetch=globalThis.fetch,chosen=[],future=addDays(today,20);
+ globalThis.fetch=async url=>{
+   const data=monthCatalog(new URL(url,'http://localhost').searchParams.get('month')??today.slice(0,7));
+   data.sessions=data.sessions.map(s=>s.date===future?{...s,accessMode:'public_only',availability:'available',eligibility:'eligible',cutoffAt:future+'T07:30:00+08:00'}:s);
+   return Response.json({success:true,...data});
+ };
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ try{
+  await act(async()=>root.render(createElement(loadTsModule('components/booking/PublicSwimmingSelection.tsx').default,{onChoose:(...args)=>chosen.push(args)})));
+  if(future.slice(0,7)!==today.slice(0,7))await click(host.querySelector('[aria-label="Next month"]'));
+  await click(host.querySelector(`[data-date="${future}"]`));await click(host.querySelector('[data-public-session="day"]'));
+  assert.match(host.textContent,/Public Only/);assert.match(host.textContent,/Booking cutoff: 7:30 AM/);
+  await click([...host.querySelectorAll('button')].find(b=>b.textContent==='Continue to Reservation'));
+  assert.equal(chosen.length,1);assert.equal(chosen[0][1].date,future);
+ }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=oldFetch;}
+});
 test('public calendar shows the entire month, permits inspection of unavailable dates and shows both independent sessions',async()=>{
  const oldFetch=globalThis.fetch,chosen=[],requests=[];globalThis.fetch=async url=>{requests.push(url);return Response.json({success:true,...monthCatalog(new URL(url,'http://localhost').searchParams.get('month')??today.slice(0,7))});};
  const Component=loadTsModule('components/booking/PublicSwimmingSelection.tsx').default,host=document.createElement('div');document.body.append(host);const root=createRoot(host);

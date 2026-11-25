@@ -57,13 +57,13 @@ const dateForWeekday = (month, weekday) => {
   return month + "-" + String(day).padStart(2, "0");
 };
 
-test("offline booking calendar shares the inclusive advance-date limit",async()=>{
+test("offline booking calendar enforces the inclusive advance limit while keeping later months visible",async()=>{
  const {maximumBookingDate}=loadTsModule("lib/booking/advance-window.ts"),last=maximumBookingDate(2);
  const h=await mount(undefined,{availabilityFetcher:()=>Response.json({reservations:[],blockedDates:[],maxBookingDate:last})});
  try{
   let end=h.container.querySelector(`[data-date="${last}"]`);
   if(!end){await click(h.container.querySelector('[aria-label="Next month"]'));end=h.container.querySelector(`[data-date="${last}"]`);}
-  assert.ok(end);assert.equal(end.disabled,false);assert.equal(h.container.querySelector('[aria-label="Next month"]').disabled,true);
+  assert.ok(end);assert.equal(end.disabled,false);assert.equal(h.container.querySelector('[aria-label="Next month"]').disabled,false);
   const beyond=new Date(`${last}T00:00:00Z`);beyond.setUTCDate(beyond.getUTCDate()+1);
   const button=h.container.querySelector(`[data-date="${beyond.toISOString().slice(0,10)}"]`);if(button)assert.equal(button.disabled,true);
  }finally{await h.close();}

@@ -15,7 +15,7 @@ export function bookingGuide(page: BookingGuidePage, saved = false, balance = fa
     description: "Choose a public session, complete guest information, review and save, then submit full payment within 30 minutes.",
     steps: page === "dates" ? [
       step("public-times", "Choose Day or Night", "Choose an available Day or Night Public Swimming session. Read the Philippine times and entrance rates."),
-      step("dates-calendar", "Choose a public date", "Browse any month and inspect both sessions. Public booking is open today and the next two calendar days in Philippine time. Reserve at least one hour before the chosen session. Later dates show when booking opens; future availability is tentative because private reservations may still be made."),
+      step("dates-calendar", "Choose a public date", "Browse any month and inspect both sessions. Each session shows its configured access mode, advance booking window and cutoff in Philippine time. Later dates show when booking opens; future availability is tentative because private reservations may still be made."),
       step("dates-continue", "Continue to guest details", "Enter adults, children, PWD/senior eligibility, optional services and a promo. Hourly services cannot exceed the session duration."),
     ] : page === "guest" ? [
       step("guest-personal", "Personal information", "Review the guest's name, phone number and address. Your signed-in account email is shown with your contact details."),

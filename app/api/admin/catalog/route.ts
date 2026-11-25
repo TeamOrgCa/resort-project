@@ -13,7 +13,12 @@ import { catalogDuplicateMessage, isCatalogDuplicate } from "@/lib/catalog/dupli
 const invalid = (message: string, status = 400) => NextResponse.json({ success: false, message }, { status });
 class CatalogDuplicateError extends CatalogValidationError {}
 const failure = (error: unknown) => error instanceof CatalogDuplicateError ? invalid(error.message, 409) : error instanceof CatalogValidationError ? invalid(error.message) : invalid(error instanceof PaymentQrStorageError ? error.message : "Unable to complete this catalog request. Please try again.", 500);
-const databaseFailure = (error: { code?: string; message: string }) => {
+const databaseFailure = (error: { code?: string; message: string; details?: string }) => {
+  if (error.code === "40001") {
+    let affected = "";
+    try { const rows = JSON.parse(error.details ?? ""); if (Array.isArray(rows)) affected = ` Affected reservations: ${rows.map(row => row.referenceNumber).join(", ")}. Review them in Swimming Sessions configuration.`; } catch { /* A general concurrency conflict. */ }
+    return invalid(error.message + affected, 409);
+  }
   if (error.code === "23505") return invalid("A matching record already exists. Update it instead.", 409);
   if (error.code === "23503") return invalid("The linked record is no longer available. Refresh and try again.", 409);
   if (error.code === "23514") return invalid(error.message.startsWith("Maximum uses cannot be below") ? error.message : "These values do not meet the catalog requirements.");

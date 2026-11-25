@@ -4,6 +4,7 @@ import { quoteSwimmingRooms, finalizeSwimmingRooms, SwimmingRoomsError } from "@
 import { checkAdvanceBooking } from "@/lib/server/advance-booking";
 import { serviceQuantityError } from "@/lib/booking/service-quantity";
 import { NextResponse } from "next/server";
+import { swimmingBookingConflict } from "@/lib/booking/swimming-sessions";
 import { createAuditLog, requireActiveStaff } from "@/lib/server/admin-audit";
 import { computeBookingPricing } from "@/lib/booking/pricing";
 import { loadQuotedPackageRates, PackageRatesError } from "@/lib/server/package-rates";
@@ -381,7 +382,7 @@ export async function POST(request: Request) {
       if (walkInGuestId) {
         await staffContext.supabase.from("walk_in_guests").delete().eq("walk_in_guest_id", walkInGuestId);
       }
-      if (reservationError?.code === "40001") return NextResponse.json({ success: false, message: /room/i.test(reservationError.message ?? "") ? reservationError.message : "Package rates changed. Reload the booking prices before saving." }, { status: 409 });
+      if (reservationError?.code === "40001") return NextResponse.json({ success: false, message: swimmingBookingConflict(reservationError.message) ?? (/room/i.test(reservationError.message ?? "") ? reservationError.message : "Package rates changed. Reload the booking prices before saving.") }, { status: 409 });
       if (reservationError?.code === "22023") return NextResponse.json({ success: false, message: "The selected package has already started. Choose a future start time (Philippine time)." }, { status: 400 });
       if (reservationError?.code === "23P01") {
         return NextResponse.json({ success: false, code: "DATE_UNAVAILABLE", message: "This booking date has already been reserved." }, { status: 409 });

@@ -237,10 +237,10 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
             <div className="min-w-0 space-y-3">
               {!availability.ready && !availability.error && <p role="status" className="text-sm text-neutral/70">Loading available dates...</p>}
               {availability.error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{availability.error}<button type="button" onClick={availability.refresh} className="ml-2 min-h-11 underline">Retry availability</button></p>}
-              <BookingDateCalendar value={form.bookingDate} onChange={chooseDate} onMonthChange={setCalendarMonth} minDate={manilaDateKey(new Date(availability.now))} maxDate={availability.maxBookingDate} minimumDateReason="Past date"
+              <BookingDateCalendar value={form.bookingDate} onChange={chooseDate} onMonthChange={setCalendarMonth} minDate={manilaDateKey(new Date(availability.now))} minimumDateReason="Past date"
                 getUnavailableReason={dateIssue} disabled={isSaving}
                 getDateHint={date => !packageIssue(date, "day") && !packageIssue(date, "night") ? "Day / Night" : !packageIssue(date, "day") ? "Day only" : !packageIssue(date, "night") ? "Night only" : "Whole day only"}
-                footnote="Only packages whose scheduled start time has not passed can be booked. Times are Philippine time; availability is checked again before saving." />
+                footnote="Swimming access modes, advance limits, booking cutoffs and preparation buffers apply. Times are Philippine time; availability is checked again before saving." />
             </div>
             <div className="min-w-0 space-y-4">
               <SelectField label="Booking package" value={form.bookingMode} onChange={value => {
