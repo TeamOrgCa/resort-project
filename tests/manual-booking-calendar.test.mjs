@@ -147,6 +147,53 @@ test("room inventory loading and failure keep the manual selector usable and sup
   } finally { await h.close(); }
 });
 
+test("manual room accommodation adds and removes rooms, combines prices, and saves every room under one guest and reference", async () => {
+  const primary = roomInventory.rooms[0];
+  const familyClass = { ...roomClass, classification_id: "22222222-2222-4222-8222-222222222222", code: "family", name: "Family Rooms", included_capacity: 4, maximum_capacity: 6, rate_3_hours: 500, rate_12_hours: 1500, extension_hourly_rate: 200, additional_guest_rate: 100, pricing_version: 3 };
+  const family = { ...primary, room_id: "33333333-3333-4333-8333-333333333333", room_number: "F01", classification_id: familyClass.classification_id, classification: familyClass };
+  const protectedRoom = { ...primary, room_id: "44444444-4444-4444-8444-444444444444", room_number: "S01", private_swimming_only: true };
+  const inactiveRoom = { ...primary, room_id: "55555555-5555-4555-8555-555555555555", room_number: "S05", is_active: false };
+  const inventory = { ...roomInventory, rooms: [primary, family, protectedRoom, inactiveRoom], classifications: [roomClass, familyClass], canDiscount: true };
+  let attempts = 0;
+  const h = await mount(() => ++attempts === 1 ? Response.json({ message: "Room F01 was just reserved. Choose another room.", outcome: "not_applied" }, { status: 409 }) : Response.json({ success: true, result: { reference_number: "RM-GROUP" } }), { realRoomForm: true, roomsFetcher: () => Response.json(inventory) });
+  try {
+    await select(document, "Reservation type", "room_accommodation");
+    await click(textButton("Add another room"));
+    assert.ok(inputField("Occupants for room 2"));
+    const extra = [...document.querySelectorAll("label")].find(label => label.textContent.startsWith("Additional room 2")).querySelector("select");
+    assert.equal(extra.value, family.room_id);
+    assert.equal(extra.querySelector(`option[value="${primary.room_id}"]`).disabled, true);
+    assert.equal(extra.querySelector(`option[value="${protectedRoom.room_id}"]`), null);
+    assert.equal(extra.querySelector(`option[value="${inactiveRoom.room_id}"]`), null);
+    assert.equal(textButton("Add another room").disabled, true);
+    assert.match(document.querySelector('[aria-label="Room price quote"]').textContent, /Total to bill.*800\.00/);
+    await click(document.querySelector('[aria-label="Remove room 2"]'));
+    assert.equal(Boolean(document.querySelector('[aria-label="Additional rooms"] select')), false);
+    assert.match(document.querySelector('[aria-label="Room price quote"]').textContent, /Total to bill.*300\.00/);
+    // Reverting an added row leaves the original form clean.
+    await select(document, "Reservation type", "public_swimming");
+    assert.equal(Boolean(document.querySelector('[role="alertdialog"]')), false);
+    await select(document, "Reservation type", "room_accommodation");
+    await click(textButton("Add another room"));
+    for (const [label, value] of [["Guest first name", "Maria"], ["Guest last name", "Cruz"], ["Philippine mobile number", "09171234567"], ["Guest address", "Quezon City"], ["Scheduled check-in", "2030-01-02T02:30"], ["Occupants (maximum", "2"], ["Occupants for room 2", "6"], ["Additional extension hours", "1"], ["Verified PWD / senior", "4"], ["Eligibility verification", "Verified four eligibility IDs"]]) await enterInput(label, value);
+    assert.match(document.querySelector('[aria-label="Room price quote"]').textContent, /Total to bill.*1,270\.00/);
+    assert.equal(inputField("Verified PWD / senior").max, "8");
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 1);
+    const submit = () => act(async () => document.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await submit(); assert.equal(h.requests.length, 0);
+    assert.match(document.querySelector('[role="alertdialog"]').textContent, /S03, F01/);
+    await click(textButton("Create reservation"));
+    assert.equal(h.created(), 0); assert.equal(h.closed(), 0);
+    assert.match(document.querySelector('[role="alert"]').textContent, /just reserved/);
+    assert.equal(inputField("Guest first name").value, "Maria"); assert.equal(inputField("Occupants for room 2").value, "6");
+    const { body } = h.requests[0];
+    assert.equal(body.input.occupants, 8); assert.equal(body.input.expected_total, 1270);
+    assert.deepEqual(body.input.rooms, [{ room_id: primary.room_id, occupants: 2, pricing_version: 4 }, { room_id: family.room_id, occupants: 6, pricing_version: 3 }]);
+    await submit(); await click(textButton("Create reservation"));
+    assert.equal(h.requests.length, 2); assert.deepEqual(h.bookings, [{ date: "2030-01-02", reference: "RM-GROUP" }]); assert.equal(h.closed(), 1);
+  } finally { await h.close(); }
+});
+
 test("reservation type switches clean manual forms without a discard prompt", async () => {
   for (const [type, destination] of [["public_swimming", "Public swimming reservation form"], ["room_accommodation", "Room accommodation reservation form"]]) {
     const h = await mount();

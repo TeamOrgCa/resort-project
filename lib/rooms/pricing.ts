@@ -11,3 +11,15 @@ export function roomStayQuote(c: RoomClass, duration: number, extensionHours: nu
   const discount = calculateBookingDiscount(accommodation, occupants, eligible, promo);
   return { accommodation, additionalGuests, extension, discount, total: Math.round((accommodation + additionalGuests + extension - discount.amount) * 100) / 100 };
 }
+
+/** Apply a booking discount once to the combined accommodation charge. */
+export function roomReservationQuote(rooms: { classification: RoomClass; occupants: number }[], duration: number, extensionHours: number, eligible: number, promo: PromoQuote | null) {
+  if (!rooms.length || rooms.length > 100) throw new Error("Select at least one room.");
+  const lines = rooms.map(room => roomStayQuote(room.classification, duration, extensionHours, room.occupants, 0, null));
+  const occupants = rooms.reduce((sum, room) => sum + room.occupants, 0);
+  if (occupants > 100) throw new Error("A manual room reservation can include up to 100 guests.");
+  const sum = (key: "accommodation" | "additionalGuests" | "extension") => Math.round(lines.reduce((total, line) => total + line[key], 0) * 100) / 100;
+  const accommodation = sum("accommodation"), additionalGuests = sum("additionalGuests"), extension = sum("extension");
+  const discount = calculateBookingDiscount(accommodation, occupants, eligible, promo);
+  return { accommodation, additionalGuests, extension, discount, total: Math.round((accommodation + additionalGuests + extension - discount.amount) * 100) / 100 };
+}

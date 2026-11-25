@@ -32,6 +32,38 @@ test("room reservation creation needs the existing reservation grant and normali
   const denied = harness({ permissions: ["rooms", "room_operations"] }); assert.equal((await denied.post(body)).status, 403);
   const h = harness(); assert.equal((await h.post(body)).status, 200); assert.equal(h.calls[0].args.p_input.phone, "+639171234567");
 });
+
+const multiRoomReservation = { roomId: id, action: "reserve", confirmed: true, input: {
+  first_name: "Guest", last_name: "Example", phone: "09171234567", address: "Example address", occupants: 4,
+  duration_hours: 12, extension_hours: 0, pricing_version: 1, eligible_guests: 0, expected_total: 1800,
+  starts_at: "2027-01-01T00:00:00Z", ends_at: "2027-01-01T12:00:00Z", commercial_type: "room_accommodation",
+  rooms: [{ room_id: id, occupants: 2, pricing_version: 1 }, { room_id: "22222222-2222-4222-8222-222222222222", occupants: 2, pricing_version: 3 }],
+} };
+
+test("manual multiple-room reservations use one atomic RPC with the authenticated actor and all selected rooms", async () => {
+  const h = harness(); assert.equal((await h.post(multiRoomReservation)).status, 200);
+  assert.equal(h.calls.length, 1); assert.equal(h.calls[0].name, "room_reserve_multiple_priced");
+  assert.equal(h.calls[0].args.p_staff, "authenticated-actor");
+  assert.deepEqual(h.calls[0].args.p_input.rooms, multiRoomReservation.input.rooms);
+  assert.equal(h.calls[0].args.p_input.phone, "+639171234567");
+  const denied = harness({ permissions: ["rooms", "room_operations"] });
+  assert.equal((await denied.post(multiRoomReservation)).status, 403); assert.equal(denied.calls.length, 0);
+});
+
+test("invalid or duplicate room selections and inconsistent guest totals never reach the database", async () => {
+  const original = multiRoomReservation.input;
+  for (const change of [
+    { rooms: null }, { rooms: {} }, { rooms: [] }, { rooms: [null] }, { rooms: [{ ...original.rooms[0], room_id: "bad" }] },
+    { rooms: [original.rooms[0], original.rooms[0]] }, { rooms: [{ ...original.rooms[0], occupants: 1.5 }, original.rooms[1]] },
+    { rooms: [original.rooms[0], { ...original.rooms[1], pricing_version: 0 }] },
+    { rooms: [...original.rooms].reverse() }, { occupants: 3 }, { commercial_type: "private_swimming" },
+  ]) {
+    const h = harness(); assert.equal((await h.post({ ...multiRoomReservation, input: { ...original, ...change } })).status, 400, JSON.stringify(change));
+    assert.equal(h.calls.length, 0);
+  }
+  const missing = await harness({ rpcError: { code: "PGRST202", message: "Missing function" } }).post(multiRoomReservation);
+  assert.equal(missing.status, 503); assert.match((await missing.json()).message, /manual-multi-room-reservation-migration.sql/);
+});
 test("cashiers cannot acquire operational access through configurable permission strings", () => {
   const access = loadTsModule("lib/auth/role-access.ts");
   assert.equal(access.hasPermission("cashier", ["rooms", "room_operations", "room_export"], "rooms"), true);
