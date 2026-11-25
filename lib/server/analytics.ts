@@ -1,4 +1,4 @@
-import { commercialTypeLabel, COMMERCIAL_TYPES } from "@/lib/booking/commercial-types";
+import { commercialTypeLabel, COMMERCIAL_TYPES, matchesReservationType, reservationTypeFilterLabel, standaloneSaleType, type ReservationTypeFilter } from "@/lib/booking/commercial-types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey, manilaTimestamp, formatManilaDate } from "@/lib/booking/manila-date";
 import { reportBucket, reportWindow } from "@/lib/reports/periods";
@@ -6,10 +6,11 @@ import type { ReportDateRange, ReportMetric, ReportPeriod } from "@/lib/reports/
 import type { AnalyticsComparison, AnalyticsReports } from "@/lib/reports/analytics-types";
 import { DAY_MS, round, percentage, median, changeLabel, collectionForecast } from "@/lib/reports/analytics-math";
 import { fetchAllPages } from "./fetch-all-pages";
+import { reservationTypesById } from "./reservation-type-filter";
 import { PUBLIC_ACCESS_TYPES, type PublicAccessType } from "@/lib/public-access/sales";
 
 type Reservation = { reservation_id: string; commercial_type?: string; booking_type: string | null; created_at: string; start_datetime: string; status: string };
-type Payment = { payment_id: string; amount: number; status: string; payment_type: string; created_at: string; verified_at: string | null };
+type Payment = { reservation_id?: string; payment_id: string; amount: number; status: string; payment_type: string; created_at: string; verified_at: string | null };
 const money = (value: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(value);
 const metric = (label: string, value: number, help: string, format: ReportMetric["format"] = "count"): ReportMetric => ({ label, value: round(value), help, format });
 const source = (row: Reservation) => row.booking_type === "online" ? "Online booking" : row.booking_type === "walk_in" ? "Offline booking" : null;
@@ -18,7 +19,7 @@ const cancelled = (row: Reservation) => ["cancelled", "no_show"].includes(row.st
 const between = (date: string, start: number, end: number) => Date.parse(date) >= start && Date.parse(date) < end;
 
 /** Compare equally long elapsed periods; unfinished days never train the forecast. */
-export async function generateAnalytics(period: ReportPeriod, range?: ReportDateRange, now = new Date()): Promise<AnalyticsReports> {
+export async function generateAnalytics(period: ReportPeriod, range?: ReportDateRange, now = new Date(), filter: ReservationTypeFilter = "all"): Promise<AnalyticsReports> {
   const window = reportWindow(period, range, now), client = createAdminClient();
   const fullDuration = window.end.getTime() - window.start.getTime();
   const observedEnd = Math.max(window.start.getTime(), Math.min(window.end.getTime(), now.getTime()));
@@ -28,13 +29,18 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
   const historyEnd = Math.min(today, window.end.getTime()), historyStart = historyEnd - 56 * DAY_MS;
   const start = new Date(Math.min(previousStart, historyStart)).toISOString();
   const end = new Date(Math.max(observedEnd, historyEnd)).toISOString();
-  const [allReservations, privatePayments, submissions, publicSales, backlog] = await Promise.all([
+  const [reservationRows, paymentRows, submissionRows, saleRows, backlogRows] = await Promise.all([
     fetchAllPages<Reservation>((from, to) => client.from("reservations").select("reservation_id,commercial_type,booking_type,created_at,start_datetime,status").gte("created_at", new Date(previousStart).toISOString()).lt("created_at", new Date(observedEnd).toISOString()).order("created_at").order("reservation_id").range(from, to)),
-    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,amount,status,payment_type,created_at,verified_at").eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`).order("created_at").order("payment_id").range(from, to)),
-    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,amount,status,payment_type,created_at,verified_at").gte("created_at", new Date(previousStart).toISOString()).lt("created_at", new Date(observedEnd).toISOString()).order("created_at").order("payment_id").range(from, to)),
+    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,reservation_id,amount,status,payment_type,created_at,verified_at").eq("status", "verified").or(`and(verified_at.gte.${start},verified_at.lt.${end}),and(verified_at.is.null,created_at.gte.${start},created_at.lt.${end})`).order("created_at").order("payment_id").range(from, to)),
+    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,reservation_id,amount,status,payment_type,created_at,verified_at").gte("created_at", new Date(previousStart).toISOString()).lt("created_at", new Date(observedEnd).toISOString()).order("created_at").order("payment_id").range(from, to)),
     fetchAllPages<{sale_id:string;amount:number;paid_at:string;access_type:PublicAccessType}>((from,to)=>client.from("public_access_sales").select("sale_id,amount,paid_at,access_type").gte("paid_at",start).lt("paid_at",end).order("paid_at").order("sale_id").range(from,to)),
-    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,amount,status,payment_type,created_at,verified_at").eq("status", "pending").lt("created_at", now.toISOString()).order("created_at").order("payment_id").range(from, to)),
+    fetchAllPages<Payment>((from, to) => client.from("payments").select("payment_id,reservation_id,amount,status,payment_type,created_at,verified_at").eq("status", "pending").lt("created_at", now.toISOString()).order("created_at").order("payment_id").range(from, to)),
   ]);
+  const types = filter === "all" ? new Map<string, string>() : await reservationTypesById(client, [...paymentRows, ...submissionRows, ...backlogRows]);
+  const selectPayments = (rows: Payment[]) => filter === "all" ? rows : rows.filter(row => row.reservation_id && types.has(row.reservation_id) && matchesReservationType(types.get(row.reservation_id), filter));
+  const allReservations = reservationRows.filter(row => matchesReservationType(row.commercial_type, filter));
+  const privatePayments = selectPayments(paymentRows), submissions = selectPayments(submissionRows), backlog = selectPayments(backlogRows);
+  const publicSales = saleRows.filter(row => matchesReservationType(standaloneSaleType(row.access_type), filter));
   const allCollections = [...privatePayments, ...publicSales.map(sale => ({ payment_id: sale.sale_id, amount: sale.amount, status: "verified", payment_type: `public_${sale.access_type}`, created_at: sale.paid_at, verified_at: sale.paid_at }))];
   const collectionDate = (payment: Payment) => payment.verified_at ?? payment.created_at;
   const current = <T,>(rows: T[], date: (row: T) => string) => rows.filter(row => between(date(row), window.start.getTime(), observedEnd));
@@ -57,7 +63,7 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
     startDate: manilaDateKey(new Date(previousStart)), endDate: manilaDateKey(new Date(Math.max(previousStart, previousEnd - 1))), observedThrough: manilaTimestamp(new Date(Math.min(now.getTime(), observedEnd))), format,
     points: window.labels.map((label, i) => ({ label, current: window.boundaries[i].getTime() < observedEnd ? values[i] : null, previous: window.boundaries[i].getTime() < observedEnd ? prior[i] : null })),
   });
-  const comparisonNote = observedEnd === window.start.getTime() ? "The selected dates have not started; no observed comparison is available." : `Compared with ${manilaDateKey(new Date(previousStart))} through ${manilaDateKey(new Date(Math.max(previousStart, previousEnd - 1)))} over the same elapsed duration. Current data stops at ${manilaTimestamp(new Date(observedEnd))}; a partial current day is compared with the same elapsed time in the earlier period.`;
+  const comparisonNote = `Reservation type: ${reservationTypeFilterLabel(filter)}. ` + (observedEnd === window.start.getTime() ? "The selected dates have not started; no observed comparison is available." : `Compared with ${manilaDateKey(new Date(previousStart))} through ${manilaDateKey(new Date(Math.max(previousStart, previousEnd - 1)))} over the same elapsed duration. Current data stops at ${manilaTimestamp(new Date(observedEnd))}; a partial current day is compared with the same elapsed time in the earlier period.`);
   const bookingValues = buckets(reservations, row => row.created_at, () => 1);
   const bookingPrior = buckets(priorReservations, row => row.created_at, () => 1, fullDuration);
   const sources = ["Online booking", "Offline booking"];
@@ -120,7 +126,7 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
       trendTitle: "Collections versus previous period", splitTitle: "Collection mix", tableTitle: "Collection forecast scenarios", comparison: comparison(revenueValues, revenuePrior, "money"), forecastPoints: forecast.points,
       metrics: [metric("Actual collections", gross, changeLabel(gross, priorGross), "money"), metric(`Estimated next ${horizon} ${horizon === 1 ? "day" : "days"}`, forecast.estimate, `${forecast.method}; uses 56 complete Philippine calendar days before the selected end date or today, whichever comes first.`, "money"), { ...metric("Typical daily forecast error", forecast.backtest?.mae ?? 0, forecast.backtest ? "Mean absolute error from predicting the final 7 historical days using only earlier history. Lower means estimates were closer." : "Need at least 14 calendar days and 7 earlier days with collections for a held-out check.", "money"), ...(!forecast.backtest ? { displayValue: "Not enough history" } : {}) }],
       insights: [
-        { title: "Collection movement", description: `${money(gross)} collected versus ${money(priorGross)} previously. ${changeLabel(gross, priorGross)}. Standalone public access and verified private-swimming, public-swimming and room-accommodation payments are included, before refunds.` },
+        { title: "Collection movement", description: `${money(gross)} collected versus ${money(priorGross)} previously. ${changeLabel(gross, priorGross)}. Collections for the selected reservation types are included, before refunds.` },
         { title: "Evidence behind the estimate", description: `${forecast.activeDays} of 56 complete days had collections. ${forecast.method}. ${allZero ? "No received payments: the estimate is zero." : forecast.activeDays < 14 ? "Limited active history: do not treat this estimate as a sales target." : "Weekday patterns influence the estimate; holidays and special events are not modelled."}` },
         { title: "Historical forecast check", description: forecast.backtest ? `Held-out actual collections: ${money(forecast.backtest.actual)}; estimated: ${money(forecast.backtest.estimated)}. Average daily absolute error: ${money(forecast.backtest.mae)}. The held-out days were not used to fit that test.` : "Not enough active history for a useful held-out check. Forecast quality has not yet been established." },
       ],
@@ -141,7 +147,7 @@ export async function generateAnalytics(period: ReportPeriod, range?: ReportDate
         { title: "Bottleneck to investigate", description: aging[2].rows.length ? `${aging[2].rows.length} payments have waited 72 hours or more. Start with the oldest submissions and check whether missing proof or transaction details are delaying verification.` : "No pending submissions have waited 72 hours or more. Use the age groups below to prioritize follow-up." },
       ],
       rows: aging.map(group => ({ id: group.label, age: group.label, pending: String(group.rows.length), amount: money(total(group.rows)), meaning: group.rows.length ? "Verify the actual transaction and proof in Transactions; resolve oldest submissions first." : "No pending submissions in this age group." })),
-      note: `${comparisonNote} The trend compares resolved shares of reservation payment submission cohorts; a zero with no submissions is not a measured success rate. Backlog age and amount are a live snapshot of all reservation payments still pending as of ${manilaTimestamp(now)}, regardless of the date filter. Cashier-recorded public access sales are received collections and do not enter this approval queue. Verification time uses valid non-negative submission-to-verification durations only.`,
+      note: `${comparisonNote} The trend compares resolved shares of reservation payment submission cohorts; a zero with no submissions is not a measured success rate. Backlog age and amount are a live snapshot of the selected reservation types still pending as of ${manilaTimestamp(now)}, regardless of the date filter. Cashier-recorded public access sales are received collections and do not enter this approval queue. Verification time uses valid non-negative submission-to-verification durations only.`,
     },
   };
 }

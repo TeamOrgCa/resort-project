@@ -143,3 +143,31 @@ test("refund queues paginate all requests and references, fail visibly and enfor
   });
   assert.equal((await failure.GET()).status, 503);
 });
+
+
+test("dashboard type filters scope arrivals, collections, booking charts and linked queues", async () => {
+  const h = data({ reservations: [
+    reservation("private"), reservation("public", { commercial_type: "public_swimming" }), reservation("room", { commercial_type: "room_accommodation" }),
+    reservation("old-room", { commercial_type: "room_accommodation", status: "completed", created_at: "2026-08-01T01:00:00Z" }),
+  ], payments: [
+    payment(100, { reservation_id: "private" }), payment(200, { reservation_id: "public" }), payment(300, { reservation_id: "old-room" }),
+    payment(40, { reservation_id: "public", status: "pending" }), payment(50, { reservation_id: "room", status: "pending" }),
+  ], public_access_sales: [
+    { sale_id: "public", amount: 20, paid_at: "2026-10-12T16:01:00Z", access_type: "swimming" },
+    { sale_id: "room", amount: 30, paid_at: "2026-10-12T16:01:00Z", access_type: "room" },
+  ], reservation_reschedules: [{ reservation_id: "public", status: "pending" }],
+  refund_requests: [{ reservation_id: "room", status: "pending" }, { reservation_id: "public", status: "payout_submitted" }], ocular_visits: [{ status: "confirmed" }] });
+  for (const [type, collected, payments] of [["private_swimming", 100, 0], ["public_swimming", 220, 1], ["room_accommodation", 330, 1]]) {
+    const result = await h.generateDashboard(now, type);
+    assert.equal(result.arrivalsToday, 1);
+    assert.equal(result.bookingsCreated, 1);
+    assert.equal(result.reservations.length, 1);
+    assert.equal(result.collectionsToday, collected);
+    assert.equal(result.collections.reduce((sum, row) => sum + row.value, 0), collected);
+    assert.equal(result.queues.payments, payments);
+    assert.equal(result.queues.reschedules, type === "public_swimming" ? 1 : 0);
+    assert.equal(result.queues.refundReview, type === "room_accommodation" ? 1 : 0);
+    assert.equal(result.queues.refundPayout, type === "public_swimming" ? 1 : 0);
+    assert.equal(result.queues.ocular, 1, "Resort visits have no reservation type");
+  }
+});

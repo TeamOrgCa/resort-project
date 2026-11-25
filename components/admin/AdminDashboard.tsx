@@ -7,6 +7,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AdminTablePreview from "@/components/admin/AdminTablePreview";
+import ReservationTypeFilter from "@/components/admin/ReservationTypeFilter";
+import type { ReservationTypeFilter as TypeFilter } from "@/lib/booking/commercial-types";
 import ReportChart from "@/components/admin/ReportChart";
 import type { AdminTableColumn } from "@/components/admin/types";
 import type { DashboardSnapshot } from "@/lib/dashboard/types";
@@ -31,6 +33,7 @@ const dayLabel = (value: string) => new Date(`${value}T00:00:00+08:00`).toLocale
 
 export default function AdminDashboard() {
   const router = useRouter();
+  const [reservationType, setReservationType] = useState<TypeFilter>("all");
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +50,7 @@ export default function AdminDashboard() {
       controller = request;
       setLoading(true);
       try {
-        const response = await fetch("/api/admin/dashboard", { cache: "no-store", signal: request.signal });
+        const response = await fetch(`/api/admin/dashboard?reservationType=${reservationType}`, { cache: "no-store", signal: request.signal });
         const payload = await response.json() as { success?: boolean; dashboard?: DashboardSnapshot; message?: string };
         if (!response.ok || !payload.success || !payload.dashboard) throw new Error(payload.message ?? "Unable to load the dashboard. Refresh to try again.");
         if (mounted && !request.signal.aborted) { setDashboard(payload.dashboard); setError(null); }
@@ -62,7 +65,7 @@ export default function AdminDashboard() {
     const timer = window.setInterval(refresh, 60_000);
     window.addEventListener("focus", refresh);
     return () => { mounted = false; controller?.abort(); window.clearInterval(timer); window.removeEventListener("focus", refresh); };
-  }, [refreshKey]);
+  }, [refreshKey, reservationType]);
 
   const can = (permission: Permission) => dashboard?.permissions.includes(permission) ?? false;
   const refresh = () => setRefreshKey(key => key + 1);
@@ -96,6 +99,7 @@ export default function AdminDashboard() {
           {can("analytics") && <Link href="/admin/analytics" className="hover:underline">Analytics →</Link>}
         </nav></>} />
 
+    <div className="flex flex-wrap items-end gap-3"><ReservationTypeFilter value={reservationType} onChange={value => { setDashboard(null); setError(null); setLoading(true); setReservationType(value); }} /></div>
     {error && <div role="alert" className="rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm">{error}{dashboard && <p className="mt-1 font-semibold">Showing the last successful update. Refresh before acting on these figures.</p>}</div>}
     {!dashboard && loading && <AdminDashboardSkeleton />}
 
@@ -106,7 +110,7 @@ export default function AdminDashboard() {
           {[
             { label: "Arrivals today", value: dashboard.arrivalsToday.toLocaleString("en-PH"), help: "Active reservations starting today, including payment holds still valid." },
             { label: "Scheduled now", value: dashboard.scheduledNow.toLocaleString("en-PH"), help: "Confirmed bookings within their stay times; not a check-in attendance count." },
-            { label: "Collections today", value: money(dashboard.collectionsToday), help: `${dashboard.verifiedToday} received payments, including public access. Before refunds.` },
+            { label: "Collections today", value: money(dashboard.collectionsToday), help: `${dashboard.verifiedToday} received payments, for the selected reservation types. Before refunds.` },
             { label: "Bookings created", value: dashboard.bookingsCreated.toLocaleString("en-PH"), help: "Last 7 days, including today. All reservation statuses." },
           ].map(item => <article key={item.label} className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm"><p className="text-sm font-medium text-neutral/65">{item.label}</p><p className="metric-value mt-2 text-xl sm:text-3xl font-semibold tracking-tight">{item.value}</p><p className="mt-2 text-xs leading-relaxed text-neutral/60">{item.help}</p></article>)}
         </div>
@@ -114,7 +118,7 @@ export default function AdminDashboard() {
 
       {queueItems.length > 0 && <section className="rounded-2xl border border-neutral/10 bg-white p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold">Needs attention</h2>
-        <p className="mt-1 text-sm text-neutral/60">All unresolved requests, including those submitted before this week. Open a queue to review its records.</p>
+        <p className="mt-1 text-sm text-neutral/60">Unresolved requests for the selected reservation types, including those submitted before this week. Ocular visits include all scheduled resort visits.</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {queueItems.map(item => <Link key={item.title} href={item.href} className="group flex flex-col rounded-xl border border-neutral/10 bg-base/50 p-4 transition-colors hover:border-primary/40 hover:bg-primary/5">
             <span className="text-sm font-medium">{item.title}</span><span className={`mt-2 text-3xl font-semibold ${item.count ? "text-primary" : "text-neutral/50"}`}>{item.count.toLocaleString("en-PH")}</span><span className="mt-1 text-xs text-neutral/60">{item.help}</span><span className="mt-4 text-xs font-semibold text-primary group-hover:underline">Open queue →</span>
@@ -142,11 +146,11 @@ export default function AdminDashboard() {
         <AdminTablePreview key={arrivalRange} title={arrivalRange === "Scheduled now" ? "Bookings scheduled now" : `Arrivals · ${arrivalRange.toLowerCase()}`} columns={columns} rows={rows} defaultSort={{ key: "checkIn", direction: "asc" }} pageSize={10} showResetFilters searchPlaceholder="Search guest or reservation reference…"
           filters={[{ key: "status", label: "Status", options: [...new Set(rows.map(r => r.status))].sort() }, { key: "source", label: "Booked through", options: ["Online booking", "Offline booking", "Unspecified"] }]}
           actions={["Export CSV", "Refresh"]} isActionDisabled={(action, filtered) => loading || (action === "Export CSV" && (!filtered.length || Boolean(error)))}
-          onAction={(action, filtered) => { if (action === "Refresh") refresh(); else downloadReportCsv(columns, filtered, `dashboard-arrivals-${arrivalRange.toLowerCase().replaceAll(" ", "-")}-${dashboard.today}.csv`); }}
+          onAction={(action, filtered) => { if (action === "Refresh") refresh(); else downloadReportCsv(columns, filtered, `dashboard-arrivals-${reservationType}-${arrivalRange.toLowerCase().replaceAll(" ", "-")}-${dashboard.today}.csv`); }}
           rowActions={can("reservations") ? ["View"] : []} isRowActionDisabled={() => loading}
           onRowAction={(_action, row) => router.push(`/admin/reservations?reservation=${encodeURIComponent(row.id)}&date=${encodeURIComponent(row.arrivalDate)}`)}
         />
-        <p className="mt-2 text-xs text-neutral/60">Search, status and source filters affect this table and its CSV export. The cards and charts keep their stated scopes. CSV includes every matching row across pages.</p>
+        <p className="mt-2 text-xs text-neutral/60">Search, status and booked-through filters affect this table and its CSV export. The cards and charts keep their stated scopes. CSV includes every matching row across pages.</p>
       </section>
     </>}
   </div>;

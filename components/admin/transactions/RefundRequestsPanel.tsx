@@ -7,6 +7,7 @@ import CatalogDialog from "@/components/admin/catalog/CatalogDialog";
 import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
 import { createClient } from "@/lib/supabase/client";
 import { refundStatusLabels, type CancellationPreview } from "@/lib/booking/cancellation";
+import { matchesReservationType, type ReservationTypeFilter } from "@/lib/booking/commercial-types";
 import { withinDateRange, type DateRange } from "@/lib/admin/date-range";
 
 type Refund = { guest_id?: string | null; destination_requested_at?: string | null; destination_submitted_at?: string | null; destination_method?: string | null; destination_account_name?: string | null; destination_account_number?: string | null; refund_id: string; reservation_id: string; amount: number; request_kind: string; policy_snapshot: string;
@@ -24,7 +25,7 @@ const at = (value: string) => new Date(value).toLocaleString("en-PH", { timeZone
 const button = "admin-button-secondary";
 const paymentMethodName = (payment: Payment) => (Array.isArray(payment.payment_methods) ? payment.payment_methods[0]?.name : payment.payment_methods?.name) || "Method not recorded";
 
-export default function RefundRequestsPanel({ onUpdated, dateRange, paginationResetKey = "" }: { onUpdated?: () => void; dateRange?: DateRange; paginationResetKey?: string }) {
+export default function RefundRequestsPanel({ onUpdated, dateRange, reservationType = "all", paginationResetKey = "" }: { reservationType?: ReservationTypeFilter; onUpdated?: () => void; dateRange?: DateRange; paginationResetKey?: string }) {
   const [refunds, setRefunds] = useState<Refund[]>([]), [payments, setPayments] = useState<Payment[]>([]), [bills, setBills] = useState<Bill[]>([]);
   const [page, setPage] = useState(0), [paymentPage, setPaymentPage] = useState(0);
   const [previousResetKey, setPreviousResetKey] = useState(paginationResetKey);
@@ -89,7 +90,8 @@ export default function RefundRequestsPanel({ onUpdated, dateRange, paginationRe
   const missingDestination = !refundAccounts.some(p => p.account_name?.trim() && p.account_number?.trim() && paymentMethodName(p) !== "Method not recorded");
   const awaitingDestination = Boolean(selected?.destination_requested_at && !selected.destination_submitted_at);
   useEffect(() => { if (selected?.destination_submitted_at && selected.destination_method) setMethod(selected.destination_method); }, [selected?.refund_id, selected?.destination_method, selected?.destination_submitted_at]);
-  const matchingRefunds = refunds.filter(f => withinDateRange(f.requested_at, dateRange) && (filter === "all" || f.status === filter || (filter === "pending" && f.status === "reviewed"))
+  const matchingRefunds = refunds.filter(f => matchesReservationType(reservations.find(row => row.reservation_id === f.reservation_id)?.commercial_type, reservationType)
+    && withinDateRange(f.requested_at, dateRange) && (filter === "all" || f.status === filter || (filter === "pending" && f.status === "reviewed"))
     && `${guestNames[f.reservation_id] ?? ""} ${refs[f.reservation_id] ?? f.reservation_id}`.toLowerCase().includes(search.trim().toLowerCase()));
   const currentPage = Math.min(page, Math.max(0, Math.ceil(matchingRefunds.length / 25) - 1));
   const currentPaymentPage = Math.min(paymentPage, Math.max(0, Math.ceil(selectedPayments.length / 10) - 1));

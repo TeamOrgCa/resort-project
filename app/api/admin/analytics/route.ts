@@ -1,3 +1,4 @@
+import { isReservationTypeFilter } from "@/lib/booking/commercial-types";
 import { manilaTimestamp } from "@/lib/booking/manila-date";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
@@ -9,7 +10,7 @@ import { parseReportPeriod, reportWindow } from "@/lib/reports/periods";
 import { InvalidDateRangeError } from "@/lib/server/custom-date-range";
 
 const json = (data: unknown, status = 200) => NextResponse.json(data, { status, headers: { "Cache-Control": "no-store" } });
-async function access(readOnly = true) {
+async function access() {
   const staff = await requireActiveStaff();
   if (!staff) return json({ success: false, message: "Unauthorized." }, 401);
   if (!(await staffHasPermission(staff.supabase, staff.staffUser.role, "analytics"))) return json({ success: false, message: "Forbidden." }, 403);
@@ -20,7 +21,9 @@ export async function GET(request: Request) {
     const denied = await access(); if (denied) return denied;
     const params = new URL(request.url).searchParams;
     const period = parseReportPeriod(params.get("period"));
-    const reports = await generateAnalytics(period, { startDate: params.get("startDate") ?? "", endDate: params.get("endDate") ?? "" });
+    const filter = params.get("reservationType") ?? "all";
+    if (!isReservationTypeFilter(filter)) return json({ success: false, message: "Choose a valid reservation type." }, 400);
+    const reports = await generateAnalytics(period, { startDate: params.get("startDate") ?? "", endDate: params.get("endDate") ?? "" }, new Date(), filter);
     return json({ success: true, reports });
   } catch (error) {
     if (error instanceof InvalidDateRangeError) return json({ success: false, message: error.message }, 400);
@@ -31,12 +34,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const denied = await access(false); if (denied) return denied;
-    const body = await request.json().catch(() => null) as { action?: string; period?: string; startDate?: string; endDate?: string } | null;
+    const denied = await access(); if (denied) return denied;
+    const body = await request.json().catch(() => null) as { action?: string; reservationType?: string; period?: string; startDate?: string; endDate?: string } | null;
     if (!body || (body.action !== "forecast" && body.action !== "sentiment")) return json({ success: false, message: "Unsupported analytics action." }, 400);
     const period = parseReportPeriod(body.period ?? null);
     const range = { startDate: body.startDate ?? "", endDate: body.endDate ?? "" };
-    if (body.action === "forecast") return json({ success: true, report: (await generateAnalytics(period, range)).revenue });
+    const filter = body.reservationType ?? "all";
+    if (!isReservationTypeFilter(filter)) return json({ success: false, message: "Choose a valid reservation type." }, 400);
+    if (body.action === "forecast") return json({ success: true, report: (await generateAnalytics(period, range, new Date(), filter)).revenue });
 
     const window = reportWindow(period, range);
     const { data, error } = await createAdminClient().from("reviews").select("overall_rating, title, review_text, would_recommend").eq("is_approved", true).is("archived_at", null).gte("created_at", window.start.toISOString()).lt("created_at", window.end.toISOString()).order("created_at", { ascending: false }).limit(100);

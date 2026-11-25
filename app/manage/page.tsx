@@ -23,7 +23,7 @@ import ManageBookingSkeleton from "@/components/manage/ManageBookingSkeleton";
 import GuestBookingEditor from "@/components/manage/GuestBookingEditor";
 import BookingAmountBreakdown from "@/components/manage/BookingAmountBreakdown";
 import RescheduleCalendar from "@/components/manage/RescheduleCalendar";
-import { commercialTypeLabel } from "@/lib/booking/commercial-types";
+import { commercialTypeLabel, COMMERCIAL_TYPES, type CommercialType } from "@/lib/booking/commercial-types";
 import { moveReservationToDate } from "@/lib/booking/reservation-edit";
 import { useGuestRescheduleAvailability } from "@/lib/booking/use-guest-reschedule-availability";
 import { reschedulePolicy, RESCHEDULE_POLICY_TEXT, RESCHEDULE_FEE_TEXT } from "@/lib/booking/reschedule-charge-policy";
@@ -233,6 +233,8 @@ export default function ManageBooking() {
   const [activeTab, setActiveTab] = useState<ManageTab>("bookings");
   const [search, setSearch] = useState("");
   const [searchDate, setSearchDate] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [commercialFilter, setCommercialFilter] = useState<CommercialType | "all">("all");
   const [ocularMessage, setOcularMessage] = useState<string | null>(null);
   const [recordMode, setRecordMode] = useState<RecordMode>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -812,11 +814,16 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
       : isClosedReservation(status) ? "bg-neutral/5 text-neutral/60" : "bg-amber-50 text-amber-800";
   };
   const bookingStatus = (record: BookingRecord) => record.cancellationOutcome === "no_refund" ? "Cancelled - No Refund" : record.status;
-  const visibleBookings = bookings.filter(record => matchesBookingSearch(record, search, searchDate));
-  const visibleOcular = ocularBookings.filter(record => matchesOcularSearch(record, search, searchDate));
+  const matchesStatus = (status: string) => statusFilter === "all" || status.toLowerCase().replaceAll(" ", "_") === statusFilter;
+  const statusOptions = [...new Set((activeTab === "ocular" ? ocularBookings : bookings).map(record => record.status.toLowerCase().replaceAll(" ", "_")))].sort();
+  const visibleBookings = bookings.filter(record => matchesBookingSearch(record, search, searchDate) && matchesStatus(record.status)
+    && (commercialFilter === "all" || (record.commercialType ?? "private_swimming") === commercialFilter));
+  const visibleOcular = ocularBookings.filter(record => matchesOcularSearch(record, search, searchDate) && matchesStatus(record.status));
+  const hasFilters = Boolean(search || searchDate || statusFilter !== "all" || activeTab === "bookings" && commercialFilter !== "all");
+  const clearFilters = () => { setSearch(""); setSearchDate(""); setStatusFilter("all"); setCommercialFilter("all"); };
   const currentRecord = activeTab === "bookings" ? selectedBooking : activeTab === "ocular" ? selectedOcular : null;
   const showRefunds = (reference: string) => {
-    closeRecord(); setActiveTab("refunds"); setSearch(reference); setSearchDate("");
+    closeRecord(); clearFilters(); setActiveTab("refunds"); setSearch(reference);
     window.requestAnimationFrame(() => {
       refundsTab.current?.focus({ preventScroll: true });
       recordsPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
@@ -838,18 +845,18 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
       <main className="relative mx-auto max-w-6xl px-3 pb-16 pt-6 sm:px-6 sm:pt-8">
         <div ref={recordsPanel} className="scroll-mt-24 rounded-3xl border border-neutral/10 bg-white p-4 shadow-sm sm:p-7">
-          <div className="flex flex-col justify-between gap-4 border-b border-neutral/10 pb-5 xl:flex-row xl:items-center">
+          <div className="flex flex-col gap-4 border-b border-neutral/10 pb-5">
             <div className="grid grid-cols-3 gap-1 rounded-2xl bg-base p-1 md:flex" role="group" aria-label="Record type">
               {(["bookings", "ocular", "refunds"] as const).map(tab => <button key={tab} ref={tab === "refunds" ? refundsTab : undefined} type="button" aria-pressed={activeTab === tab}
-                onClick={() => { closeRecord(); setActiveTab(tab); setSearch(""); setSearchDate(""); }}
+                onClick={() => { closeRecord(); setActiveTab(tab); clearFilters(); }}
                 className={`flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-3 text-xs font-semibold transition sm:px-3 sm:text-sm ${activeTab === tab ? "bg-white text-primary shadow-sm" : "text-neutral/60 hover:text-neutral"}`}>
                 <ManageIcon name={tab === "bookings" ? "calendar" : tab === "ocular" ? "view" : "wallet"} className="hidden h-4 w-4 shrink-0 sm:block" />
                 {tab === "bookings" ? "Bookings" : tab === "ocular" ? "Ocular visits" : "Refunds"}
                 {tab !== "refunds" && <span className="hidden rounded-full bg-neutral/5 px-2 py-0.5 text-xs sm:inline">{tab === "bookings" ? bookings.length : ocularBookings.length}</span>}
               </button>)}
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <label className="flex min-h-11 items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2.5 sm:w-60">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2.5">
               <ManageIcon name="search" className="h-4 w-4 text-neutral/45" />
               <input type="search" aria-label={activeTab === "refunds" ? "Search booking reference" : "Search booking reference or date"} value={search} onChange={event => setSearch(event.target.value)}
                 placeholder={activeTab === "refunds" ? "Search reference" : "Reference or YYYY-MM-DD"} className="min-w-0 w-full bg-transparent text-black text-neutral outline-none sm:text-sm" />
@@ -857,7 +864,19 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             {activeTab !== "refunds" && <label className="flex min-h-11 items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2 text-xs text-neutral/60">{activeTab === "ocular" ? "Visit date" : "Stay date"}
               <input type="date" aria-label={activeTab === "ocular" ? "Search visit date" : "Search booking date"} value={searchDate} onChange={event => setSearchDate(event.target.value)} className="min-w-0 flex-1 bg-transparent text-base text-black sm:text-sm" />
             </label>}
-            {activeTab !== "refunds" && (search || searchDate) && <button type="button" onClick={() => { setSearch(""); setSearchDate(""); }} className="min-h-11 rounded-xl px-3 text-sm font-semibold text-primary hover:bg-primary/5">Clear search</button>}
+            {activeTab !== "refunds" && <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2 text-xs text-neutral/60">Status
+              <select aria-label="Filter by status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="min-w-0 flex-1 bg-transparent text-base text-black sm:text-sm">
+                <option value="all">All statuses</option>
+                {statusOptions.map(status => <option key={status} value={status}>{toTitleCase(status)}</option>)}
+              </select>
+            </label>}
+            {activeTab === "bookings" && <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral/15 px-3 py-2 text-xs text-neutral/60">Type
+              <select aria-label="Filter by reservation type" value={commercialFilter} onChange={event => setCommercialFilter(event.target.value as CommercialType | "all")} className="min-w-0 flex-1 bg-transparent text-base text-black sm:text-sm">
+                <option value="all">All reservation types</option>
+                {Object.entries(COMMERCIAL_TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>}
+            {activeTab !== "refunds" && hasFilters && <button type="button" onClick={clearFilters} className="min-h-11 justify-self-start rounded-xl px-3 text-sm font-semibold text-primary hover:bg-primary/5">{statusFilter !== "all" || commercialFilter !== "all" ? "Clear filters" : "Clear search"}</button>}
             </div>
           </div>
           <div className="mb-5 mt-5 flex items-start justify-between gap-3">
@@ -878,8 +897,8 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
             : ((activeTab === "bookings" ? visibleBookings : visibleOcular).length === 0) ?
               <div className="rounded-2xl border border-dashed border-neutral/15 bg-base/50 p-10 text-center">
                 <ManageIcon name="calendar" className="mx-auto mb-3 h-8 w-8 text-neutral/35" />
-                <p className="font-semibold text-neutral">{search || searchDate ? "No matching records" : activeTab === "bookings" ? "No reservations yet" : "No ocular visits yet"}</p>
-                <p className="mt-2 text-sm text-neutral/60">{search || searchDate ? "Try another reference or date, or clear your search." : "Your saved records will appear here."}</p>
+                <p className="font-semibold text-neutral">{hasFilters ? "No matching records" : activeTab === "bookings" ? "No reservations yet" : "No ocular visits yet"}</p>
+                <p className="mt-2 text-sm text-neutral/60">{hasFilters ? "Try another reference, date or filter, or clear your filters." : "Your saved records will appear here."}</p>
               </div>
             : <div className="space-y-4">
               {activeTab === "bookings" && visibleBookings.map(record => {

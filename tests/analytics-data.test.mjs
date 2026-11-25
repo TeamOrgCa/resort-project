@@ -6,7 +6,7 @@ function analytics(tables = {}, failTable = null) {
   const calls = [];
   const client = { from(table) {
     const filters = []; const fields = []; let verifiedRange = null;
-    const query = { select: () => query, order: () => query,
+    const query = { select: () => query, order: () => query, in: (key, values) => { filters.push(row => values.includes(row[key])); return query; },
       eq: (key, value) => { fields.push([key, value]); filters.push(row => row[key] === value); return query; },
       gte: (key, value) => { filters.push(row => Date.parse(row[key]) >= Date.parse(value)); return query; },
       lt: (key, value) => { filters.push(row => Date.parse(row[key]) < Date.parse(value)); return query; },
@@ -183,4 +183,32 @@ test("feedback analysis handles empty reviews, caps the sample and rejects malfo
     assert.equal((await malformed.POST(post({ action: "sentiment" }))).status, 500);
     delete process.env.GEMINI_API_KEY; assert.equal((await route({ reviews }).POST(post({ action: "sentiment" }))).status, 503);
   } finally { if (original === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = original; }
+});
+
+
+test("analytics type filters scope comparisons, forecast collections and pending backlog to linked reservation types", async () => {
+  const h = analytics({ reservations: [
+    reservation("private", "2026-10-01T01:00:00Z"),
+    reservation("public", "2026-10-01T01:00:00Z", "confirmed", { commercial_type: "public_swimming" }),
+    reservation("room", "2026-10-01T01:00:00Z", "confirmed", { commercial_type: "room_accommodation" }),
+    reservation("old-room", "2026-08-01T01:00:00Z", "confirmed", { commercial_type: "room_accommodation" }),
+    reservation("prior-room", "2026-09-28T01:00:00Z", "confirmed", { commercial_type: "room_accommodation" }),
+  ], payments: [
+    payment(100, { payment_id: "p1", reservation_id: "private" }),
+    payment(200, { payment_id: "p2", reservation_id: "public" }),
+    payment(300, { payment_id: "p3", reservation_id: "old-room" }),
+    payment(40, { payment_id: "queue-public", reservation_id: "public", status: "pending", created_at: "2026-08-01T01:00:00Z" }),
+    payment(50, { payment_id: "queue-room", reservation_id: "room", status: "pending", created_at: "2026-08-01T01:00:00Z" }),
+  ], public_access_sales: [
+    { sale_id: "s1", access_type: "mixed", amount: 20, paid_at: "2026-10-02T01:00:00Z" },
+    { sale_id: "s2", access_type: "room", amount: 30, paid_at: "2026-10-02T01:00:00Z" },
+  ] });
+  for (const [type, collected, backlog] of [["private_swimming", 100, 0], ["public_swimming", 220, 40], ["room_accommodation", 330, 50]]) {
+    const reports = await h.generateAnalytics("Custom", range, now, type);
+    assert.equal(reports.booking.metrics[0].value, 1);
+    assert.equal(reports.revenue.metrics[0].value, collected);
+    assert.equal(reports.revenue.split.reduce((sum, row) => sum + row.value, 0), collected);
+    assert.equal(reports.performance.metrics[2].value, backlog);
+    assert.equal(reports.booking.comparison.points.reduce((sum, row) => sum + (row.previous ?? 0), 0), type === "room_accommodation" ? 1 : 0);
+  }
 });
