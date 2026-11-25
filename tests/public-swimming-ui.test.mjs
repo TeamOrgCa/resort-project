@@ -5,6 +5,7 @@ import{act,createElement}from"react";
 import{create}from"zustand";
 import{loadTsModule}from"./helpers/load-ts-module.mjs";
 import { swimmingRoomCatalog, standardId } from './helpers/swimming-rooms.mjs';
+import { legacyRates } from './helpers/package-rates.mjs';
 const dom=new JSDOM("<!doctype html><html><body></body></html>",{url:"http://localhost/booking",pretendToBeVisual:true});
 for(const k of["window","document","HTMLElement","Node"])globalThis[k]=dom.window[k];globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 const{createRoot}=await import("react-dom/client");after(()=>dom.window.close());
@@ -19,6 +20,51 @@ function monthCatalog(month=today.slice(0,7)){
 }
 const click=el=>act(async()=>{assert.ok(el);assert.equal(el.disabled,false);el.click();});
 async function change(el,value){assert.ok(el);await act(async()=>{const proto=el.tagName==='SELECT'?window.HTMLSelectElement.prototype:window.HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(el,String(value));el.dispatchEvent(new window.Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));});}
+
+test('manual public swimming uses the compact admin form, keeps edits during session selection, and confirms the same priced booking',async()=>{
+ const oldFetch=globalThis.fetch,posts=[],created=[];let closed=0;
+ globalThis.fetch=async(url,options)=>{
+  if(url.startsWith('/api/booking/availability'))return Response.json({reservations:[],blockedDates:[]});
+  if(url.startsWith('/api/booking/rooms?'))return Response.json({success:true,...swimmingRoomCatalog});
+  if(url==='/api/admin/reservations/public-swimming'){posts.push(JSON.parse(options.body));return Response.json({success:true,reservation:{referenceNumber:'PS-MANUAL'}});}
+  return Response.json({success:true,...monthCatalog(new URL(url,'http://localhost').searchParams.get('month')??today.slice(0,7))});
+ };
+ const store=create(()=>({bookingDraft:{},setBookingDraft:()=>assert.fail('Manual entry must not write the customer draft')}));
+ const Component=loadTsModule('components/admin/ManualBookingDialog.tsx',{
+  'next/navigation':{useRouter:()=>({push:()=>assert.fail('Manual entry must stay in the admin modal')})},
+  '@/lib/stores/booking-store':{useBookingStore:store},
+  '@/lib/booking/use-package-rates':{usePackageRates:()=>({schedule:{version:1,rates:legacyRates},error:null})},
+  '@/lib/supabase/client':{createClient:()=>({from:()=>{const q={select:()=>q,eq:()=>q,order:()=>q,then:resolve=>Promise.resolve({data:[]}).then(resolve)};return q;}})},
+ }).default;
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ try{
+  await act(async()=>root.render(createElement(Component,{isOpen:true,onClose:()=>closed++,onCreated:r=>created.push(r)})));
+  const typeSelect=()=>[...document.querySelectorAll('label')].find(l=>l.textContent.startsWith('Reservation type')).querySelector('select');
+  await change(typeSelect(),'public_swimming');
+  assert.equal(Boolean(document.querySelector('[role="alertdialog"]')),false);
+  const dialog=document.querySelector('[role="dialog"]'),form=dialog.querySelector('form');
+  assert.equal(dialog.querySelector('h2').textContent,'New Manual Reservation');assert.ok(dialog.querySelector('.max-w-3xl'));
+  assert.equal(form.getAttribute('aria-label'),'Public swimming manual reservation');assert.equal(dialog.querySelectorAll('form').length,1);
+  assert.equal(dialog.querySelectorAll('aside,.booking-summary,[data-booking-guide="dates-continue"]').length,0);
+  assert.ok(form.querySelector('[name="firstName"]').classList.contains('admin-field'));
+  await change(form.querySelector('[name="firstName"]'),'Maria');await change(form.querySelector('[name="lastName"]'),'Cruz');
+  await change(form.querySelector('[name="phone"]'),'9171234567');
+  for(const [name,value]of[['streetAddress','Street'],['city','City'],['province','Province'],['zipCode','1234']])await change(form.querySelector(`[name="${name}"]`),value);
+  await change(typeSelect(),'private_swimming');assert.ok(document.querySelector('[role="alertdialog"]'));
+  await click([...document.querySelectorAll('[role="alertdialog"] button')].find(b=>b.textContent==='Continue Editing'));
+  assert.equal(typeSelect().value,'public_swimming');assert.equal(form.querySelector('[name="firstName"]').value,'Maria');
+  if(date.slice(0,7)!==today.slice(0,7))await click(form.querySelector('[aria-label="Next month"]'));
+  await click(form.querySelector(`[data-date="${date}"]`));await change(form.querySelector('[aria-label="Public swimming session selection"] select'),'day');
+  assert.equal(form.querySelector('[name="firstName"]').value,'Maria');
+  await change(form.querySelector('[aria-label="Adults"]'),2);await change(form.querySelector('[aria-label="Children"]'),1);
+  await click(form.querySelector('[aria-label="Add Videoke"]'));await change(form.querySelector('input[type="number"][max="8"]'),2);
+  assert.match(form.querySelector('[aria-label="Billing preview"]').textContent,/Total: ₱620\.00/);
+  await act(async()=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+  assert.equal(posts.length,0);await click([...document.querySelectorAll('[role="alertdialog"] button')].find(b=>b.textContent==='Create reservation'));
+  assert.equal(posts.length,1);assert.equal(posts[0].expectedTotal,620);assert.equal(posts[0].phone,'+639171234567');assert.equal(posts[0].address,'Street, City, Province, 1234');
+  assert.equal(posts[0].adultCount,2);assert.equal(posts[0].childCount,1);assert.equal(created[0].reference,'PS-MANUAL');assert.equal(closed,1);
+ }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=oldFetch;}
+});
 
 test('Public Only sessions remain bookable beyond three days and display their configured cutoff',async()=>{
  const oldFetch=globalThis.fetch,chosen=[],future=addDays(today,20);

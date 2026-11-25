@@ -26,9 +26,10 @@ async function select(container, label, next) {
     element.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
 }
-async function mount(fetcher = () => Response.json({ success: true, reservation: { referenceNumber: "MB-CALENDAR" } }), { availabilityFetcher = () => Response.json({ reservations: [], blockedDates: [] }), times } = {}) {
-  const originalFetch = globalThis.fetch, requests = []; let created = 0, closed = 0;
+async function mount(fetcher = () => Response.json({ success: true, reservation: { referenceNumber: "MB-CALENDAR" } }), { availabilityFetcher = () => Response.json({ reservations: [], blockedDates: [] }), roomsFetcher = () => Response.json({ rooms: [], classifications: [] }), realRoomForm = false, times } = {}) {
+  const originalFetch = globalThis.fetch, requests = [], bookings = []; let created = 0, closed = 0;
   globalThis.fetch = async (url, options) => {
+    if (url === "/api/admin/rooms" && !options?.method) return roomsFetcher();
     if (url.startsWith("/api/booking/rooms?")) return Response.json({success:true,...swimmingRoomCatalog});
     if (url.startsWith("/api/booking/availability")) return availabilityFetcher(url, options);
     requests.push({ url, body: JSON.parse(options.body) }); return fetcher();
@@ -43,12 +44,14 @@ async function mount(fetcher = () => Response.json({ success: true, reservation:
     return q;
   } };
   const Component = loadTsModule("components/admin/ManualBookingDialog.tsx", {
+    "@/components/booking/PublicSwimmingForm": { __esModule: true, default: () => createElement("p", null, "Public swimming reservation form") },
+    ...(!realRoomForm ? { "@/components/admin/rooms/RoomActionDialog": { __esModule: true, default: () => createElement("p", null, "Room accommodation reservation form") } } : {}),
     "@/lib/supabase/client": { createClient: () => client },
     "@/lib/booking/use-package-rates": { usePackageRates: () => ({ schedule: { version: 9, rates: legacyRates, times }, error: null }) },
   }).default;
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
-  await act(async () => root.render(createElement(Component, { isOpen: true, onClose: () => closed++, onCreated: () => created++ })));
-  return { container: document.querySelector('[aria-labelledby="manual-booking-title"]'), requests, created: () => created, closed: () => closed, async close() {
+  await act(async () => root.render(createElement(Component, { isOpen: true, onClose: () => closed++, onCreated: booking => { created++; bookings.push(booking); } })));
+  return { container: document.querySelector('[aria-labelledby="manual-booking-title"]'), requests, bookings, created: () => created, closed: () => closed, async close() {
     await act(async () => root.unmount()); container.remove(); globalThis.fetch = originalFetch;
   } };
 }
@@ -56,6 +59,128 @@ const dateForWeekday = (month, weekday) => {
   const day = Array.from({ length: 7 }, (_, i) => i + 1).find(day => new Date(month + "-" + String(day).padStart(2, "0") + "T12:00:00Z").getUTCDay() === weekday);
   return month + "-" + String(day).padStart(2, "0");
 };
+
+const roomClass = { classification_id: "11111111-1111-4111-8111-111111111111", code: "standard", name: "Standard Rooms", included_capacity: 2, maximum_capacity: 2, cleaning_buffer_minutes: 60, rate_3_hours: 300, rate_12_hours: 900, pricing_version: 4, extension_hourly_rate: 150, additional_guest_rate: 0, base_rate: 900, base_hours: 12 };
+const roomInventory = { rooms: [{ room_id: roomClass.classification_id, classification_id: roomClass.classification_id, room_number: "S03", classification: roomClass, is_active: true, status: "vacant", upcoming: [], maintenance: [], current: null }], classifications: [roomClass], canDiscount: false };
+const inputField = label => [...document.querySelectorAll("label")].find(item => item.textContent.startsWith(label))?.querySelector("input");
+const textButton = text => [...document.querySelectorAll("button")].find(item => item.textContent === text);
+async function enterInput(label, value) {
+  const input = inputField(label); assert.ok(input, label);
+  await act(async () => {
+    input.focus();
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, value);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+}
+
+test("manual room accommodation keeps one admin modal and the real type selector, preserving edits until discard", async () => {
+  const h = await mount(undefined, { realRoomForm: true, roomsFetcher: () => Response.json(roomInventory) });
+  try {
+    await select(document, "Reservation type", "room_accommodation");
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.equal(document.querySelectorAll('[role="dialog"]').length, 1);
+    assert.equal(dialog.querySelector("h2").textContent, "New Manual Reservation");
+    assert.ok(dialog.querySelector(".max-w-3xl"));
+    assert.equal(dialog.querySelectorAll("form").length, 1);
+    assert.equal(dialog.querySelector("form").getAttribute("aria-label"), "Room accommodation manual reservation");
+    assert.equal([...dialog.querySelectorAll("label")].filter(label => label.textContent.startsWith("Reservation type")).length, 1);
+    assert.ok(textButton("Create Manual Reservation"));
+    assert.equal(textButton("Review & Confirm"), undefined);
+    assert.equal(document.querySelector('[role="alertdialog"]'), null);
+    // An untouched room form can switch in both directions without prompting.
+    await select(document, "Reservation type", "public_swimming");
+    assert.equal(document.querySelector('[role="alertdialog"]'), null);
+    await select(document, "Reservation type", "room_accommodation");
+    await enterInput("Guest first name", "Maria");
+    await select(document, "Reservation type", "private_swimming");
+    assert.ok(document.querySelector('[aria-label="Unsaved reservation changes"]'));
+    await click(textButton("Continue Editing"));
+    assert.equal(inputField("Guest first name").value, "Maria");
+    assert.equal(document.querySelector('[data-reservation-guard-ignore]').value, "room_accommodation");
+    await select(document, "Reservation type", "public_swimming");
+    await click(textButton("Discard Changes"));
+    assert.equal(document.querySelector('[data-reservation-guard-ignore]').value, "public_swimming");
+    assert.match(document.body.textContent, /Public swimming reservation form/);
+  } finally { await h.close(); }
+});
+
+test("manual room creation retains pricing and confirmation, blocks navigation while saving and refreshes the booked Manila date", async () => {
+  let resolveSave;
+  const h = await mount(() => new Promise(resolve => { resolveSave = resolve; }), { realRoomForm: true, roomsFetcher: () => Response.json(roomInventory) });
+  try {
+    await select(document, "Reservation type", "room_accommodation");
+    for (const [label, value] of [["Guest first name", "Maria"], ["Guest last name", "Cruz"], ["Philippine mobile number", "09171234567"], ["Guest address", "Quezon City"], ["Scheduled check-in", "2030-01-02T02:30"], ["Additional extension hours", "2"]]) await enterInput(label, value);
+    await select(document, "Accommodation duration", "12");
+    assert.match(document.querySelector('[aria-label="Room price quote"]').textContent, /Total to bill.*1,200\.00/);
+    const submit = () => act(async () => document.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+    await submit(); assert.equal(h.requests.length, 0);
+    await click(textButton("Cancel"));
+    assert.equal(inputField("Guest first name").value, "Maria"); assert.equal(h.closed(), 0);
+    await submit(); await click(textButton("Create reservation"));
+    assert.equal(h.requests.length, 1);
+    assert.equal(document.querySelector('[data-reservation-guard-ignore]').disabled, true);
+    assert.equal(document.querySelector('[aria-label="Close booking dialog"]').disabled, true);
+    const { url, body } = h.requests[0];
+    assert.equal(url, "/api/admin/rooms"); assert.equal(body.action, "reserve"); assert.equal(body.confirmed, true);
+    assert.equal(body.input.commercial_type, "room_accommodation"); assert.equal(body.input.expected_total, 1200);
+    assert.equal(body.input.duration_hours, 12); assert.equal(body.input.extension_hours, 2);
+    assert.equal(body.input.starts_at, "2030-01-01T18:30:00.000Z");
+    await act(async () => resolveSave(Response.json({ success: true, result: { reference_number: "RM-MANUAL" } })));
+    assert.deepEqual(h.bookings, [{ date: "2030-01-02", reference: "RM-MANUAL" }]); assert.equal(h.closed(), 1);
+  } finally { await h.close(); }
+});
+
+test("room inventory loading and failure keep the manual selector usable and support retry", async () => {
+  let finishLoad, calls = 0;
+  const h = await mount(undefined, { realRoomForm: true, roomsFetcher: () => ++calls === 1 ? new Promise(resolve => { finishLoad = resolve; }) : Response.json(roomInventory) });
+  try {
+    await select(document, "Reservation type", "room_accommodation");
+    assert.match(document.querySelector('[role="status"]').textContent, /Loading room inventory/);
+    assert.equal(document.querySelector('[data-reservation-guard-ignore]').disabled, false);
+    await act(async () => finishLoad(Response.json({ message: "Unable to load rooms." }, { status: 500 })));
+    assert.match(document.querySelector('[role="alert"]').textContent, /Unable to load rooms/);
+    await click(textButton("Reload room inventory"));
+    assert.ok(document.querySelector('[aria-label="Room accommodation manual reservation"]'));
+    await select(document, "Reservation type", "private_swimming");
+    assert.equal(Boolean(document.querySelector('[role="alertdialog"]')), false);
+    assert.ok(document.querySelector('[aria-labelledby="manual-booking-title"]'));
+  } finally { await h.close(); }
+});
+
+test("reservation type switches clean manual forms without a discard prompt", async () => {
+  for (const [type, destination] of [["public_swimming", "Public swimming reservation form"], ["room_accommodation", "Room accommodation reservation form"]]) {
+    const h = await mount();
+    try {
+      await select(h.container, "Reservation type", type);
+      assert.equal(Boolean(document.querySelector('[role="alertdialog"]')), false);
+      assert.match(document.body.textContent, new RegExp(destination));
+      assert.equal(document.querySelector('[aria-labelledby="manual-booking-title"]'), null);
+    } finally { await h.close(); }
+  }
+});
+
+test("reservation type switches preserve real edits when cancelled and switch to the chosen type after discard", async () => {
+  for (const [type, destination] of [["public_swimming", "Public swimming reservation form"], ["room_accommodation", "Room accommodation reservation form"]]) {
+    const h = await mount();
+    try {
+      const name = [...h.container.querySelectorAll("label")].find(label => label.textContent.startsWith("First name")).querySelector("input");
+      await act(async () => {
+        name.focus();
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(name, "Maria");
+        name.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+      await select(h.container, "Reservation type", type);
+      assert.ok(document.querySelector('[role="alertdialog"]'));
+      await click([...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Continue Editing"));
+      assert.equal(name.value, "Maria");
+      assert.equal([...h.container.querySelectorAll("label")].find(label => label.textContent.startsWith("Reservation type")).querySelector("select").value, "private_swimming");
+      await select(h.container, "Reservation type", type);
+      await click([...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Discard Changes"));
+      assert.match(document.body.textContent, new RegExp(destination));
+      assert.equal(document.querySelector('[aria-labelledby="manual-booking-title"]'), null);
+    } finally { await h.close(); }
+  }
+});
 
 test("offline booking calendar enforces the inclusive advance limit while keeping later months visible",async()=>{
  const {maximumBookingDate}=loadTsModule("lib/booking/advance-window.ts"),last=maximumBookingDate(2);

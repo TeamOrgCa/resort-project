@@ -51,23 +51,34 @@ export default function ManualBookingDialog(props: ManualBookingDialogProps) {
   const portalTarget = usePortalTarget();
   const [type, setType] = useState("private_swimming");
   if (!props.isOpen || !portalTarget) return null;
-  if (type === "public_swimming") return createPortal(<ManualPublicReservation {...props} onBack={() => setType("private_swimming")} />, portalTarget);
-  if (type === "room_accommodation") return createPortal(<ManualRoomReservation {...props} />, portalTarget);
+  if (type === "public_swimming") return createPortal(<ManualPublicReservation {...props} onChooseType={setType} />, portalTarget);
+  if (type === "room_accommodation") return createPortal(<ManualRoomReservation {...props} onChooseType={setType} />, portalTarget);
   return createPortal(<ManualBookingForm {...props} onChooseType={setType} />, portalTarget);
 }
 
-function ManualPublicReservation({ onClose, onCreated, onBack }: ManualBookingDialogProps & { onBack: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const { root, captureChange, captureInitial, requestClose, reset, confirmation } = useReservationFormGuard(true);
-  return <CatalogDialog title="New Public Swimming Reservation" description="Choose a public session and record the guest's admission and services." busy={busy} size="wide" onClose={() => requestClose(onClose)}>{confirmation}<div ref={root} onChangeCapture={captureChange} onInputCapture={captureChange} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial}><button type="button" disabled={busy} className="admin-button-secondary mb-4" onClick={() => requestClose(onBack)}>Back to reservation types</button><PublicSwimmingForm onBusyChange={setBusy} onSaved={(reference, date) => { reset(); onCreated({ date: manilaDateKey(date || new Date()), reference }); onClose(); }} /></div></CatalogDialog>;
+function ReservationTypeSelect({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (type: string) => void }) {
+  return <label className="mt-5 block text-sm font-medium">Reservation type<select data-reservation-guard-ignore className="admin-field mt-2 w-full" value={value} disabled={disabled} onChange={event => onChange(event.currentTarget.value)}><option value="private_swimming">Private Swimming</option><option value="public_swimming">Public Swimming</option><option value="room_accommodation">Room Accommodation</option></select></label>;
 }
 
-function ManualRoomReservation({ onClose, onCreated }: ManualBookingDialogProps) {
+function ManualPublicReservation({ onClose, onCreated, onChooseType }: ManualBookingDialogProps & { onChooseType: (type: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const { root, captureChange, captureClick, captureInitial, requestClose, reset, confirmation } = useReservationFormGuard(true, busy);
+  return <CatalogDialog title="New Manual Reservation" description="Choose an available public swimming session and add any services requested by the guest." busy={busy} size="form" onClose={() => requestClose(onClose)}>{confirmation}<div ref={root} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial}>
+    <ReservationTypeSelect value="public_swimming" disabled={busy} onChange={type => requestClose(() => onChooseType(type))} />
+    <PublicSwimmingForm onBusyChange={setBusy} onSaved={(reference, date) => { reset(); onCreated({ date: manilaDateKey(date || new Date()), reference }); onClose(); }} />
+  </div></CatalogDialog>;
+}
+
+function ManualRoomReservation({ onClose, onCreated, onChooseType }: ManualBookingDialogProps & { onChooseType: (type: string) => void }) {
   const [data, setData] = useState<(RoomDashboard & { canDiscount?: boolean }) | null>(null), [error, setError] = useState("");
+  const [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
+  const { root, captureChange, captureClick, captureInitial, requestClose, reset, confirmation } = useReservationFormGuard(true, busy);
   const [now] = useState(() => Date.now());
-  useEffect(() => { const c = new AbortController(); fetch("/api/admin/rooms", { signal: c.signal, cache: "no-store" }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.message || "Unable to load rooms."); if (!c.signal.aborted) setData(d); }).catch(e => { if (!c.signal.aborted) setError(e.message); }); return () => c.abort(); }, []);
-  if (!data) return <CatalogDialog title="New Room Accommodation Reservation" description="Choose a physical room using the existing Room Management workflow." busy={false} onClose={onClose}><p role={error ? "alert" : "status"}>{error || "Loading room inventory…"}</p></CatalogDialog>;
-  return <RoomActionDialog action="reserve" rooms={data.rooms} classifications={data.classifications} initialRoomId={null} now={now} canDiscount={!!data.canDiscount} onClose={onClose} onSaved={message => { onCreated({ date: manilaDateKey(new Date()), reference: message }); onClose(); }} />;
+  useEffect(() => { const c = new AbortController(); setError(""); fetch("/api/admin/rooms", { signal: c.signal, cache: "no-store" }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.message || "Unable to load rooms."); if (!c.signal.aborted) setData(d); }).catch(e => { if (!c.signal.aborted) setError(e.message); }); return () => c.abort(); }, [revision]);
+  return <CatalogDialog title="New Manual Reservation" description="Choose a room and stay duration, then review the guest details and room charges. Times are Philippine time." busy={busy} size="form" onClose={() => requestClose(onClose)}>{confirmation}<div ref={root} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial}>
+    <ReservationTypeSelect value="room_accommodation" disabled={busy} onChange={type => requestClose(() => onChooseType(type))} />
+    <div className="mt-5">{data ? <RoomActionDialog embedded action="reserve" rooms={data.rooms} classifications={data.classifications} initialRoomId={null} now={now} canDiscount={!!data.canDiscount} onBusyChange={setBusy} onClose={() => requestClose(onClose)} onSaved={(_message, reservation) => { if (!reservation) return; reset(); onCreated({ date: manilaDateKey(reservation.startsAt), reference: reservation.reference }); onClose(); }} /> : error ? <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}<button type="button" data-reservation-guard-ignore className="ml-2 min-h-11 underline" onClick={() => setRevision(value => value + 1)}>Reload room inventory</button></div> : <p role="status" className="text-sm text-neutral/65">Loading room inventory…</p>}</div>
+  </div></CatalogDialog>;
 }
 
 function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualBookingDialogProps & { onChooseType: (type: string) => void }) {
@@ -220,7 +231,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
         <div className="min-w-0"><h2 id="manual-booking-title" className="text-xl font-semibold text-neutral">New Manual Reservation</h2><p className="mt-1 text-sm text-neutral/60">Choose an available package and add any services requested by the guest.</p></div>
         <button type="button" disabled={isSaving} onClick={() => requestClose(onClose)} aria-label="Close booking dialog" className="flex h-11 w-11 items-center justify-center rounded-full border border-neutral/20 text-neutral hover:bg-base"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5"><path d="m6 6 12 12M6 18 18 6" /></svg></button>
       </div>
-      <label className="mt-5 block text-sm font-medium">Reservation type<select className="admin-field mt-2 w-full" value="private_swimming" disabled={isSaving} onChange={e => requestClose(() => onChooseType(e.target.value))}><option value="private_swimming">Private Swimming</option><option value="public_swimming">Public Swimming</option><option value="room_accommodation">Room Accommodation</option></select></label>
+      <ReservationTypeSelect value="private_swimming" disabled={isSaving} onChange={type => requestClose(() => onChooseType(type))} />
       <form onSubmit={handleSubmit} className="mt-5">
         {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
         {success && <p role="status" className="mb-4 rounded-xl bg-green-50 px-3 py-2 text-sm text-neutral">{success}</p>}

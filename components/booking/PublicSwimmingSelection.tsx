@@ -11,7 +11,12 @@ const compactStatus: Record<string, string> = {
   "Booking Cutoff Passed": "Cutoff passed", "Past Date": "Past date", "Fully Booked": "Full",
   "Unavailable — Session Disabled": "Disabled",
 };
-export default function PublicSwimmingSelection({ onChoose }: { onChoose: (type: PublicSwimmingType, slot: PublicSwimmingSlot) => void }) {
+export type PublicSwimmingSelectionChange = (selection: { type: PublicSwimmingType; slot: PublicSwimmingSlot } | null, catalog: PublicSwimmingCatalog | null) => void;
+export default function PublicSwimmingSelection({ onChoose, appearance = "customer", onSelectionChange }: {
+  onChoose?: (type: PublicSwimmingType, slot: PublicSwimmingSlot) => void;
+  appearance?: "customer" | "admin";
+  onSelectionChange?: PublicSwimmingSelectionChange;
+}) {
   const [catalog, setCatalog] = useState<PublicSwimmingCatalog | null>(null), [error, setError] = useState(""), [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => manilaDateKey(new Date()).slice(0, 7)), [date, setDate] = useState(""), [typeId, setTypeId] = useState("");
   const [retry, setRetry] = useState(0);
@@ -37,7 +42,37 @@ export default function PublicSwimmingSelection({ onChoose }: { onChoose: (type:
   const slot = selected?.eligibility === "eligible" && selected.availability === "available" && selected.remainingCapacity > 0
     && isPublicSwimmingStartAllowed(selected.startDatetime, Date.now(), selected.cutoffAt) ? selected : undefined;
   const type = catalog?.types.find(t => t.type_id === typeId);
+  useEffect(() => {
+    if (appearance === "admin") onSelectionChange?.(!loading && !error && type && slot ? { type, slot } : null, catalog);
+  }, [appearance, onSelectionChange, catalog, loading, error, type, slot]);
   const changeMonth = (next: string) => { setMonth(next); setDate(""); setLoading(true); };
+  if (appearance === "admin") return <div className="grid min-w-0 gap-4 md:grid-cols-2" aria-label="Public swimming session selection">
+    <BookingDateCalendar value={date} onChange={setDate} title="Booking date" allowUnavailableSelection
+      visibleMonth={month} onMonthChange={changeMonth} disabled={loading}
+      getUnavailableReason={day => { const label = publicSwimmingDateLabel(dateSessions(day)); return ["Available", "Partially Available"].includes(label) ? null : label; }}
+      getDateHint={day => compactStatus[publicSwimmingDateLabel(dateSessions(day))] ?? publicSwimmingDateLabel(dateSessions(day))}
+      isPartiallyAvailable={day => publicSwimmingDateLabel(dateSessions(day)) === "Partially Available"}
+      footnote="Browse any month. Session access modes, capacity and booking cutoffs apply in Philippine time." />
+    <div className="min-w-0 space-y-3">
+      <label className="block text-sm text-neutral">Swimming session<select className="admin-field mt-1 w-full" value={typeId} disabled={loading} onChange={event => setTypeId(event.target.value)}>
+        <option value="">Select Day or Night</option>{catalog?.types.map(t => <option key={t.type_id} value={t.type_id}>{t.name}</option>)}
+      </select></label>
+      {loading && <p role="status" className="text-sm text-neutral/60">Checking session availability...</p>}
+      {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}<button type="button" className="admin-button-secondary mt-2" onClick={() => { setLoading(true); setRetry(n => n + 1); }}>Retry availability</button></div>}
+      {type && <div className="rounded-xl border border-neutral/10 bg-base p-3 text-sm text-neutral">
+        <p className="font-semibold">{type.name}</p><p className="mt-1">{formatManilaTime(publicSwimmingWindow(date || catalog!.today, type).startDatetime)} – {formatManilaTime(publicSwimmingWindow(date || catalog!.today, type).endDatetime)}</p>
+        <p className="mt-1">Adult ₱{Number(type.adult_rate).toLocaleString("en-PH")} · Child ₱{Number(type.child_rate).toLocaleString("en-PH")}</p>
+        {selected && <div className="mt-3 space-y-1 border-t border-neutral/10 pt-3" aria-live="polite"><p className="font-semibold">{publicSwimmingSessionLabel(selected)}</p>
+          <p>{selected.accessMode === "public_only" ? "Public Only" : selected.accessMode === "private_only" ? "Private Only" : "Flexible"}</p>
+          <p>Remaining capacity: {type.max_guests === null && selected.availability === "available" ? "No configured limit" : selected.remainingCapacity}</p>
+          <p>Booking cutoff: {formatManilaDateTime(selected.cutoffAt ?? new Date(Date.parse(selected.startDatetime) - 3600000).toISOString())}</p>
+          {selected.eligibility === "not_open" && <p>Reservations open {formatManilaDateTime(selected.opensAt)}. Tentative availability: {publicSwimmingAvailabilityLabel(selected.availability)}.</p>}
+        </div>}
+      </div>}
+      {!date && <p className="text-sm text-neutral/60">Choose a booking date to inspect both sessions.</p>}
+      {date && !loading && <div className="space-y-1 text-sm text-neutral/70">{selectedSessions.map(s => <p key={s.typeId}>{catalog?.types.find(t => t.type_id === s.typeId)?.name}: {publicSwimmingSessionLabel(s)}</p>)}</div>}
+    </div>
+  </div>;
   return <div className="space-y-6">
     {catalog && !error && <section data-booking-guide="public-times" className="rounded-2xl bg-primary/5 p-4 sm:p-5">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -97,7 +132,7 @@ export default function PublicSwimmingSelection({ onChoose }: { onChoose: (type:
             {type ? <dl className="space-y-2 text-sm"><div className="flex justify-between gap-3"><dt className="text-neutral/70">Adult entrance</dt><dd className="font-semibold text-primary">₱{Number(type.adult_rate).toLocaleString("en-PH")}</dd></div><div className="flex justify-between gap-3"><dt className="text-neutral/70">Child entrance</dt><dd className="font-semibold text-primary">₱{Number(type.child_rate).toLocaleString("en-PH")}</dd></div></dl> : <p className="text-sm text-neutral/70">Select Day or Night to see the entrance rates.</p>}
             <p className="mt-2 text-xs text-neutral/60">Guest counts and optional services are added in the next step.</p>
           </div>
-          <button type="button" data-booking-guide="dates-continue" disabled={!slot || !type || loading || !!error} className="w-full rounded-full bg-primary px-6 py-4 font-semibold text-base transition-all hover:bg-primary/90 sm:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100" onClick={() => { if (slot && type && isPublicSwimmingStartAllowed(slot.startDatetime, Date.now(), slot.cutoffAt)) onChoose(type, slot); else setError("This session is no longer available. Refresh the dates."); }}>Continue to Reservation</button>
+          <button type="button" data-booking-guide="dates-continue" disabled={!slot || !type || loading || !!error} className="w-full rounded-full bg-primary px-6 py-4 font-semibold text-base transition-all hover:bg-primary/90 sm:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100" onClick={() => { if (slot && type && isPublicSwimmingStartAllowed(slot.startDatetime, Date.now(), slot.cutoffAt)) onChoose?.(type, slot); else setError("This session is no longer available. Refresh the dates."); }}>Continue to Reservation</button>
           <p className="mt-4 text-center text-xs text-neutral/60">Full payment is required within 30 minutes after saving. Submitted payments awaiting review preserve the booking.</p>
         </aside>
       </div>
