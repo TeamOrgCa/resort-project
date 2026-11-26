@@ -29,23 +29,31 @@ async function mount(file, props, fetcher, mocks = {}) {
   return { container, close: async () => { await act(async () => root.unmount()); container.remove(); globalThis.fetch=saved; } };
 }
 
-test('staff extensions display the swimming checkout limit and block requests past it',async()=>{
+test('staff can extend swimming rooms beyond package checkout but must respect cleaning buffers',async()=>{
  for(const commercial_type of ['public_swimming','private_swimming']){
-  const occupied={...room,status:'occupied',current:{assignment_id:'current',guest_name:'Guest',expected_checkout:'2030-01-01T03:00:00Z',
-   reservation:{reference_number:'SWIM',commercial_type,room_pricing:false,start_datetime:'2030-01-01T00:00:00Z',end_datetime:'2030-01-01T08:00:00Z'}}};
-  let posts=0;
-  const h=await mount('components/admin/rooms/RoomActionDialog.tsx',{action:'extend',rooms:[occupied],classifications:[c],initialRoomId:occupied.room_id,now:Date.parse('2030-01-01T00:00:00Z'),onClose(){},onSaved(){}},async()=>{posts++;return Response.json({});});
-  try{
-   assert.equal(field('Requested additional hours').max,'5');
-   assert.match(h.container.textContent,/Room extensions must end by swimming checkout/);
-   await change(field('Requested additional hours'),6);
-   assert.match(h.container.querySelector('[role="alert"]').textContent,/exceeds swimming checkout/);
-   await act(async()=>h.container.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
-   assert.doesNotMatch(h.container.textContent,/Confirm Extend Stay/);assert.equal(posts,0);
-   await change(field('Requested additional hours'),5);assert.equal(h.container.querySelector('[role="alert"]'),null);
-  }finally{await h.close();}
+  for(const blocked of [false,true]){
+   const occupied={...room,status:'occupied',current:{assignment_id:'current',guest_name:'Guest',expected_checkout:'2030-01-01T03:00:00Z',
+    reservation:{reference_number:'SWIM',commercial_type,room_pricing:false,start_datetime:'2030-01-01T00:00:00Z',end_datetime:'2030-01-01T08:00:00Z'}},
+    maintenance:blocked?[{starts_at:'2030-01-01T10:00:00Z'}]:[]};
+   const h=await mount('components/admin/rooms/RoomActionDialog.tsx',{action:'extend',rooms:[occupied],classifications:[c],initialRoomId:occupied.room_id,now:Date.parse('2030-01-01T00:00:00Z'),onClose(){},onSaved(){}},async()=>Response.json({}));
+   try{
+    assert.equal(field('Requested additional hours').max,blocked?'6':'168');
+    assert.match(h.container.textContent,/Staff may extend the room beyond this time/);
+    await change(field('Requested additional hours'),6);
+    assert.equal(h.container.querySelector('[role="alert"]'),null);
+    assert.match(h.container.textContent,/900[.]00/);
+    if(blocked){
+     await change(field('Requested additional hours'),7);
+     assert.match(h.container.querySelector('[role="alert"]').textContent,/reservation or maintenance buffer/);
+    }else{
+     await act(async()=>h.container.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+     assert.match(document.body.textContent,/Confirm Extend Stay/);
+    }
+   }finally{await h.close();}
+  }
  }
 });
+
 test('staff room reservation choices exclude the protected pair and transfers admit only private pool packages',async()=>{
   const dedicated={...room,room_id:'dedicated',room_number:'S01',private_swimming_only:true};
   const general={...room,room_id:'general',room_number:'S03'};
