@@ -3,7 +3,7 @@ export type RoomIndicator = RoomStatus | "expiring" | "overdue";
 export type RoomClass = {
   classification_id: string; name: string; code: string; included_capacity: number; maximum_capacity: number;
   base_rate: number; base_hours: number; additional_guest_rate: number; extension_hourly_rate: number; cleaning_buffer_minutes: number;
-  rate_3_hours: number; rate_12_hours: number; pricing_version: number;
+  rate_3_hours: number; rate_8_hours?: number | null; rate_12_hours: number; pricing_version: number;
 };
 export type RoomAssignment = {
   assignment_id: string; room_id: string; reservation_id: string; occupants: number;

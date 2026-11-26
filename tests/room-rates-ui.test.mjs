@@ -8,7 +8,7 @@ for (const key of ["window", "document", "HTMLElement", "Node"]) globalThis[key]
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client");
 after(() => dom.window.close());
-const c = { classification_id: "11111111-1111-4111-8111-111111111111", code: "standard", name: "Standard Rooms", included_capacity: 2, maximum_capacity: 2, cleaning_buffer_minutes: 60, rate_3_hours: 300, rate_12_hours: 900, pricing_version: 4, extension_hourly_rate: 150, additional_guest_rate: 0, base_rate: 900, base_hours: 12 };
+const c = { classification_id: "11111111-1111-4111-8111-111111111111", code: "standard", name: "Standard Rooms", included_capacity: 2, maximum_capacity: 2, cleaning_buffer_minutes: 60, rate_3_hours: 300, rate_8_hours: 600, rate_12_hours: 900, pricing_version: 4, extension_hourly_rate: 150, additional_guest_rate: 0, base_rate: 900, base_hours: 12 };
 const room = { room_id: c.classification_id, classification_id: c.classification_id, room_number: "S01", classification: c, is_active: true, status: "vacant", upcoming: [], maintenance: [], current: null };
 async function change(el, value) {
   assert.ok(el);
@@ -28,6 +28,24 @@ async function mount(file, props, fetcher, mocks = {}) {
   await act(async () => root.render(createElement(Component,props)));
   return { container, close: async () => { await act(async () => root.unmount()); container.remove(); globalThis.fetch=saved; } };
 }
+
+test('staff extensions display the swimming checkout limit and block requests past it',async()=>{
+ for(const commercial_type of ['public_swimming','private_swimming']){
+  const occupied={...room,status:'occupied',current:{assignment_id:'current',guest_name:'Guest',expected_checkout:'2030-01-01T03:00:00Z',
+   reservation:{reference_number:'SWIM',commercial_type,room_pricing:false,start_datetime:'2030-01-01T00:00:00Z',end_datetime:'2030-01-01T08:00:00Z'}}};
+  let posts=0;
+  const h=await mount('components/admin/rooms/RoomActionDialog.tsx',{action:'extend',rooms:[occupied],classifications:[c],initialRoomId:occupied.room_id,now:Date.parse('2030-01-01T00:00:00Z'),onClose(){},onSaved(){}},async()=>{posts++;return Response.json({});});
+  try{
+   assert.equal(field('Requested additional hours').max,'5');
+   assert.match(h.container.textContent,/Room extensions must end by swimming checkout/);
+   await change(field('Requested additional hours'),6);
+   assert.match(h.container.querySelector('[role="alert"]').textContent,/exceeds swimming checkout/);
+   await act(async()=>h.container.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
+   assert.doesNotMatch(h.container.textContent,/Confirm Extend Stay/);assert.equal(posts,0);
+   await change(field('Requested additional hours'),5);assert.equal(h.container.querySelector('[role="alert"]'),null);
+  }finally{await h.close();}
+ }
+});
 test('staff room reservation choices exclude the protected pair and transfers admit only private pool packages',async()=>{
   const dedicated={...room,room_id:'dedicated',room_number:'S01',private_swimming_only:true};
   const general={...room,room_id:'general',room_number:'S03'};
@@ -127,8 +145,22 @@ test("Business Catalog publishes room prices with the loaded version and reflect
     const body=JSON.parse(options.body);posts.push(body);return Response.json({classification:{...c,...body.rates,pricing_version:5},message:"Room rates saved."});
   },{"@/components/ui/use-action-confirmation":{useActionConfirmation:()=>({confirm:async()=>true,confirmation:null})}});
   try{
-    await change(field("3-hour accommodation"),350);await click(button("Save Standard Rooms rates"));
-    assert.deepEqual(posts[0],{classificationId:c.classification_id,expectedVersion:4,rates:{rate_3_hours:350,rate_12_hours:900,extension_hourly_rate:150,additional_guest_rate:0}});
+    await change(field("3-hour accommodation"),350);await change(field("8-hour swimming room"),900);await click(button("Save Standard Rooms rates"));
+    assert.deepEqual(posts[0],{classificationId:c.classification_id,expectedVersion:4,rates:{rate_3_hours:350,rate_8_hours:900,rate_12_hours:900,extension_hourly_rate:150,additional_guest_rate:0}});
     assert.match(h.container.textContent,/Room rates saved/);assert.equal(button("Save Standard Rooms rates").disabled,true);
   }finally{await h.close();}
+});
+
+
+test('Room Management exposes and saves the editable eight-hour swimming room price', async () => {
+  const posts=[];
+  const h=await mount('components/admin/rooms/RoomActionDialog.tsx',{action:'configure',rooms:[room],classifications:[c],initialRoomId:room.room_id,now:Date.now(),onClose(){},onSaved(){}},async (_url,options)=>{
+    posts.push(JSON.parse(options.body));return Response.json({success:true,result:{}});
+  });
+  try {
+    assert.equal(field('8-hour swimming room').value,'600');
+    await change(field('8-hour swimming room'),900);
+    await click(button('Review & Confirm'));await click(button('Save action'));
+    assert.equal(posts.length,1);assert.equal(posts[0].action,'configure');assert.equal(posts[0].input.rate_8_hours,900);
+  } finally { await h.close(); }
 });

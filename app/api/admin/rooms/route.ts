@@ -64,9 +64,14 @@ export async function POST(request: Request) {
     !integer(input.base_hours, 1, 168) || !integer(input.cleaning_buffer_minutes, 0, 1440) ||
     ![input.base_rate, input.additional_guest_rate, input.extension_hourly_rate].every(money);
   if (body.action === "configure") invalid ||= !integer(input.pricing_version, 1, Number.MAX_SAFE_INTEGER) ||
-    ![input.rate_3_hours, input.rate_12_hours].every(v => money(v) && v > 0);
+    ![input.rate_3_hours, input.rate_12_hours, input.extension_hourly_rate].every(v => money(v) && v > 0) || input.rate_8_hours != null && (!money(input.rate_8_hours) || input.rate_8_hours <= 0) ||
+    ![input.rate_3_hours, input.rate_12_hours, input.rate_8_hours, input.extension_hourly_rate, input.additional_guest_rate].filter(v => v != null).every(v => Math.abs(v * 100 - Math.round(v * 100)) < 0.00001);
   if (body.action === "inventory") invalid ||= typeof input.room_number !== "string" || input.room_number.trim().length < 1 || input.room_number.length > 20 || typeof input.name !== "string" || input.name.trim().length < 1 || input.name.length > 100 || !uuidPattern.test(input.classification_id ?? "");
   if (invalid) return NextResponse.json({ message: "Check the room action values, guest count, dates and configured rates." }, { status: 400 });
+  if (body.action === "configure" && input.rate_8_hours != null) {
+    const { error } = await createAdminClient().from("room_classifications").select("rate_8_hours").limit(1);
+    if (error) return NextResponse.json({ outcome: "not_applied", message: "Apply docs/swimming-room-eight-hour-rate-migration.sql before saving 8-hour room rates." }, { status: 503 });
+  }
   if (body.action === "reserve" && (input.eligible_guests > 0 || input.promo_code) && staff.staffUser.role !== "admin" &&
     !await staffHasPermission(staff.supabase, staff.staffUser.role, "edit_reservation")) return NextResponse.json({ message: "Manager billing permission required to verify discounts." }, { status: 403 });
   if (body.action === "reserve") {
@@ -76,12 +81,20 @@ export async function POST(request: Request) {
     input.phone = phone; input.first_name = first; input.last_name = last;
   }
   const reserveAction = input.rooms === undefined ? "room_reserve_priced" : "room_reserve_multiple_priced";
-  const { data, error } = await createAdminClient().rpc(body.action === "reserve" ? reserveAction : "room_operate", { p_staff: staff.staffUser.id, p_room: body.roomId ?? null, ...(body.action === "reserve" ? {} : { p_action: body.action }), p_input: input });
+  const { data, error } = await createAdminClient().rpc(body.action === "configure" ? "room_configure_classification" : body.action === "reserve" ? reserveAction : "room_operate", { p_staff: staff.staffUser.id, p_room: body.roomId ?? null, ...(["reserve", "configure"].includes(body.action) ? {} : { p_action: body.action }), p_input: input });
   if (error) {
     const expected = ["22023", "23514", "23502", "22P02", "22007", "22008", "23505"].includes(error.code);
     const conflict = ["40001", "40P01", "23P01"].includes(error.code);
     const missing = ["PGRST202", "42P01", "42703", "42883"].includes(error.code);
+    if (missing && body.action === "configure") return NextResponse.json({ outcome: "not_applied", message: "Apply docs/swimming-room-eight-hour-rate-migration.sql, then docs/room-settings-save-migration.sql before saving Room Settings." }, { status: 503 });
     return NextResponse.json({ ...(missing || expected || conflict || error.code === "42501" ? { outcome: "not_applied" } : {}), message: missing ? "Apply docs/room-management-migration.sql, docs/room-rates-discounts-migration.sql and docs/manual-multi-room-reservation-migration.sql before recording room operations." : error.code === "40P01" ? "Another staff member updated these records. Refresh and try again." : expected ? `Check the submitted values. ${error.code === "22023" ? error.message : "A value is missing, invalid, or already in use."}` : conflict || error.code === "42501" ? error.message : "Unable to save the room action. Refresh and try again." }, { status: error.code === "42501" ? 403 : conflict ? 409 : expected ? 400 : 503 });
+  }
+  if (body.action === "configure") {
+    const saved = data?.classification;
+    const keys = ["included_capacity", "maximum_capacity", "cleaning_buffer_minutes", "rate_3_hours", "rate_12_hours", "extension_hourly_rate", "additional_guest_rate", ...(input.rate_8_hours !== undefined ? ["rate_8_hours"] : [])];
+    if (data?.success !== true || !saved || saved.name !== input.name.trim() || Number(saved.pricing_version) !== input.pricing_version + 1 || keys.some(k => input[k] === null ? saved[k] !== null : saved[k] == null || Number(saved[k]) !== input[k])) {
+      return NextResponse.json({ message: "The saved Room Settings could not be verified. Refresh rooms and check the current rates before trying again." }, { status: 503 });
+    }
   }
   return NextResponse.json({ success: true, result: data, message: "Room action recorded." });
 }

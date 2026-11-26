@@ -34,10 +34,11 @@ test("room stays reveal durations after date selection and carry available 3-hou
     maxBookingDate: `${month}-20`,
   });
   const Component = loadTsModule("app/booking/page.tsx", {
-    "next/link": ({ children, href }) => createElement("a", { href }, children),
+    "next/link": ({ children, href, ...props }) => createElement("a", { href, ...props }, children),
     "next/image": ({ src, alt }) => createElement("img", { src, alt }),
     "next/navigation": { useRouter: () => ({ push: path => navigations.push(path) }) },
-    "@/components/Navigation": () => null,
+    "@/components/content/SiteLogo": () => null,
+    "./UserMenu": () => null,
     "@/components/Footer": () => null,
     "@/components/booking/BookingGuide": () => null,
     "@/lib/booking/use-package-rates": { usePackageRates: () => ({ schedule: { version: 1, rates: legacyRates }, error: null }) },
@@ -50,7 +51,7 @@ test("room stays reveal durations after date selection and carry available 3-hou
   const root = createRoot(host);
   const click = async element => {
     assert.ok(element);
-    assert.equal(element.disabled, false);
+    assert.notEqual(element.disabled, true);
     await act(async () => element.click());
   };
   const date = day => host.querySelector(`[aria-label^="${month}-${day}:"]`);
@@ -144,6 +145,18 @@ test("room stays reveal durations after date selection and carry available 3-hou
     await click(host.querySelector('[aria-labelledby="booking-option-private"]'));
     assert.ok(host.querySelector('[data-booking-guide="booking-mode"]'));
     assert.equal(host.querySelector('[data-booking-guide="room-times"]'), null);
+    const originalScrollTo = window.scrollTo;
+    window.scrollTo = () => {};
+    try {
+      await click(host.querySelector('nav a[href="/booking"]'));
+      assert.equal(host.querySelectorAll('[aria-labelledby^="booking-option-"]').length, 4);
+      assert.equal(host.querySelector('[data-booking-guide="booking-mode"]'), null);
+      await click(host.querySelector('[aria-labelledby="booking-option-room"]'));
+      await click(host.querySelector('[aria-label="Toggle menu"]'));
+      await click(host.querySelector('#mobile-navigation a[href="/booking"]'));
+      assert.equal(host.querySelectorAll('[aria-labelledby^="booking-option-"]').length, 4);
+      assert.equal(host.querySelector('#mobile-navigation'), null);
+    } finally { window.scrollTo = originalScrollTo; }
   } finally {
     await act(async () => root.unmount());
     host.remove();

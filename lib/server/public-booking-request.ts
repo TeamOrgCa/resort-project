@@ -26,7 +26,8 @@ export async function savePublicBooking(request: Request, actor: string, client:
   if (!Number.isSafeInteger(body.eligibleGuests) || body.eligibleGuests < 0 || body.eligibleGuests > body.adultCount + body.childCount) return invalid("eligibleGuests", "Enter a PWD / senior count from 0 up to the total number of guests. Use 0 if none.");
   if (!services || services.some(s => !uuidPattern.test(s.serviceId))) return invalid("selectedServices", "Review your selected services and enter a valid quantity or duration for each. Services are optional.");
   const swimmingRooms = parseSwimmingRooms(body.swimmingRooms);
-  if (!swimmingRooms) return invalid("swimmingRooms", "Review your room choices. Choose each room type once with a valid quantity and saved rate.");
+  if (!swimmingRooms) return invalid("swimmingRooms", "Review each additional room's type, guest count, duration and saved rate.");
+  if (swimmingRooms.reduce((sum, room) => sum + (room.occupants ?? 0) * room.quantity, 0) > body.adultCount + body.childCount) return invalid("swimmingRooms", "Guests across additional rooms cannot exceed the booking's total number of guests.");
   if (typeof body.startDatetime !== "string" || !Number.isFinite(Date.parse(body.startDatetime)) || typeof body.endDatetime !== "string" || !Number.isFinite(Date.parse(body.endDatetime))) return invalid("session", "Choose a valid public swimming date and Day or Night session from the calendar.");
   if (typeof body.expectedTotal !== "number" || !Number.isFinite(body.expectedTotal) || body.expectedTotal < 0 || body.expectedTotal > 99999999.99) return invalid("expectedTotal", "The booking total is invalid. Return to Booking Details to refresh the total.");
   if (body.promoCode != null && (typeof body.promoCode !== "string" || body.promoCode.length > 40)) return invalid("promoCode", "Enter a valid promo code of up to 40 characters, or leave it blank. A promo code is optional.");

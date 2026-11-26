@@ -94,7 +94,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
   const [form, setForm] = useState<BookingForm>({ bookingDate: toIsoLocalDay(new Date()), bookingMode: "day", wholeDayVariant: "day_to_night", adultCount: "1", childCount: "0", specialRequests: "" });
   const [swimmingRooms, setSwimmingRooms] = useState<RoomSelection[]>([]);
   const previewWindow = buildBookingWindow({ packageTimes: packageSchedule?.times, bookingMode: form.bookingMode, date: form.bookingDate, wholeDayVariant: form.wholeDayVariant });
-  const roomsState = useSwimmingRooms("error" in previewWindow ? "" : previewWindow.startDatetime, "error" in previewWindow ? "" : previewWindow.endDatetime, swimmingRooms, true);
+  const roomsState = useSwimmingRooms("error" in previewWindow ? "" : previewWindow.startDatetime, "error" in previewWindow ? "" : previewWindow.endDatetime, swimmingRooms, true, Number(form.adultCount) + Number(form.childCount));
   const roomsTotal = roomsState.quote?.total ?? 0;
   const [calendarMonth, setCalendarMonth] = useState(() => toIsoLocalDay(new Date()).slice(0, 7));
   const availability = useBookingAvailability([calendarMonth, form.bookingDate.slice(0, 7)], isOpen);
@@ -272,7 +272,7 @@ function ManualBookingForm({ isOpen, onClose, onCreated, onChooseType }: ManualB
               <Input label="Number of guests" type="number" value={form.adultCount} onChange={value => updateForm("adultCount", value)} />
             </div>
           </div>
-          {!("error" in previewWindow) && <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={previewWindow.startDatetime} end={previewWindow.endDatetime} privateSwimming />}
+          {!("error" in previewWindow) && <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={previewWindow.startDatetime} end={previewWindow.endDatetime} guestCount={Number(form.adultCount) + Number(form.childCount)} privateSwimming />}
           <section aria-labelledby="manual-services-title" className="rounded-xl border border-neutral/10 p-4">
             <h3 id="manual-services-title" className="font-semibold text-neutral">Additional services</h3>
             <p className="mt-1 text-sm text-neutral/60">Optional. Select services and enter the quantities needed.</p>

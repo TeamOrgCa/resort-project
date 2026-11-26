@@ -248,8 +248,8 @@ test("manual creation waits for confirmation and cancelling keeps the guest and 
     await click(c.querySelector('[aria-label="Next month"]'));
     await click(c.querySelector("[data-date]")); await fillGuest(c);
     assert.match(c.textContent,/2 Standard rooms included at no extra charge/);
-    const extras=c.querySelector('[aria-label="Extra Standard Rooms"]');
-    await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set.call(extras,'2');extras.dispatchEvent(new window.Event('change',{bubbles:true}));});
+    await enterInput('Number of guests','2');
+    await click(textButton('Add room'));await click(textButton('Add room'));
     const selected = c.querySelector('[data-date][aria-pressed="true"]').dataset.date;
     const submit = () => act(async () => c.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
     await submit();
@@ -264,7 +264,7 @@ test("manual creation waits for confirmation and cancelling keeps the guest and 
     assert.equal(c.querySelector('input[type="email"]').value, "walkin@example.com");
     await submit(); await confirmReservationIfOpen();
     assert.equal(h.requests.length, 1);
-    assert.equal(h.requests[0].body.swimmingRooms[0].quantity,2);assert.ok(h.requests[0].body.expectedTotal>1200);
+    assert.equal(h.requests[0].body.swimmingRooms.length,2);assert.ok(h.requests[0].body.swimmingRooms.every(room=>room.quantity===1));assert.ok(h.requests[0].body.expectedTotal>1200);
   } finally { await h.close(); }
 });
 

@@ -2,17 +2,38 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 const id = "11111111-1111-4111-8111-111111111111";
-function harness({ authenticated = true, role = "staff", permissions = ["rooms", "room_operations", "create_reservation"], rpcError = null } = {}) {
+function harness({ authenticated = true, role = "staff", permissions = ["rooms", "room_operations", "create_reservation"], rpcError = null, rpcData, columnError = null } = {}) {
   const calls = [];
   const { POST } = loadTsModule("app/api/admin/rooms/route.ts", {
     "@/lib/server/admin-audit": { requireActiveStaff: async () => authenticated ? { supabase: {}, staffUser: { id: "authenticated-actor", role } } : null },
     "@/lib/server/role-permissions": { staffHasPermission: async (_db, r, p) => r === "admin" || permissions.includes(p) && !(r === "cashier" && p === "room_operations") },
-    "@/lib/supabase/admin": { createAdminClient: () => ({ rpc: async (name, args) => { calls.push({ name, args }); return { data: { success: true }, error: rpcError }; } }) },
+    "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => { const q={select:()=>q,limit:async()=>({error:columnError})};return q; }, rpc: async (name, args) => { calls.push({ name, args }); return { data: rpcData ?? (name === 'room_configure_classification' ? {success:true,classification:{...args.p_input,name:args.p_input.name.trim(),pricing_version:args.p_input.pricing_version+1}} : { success: true }), error: rpcError }; } }) },
     "@/lib/server/rooms": {},
   });
   return { calls, post: body => POST(new Request("http://localhost/api/admin/rooms", { method: "POST", body: JSON.stringify(body) })) };
 }
 const operation = { roomId: id, action: "extend", input: { hours: 2, assignment_id: id, expected_checkout: "2027-01-01T12:00:00Z", hourly_rate: 100 }, confirmed: true };
+const settings={roomId:id,action:'configure',confirmed:true,input:{name:'Standard Rooms',included_capacity:2,maximum_capacity:3,base_rate:900,base_hours:12,
+  rate_3_hours:350,rate_8_hours:850,rate_12_hours:950,additional_guest_rate:100,extension_hourly_rate:150,cleaning_buffer_minutes:30,pricing_version:4}};
+
+test('Room Settings uses its atomic configuration RPC and verifies persisted rates before reporting success',async()=>{
+ const h=harness({role:'admin'}),response=await h.post(settings);
+ assert.equal(response.status,200);assert.equal(h.calls[0].name,'room_configure_classification');
+ assert.deepEqual(h.calls[0].args,{p_staff:'authenticated-actor',p_room:id,p_input:settings.input});
+ for(const rpcData of [{success:true},{success:true,classification:{...settings.input}},{success:true,classification:{...settings.input,pricing_version:5,rate_8_hours:600}}]){
+  const invalid=await harness({role:'admin',rpcData}).post(settings);assert.equal(invalid.status,503);assert.match((await invalid.json()).message,/could not be verified/);
+ }
+ const missing=await harness({role:'admin',rpcError:{code:'PGRST202'}}).post(settings);
+ assert.equal(missing.status,503);const body=await missing.json();assert.equal(body.outcome,'not_applied');assert.match(body.message,/room-settings-save-migration/);
+});
+
+test('Room Settings rejects invalid prices and unauthorized saves before running a mutation',async()=>{
+ for(const patch of [{rate_3_hours:350.001},{rate_8_hours:850.001},{extension_hourly_rate:0}]){
+  const h=harness({role:'admin'});assert.equal((await h.post({...settings,input:{...settings.input,...patch}})).status,400);assert.equal(h.calls.length,0);
+ }
+ const h=harness();assert.equal((await h.post(settings)).status,403);assert.equal(h.calls.length,0);
+ const missing=harness({role:'admin',columnError:{code:'42703'}});assert.equal((await missing.post(settings)).status,503);assert.equal(missing.calls.length,0);
+});
 test("room mutations require active staff, explicit confirmation and operation grants before accessing the database", async () => {
   for (const [options, expected] of [[{ authenticated: false }, 401], [{ role: "cashier" }, 403], [{ permissions: ["rooms"] }, 403]]) {
     const h = harness(options); assert.equal((await h.post(operation)).status, expected); assert.equal(h.calls.length, 0);

@@ -300,7 +300,7 @@ export async function POST(request: Request) {
     if (quantityError) return NextResponse.json({ success: false, message: quantityError }, { status: 400 });
 
     const promo = await loadBookingPromo(payload.promoCode);
-    const roomQuote = await quoteSwimmingRooms(payload.swimmingRooms ?? [], payload.startDatetime, payload.endDatetime);
+    const roomQuote = await quoteSwimmingRooms(payload.swimmingRooms ?? [], payload.startDatetime, payload.endDatetime, payload.adultCount + payload.childCount);
     const servicesTotal = selectedServices.reduce((sum, service) => sum + Number(servicesById.get(service.serviceId)!.price) * (service.quantity ?? 1), 0);
     const pricing = computeBookingPricing({
       bookingMode: payload.bookingMode, startDatetime: payload.startDatetime, endDatetime: payload.endDatetime,

@@ -31,6 +31,7 @@ import { calculateRescheduleCharges } from "@/lib/booking/reschedule-charges";
 import { parsePackageRates, type PackageRates } from "@/lib/booking/package-rates";
 
 type ManageTab = "bookings" | "ocular" | "refunds";
+const RECORDS_PER_PAGE = 8;
 type RecordMode = "view" | "edit" | "reschedule" | null;
 
 interface BookingRecord {
@@ -235,6 +236,7 @@ export default function ManageBooking() {
   const [searchDate, setSearchDate] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [commercialFilter, setCommercialFilter] = useState<CommercialType | "all">("all");
+  const [pagination, setPagination] = useState({ key: "", page: 1 });
   const [ocularMessage, setOcularMessage] = useState<string | null>(null);
   const [recordMode, setRecordMode] = useState<RecordMode>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -815,6 +817,20 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const visibleBookings = bookings.filter(record => matchesBookingSearch(record, search, searchDate) && matchesStatus(record.status)
     && (commercialFilter === "all" || (record.commercialType ?? "private_swimming") === commercialFilter));
   const visibleOcular = ocularBookings.filter(record => matchesOcularSearch(record, search, searchDate) && matchesStatus(record.status));
+  const paginationKey = JSON.stringify([activeTab, search, searchDate, statusFilter, commercialFilter]);
+  if (pagination.key !== paginationKey) {
+    setPagination({ key: paginationKey, page: 1 });
+  }
+  const recordCount = activeTab === "ocular" ? visibleOcular.length : visibleBookings.length;
+  const pageCount = Math.max(1, Math.ceil(recordCount / RECORDS_PER_PAGE));
+  const currentPage = pagination.key === paginationKey ? Math.min(pagination.page, pageCount) : 1;
+  const pageStart = (currentPage - 1) * RECORDS_PER_PAGE;
+  const pagedBookings = visibleBookings.slice(pageStart, pageStart + RECORDS_PER_PAGE);
+  const pagedOcular = visibleOcular.slice(pageStart, pageStart + RECORDS_PER_PAGE);
+  const changePage = (page: number) => {
+    setPagination({ key: paginationKey, page });
+    recordsPanel.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  };
   const hasFilters = Boolean(search || searchDate || statusFilter !== "all" || activeTab === "bookings" && commercialFilter !== "all");
   const clearFilters = () => { setSearch(""); setSearchDate(""); setStatusFilter("all"); setCommercialFilter("all"); };
   const currentRecord = activeTab === "bookings" ? selectedBooking : activeTab === "ocular" ? selectedOcular : null;
@@ -897,7 +913,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 <p className="mt-2 text-sm text-neutral/60">{hasFilters ? "Try another reference, date or filter, or clear your filters." : "Your saved records will appear here."}</p>
               </div>
             : <div className="space-y-4">
-              {activeTab === "bookings" && visibleBookings.map(record => {
+              {activeTab === "bookings" && pagedBookings.map(record => {
                 const closed = isClosedReservation(record.status), reviewing = record.status.toLowerCase() === "payment submitted";
                 const recordName = ["confirmed", "completed"].includes(record.status.toLowerCase()) ? "reservation" : "booking";
                 return <article key={record.id} aria-label={`${record.status.toLowerCase() === "completed" ? "Reservation" : "Booking"} ${record.reference}`} className="relative isolate overflow-hidden rounded-2xl border border-neutral/10 transition hover:border-primary/25 hover:shadow-sm">
@@ -927,7 +943,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                   </div>
                 </article>;
               })}
-              {activeTab === "ocular" && visibleOcular.map(record => {
+              {activeTab === "ocular" && pagedOcular.map(record => {
                 const closed = isClosedReservation(record.status);
                 return <article key={record.id} aria-label={`Ocular visit ${record.reference}`} className="relative isolate rounded-2xl border border-neutral/10 p-4 transition hover:border-primary/25 hover:shadow-sm sm:p-5">
                   <button type="button" aria-label={`View ocular visit ${record.reference}`} aria-haspopup="dialog" onClick={() => openOcularRecord(record, "view")} className="absolute inset-0 z-[1] cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary" />
@@ -946,6 +962,14 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
                 </article>;
               })}
             </div>)}
+          {activeTab !== "refunds" && !isLoading && recordCount > 0 && <nav aria-label="Booking records pagination" className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-neutral/10 pt-5">
+            <p role="status" className="text-sm text-neutral/60">Showing {pageStart + 1}–{Math.min(pageStart + RECORDS_PER_PAGE, recordCount)} of {recordCount}</p>
+            <div className="flex items-center gap-3">
+              <button type="button" disabled={currentPage === 1} onClick={() => changePage(currentPage - 1)} className="min-h-11 rounded-xl border border-neutral/15 px-4 text-sm font-semibold text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+              <span className="text-sm text-neutral/70">Page {currentPage} of {pageCount}</span>
+              <button type="button" disabled={currentPage === pageCount} onClick={() => changePage(currentPage + 1)} className="min-h-11 rounded-xl border border-neutral/15 px-4 text-sm font-semibold text-neutral hover:bg-base disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+            </div>
+          </nav>}
           {activeTab === "refunds" && <GuestRefundStatus refreshKey={refundRefresh} referenceSearch={search} standalone />}
         </div>
       </main>

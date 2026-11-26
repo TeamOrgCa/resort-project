@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
-function harness(admin=true,error=null){
+function harness(admin=true,error=null,columnError=null){
   const calls=[];
   const route=loadTsModule("app/api/admin/catalog/room-rates/route.ts",{
     "@/lib/server/admin-audit":{requireAdminStaff:async()=>admin?{staffUser:{id:"validated-admin"}}:null},
-    "@/lib/supabase/admin":{createAdminClient:()=>({rpc:async(name,args)=>{calls.push({name,args});return{data:args.p_rates,error};}})},
+    "@/lib/supabase/admin":{createAdminClient:()=>({from:()=>{const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:{rate_8_hours:900},error:columnError})};return q;},rpc:async(name,args)=>{calls.push({name,args});return{data:args.p_rates,error};}})},
   });
   return{...route,calls};
 }
@@ -20,4 +20,13 @@ test("room catalog rates require an admin and validate positive cent-denominated
 test("room rate publication exposes stale-version conflicts",async()=>{
   const h=harness(true,{code:"40001",message:"Room rates changed. Reload rates before saving"});
   const response=await h.POST(request(body));assert.equal(response.status,409);assert.match((await response.json()).message,/Reload/);
+});
+
+
+test('eight-hour room prices are editable, validated, and blocked before mutation when the migration is missing', async () => {
+  const h=harness();const updated={...body,rates:{...body.rates,rate_8_hours:900}};
+  assert.equal((await h.POST(request(updated))).status,200);assert.equal(h.calls[0].args.p_rates.rate_8_hours,900);
+  for(const rate_8_hours of [0,-1,900.001,'900'])assert.equal((await h.POST(request({...updated,rates:{...updated.rates,rate_8_hours}}))).status,400);
+  const missing=harness(true,null,{code:'42703'});const result=await missing.POST(request(updated));
+  assert.equal(result.status,503);assert.match((await result.json()).message,/eight-hour-rate-migration/);assert.equal(missing.calls.length,0);
 });

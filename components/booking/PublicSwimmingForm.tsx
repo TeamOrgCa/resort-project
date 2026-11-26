@@ -1,4 +1,5 @@
 "use client";
+import { swimmingRoomDescription } from "@/lib/booking/swimming-rooms";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -41,7 +42,7 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
   const [quantities, setQuantities] = useState<Record<string, number>>(() => manual ? {} : Object.fromEntries(draft.services.map(s => [s.id, s.quantity ?? 1])));
   const [requests, setRequests] = useState(manual ? "" : draft.specialRequests), [busy, setBusy] = useState(false);
   const [swimmingRooms, setSwimmingRooms] = useState<RoomSelection[]>(manual ? [] : draft.swimmingRooms ?? []);
-  const roomsState = useSwimmingRooms(session?.slot.startDatetime ?? "", session?.slot.endDatetime ?? "", swimmingRooms, false);
+  const roomsState = useSwimmingRooms(session?.slot.startDatetime ?? "", session?.slot.endDatetime ?? "", swimmingRooms, false, adults + children);
   const roomsTotal = roomsState.quote?.total ?? 0;
   const roomsIssue = swimmingRooms.length > 0 && (roomsState.loading || !roomsState.quote || !!roomsState.error);
   const requestId = useRef(""), saving = useRef(false), guard = useReservationFormGuard(!manual && !loading);
@@ -127,7 +128,7 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
       <PublicSwimmingSelection appearance="admin" onSelectionChange={chooseManualSession} />
       <div className="grid gap-4 sm:grid-cols-2">{[{ label: "Adults", value: adults, min: 1, set: setAdults }, { label: "Children", value: children, min: 0, set: setChildren }].map(f => <label key={f.label} className="block text-sm text-neutral">{f.label}<GuestCountInput aria-label={f.label} min={f.min} max={30} required className="admin-field mt-1 w-full" value={f.value} onValueChange={f.set} /></label>)}</div>
       <p className="text-sm text-neutral/60">Include at least one adult, with up to 30 guests per reservation.</p>
-      {session && <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={session.slot.startDatetime} end={session.slot.endDatetime} />}
+      {session && <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={session.slot.startDatetime} end={session.slot.endDatetime} guestCount={adults + children} />}
       <section aria-labelledby="manual-public-services-title"><h3 id="manual-public-services-title" className="font-semibold text-neutral">Additional services</h3><p className="mt-1 text-sm text-neutral/60">Optional. Select a session to see rental limits for its duration.</p>
         <div className="mt-3 space-y-3">{services.map(s => {
           const chosen = quantities[s.service_id] !== undefined, billing = serviceBilling(s.billing_type, serviceQuantityLimit(s.max_quantity));
@@ -180,7 +181,7 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
           </div>
           <p className="mt-3 text-sm text-neutral/70">Include at least one adult, with up to 30 guests per booking. Adult and child entrance rates are shown in the billing summary.</p>
         </section>
-        <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={session.slot.startDatetime} end={session.slot.endDatetime} />
+        <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={session.slot.startDatetime} end={session.slot.endDatetime} guestCount={adults + children} />
         <section data-booking-guide="guest-services" className="mb-8">
           <h3 className="mb-4 text-xl font-semibold text-neutral">Additional Services &amp; Amenities</h3>
           <p className="mb-4 text-sm text-neutral/70">Services are optional. Hourly rentals may be selected for up to {duration} hours, the duration of this session.</p>
@@ -239,7 +240,7 @@ export default function PublicSwimmingForm({ onSaved, onBusyChange }: { onSaved?
               <dd className="whitespace-nowrap text-neutral">{money(Number(s.price) * quantities[s.service_id])}</dd>
             </div>)}</dl>
           </div>}
-          {roomsState.quote?.selections.map(r => <div key={r.classificationId} className="flex justify-between gap-3 text-sm"><span>{r.name} × {r.quantity}</span><span className="whitespace-nowrap">{money(r.unitPrice * r.quantity)}</span></div>)}
+          {roomsState.quote?.selections.map((r, index) => <div key={index} className="flex justify-between gap-3 text-sm"><span>{swimmingRoomDescription(r, index)}</span><span className="whitespace-nowrap">{money(r.unitPrice * r.quantity)}</span></div>)}
           {quote && <>
             <dl className="border-b border-neutral/10 pb-4">
               <div className="flex justify-between gap-3"><dt className="text-neutral/70">Subtotal (before discount)</dt><dd className="whitespace-nowrap font-semibold text-neutral">{money(quote.admission + quote.servicesTotal + roomsTotal)}</dd></div>

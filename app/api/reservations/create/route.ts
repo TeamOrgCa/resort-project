@@ -41,6 +41,7 @@ interface CreateReservationPayload {
   customEndTime?: string | null;
   adultCount: number;
   childCount: number;
+  eligibleGuests?: number;
   promoCode?: string | null;
   specialRequests?: string;
   selectedServices?: ServiceSelectionInput[];
@@ -122,6 +123,8 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
   if (!isValidGuestCounts(payload.adultCount, payload.childCount)) {
     return null;
   }
+  const eligibleGuests = payload.eligibleGuests === undefined ? 0 : payload.eligibleGuests;
+  if (!Number.isSafeInteger(eligibleGuests) || eligibleGuests < 0 || eligibleGuests > payload.adultCount + payload.childCount) return null;
 
   return {
     swimmingRooms,
@@ -138,6 +141,7 @@ const parsePayload = (value: unknown): CreateReservationPayload | null => {
     customEndTime: typeof payload.customEndTime === "string" ? payload.customEndTime : null,
     adultCount: payload.adultCount,
     childCount: payload.childCount,
+    eligibleGuests,
     promoCode: payload.promoCode,
     specialRequests: typeof payload.specialRequests === "string" ? payload.specialRequests.trim() : "",
     selectedServices,
@@ -311,9 +315,9 @@ export async function POST(request: Request) {
       endDatetime: payload.endDatetime,
       adultCount: payload.adultCount,
       childCount: payload.childCount,
-      servicesTotal, promo,
+      servicesTotal, promo, eligibleGuests: payload.eligibleGuests,
     }, packageSchedule.rates);
-    const roomQuote = await quoteSwimmingRooms(payload.swimmingRooms ?? [], payload.startDatetime, payload.endDatetime);
+    const roomQuote = await quoteSwimmingRooms(payload.swimmingRooms ?? [], payload.startDatetime, payload.endDatetime, payload.adultCount + payload.childCount);
     const totalAmount = Math.round((pricing.total + roomQuote.total) * 100) / 100;
     if (payload.expectedTotal !== undefined && Math.abs(payload.expectedTotal - totalAmount) > 0.001) {
       return NextResponse.json({ success: false, message: "Prices changed. Return to the booking form and review the total." }, { status: 409 });
@@ -414,7 +418,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await finalizeSwimmingRooms(reservation.reservation_id, user.id, payload.swimmingRooms ?? [], promo?.code ?? null, Math.round((pricing.grossTotal + roomQuote.total) * 100) / 100, totalAmount);
+    await finalizeSwimmingRooms(reservation.reservation_id, user.id, payload.swimmingRooms ?? [], promo?.code ?? null, Math.round((pricing.grossTotal + roomQuote.total) * 100) / 100, totalAmount, payload.eligibleGuests ?? 0);
     committed = true;
     try {
       const { error: notificationError } = await createNotifications({
@@ -443,6 +447,9 @@ export async function POST(request: Request) {
           status: totalAmount === 0 ? "confirmed" : reservation.status,
           paymentDeadlineAt: totalAmount === 0 ? null : reservation.payment_deadline_at,
           totalAmount,
+          discountAmount: pricing.discountAmount,
+          discountKind: pricing.discountKind,
+          eligibleGuests: payload.eligibleGuests ?? 0,
         },
       },
       { status: 201 }
