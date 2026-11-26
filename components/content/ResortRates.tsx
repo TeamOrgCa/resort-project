@@ -7,6 +7,7 @@ import { packageTimesLabel } from "@/lib/booking/package-times";
 import { PACKAGE_LABELS, PACKAGE_MODES, RATE_TIERS } from "@/lib/booking/package-rates";
 import { INCLUDED_GUESTS } from "@/lib/booking/guest-count";
 import Skeleton, { SkeletonGroup } from "@/components/ui/Skeleton";
+import PublicAndRoomRates from "@/components/content/PublicAndRoomRates";
 
 const currency = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 2 });
 
@@ -22,11 +23,17 @@ export default function ResortRates() {
           <p className="text-lg text-neutral/75"><SiteText contentKey="content.about.rates_description" /></p>
         </div>
 
+        <nav aria-label="Resort rate categories" className="mb-10 flex flex-wrap justify-center gap-3 text-sm font-semibold text-primary">
+          {[["private-swimming-rates", "Private Swimming"], ["public-swimming-rates", "Public Swimming"], ["room-accommodation-rates", "Room Accommodation Only"]].map(([id, label]) => <a key={id} href={`#${id}`} className="rounded-full border border-primary/25 bg-base px-5 py-3 hover:bg-primary/5">{label}</a>)}
+        </nav>
+        <div id="private-swimming-rates" className="scroll-mt-28">
+        <h3 className="mb-3 text-2xl font-bold text-neutral sm:text-3xl">Private Swimming</h3>
+        <p className="mb-6 text-neutral/75">Exclusive swimming packages include {INCLUDED_GUESTS} guests. Compare weekday and weekend rates below.</p>
         {schedule ? (
           <div className="grid gap-5 lg:grid-cols-3">
             {PACKAGE_MODES.map(mode => (
               <article key={mode} className="content-fade-in rounded-2xl border border-neutral/10 bg-base p-5 shadow-sm sm:p-6">
-                <h3 className="text-xl font-bold text-primary">{PACKAGE_LABELS[mode].name}</h3>
+                <h4 className="text-xl font-bold text-primary">{PACKAGE_LABELS[mode].name}</h4>
                 <p className="mt-2 min-h-12 text-sm leading-relaxed text-neutral/70">{packageTimesLabel(mode, schedule.times)}</p>
                 <dl className="mt-5 space-y-4">
                   {RATE_TIERS.map(tier => (
@@ -62,19 +69,20 @@ export default function ResortRates() {
 
         <div className="my-12 grid gap-6 md:grid-cols-2">
           <article data-reveal className="rounded-2xl border border-neutral/10 bg-base p-6 sm:p-8">
-            <h3 className="mb-4 text-xl font-bold text-neutral"><SiteText contentKey="content.about.inclusions_heading" /></h3>
+            <h4 className="mb-4 text-xl font-bold text-neutral"><SiteText contentKey="content.about.inclusions_heading" /></h4>
             <ul className="list-disc space-y-2 pl-5 text-neutral/75">
               {contentText(content, "content.about.inclusions").split("\n").filter(line => line.trim()).map((line, index) => <li key={index}>{line}</li>)}
             </ul>
           </article>
           <article data-reveal className="rounded-2xl border border-neutral/10 bg-base p-6 sm:p-8">
-            <h3 className="mb-4 text-xl font-bold text-neutral"><SiteText contentKey="content.about.reminders_heading" /></h3>
+            <h4 className="mb-4 text-xl font-bold text-neutral"><SiteText contentKey="content.about.reminders_heading" /></h4>
             <ul className="list-disc space-y-3 pl-5 text-sm leading-relaxed text-neutral/75">
               {contentText(content, "content.about.reminders").split("\n").filter(line => line.trim()).map((line, index) => <li key={index}>{line}</li>)}
             </ul>
           </article>
         </div>
-
+        </div>
+        <PublicAndRoomRates />
       </div>
     </section>
   );
