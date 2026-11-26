@@ -48,6 +48,29 @@ before(async()=>{
   const heldAssignment=await one('insert into room_assignments(room_id,reservation_id,occupants,starts_at,expected_checkout) values($1,$2,2,$3,$4) returning *',[heldRoom.room_id,existing.reservation_id,existing.start_datetime,existing.end_datetime]);
   await db.exec(readFileSync('docs/private-swimming-room-reserve-migration.sql','utf8'));
   await db.exec(readFileSync('docs/private-swimming-room-reserve-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/private-swimming-discounts-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/private-swimming-discounts-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-room-eight-hour-rate-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-room-eight-hour-rate-migration.sql','utf8'));
+  assert.ok((await db.query("select rate_8_hours from room_classifications where code in ('standard','family')")).rows.every(c => Number(c.rate_8_hours) === 900));
+  await db.exec(readFileSync('docs/swimming-individual-room-stays-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-individual-room-stays-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-room-session-limit-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-room-session-limit-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-room-guest-limit-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-room-guest-limit-migration.sql','utf8'));
+  const beforeFullSession=(await one("select pg_get_functiondef('public.swimming_allocate_rooms(uuid,uuid,jsonb,boolean)'::regprocedure) body")).body;
+  await db.exec(readFileSync('docs/public-swimming-session-room-migration.sql','utf8'));
+  await db.exec(beforeFullSession);
+  await db.exec(readFileSync('docs/public-swimming-five-hour-room-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/public-swimming-five-hour-room-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/public-swimming-session-room-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/public-swimming-session-room-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/public-swimming-five-hour-room-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-flexible-room-duration-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-flexible-room-duration-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/room-settings-save-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/room-settings-save-migration.sql','utf8'));
   assert.deepEqual(await one('select * from reservations where reservation_id=$1',[existing.reservation_id]),existing);
   assert.deepEqual(await one('select * from room_assignments where assignment_id=$1',[heldAssignment.assignment_id]),heldAssignment);
   assert.equal((await one('select private_swimming_only from physical_rooms where room_id=$1',[heldRoom.room_id])).private_swimming_only,false);
@@ -67,7 +90,7 @@ before(async()=>{
 after(async()=>db?.close());
 beforeEach(async()=>{
   await db.exec("update business_settings set setting_value='365'");
-  await db.exec("reset role;truncate reservations,room_activity,room_charges,room_extensions,room_assignments,guests,staff_users,services,promo_codes,promo_redemptions,maintenance_blocks,transactions,payments,audit_logs,notifications,reservation_services,reservation_reschedules,refund_requests cascade;update public_swimming_types set is_active=true,max_guests=null,adult_rate=case mode when 'day' then 150 else 200 end,child_rate=case mode when 'day' then 120 else 180 end;");
+  await db.exec("reset role;update room_classifications set rate_8_hours=rate_12_hours;truncate reservations,room_activity,room_charges,room_extensions,room_assignments,guests,staff_users,services,promo_codes,promo_redemptions,maintenance_blocks,transactions,payments,audit_logs,notifications,reservation_services,reservation_reschedules,refund_requests cascade;update public_swimming_types set is_active=true,max_guests=null,adult_rate=case mode when 'day' then 150 else 200 end,child_rate=case mode when 'day' then 120 else 180 end;");
   await db.query("insert into guests(id,first_name,last_name,is_active) values($1,'Customer','Guest',true)",[id(100)]);
   await db.query("insert into staff_users values($1,'Manager','staff',true),($2,'Cashier','cashier',true)",[id(1),id(2)]);
   await db.exec("insert into role_permissions(role,permissions) values('staff',array['rooms','reservations','create_reservation','edit_reservation']) on conflict(role) do update set permissions=excluded.permissions");
@@ -310,6 +333,7 @@ test("migration retains custom operating hours and existing booked night timesta
 
 const roomClass=async(code='standard')=>one('select * from room_classifications where code=$1',[code]);
 const roomChoice=c=>({classificationId:c.classification_id,quantity:1,pricingVersion:Number(c.pricing_version)});
+
 test('public room add-ons allocate physical inventory, preserve admission-only discounts and retry without duplicate charges',async()=>{
   const c=await roomClass(),body=await input({promoCode:'POOL20'});
   await db.exec("insert into promo_codes(code,discount_type,discount_value) values('POOL20','percent',20)");
@@ -474,4 +498,254 @@ test('public swimming and staff room-only assignments cannot use, transfer into 
   await assert.rejects(()=>db.query('update reservations set room_pricing=true where reservation_id=$1',[privateBooking.reservation_id]),denied('40001'));
   await assert.rejects(()=>db.query('update physical_rooms set private_swimming_only=false where room_id=$1',[dedicated.room_id]),denied('40001'));
   await assert.rejects(()=>db.query('update physical_rooms set is_active=false where room_id=$1',[dedicated.room_id]),denied('40001'));
+});
+
+
+test('private guest eligibility saves the winning discount atomically with rooms and stays creation-only', async () => {
+  const rates = (await one('select rates from package_rate_versions where version=1')).rates;
+  const discountRates = { weekday: { day: { baseRate: 10000, addOnPerHead: 100 } }, weekend: { day: { baseRate: 10000, addOnPerHead: 100 } } };
+  await db.query('update package_rate_versions set rates=$1::jsonb where version=1', [JSON.stringify(discountRates)]);
+  try {
+    const r = await privateWithRooms(), rid = r.reservation_id, c = await roomClass();
+    const choices = JSON.stringify([roomChoice(c)]), gross = 10000 + Number(c.rate_12_hours), net = gross - 500;
+    await assert.rejects(() => db.query("select set_booking_discount($1,$2,5,null,10000,'Guest declaration',true)", [rid,id(100)]), denied('42501'));
+    await assert.rejects(() => db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,$4,$5,5)', [rid,id(101),choices,gross,net]), denied('42501'));
+    await assert.rejects(() => db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,$4,1,5)', [rid,id(100),choices,gross]), denied('40001'));
+    assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[rid])).n,0);
+    assert.equal((await one('select swimming_room_choices from reservations where reservation_id=$1',[rid])).swimming_room_choices,null);
+    await db.exec("insert into promo_codes(code,discount_type,discount_value) values('SMALL','fixed',100)");
+    const result = (await one("select swimming_finalize_booking($1,$2,$3::jsonb,'SMALL',$4,$5,5) r", [rid,id(100),choices,gross,net])).r;
+    assert.equal(Number(result.totalAmount),net);assert.equal(Number(result.discountAmount),500);assert.equal(result.discountKind,'pwd_senior');
+    const bill=await one('select * from transactions where reservation_id=$1',[rid]);
+    assert.equal(Number(bill.discount_eligible_guests),5);assert.equal(Number(bill.discount_amount),500);
+    await assert.rejects(() => db.query("select set_booking_discount($1,$2,6,null,$3,'Change after creation',true)", [rid,id(100),net]), denied('42501'));
+    await assert.rejects(() => db.query("select swimming_finalize_booking($1,$2,'[]'::jsonb,null,$3,$3,5)", [rid,id(100),net]), denied('40001'));
+    assert.equal((await one("select has_function_privilege('authenticated','public.swimming_finalize_booking(uuid,uuid,jsonb,text,numeric,numeric,integer)','execute') allowed")).allowed,false);
+  } finally { await db.query('update package_rate_versions set rates=$1::jsonb where version=1',[JSON.stringify(rates)]); }
+});
+
+
+test('eight-hour swimming room charges use the editable 900 rate and retain historical prices after admin edits', async () => {
+  await db.exec("update room_classifications set rate_8_hours=900,rate_12_hours=1200 where code='standard';update staff_users set role='admin' where full_name='Manager'");
+  const r=await privateWithRooms(),c=await roomClass(),rooms=JSON.stringify([roomChoice(c)]),rid=r.reservation_id;
+  await assert.rejects(() => db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,11200,11200)',[rid,id(100),rooms]),denied('40001'));
+  const result=(await one('select swimming_finalize_booking($1,$2,$3::jsonb,null,10900,10900) r',[rid,id(100),rooms])).r;
+  assert.equal(Number(result.totalAmount),10900);
+  const charge=await one('select * from room_charges where reservation_id=$1',[rid]);assert.equal(Number(charge.amount),900);
+  const rates={rate_3_hours:Number(c.rate_3_hours),rate_8_hours:850,rate_12_hours:1200,extension_hourly_rate:Number(c.extension_hourly_rate),additional_guest_rate:Number(c.additional_guest_rate)};
+  const saved=(await one('select room_save_rates($1,$2,$3,$4::jsonb) c',[id(1),c.classification_id,Number(c.pricing_version),JSON.stringify(rates)])).c;
+  assert.equal(Number(saved.rate_8_hours),850);
+  assert.deepEqual(await one('select * from room_charges where reservation_id=$1',[rid]),charge);
+  await db.exec(readFileSync('docs/swimming-room-eight-hour-rate-migration.sql','utf8'));
+  assert.equal(Number((await roomClass()).rate_8_hours),850,'rerunning the migration preserves admin edits');
+});
+
+test('unconfigured eight-hour rates never silently charge the twelve-hour price', async () => {
+  await db.exec("update room_classifications set rate_8_hours=null where code='standard'");
+  const r=await privateWithRooms(),c=await roomClass();
+  await assert.rejects(() => db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,10900,10900)',[r.reservation_id,id(100),JSON.stringify([roomChoice(c)])]),e=>e.code==='22023'&&/8-hour room rate is not configured/.test(e.message));
+  assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[r.reservation_id])).n,0);
+});
+
+test('private rooms save separate durations and configured extra guest charges without changing pool time',async()=>{
+  await db.exec("update room_classifications set rate_3_hours=300,rate_8_hours=900,rate_12_hours=1200,additional_guest_rate=100 where code='standard'");
+  const r=await privateWithRooms('night'),c=await roomClass(),rid=r.reservation_id;
+  const rooms=[{...roomChoice(c),occupants:3,durationHours:3},{...roomChoice(c),occupants:2,durationHours:12}];
+  await assert.rejects(()=>db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,11500,11500)',[rid,id(100),JSON.stringify(rooms)]),denied('40001'));
+  assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[rid])).n,0);
+  const result=(await one('select swimming_finalize_booking($1,$2,$3::jsonb,null,11600,11600) r',[rid,id(100),JSON.stringify(rooms)])).r;
+  assert.equal(Number(result.totalAmount),11600);
+  const assigned=(await db.query("select * from room_assignments where reservation_id=$1 and pricing_snapshot->>'included'='false' order by expected_checkout",[rid])).rows;
+  assert.deepEqual(assigned.map(a=>[a.occupants,(Date.parse(a.expected_checkout)-Date.parse(a.starts_at))/3600000,Number(a.pricing_snapshot.additional_guest_charge)]),[[3,3,100],[2,12,0]]);
+  assert.equal(Number((await one('select sum(amount)::numeric amount from room_charges where reservation_id=$1',[rid])).amount),1600);
+  assert.equal(Date.parse((await one('select end_datetime from reservations where reservation_id=$1',[rid])).end_datetime),Date.parse(r.end_datetime));
+  const retry=await one('select swimming_attach_rooms($1,$2,$3::jsonb) total',[rid,id(100),JSON.stringify(rooms)]);
+  assert.equal(Number(retry.total),1600);assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[rid])).n,3);
+});
+
+test('public three-hour room stays save configured extra pax charges and retry without duplicates',async()=>{
+  await db.exec("update room_classifications set rate_3_hours=300,additional_guest_rate=150 where code='family'");
+  const c=await roomClass('family'),rooms=[{...roomChoice(c),occupants:6,durationHours:3}];
+  const body=await input({swimmingRooms:rooms,adultCount:5,childCount:1});
+  const type=await one('select * from public_swimming_types where type_id=$1',[body.typeId]);body.expectedTotal=5*Number(type.adult_rate)+Number(type.child_rate)+600;
+  for(const patch of [{occupants:7},{durationHours:0},{quantity:2}]) await assert.rejects(()=>save({...body,swimmingRooms:[{...rooms[0],...patch}]}),denied('22023'));
+  const result=await save(body);assert.equal((await save(body)).id,result.id);
+  const assignment=await one('select * from room_assignments where reservation_id=$1',[result.id]);
+  assert.equal(assignment.occupants,6);assert.equal((Date.parse(assignment.expected_checkout)-Date.parse(assignment.starts_at))/3600000,3);
+  assert.equal(assignment.pricing_snapshot.extra_guests,2);assert.equal(assignment.pricing_snapshot.additional_guest_charge,300);
+  assert.equal((await one('select count(*)::int n from room_assignments where reservation_id=$1',[result.id])).n,1);
+  assert.equal(Number((await one('select total_amount from transactions where reservation_id=$1',[result.id])).total_amount),body.expectedTotal);
+  assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[result.id])).n,2);
+});
+
+test('longer room stays allocate first so a shorter stay can use inventory blocked later',async()=>{
+  const r=await privateWithRooms('night'),c=await roomClass();
+  const available=(await db.query('select room_id from physical_rooms where classification_id=$1 and not private_swimming_only order by room_number',[c.classification_id])).rows;
+  const start=new Date(Date.parse(r.start_datetime)+4*3600000).toISOString(),finish=new Date(Date.parse(r.start_datetime)+13*3600000).toISOString();
+  const block=await one("insert into reservations(reference_number,commercial_type,room_pricing,booking_mode,status,start_datetime,end_datetime,adult_count,child_count) values('LATER-ROOMS','room_accommodation',true,'custom','confirmed',$1,$2,2,0) returning *",[start,finish]);
+  for(const room of available.slice(1)) await db.query('insert into room_assignments(room_id,reservation_id,occupants,starts_at,expected_checkout) values($1,$2,2,$3,$4)',[room.room_id,block.reservation_id,start,finish]);
+  const rooms=[{...roomChoice(c),occupants:2,durationHours:3},{...roomChoice(c),occupants:2,durationHours:12}];
+  const gross=10000+Number(c.rate_3_hours)+Number(c.rate_12_hours);
+  await db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,$4,$4)',[r.reservation_id,id(100),JSON.stringify(rooms),gross]);
+  const long=await one("select room_id from room_assignments where reservation_id=$1 and pricing_snapshot->>'included'='false' and pricing_snapshot->>'duration_hours'='12'",[r.reservation_id]);
+  assert.equal(long.room_id,available[0].room_id);
+});
+
+test('rooms exceeding swimming duration are rejected atomically and shorter stays remain bookable',async()=>{
+  const body=await input(),c=await roomClass();
+  const start=new Date(Date.parse(body.startDatetime)+10*3600000).toISOString(),finish=new Date(Date.parse(body.startDatetime)+13*3600000).toISOString();
+  const block=await one("insert into reservations(reference_number,commercial_type,room_pricing,booking_mode,status,start_datetime,end_datetime,adult_count,child_count) values('AFTER-POOL','room_accommodation',true,'custom','confirmed',$1,$2,2,0) returning *",[start,finish]);
+  await db.query('insert into room_assignments(room_id,reservation_id,occupants,starts_at,expected_checkout) select room_id,$1,2,$2,$3 from physical_rooms where classification_id=$4 and not private_swimming_only',[block.reservation_id,start,finish,c.classification_id]);
+  const room={...roomChoice(c),occupants:2,durationHours:12};
+  await assert.rejects(()=>save({...body,swimmingRooms:[room],expectedTotal:body.expectedTotal+Number(c.rate_12_hours)}),e=>e.code==='22023'&&/within the swimming session/.test(e.message));
+  assert.equal((await one("select count(*)::int n from reservations where commercial_type='public_swimming'")).n,0);
+  const saved=await save({...body,swimmingRooms:[{...room,durationHours:3}],expectedTotal:body.expectedTotal+Number(c.rate_3_hours)});
+  assert.equal((await one('select count(*)::int n from room_assignments where reservation_id=$1',[saved.id])).n,1);
+});
+
+for(const privateSwimming of [false,true]) test(`${privateSwimming?'private':'public'} room extensions stop at swimming checkout and reject later charges atomically`,async()=>{
+  await db.exec("update staff_users set role='admin' where id='00000000-0000-4000-8000-000000000001'");
+  const c=await roomClass(),rooms=[{...roomChoice(c),occupants:2,durationHours:3}];
+  let rid;
+  if(privateSwimming){
+    const r=await privateWithRooms();rid=r.reservation_id;
+    const gross=10000+Number(c.rate_3_hours);
+    await db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,$4,$4)',[rid,id(100),JSON.stringify(rooms),gross]);
+  }else{
+    const body=await input({swimmingRooms:rooms});body.expectedTotal+=Number(c.rate_3_hours);rid=(await save(body)).id;
+  }
+  const assignment=await one("select * from room_assignments where reservation_id=$1 and pricing_snapshot->>'included'='false'",[rid]);
+  const reservation=await one('select * from reservations where reservation_id=$1',[rid]);
+  await db.query("update room_assignments set state='occupied',checked_in_at=clock_timestamp() where assignment_id=$1",[assignment.assignment_id]);
+  await db.query("update physical_rooms set status='occupied' where room_id=$1",[assignment.room_id]);
+  const extend=(checkout,hours)=>db.query("select room_operate($1,$2,'extend',$3::jsonb)",[id(1),assignment.room_id,JSON.stringify({assignment_id:assignment.assignment_id,expected_checkout:checkout,hours,hourly_rate:Number(c.extension_hourly_rate)})]);
+  try{
+    const hours=(Date.parse(reservation.end_datetime)-Date.parse(assignment.expected_checkout))/3600000;
+    await extend(assignment.expected_checkout,hours);
+    const saved=await one('select * from room_assignments where assignment_id=$1',[assignment.assignment_id]);
+    assert.equal(Date.parse(saved.expected_checkout),Date.parse(reservation.end_datetime));
+    const bill=await one('select * from transactions where reservation_id=$1',[rid]);
+    const charges=(await db.query('select * from room_charges where reservation_id=$1 order by charge_id',[rid])).rows;
+    await assert.rejects(()=>extend(saved.expected_checkout,1),e=>e.code==='22023'&&/within the swimming session/.test(e.message));
+    assert.deepEqual(await one('select * from transactions where reservation_id=$1',[rid]),bill);
+    assert.deepEqual((await db.query('select * from room_charges where reservation_id=$1 order by charge_id',[rid])).rows,charges);
+    assert.equal((await one('select count(*)::int n from room_extensions where assignment_id=$1',[assignment.assignment_id])).n,1);
+    assert.deepEqual(await one('select * from room_assignments where assignment_id=$1',[assignment.assignment_id]),saved);
+  }finally{await db.query("update physical_rooms set status='vacant' where room_id=$1",[assignment.room_id]);}
+});
+
+for(const privateSwimming of [false,true]) test(`${privateSwimming?'private':'public'} five-guest swimming bookings reject six room guests and save five without partial charges`,async()=>{
+ const c=await roomClass('family'),row={...roomChoice(c),occupants:6,durationHours:3};
+ let rid,body;
+ if(privateSwimming){const r=await privateWithRooms();rid=r.reservation_id;await db.query('update reservations set adult_count=5,child_count=0 where reservation_id=$1',[rid]);}
+ else {body=await input({adultCount:5,childCount:0});body.expectedTotal=5*Number((await one('select adult_rate from public_swimming_types where type_id=$1',[body.typeId])).adult_rate);}
+ const saveRooms=async rooms=>{
+  const extras=rooms.reduce((sum,r)=>sum+Number(c.rate_3_hours)+Math.max(0,r.occupants-Number(c.included_capacity))*Number(c.additional_guest_rate),0);
+  if(privateSwimming)return (await one('select swimming_finalize_booking($1,$2,$3::jsonb,null,$4,$4) r',[rid,id(100),JSON.stringify(rooms),10000+extras])).r;
+  return save({...body,swimmingRooms:rooms,expectedTotal:body.expectedTotal+extras});
+ };
+ await assert.rejects(()=>saveRooms([row]),e=>e.code==='22023'&&/cannot exceed/.test(e.message));
+ await assert.rejects(()=>saveRooms([{...row,occupants:4},{...row,occupants:2}]),e=>e.code==='22023'&&/cannot exceed/.test(e.message));
+ assert.equal((await one('select count(*)::int n from room_charges')).n,0);
+ const result=await saveRooms([{...row,occupants:4},{...row,occupants:1}]);if(!privateSwimming)rid=result.id;
+ assert.equal((await one("select sum(occupants)::int n from room_assignments where reservation_id=$1 and pricing_snapshot->>'included'='false'",[rid])).n,5);
+ const before=await one('select * from reservations where reservation_id=$1',[rid]);
+ await assert.rejects(()=>db.query('update reservations set adult_count=4 where reservation_id=$1',[rid]),e=>e.code==='22023'&&/cannot exceed/.test(e.message));
+ assert.deepEqual(await one('select * from reservations where reservation_id=$1',[rid]),before);
+});
+
+test('public five-hour room stays use hourly extensions, reserve exactly to night checkout and retry once',async()=>{
+ await db.exec("update room_classifications set rate_8_hours=900,rate_3_hours=300");
+ const date=addDays(await today(),1),night=(await slots()).find(s=>s.booking_date===date&&new Date(s.starts_at).getUTCHours()===10);
+ const type=await one('select * from public_swimming_types where type_id=$1',[night.type_id]);
+ const standard=await roomClass(),family=await roomClass('family');
+ const rooms=[{...roomChoice(standard),occupants:2,durationHours:5},{...roomChoice(family),occupants:3,durationHours:5}];
+ const roomPrices=[standard,family].map(c=>300+2*Number(c.extension_hourly_rate));
+ const body=await input({typeId:type.type_id,pricingVersion:Number(type.pricing_version),startDatetime:night.starts_at,endDatetime:night.ends_at,
+  adultCount:5,childCount:0,swimmingRooms:rooms,expectedTotal:5*Number(type.adult_rate)+roomPrices.reduce((a,b)=>a+b,0)});
+ for(const durationHours of [4.5,5.25])await assert.rejects(()=>save({...body,swimmingRooms:[{...rooms[0],durationHours}]}),e=>e.code==='22023'&&/whole room hours/.test(e.message));
+ const result=await save(body);assert.equal((await save(body)).id,result.id);
+ const assignments=(await db.query('select * from room_assignments where reservation_id=$1',[result.id])).rows;
+ assert.equal(assignments.length,2);assert.ok(assignments.every(a=>a.pricing_snapshot.duration_hours===5&&a.pricing_snapshot.extension_hours===2&&Date.parse(a.expected_checkout)===Date.parse(night.ends_at)));
+ assert.deepEqual(assignments.map(a=>Number(a.pricing_snapshot.accommodation)).sort((a,b)=>a-b),roomPrices.sort((a,b)=>a-b));
+ assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[result.id])).n,4);
+});
+
+test('full-session public rooms follow edited night configuration across midnight and preserve existing booked times',async()=>{
+ const original=await one("select * from public_swimming_types where mode='night'");
+ const date=addDays(await today(),1),standard=await roomClass();
+ await db.exec("update room_classifications set rate_8_hours=900");
+ try{
+  for(const [ends,offset,hours,request] of [['22:00',0,4,730],['00:30',1,6.5,731],['00:20',1,6+1/3,732]]){
+   await db.query("update public_swimming_types set start_time='18:00',end_time=$1::time,end_day_offset=$2 where type_id=$3",[ends,offset,original.type_id]);
+   const type=await one('select * from public_swimming_types where type_id=$1',[original.type_id]);
+   const night=(await slots()).find(s=>s.type_id===type.type_id&&s.booking_date===date);
+   assert.equal((Date.parse(night.ends_at)-Date.parse(night.starts_at))/3600000,hours);
+   const body=await input({typeId:type.type_id,pricingVersion:Number(type.pricing_version),startDatetime:night.starts_at,endDatetime:night.ends_at,
+    swimmingRooms:[{...roomChoice(standard),occupants:2,durationHours:Math.floor(hours)}],expectedTotal:2*Number(type.adult_rate)+Number(type.child_rate)+Number(standard.rate_3_hours)+(Math.floor(hours)-3)*Number(standard.extension_hourly_rate)});
+   const result=await save(body,id(request)),assignment=await one('select * from room_assignments where reservation_id=$1',[result.id]);
+   assert.equal(Date.parse(assignment.expected_checkout),Date.parse(night.starts_at)+Math.floor(hours)*3600000);assert.equal(Number(assignment.pricing_snapshot.accommodation),Number(standard.rate_3_hours)+(Math.floor(hours)-3)*Number(standard.extension_hourly_rate));
+   await db.query("update public_swimming_types set end_time='01:00',end_day_offset=1 where type_id=$1",[original.type_id]);
+   assert.deepEqual(await one('select * from room_assignments where reservation_id=$1',[result.id]),assignment);
+  }
+ }finally{await db.query('update public_swimming_types set start_time=$1::time,end_time=$2::time,end_day_offset=$3 where type_id=$4',[original.start_time,original.end_time,original.end_day_offset,original.type_id]);}
+});
+
+test('private swimming supports independent custom durations and commits itemized extensions and extra pax once',async()=>{
+ await db.exec("update room_classifications set rate_3_hours=300,rate_8_hours=900,rate_12_hours=1200,extension_hourly_rate=150,additional_guest_rate=200 where code='standard'");
+ const r=await privateWithRooms('whole_day'),c=await roomClass(),rid=r.reservation_id;
+ const rooms=[[1,1],[5,3],[8,2],[10,2],[12,2],[14,2]].map(([durationHours,occupants])=>({...roomChoice(c),durationHours,occupants}));
+ for(const durationHours of [1.5,4.25,6.5])await assert.rejects(()=>db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,11000,11000)',[rid,id(100),JSON.stringify([{...rooms[0],durationHours}])]),e=>e.code==='22023'&&/whole room hours/.test(e.message));
+ await assert.rejects(()=>db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,15901,15901)',[rid,id(100),JSON.stringify(rooms)]),denied('40001'));
+ assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[rid])).n,0);
+ await db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,15900,15900)',[rid,id(100),JSON.stringify(rooms)]);
+ const assigned=(await db.query("select * from room_assignments where reservation_id=$1 and pricing_snapshot->>'included'='false' order by expected_checkout",[rid])).rows;
+ assert.deepEqual(assigned.map(a=>[Number(a.pricing_snapshot.duration_hours),Number(a.pricing_snapshot.base_hours),Number(a.pricing_snapshot.extension_hours),Number(a.pricing_snapshot.accommodation)]),[[1,3,0,300],[5,3,2,600],[8,8,0,900],[10,8,2,1200],[12,12,0,1200],[14,12,2,1500]]);
+ for(const assignment of assigned)assert.equal((Date.parse(assignment.expected_checkout)-Date.parse(assignment.starts_at))/3600000,Number(assignment.pricing_snapshot.duration_hours));
+ assert.equal(Number((await one("select sum(amount) n from room_charges where reservation_id=$1 and kind='extension'",[rid])).n),900);
+ assert.equal(Number((await one("select sum(amount) n from room_charges where reservation_id=$1 and kind='additional_guest'",[rid])).n),200);
+ assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[rid])).n,10);
+ await db.exec("update room_classifications set extension_hourly_rate=175 where code='standard'");
+ await db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,15900,15900)',[rid,id(100),JSON.stringify(rooms)]);
+ assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[rid])).n,10);
+ assert.equal(Number((await one('select total_amount from transactions where reservation_id=$1',[rid])).total_amount),15900);
+ assert.equal(Number((await one('select swimming_attach_rooms($1,$2,$3::jsonb) amount',[rid,id(100),JSON.stringify(rooms)])).amount),5900);
+});
+
+test('dedicated Room Settings saves every rate even when the legacy configuration handler ignores duration rates',async()=>{
+ await db.exec("update staff_users set role='admin' where id='00000000-0000-4000-8000-000000000001'");
+ const c=await roomClass(),room=await one('select * from physical_rooms where classification_id=$1 and not private_swimming_only order by room_number limit 1',[c.classification_id]);
+ const oldWrapper=(await one("select pg_get_functiondef('public.room_operate(uuid,uuid,text,jsonb)'::regprocedure) body")).body;
+ const legacy=(await one("select pg_get_functiondef('public.room_operate_base(uuid,uuid,text,jsonb)'::regprocedure) body")).body;
+ const input={name:'Standard Rooms',included_capacity:2,maximum_capacity:3,base_rate:Number(c.base_rate),base_hours:12,rate_3_hours:315,rate_8_hours:815,rate_12_hours:1215,
+  additional_guest_rate:175,extension_hourly_rate:195,cleaning_buffer_minutes:15,pricing_version:Number(c.pricing_version)};
+ try{
+  await db.exec(legacy.replace(/FUNCTION public\.room_operate_base\(/i,'FUNCTION public.room_operate('));
+  const ignored=(await one("select room_operate($1,$2,'configure',$3::jsonb) r",[id(1),room.room_id,JSON.stringify(input)])).r;
+  assert.equal(ignored.success,true);assert.equal(Number((await roomClass()).rate_3_hours),Number(c.rate_3_hours));
+  const result=(await one('select room_configure_classification($1,$2,$3::jsonb) r',[id(1),room.room_id,JSON.stringify(input)])).r;
+  const saved=await roomClass();assert.equal(result.success,true);
+  for(const key of ['rate_3_hours','rate_8_hours','rate_12_hours','additional_guest_rate','extension_hourly_rate','included_capacity','maximum_capacity','cleaning_buffer_minutes'])assert.equal(Number(saved[key]),input[key],key);
+  assert.equal(Number(saved.pricing_version),input.pricing_version+1);assert.equal(Number(saved.base_rate),1215);
+  const version=await one('select rates from room_rate_versions where classification_id=$1 and version=$2',[c.classification_id,saved.pricing_version]);
+  assert.equal(version.rates.rate_8_hours,815);assert.equal(version.rates.rate_12_hours,1215);
+  const catalog=(await one("select room_guest_catalog(clock_timestamp()+interval '1 day',clock_timestamp()+interval '2 days') c")).c;
+  assert.equal(Number(catalog.classifications.find(row=>row.classification_id===c.classification_id).rate_8_hours),815);
+  await assert.rejects(()=>one('select room_configure_classification($1,$2,$3::jsonb)',[id(1),room.room_id,JSON.stringify(input)]),denied('40001'));
+ }finally{await db.exec(oldWrapper);}
+});
+
+test('Room Settings rolls back rates and history when capacity or cleaning changes invalidate room bookings',async()=>{
+ await db.exec("update staff_users set role='admin' where id='00000000-0000-4000-8000-000000000001'");
+ const r=await privateWithRooms(),c=await roomClass(),room=await one('select * from physical_rooms where private_swimming_only order by room_number limit 1');
+ const input={name:c.name,included_capacity:1,maximum_capacity:1,rate_3_hours:325,rate_8_hours:825,rate_12_hours:1225,additional_guest_rate:175,extension_hourly_rate:195,cleaning_buffer_minutes:15,pricing_version:Number(c.pricing_version)};
+ const versions=(await db.query('select * from room_rate_versions order by classification_id,version')).rows;
+ await assert.rejects(()=>one('select room_configure_classification($1,$2,$3::jsonb)',[id(1),room.room_id,JSON.stringify(input)]),denied('40001'));
+ assert.deepEqual(await roomClass(),c);assert.deepEqual((await db.query('select * from room_rate_versions order by classification_id,version')).rows,versions);
+ await db.query("insert into room_maintenance(room_id,starts_at,ends_at,reason,created_by) values($1,$2::timestamptz+interval '2 hours',$2::timestamptz+interval '3 hours','Scheduled maintenance',$3)",[room.room_id,r.end_datetime,id(1)]);
+ await assert.rejects(()=>one('select room_configure_classification($1,$2,$3::jsonb)',[id(1),room.room_id,JSON.stringify({...input,included_capacity:2,maximum_capacity:3,cleaning_buffer_minutes:180})]),denied('40001'));
+ assert.deepEqual(await roomClass(),c);assert.deepEqual((await db.query('select * from room_rate_versions order by classification_id,version')).rows,versions);
+ await assert.rejects(()=>one('select room_configure_classification($1,$2,$3::jsonb)',[id(2),room.room_id,JSON.stringify({...input,maximum_capacity:3})]),denied('42501'));
+ assert.equal((await one("select has_function_privilege('authenticated','public.room_configure_classification(uuid,uuid,jsonb)','execute') allowed")).allowed,false);
+ assert.equal((await one('select count(*)::int n from room_assignments where reservation_id=$1',[r.reservation_id])).n,2);
 });

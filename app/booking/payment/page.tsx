@@ -1,7 +1,9 @@
 "use client";
+import { swimmingRoomDescription } from "@/lib/booking/swimming-rooms";
 
 import { serviceCount } from "@/lib/booking/service-billing";
 import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
+import { savedPromo, type DiscountState, type PromoQuote } from "@/lib/booking/discounts";
 
 import BookingGuide from "@/components/booking/BookingGuide";
 import BookingProgress from "@/components/booking/BookingProgress";
@@ -58,6 +60,7 @@ export default function Payment() {
 
 function PaymentContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
+  const [savedBill, setSavedBill] = useState<{ reservationId: string; total: number; paidAmount: number; discountAmount: number; discountKind: string; eligibleGuests: number; promo: PromoQuote | null; promoCode: string | null } | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([]);
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState("");
@@ -196,12 +199,36 @@ function PaymentContent() {
   const endDateTime = parseDateTimeString(bookingDraft.endDatetime || null);
   const unitId = bookingDraft.unitId || "";
   const reservationId = bookingDraft.reservationId || "";
+  const bill = savedBill?.reservationId === reservationId ? savedBill : null;
   const acceptedTerms = Boolean(reservationId && acceptedTermsForReservation === reservationId);
   const reservationReferenceFromDraft = bookingDraft.reservationReference || "";
   const isBalancePayment = Boolean(reservationId && unitId === "balance-payment");
   const requiresFullPayment = bookingDraft.commercialType === "room_accommodation" || bookingDraft.commercialType === "public_swimming";
   const [payOption, setPayOption] = useState<"downpayment" | "full">(requiresFullPayment ? "full" : "downpayment");
-  const paidAmount = bookingDraft.paidAmount || 0;
+  const paidAmount = bill?.paidAmount ?? bookingDraft.paidAmount ?? 0;
+
+  useEffect(() => {
+    if (!reservationId) return;
+    let active = true;
+    let revision = 0;
+    const loadBill = async () => {
+      const request = ++revision;
+      try {
+        const { data, error } = await createClient().from("transactions")
+          .select("total_amount,paid_amount,discount_amount,discount_kind,discount_eligible_guests,discount_promo_code,discount_promo_type,discount_promo_value")
+          .eq("reservation_id", reservationId).maybeSingle();
+        if (!active || request !== revision || error || !data) return;
+        const row = data as DiscountState & { total_amount: number; paid_amount: number };
+        const total = Number(row.total_amount), paid = Number(row.paid_amount ?? 0), discountAmount = Number(row.discount_amount ?? 0);
+        if (![total, paid, discountAmount].every(value => Number.isFinite(value) && value >= 0)) return;
+        setSavedBill({ reservationId, total, paidAmount: paid, discountAmount, discountKind: row.discount_kind ?? "none",
+          eligibleGuests: Number(row.discount_eligible_guests ?? 0), promo: savedPromo(row), promoCode: row.discount_promo_code ?? null });
+      } catch { /* Keep the booking quote available if the billing refresh fails. */ }
+    };
+    void loadBill();
+    window.addEventListener("focus", loadBill);
+    return () => { active = false; window.removeEventListener("focus", loadBill); };
+  }, [reservationId]);
 
   useEffect(() => {
     if (isBalancePayment || requiresFullPayment) {
@@ -277,8 +304,8 @@ function PaymentContent() {
   }, [hasVerifiedDownpayment, paidAmount]);
 
   const roomName = bookingDraft.roomName || "Selected accommodation";
-  const costSummary = buildBookingCostSummary(bookingDraft);
-  const totalAmount = bookingDraft.total || 0;
+  const costSummary = buildBookingCostSummary(bill ? { ...bookingDraft, ...bill } : bookingDraft);
+  const totalAmount = bill?.total ?? bookingDraft.total ?? 0;
   const downPayment = requiresFullPayment ? totalAmount : downPaymentAmount(totalAmount);
   const selectedServices = bookingDraft.services || [];
   const selectedPaymentMethod = paymentMethods.find((method) => method.payment_method_id === selectedPaymentMethodId);
@@ -911,7 +938,7 @@ function PaymentContent() {
                   </div>}
 
                   {!isBalancePayment && !requiresFullPayment && <div className="flex justify-between text-sm"><span>2 Standard rooms</span><span className="font-semibold text-primary">Included</span></div>}
-                  {!isBalancePayment && costSummary.roomsTotal > 0 && <div className="border-b border-neutral/10 pb-4 text-sm"><p className="mb-2 font-semibold text-neutral">Additional Rooms</p>{bookingDraft.swimmingRooms?.map(r => <div key={r.classificationId} className="mb-1 flex justify-between gap-3"><span>{r.name} × {r.quantity}</span><span className="whitespace-nowrap">₱{(Number(r.unitPrice || 0) * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}</div>}
+                  {!isBalancePayment && costSummary.roomsTotal > 0 && <div className="border-b border-neutral/10 pb-4 text-sm"><p className="mb-2 font-semibold text-neutral">Additional Rooms</p>{bookingDraft.swimmingRooms?.map((r, index) => <div key={index} className="mb-1 flex justify-between gap-3"><span>{swimmingRoomDescription(r, index)}</span><span className="whitespace-nowrap">₱{(Number(r.unitPrice || 0) * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}</div>}
                   {!isBalancePayment && selectedServices.length > 0 && (
                     <div className="pb-4 border-b border-neutral/10">
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>
@@ -924,12 +951,12 @@ function PaymentContent() {
                     </div>
                   )}
 
-                  {!isBalancePayment && <div className="flex justify-between">
+                  <div className="flex justify-between">
                     <span className="text-neutral/70">Subtotal</span>
-                    <span className="whitespace-nowrap font-semibold text-neutral">₱{costSummary.subtotal.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>}
+                    <span className="whitespace-nowrap font-semibold text-neutral">₱{(isBalancePayment ? totalAmount + costSummary.discountAmount : costSummary.subtotal).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
 
-                  {!isBalancePayment && <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} kind={costSummary.discountKind} />}
+                  <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} kind={costSummary.discountKind} />
 
                   {!isBalancePayment && costSummary.tax > 0 && <div className="flex justify-between">
                     <span className="text-neutral/70">Tax</span>

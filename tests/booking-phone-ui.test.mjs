@@ -46,9 +46,10 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
     assert.equal(container.querySelector('input[name="roomType"]'),null);
     assert.match(container.textContent,/All cottages are included/);
     assert.match(container.textContent,/2 Standard rooms included at no extra charge/);
-    const extraRooms=container.querySelector('[aria-label="Extra Standard Rooms"]');
-    assert.equal(extraRooms.options.length,9,'two of ten Standard rooms are already included');
-    await act(async()=>{Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set.call(extraRooms,'1');extraRooms.dispatchEvent(new window.Event('change',{bubbles:true}));});
+    const addRoom = [...container.querySelectorAll('button')].find(button => button.textContent === 'Add room');
+    await act(async () => addRoom.click());
+    assert.equal(container.querySelector('[aria-label="Additional room 1 duration"]').value, '12');
+    assert.equal(container.querySelector('[aria-label="Additional room 1 guests"]').max, '2');
     await act(async () => container.querySelector('input[aria-label="Add Extra mattress"]').click());
     await act(async () => container.querySelector('input[aria-label="Add Karaoke rental"]').click());
     const hours = container.querySelector('[aria-label="Duration (Hours) for Karaoke rental"]');
@@ -58,6 +59,20 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
     const phone = container.querySelector("#booking-phone");
     assert.equal(phone.value, "9171234567"); assert.match(phone.parentElement.textContent, /\+63/);
     const review = [...container.querySelectorAll("button")].find(button => button.textContent.includes("Review Full Details"));
+    assert.equal(review.disabled, false);
+    const eligible = container.querySelector('[aria-label="PWD / senior guests"]');
+    assert.equal(eligible.value, "0");
+    assert.equal(eligible.max, "2");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(eligible, "3");
+      eligible.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    assert.equal(review.disabled, true);
+    assert.match(container.querySelector('[role="alert"]').textContent, /cannot exceed your total guests/);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(eligible, "1");
+      eligible.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
     assert.equal(review.disabled, false);
     const quantity=container.querySelector('[aria-label="Quantity for Extra mattress"]');assert.equal(quantity.min,"1");assert.equal(quantity.max,"3");
     const plus=container.querySelector('[aria-label="Increase Extra mattress quantity"]');
@@ -77,9 +92,11 @@ test("booking blocks invalid contacts and carries the normalized Philippine numb
       if (next === "+63 917 123 4567") {
         assert.deepEqual(pushes, ["/booking/details"]);
         assert.equal(store.getState().bookingDraft.phone, "+639171234567");
+        assert.equal(store.getState().bookingDraft.eligibleGuests, 1);
         assert.equal(store.getState().bookingDraft.services[0].id, "mattress");
         assert.equal(store.getState().bookingDraft.services[0].price, 500);
-        assert.equal(store.getState().bookingDraft.services[0].quantity,2);assert.equal(store.getState().bookingDraft.total,legacyRates.weekday.night.baseRate+1600+600);
+        assert.equal(store.getState().bookingDraft.services[0].quantity,2);assert.equal(store.getState().bookingDraft.total,legacyRates.weekday.night.baseRate*0.9+1600+600);
+        assert.equal(store.getState().bookingDraft.discountKind,"pwd_senior");assert.equal(store.getState().bookingDraft.discountAmount,legacyRates.weekday.night.baseRate*0.1);
         assert.equal(store.getState().bookingDraft.swimmingRooms[0].quantity,1);assert.equal(store.getState().bookingDraft.swimmingRooms[0].unitPrice,600);
         assert.equal(store.getState().bookingDraft.services[1].billingType, "duration");
         assert.equal(store.getState().bookingDraft.services[1].quantity, 3);

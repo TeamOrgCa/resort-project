@@ -24,7 +24,7 @@ async function render(Component) {
   return { container, close: async () => { await act(async () => root.unmount()); container.remove(); } };
 }
 const account = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", secondAccount = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-async function mount(paid = 0, draftPatch = {}) {
+async function mount(paid = 0, draftPatch = {}, savedTransaction = null) {
   const originalFetch = globalThis.fetch, originalUrl = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
   URL.createObjectURL = () => "blob:proof-preview"; URL.revokeObjectURL = () => {};
   const posts = [], uploads = []; let release;
@@ -58,7 +58,7 @@ async function mount(paid = 0, draftPatch = {}) {
     "@/lib/stores/booking-store": { useBookingStore: selector => selector(state) },
     "@/lib/supabase/client": { createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: "guest" } } }) },
       storage: { from: () => ({ upload: async (...args) => { uploads.push(args); return { error: null }; } }) },
-      from: () => { const q = { select: () => q, eq: () => q, limit: () => q, maybeSingle: async () => ({ data: null, error: null }) }; return q; },
+      from: table => { const q = { select: () => q, eq: () => q, limit: () => q, maybeSingle: async () => ({ data: table === "transactions" && savedTransaction ? { ...savedTransaction } : null, error: null }) }; return q; },
     }) },
   }).default;
   const h = await render(Component);
@@ -70,6 +70,12 @@ async function file(input) {
     input.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
 }
+
+test('checkout lists each swimming room duration and guests in its own line',async()=>{
+ const h=await mount(0,{total:5400,swimmingRooms:[{classificationId:'standard',quantity:1,pricingVersion:1,name:'Standard Rooms',occupants:3,durationHours:3,unitPrice:400,accommodation:300,extraGuests:1,additionalGuestCharge:100}]});
+ try {assert.match(h.container.textContent,/Additional RoomsRoom 1: Standard Rooms.*3 hours.*3 guest\(s\).*400\.00/);assert.match(h.container.textContent,/Subtotal.*5,400\.00/);}
+ finally {await h.close();}
+});
 
 test('checkout itemizes paid swimming rooms alongside the package inclusion',async()=>{
  const h=await mount(0,{total:5900,swimmingRooms:[{classificationId:'standard',quantity:1,pricingVersion:1,name:'Standard Rooms',unitPrice:900}]});
@@ -149,5 +155,33 @@ test("cashier review requires loading the proof and acknowledging actual receive
     assert.equal(button(h.container, "Approve").disabled, true);
     await click(h.container.querySelector('input[type="checkbox"]')); await click(button(h.container, "Approve"));
     await click(button(h.container, "Confirm approval")); assert.deepEqual(calls, ["approved"]);
+  } finally { await h.close(); }
+});
+
+
+test('payment summaries itemize PWD/senior discounts without a promo for every booking type', async () => {
+  for (const commercialType of ['private_swimming', 'public_swimming', 'room_accommodation']) {
+    const h = await mount(0, { commercialType, total: 4500, roomPrice: 5000, eligibleGuests: 1, discountAmount: 500, discountKind: 'pwd_senior',
+      roomSelections: [{ classificationId: 'standard', occupants: 2, pricingVersion: 1, accommodation: 5000, additionalGuestCharge: 0 }] });
+    try {
+      assert.match(h.container.querySelector('[aria-label="Applied PWD / senior discount"]').textContent, /500\.00/);
+      assert.equal(h.container.querySelector('[aria-label="Applied promo discount"]'), null);
+      assert.equal(h.container.querySelector('#amount-sent').value, commercialType === 'private_swimming' ? '900' : '4500');
+      assert.match(h.container.querySelector('.booking-summary').textContent, /Subtotal.*5,000\.00.*PWD \/ senior discount.*500\.00.*Total Amount.*4,500\.00/);
+    } finally { await h.close(); }
+  }
+});
+
+test('payment reloads saved discounts and paid totals when returning from Manage Booking', async () => {
+  const transaction = { total_amount: 4500, paid_amount: 1000, discount_amount: 500, discount_kind: 'pwd_senior', discount_eligible_guests: 1 };
+  const h = await mount(1000, { unitId: 'balance-payment', total: 5000, eligibleGuests: 0, discountAmount: 0, discountKind: 'none' }, transaction);
+  try {
+    assert.match(h.container.querySelector('[aria-label="Applied PWD / senior discount"]').textContent, /500\.00/);
+    assert.equal(h.container.querySelector('#amount-sent').value, '3500');
+    assert.match(h.container.querySelector('.booking-summary').textContent, /Subtotal.*5,000\.00.*Total Amount.*4,500\.00.*Already paid.*1,000\.00/);
+    Object.assign(transaction, { total_amount: 4600, discount_amount: 400 });
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    assert.match(h.container.querySelector('[aria-label="Applied PWD / senior discount"]').textContent, /400\.00/);
+    assert.equal(h.container.querySelector('#amount-sent').value, '3600');
   } finally { await h.close(); }
 });

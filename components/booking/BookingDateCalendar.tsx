@@ -99,7 +99,7 @@ export default function BookingDateCalendar({ value, onChange, title = "Booking 
     {customer ? <div className="mt-8 flex flex-wrap gap-6 border-t border-neutral/10 pt-6 text-sm text-neutral/70">
       <span className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-primary" />Selected</span>
       <span className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-neutral/20" />Fully booked / Unavailable</span>
-      {isPartiallyAvailable && <span className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-amber-50" />{allowUnavailableSelection ? "Partially Available" : "Day or night available"}</span>}
+      {isPartiallyAvailable && <span className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-amber-50" />Day or night available</span>}
       <span className="flex items-center gap-2"><span className="h-4 w-4 rounded border-2 border-neutral/30" />Available</span>
     </div> : <><div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-neutral/10 pt-4 text-xs text-neutral/60">
       <span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-primary" />Selected</span>

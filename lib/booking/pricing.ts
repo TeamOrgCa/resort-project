@@ -13,6 +13,7 @@ export interface BookingPricingInput {
   childCount: number;
   servicesTotal?: number;
   promo?: PromoQuote | null;
+  eligibleGuests?: number;
 }
 
 export interface BookingPricingResult {
@@ -29,6 +30,7 @@ export interface BookingPricingResult {
   tax: number;
   total: number;
   discountAmount: number;
+  discountKind: string;
   grossTotal: number;
   downPaymentMin: number;
 }
@@ -77,7 +79,8 @@ export const computeBookingPricing = (input: BookingPricingInput, rates: Package
   const extraGuestTotal = extraGuests * addOnPerHead;
   const servicesTotal = Math.max(0, Number(input.servicesTotal || 0));
   const subtotal = packageRate + extraGuestTotal + servicesTotal;
-  const discountAmount = input.promo && totalGuests > 0 ? calculateBookingDiscount(packageRate, totalGuests, 0, input.promo).amount : 0;
+  const discount = totalGuests > 0 ? calculateBookingDiscount(packageRate, totalGuests, input.eligibleGuests ?? 0, input.promo) : { amount: 0, kind: "none" };
+  const discountAmount = discount.amount;
   const total = round2(subtotal - discountAmount);
 
   return {
@@ -92,6 +95,7 @@ export const computeBookingPricing = (input: BookingPricingInput, rates: Package
     servicesTotal,
     grossTotal: round2(subtotal),
     discountAmount,
+    discountKind: discount.kind,
     subtotal: round2(subtotal),
     tax: 0,
     total,

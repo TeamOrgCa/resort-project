@@ -57,7 +57,7 @@ test('manual public swimming uses the compact admin form, keeps edits during ses
   await click(form.querySelector(`[data-date="${date}"]`));await change(form.querySelector('[aria-label="Public swimming session selection"] select'),'day');
   assert.equal(form.querySelector('[name="firstName"]').value,'Maria');
   await change(form.querySelector('[aria-label="Adults"]'),2);await change(form.querySelector('[aria-label="Children"]'),1);
-  await click(form.querySelector('[aria-label="Add Videoke"]'));await change(form.querySelector('input[type="number"][max="8"]'),2);
+  await click(form.querySelector('[aria-label="Add Videoke"]'));await change(form.querySelector('[aria-label="Duration (Hours) for Videoke"]'),2);
   assert.match(form.querySelector('[aria-label="Billing preview"]').textContent,/Total: ₱620\.00/);
   await act(async()=>form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
   assert.equal(posts.length,0);await click([...document.querySelectorAll('[role="alertdialog"] button')].find(b=>b.textContent==='Create reservation'));
@@ -90,7 +90,7 @@ test('public calendar shows the entire month, permits inspection of unavailable 
    if(date.slice(0,7)!==today.slice(0,7))await click(host.querySelector('[aria-label="Next month"]'));
    assert.equal(host.querySelectorAll('[data-date]').length,new Date(Date.UTC(Number(date.slice(0,4)),Number(date.slice(5,7)),0)).getUTCDate());
    assert.equal(host.querySelector(`[data-date="${date}"]`)?.disabled,false);
-   assert.match(host.querySelector(`[data-date="${date}"]`)?.textContent,/Partial/);
+   assert.match(host.querySelector(`[data-date="${date}"]`)?.textContent,/Day available/);
    assert.match(host.textContent,/Selected.*Fully booked \/ Unavailable.*Available/);
    const day=[...host.querySelectorAll('button')].find(b=>b.textContent.startsWith('Day Public Swimming'));assert.match(day.textContent,/8:00 AM.*4:00 PM/);
    assert.ok(host.querySelector('[data-booking-guide="public-times"]').compareDocumentPosition(host.querySelector('[data-booking-guide="dates-calendar"]')) & window.Node.DOCUMENT_POSITION_FOLLOWING);
@@ -100,11 +100,12 @@ test('public calendar shows the entire month, permits inspection of unavailable 
    assert.match(host.querySelector('[data-public-session="day"]').textContent,/Available.*Remaining capacity: 97/);
    assert.match(host.querySelector('[data-public-session="night"]').textContent,/6:00 PM.*11:00 PM.*Unavailable — Private Reservation/);
    await click(host.querySelector('[data-public-session="night"]'));assert.equal(host.querySelector('[data-booking-guide="dates-continue"]').disabled,true);
-   assert.equal(host.querySelector(`[data-date="${date}"]`).disabled,false);
-   await click(host.querySelector('[data-public-session="day"]'));await click(host.querySelector('[data-booking-guide="dates-continue"]'));assert.equal(chosen.length,1);assert.equal(chosen[0][0].type_id,'day');
+   assert.equal(host.querySelector(`[data-date="${date}"]`).disabled,true);
+   assert.equal(host.querySelector(`[data-date="${date}"]`).getAttribute('aria-pressed'),'false');
+   await click(host.querySelector('[data-public-session="day"]'));await click(host.querySelector(`[data-date="${date}"]`));await click(host.querySelector('[data-booking-guide="dates-continue"]'));assert.equal(chosen.length,1);assert.equal(chosen[0][0].type_id,'day');
    await click(host.querySelector('[aria-label="Next month"]'));
-   const future=host.querySelector('[data-date]');assert.equal(future.disabled,false);await click(future);
-   assert.match(host.textContent,/Not Yet Open for Booking/);assert.match(host.textContent,/Reservations open.*Tentative availability.*Private reservations may still be made/);
+   const future=host.querySelector('[data-date]');assert.equal(future.disabled,true);
+   assert.match(future.getAttribute('title'),/Not Yet Open for Booking/);
    assert.equal(host.querySelector('[data-booking-guide="dates-continue"]').disabled,true);
    const inspected=future.dataset.date.slice(0,7);await act(async()=>window.dispatchEvent(new window.Event('focus')));
    assert.equal(host.querySelector('[data-date]').dataset.date.slice(0,7),inspected);
@@ -126,13 +127,102 @@ test('public details prefill contacts, preserve adult/child counts, cap rental h
   assert.equal([...host.querySelectorAll('label')].find(l=>l.textContent.startsWith('First name')).querySelector('input').value,'Maria');
   await change(host.querySelector('[aria-label="Adults"]'),2);await change(host.querySelector('[aria-label="Children"]'),1);await change(host.querySelector('[aria-label="PWD / senior guests"]'),1);
   await click(host.querySelector('input[type="checkbox"]'));
-  const hours=[...host.querySelectorAll('input[type="number"]')].find(i=>i.getAttribute('max')==='8');assert.ok(hours);await change(hours,2);
+  const hours=host.querySelector('[aria-label="Duration (Hours) for Videoke"]');assert.ok(hours);await change(hours,2);
   await change(host.querySelector('[aria-label="Promo code"]'),'PUBLIC20');await click([...host.querySelectorAll('button')].find(b=>b.textContent==='Apply code'));
   assert.match(host.textContent,/Public admission does not include a room/);
-  await change(host.querySelector('[aria-label="Extra Standard Rooms"]'),1);
+  await click([...host.querySelectorAll('button')].find(button => button.textContent === 'Add room'));
+  assert.equal(host.querySelector('[aria-label="Additional room 1 duration"]').value, '8');
   await act(async()=>host.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));
-  assert.deepEqual(routes,['/booking/details']);const d=store.getState().bookingDraft;assert.equal(d.firstName,'Maria');assert.equal(d.lastName,'Cruz');assert.equal(d.phone,'+639171234567');assert.equal(d.address,'Street, City, Province, 1234');assert.equal(d.adultCount,2);assert.equal(d.childCount,1);assert.equal(d.discountAmount,84);assert.equal(d.total,1136);assert.equal(d.downPayment,1136);assert.equal(d.discountKind,'promo');assert.ok(d.publicRequestId);
-  assert.equal(d.swimmingRooms[0].classificationId,standardId);assert.equal(d.swimmingRooms[0].unitPrice,600);assert.equal(d.subtotal,1220);
+  assert.deepEqual(routes,['/booking/details']);const d=store.getState().bookingDraft;assert.equal(d.firstName,'Maria');assert.equal(d.lastName,'Cruz');assert.equal(d.phone,'+639171234567');assert.equal(d.address,'Street, City, Province, 1234');assert.equal(d.adultCount,2);assert.equal(d.childCount,1);assert.equal(d.discountAmount,84);assert.equal(d.total,936);assert.equal(d.downPayment,936);assert.equal(d.discountKind,'promo');assert.ok(d.publicRequestId);
+  assert.equal(d.swimmingRooms[0].classificationId,standardId);assert.equal(d.swimmingRooms[0].unitPrice,400);assert.equal(d.subtotal,1020);
   assert.ok(!calls.some(c=>c.url.startsWith('/api/reservations/')));
  }finally{await act(async()=>root.unmount());host.remove();globalThis.fetch=oldFetch;}
+});
+
+
+test('public calendar identifies day, night or both even when available sessions have used capacity', async () => {
+  const previousFetch = globalThis.fetch;
+  let availability = { day: 'available', night: 'private' };
+  globalThis.fetch = async url => {
+    const result = monthCatalog(new URL(url, 'http://localhost').searchParams.get('month') ?? today.slice(0, 7));
+    result.sessions = result.sessions.map(session => session.date === date ? {
+      ...session, availability: availability[session.typeId], eligibility: 'eligible', remainingCapacity: 97, totalCapacity: 100,
+    } : session);
+    return Response.json({ success: true, ...result });
+  };
+  const Component = loadTsModule('components/booking/PublicSwimmingSelection.tsx').default;
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(Component)));
+    if (date.slice(0, 7) !== today.slice(0, 7)) await click(host.querySelector('[aria-label="Next month"]'));
+    for (const [modes, label] of [
+      [{ day: 'available', night: 'private' }, 'Day available'],
+      [{ day: 'private', night: 'available' }, 'Night available'],
+      [{ day: 'available', night: 'available' }, 'Day & Night available'],
+    ]) {
+      availability = modes;
+      await act(async () => window.dispatchEvent(new window.Event('focus')));
+      const cell = host.querySelector(`[data-date="${date}"]`);
+      assert.ok(cell.textContent.includes(label));
+      assert.ok(cell.getAttribute('aria-label').includes(label));
+      assert.doesNotMatch(cell.textContent, /Partial/);
+    }
+  } finally { await act(async () => root.unmount()); host.remove(); globalThis.fetch = previousFetch; }
+});
+
+
+test('selecting Day or Night filters bookable dates and clears incompatible selections', async () => {
+  const previousFetch = globalThis.fetch, chosen = [];
+  let nightAvailability = 'available';
+  const nightOnly = date, dayOnly = third;
+  globalThis.fetch = async url => {
+    const result = monthCatalog(new URL(url, 'http://localhost').searchParams.get('month') ?? today.slice(0, 7));
+    result.sessions = result.sessions.map(session => [nightOnly, dayOnly].includes(session.date) ? {
+      ...session, eligibility: 'eligible', remainingCapacity: 50,
+      availability: session.date === nightOnly ? session.typeId === 'night' ? nightAvailability : 'private' : session.typeId === 'day' ? 'available' : 'maintenance',
+    } : session);
+    return Response.json({ success: true, ...result });
+  };
+  const Component = loadTsModule('components/booking/PublicSwimmingSelection.tsx').default;
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  const cell = day => host.querySelector(`[data-date="${day}"]`);
+  const next = () => host.querySelector('[data-booking-guide="dates-continue"]');
+  const selectMonth = async day => {
+    while (!cell(day)) await click(host.querySelector('[aria-label="Next month"]'));
+  };
+  try {
+    await act(async () => root.render(createElement(Component, { onChoose: (...args) => chosen.push(args) })));
+    await selectMonth(nightOnly);
+    assert.match(cell(nightOnly).textContent, /Night available/);
+    await click(host.querySelector('[data-public-session="day"]'));
+    assert.equal(cell(nightOnly).disabled, true);
+    assert.match(cell(nightOnly).className, /bg-neutral\/20/);
+    assert.match(cell(nightOnly).getAttribute('title'), /Private Reservation/);
+    await act(async () => cell(nightOnly).click());
+    assert.equal(cell(nightOnly).getAttribute('aria-pressed'), 'false');
+    assert.equal(next().disabled, true);
+    await click(host.querySelector('[data-public-session="night"]'));
+    assert.equal(cell(nightOnly).disabled, false);
+    await click(cell(nightOnly));
+    assert.equal(next().disabled, false);
+    await click(host.querySelector('[data-public-session="day"]'));
+    assert.equal(cell(nightOnly).getAttribute('aria-pressed'), 'false');
+    assert.equal(cell(nightOnly).disabled, true);
+    assert.equal(next().disabled, true);
+    await selectMonth(dayOnly);
+    assert.equal(cell(dayOnly).disabled, false);
+    await click(cell(dayOnly));
+    assert.equal(next().disabled, false);
+    await click(host.querySelector('[data-public-session="night"]'));
+    assert.equal(cell(dayOnly).disabled, true);
+    assert.equal(cell(dayOnly).getAttribute('aria-pressed'), 'false');
+    assert.equal(next().disabled, true);
+    // Refreshing availability must also disable a previously available night.
+    if (!cell(nightOnly)) await click(host.querySelector('[aria-label="Previous month"]'));
+    nightAvailability = 'full';
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    assert.equal(cell(nightOnly).disabled, true);
+    assert.equal(next().disabled, true);
+    assert.equal(chosen.length, 0);
+  } finally { await act(async () => root.unmount()); host.remove(); globalThis.fetch = previousFetch; }
 });

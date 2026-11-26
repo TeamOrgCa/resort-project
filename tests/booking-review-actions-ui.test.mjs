@@ -34,6 +34,39 @@ const actions = container => container.querySelector('[aria-label="Booking actio
 const labels = container => [...actions(container).children].map(child => child.textContent.trim());
 const click = el => act(async () => el.click());
 
+test('swimming review shows each room duration, occupants and extra guest fee and submits them unchanged',async()=>{
+ const rooms=[{classificationId:'standard',quantity:1,pricingVersion:1,name:'Standard Rooms',occupants:3,durationHours:3,unitPrice:400,accommodation:300,extraGuests:1,additionalGuestCharge:100},
+  {classificationId:'standard',quantity:1,pricingVersion:1,name:'Standard Rooms',occupants:2,durationHours:12,unitPrice:900,accommodation:900,extraGuests:0,additionalGuestCharge:0}];
+ let submitted;
+ const h=await mount(async(_url,options)=>{submitted=JSON.parse(options.body);return Response.json({success:true,reservation:{id:'individual-rooms',totalAmount:8800}});},false,{swimmingRooms:rooms,total:8800,packageRates:legacyRates});
+ try {
+  assert.match(h.container.textContent,/Room 1: Standard Rooms.*3 hours.*3 guest\(s\).*Extra guests: 1/);
+  assert.match(h.container.textContent,/Room 2: Standard Rooms.*12 hours.*2 guest\(s\)/);
+  assert.doesNotMatch(h.container.textContent,/for the full swimming session/);
+  await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector('button'));
+  assert.deepEqual(submitted.swimmingRooms,rooms);assert.equal(submitted.expectedTotal,8800);
+ } finally {await h.close();}
+});
+
+test('private booking review retains the immediate PWD/senior discount through saving', async () => {
+  let submitted;
+  const h = await mount(async (_url, options) => {
+    submitted = JSON.parse(options.body);
+    return Response.json({ success: true, reservation: { id: 'private-pwd', totalAmount: 8125, discountAmount: 375, discountKind: 'pwd_senior', eligibleGuests: 5 } });
+  }, false, { adultCount: 20, eligibleGuests: 5, discountAmount: 375, discountKind: 'pwd_senior', packageRates: legacyRates,
+    services: [{ id: 'mattress', name: 'Extra mattress', price: 500, quantity: 2 }], total: 8125 });
+  try {
+    assert.equal(h.container.querySelectorAll('[aria-label="Applied PWD / senior discount"]').length, 2);
+    assert.match(h.container.querySelector('[data-booking-guide="review-bill"]').textContent, /Private pool package.*7,500\.00.*Subtotal.*8,500\.00.*PWD \/ senior discount.*375\.00.*Total.*8,125\.00/);
+    await click(h.container.querySelector('[aria-label="Accept terms"]'));
+    await click(actions(h.container).querySelector('button'));
+    assert.equal(submitted.eligibleGuests, 5); assert.equal(submitted.expectedTotal, 8125);
+    assert.equal(h.store.getState().bookingDraft.discountKind, 'pwd_senior');
+    assert.equal(h.store.getState().bookingDraft.discountAmount, 375);
+    assert.equal(h.container.querySelectorAll('[aria-label="Applied PWD / senior discount"]').length, 2);
+  } finally { await h.close(); }
+});
+
 test('private review shows package inclusions and paid extra rooms separately and sends them with the full quote',async()=>{
  const posts=[],rooms=[{classificationId:'standard',quantity:1,pricingVersion:1,name:'Standard Rooms',unitPrice:900}];
  const h=await mount(async(url,options)=>{posts.push({url,body:JSON.parse(options.body)});return Response.json({success:true,reservation:{id:'booking',totalAmount:8400}});},false,{swimmingRooms:rooms,total:8400,packageRates:legacyRates});
@@ -45,6 +78,26 @@ test('private review shows package inclusions and paid extra rooms separately an
   await click(h.container.querySelector('[aria-label="Accept terms"]'));await click(actions(h.container).querySelector('button'));
   assert.deepEqual(posts[0].body.swimmingRooms,rooms);assert.equal(posts[0].body.expectedTotal,8400);
  }finally{await h.close();}
+});
+
+test("room review groups repeated room types while preserving every individual room selection", async () => {
+  const standard = { classificationId: "standard", pricingVersion: 1, occupants: 2, name: "Standard Rooms", accommodation: 300, additionalGuestCharge: 0, includedCapacity: 2 };
+  const rooms = [standard, standard, standard, { ...standard, classificationId: "family", name: "Family Rooms", occupants: 4, includedCapacity: 4 }];
+  const posts = [];
+  const h = await mount(async (url, options) => { posts.push(JSON.parse(options.body)); return Response.json({ success: true, reservation: { id: "room-booking", totalAmount: 1200 } }); }, false, {
+    commercialType: "room_accommodation", roomName: "Standard Rooms, Standard Rooms, Standard Rooms, Family Rooms", roomSelections: rooms, adultCount: 10,
+    roomPrice: 1200, total: 1200, endDatetime: "2027-06-14T11:00:00+08:00",
+  });
+  try {
+    assert.match(h.container.textContent, /Accommodation: Standard Rooms × 3, Family Rooms × 1/);
+    const section = [...h.container.querySelectorAll("section")].find(section => section.querySelector("h3")?.textContent === "Selected Rooms");
+    assert.equal(section.querySelectorAll("li").length, 2);
+    assert.match(section.textContent, /Standard Rooms × 3.*6 guest\(s\) total/);
+    assert.doesNotMatch(h.container.textContent, /Standard Rooms, Standard Rooms/);
+    await click(h.container.querySelector('[aria-label="Accept terms"]'));
+    await click(actions(h.container).querySelector("button"));
+    assert.equal(posts[0].rooms.length, 4);
+  } finally { await h.close(); }
 });
 
 test("room booking review saves room selections through the room API and then offers full payment", async () => {

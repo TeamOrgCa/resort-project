@@ -156,7 +156,7 @@ function bookingHarness({ version = 2, insertError = null, manual = false, servi
   const previousRpc=client.rpc; client.rpc=(name,args)=>name==="get_legal_policies"?Promise.resolve({data:[legalPoliciesFixture().terms,legalPoliciesFixture().privacy],error:null}):previousRpc(name,args);
   const route = loadTsModule(manual ? "app/api/admin/reservations/create/route.ts" : "app/api/reservations/create/route.ts", {
     "@/lib/server/booking-discounts": { BookingPromoError: class extends Error {}, loadBookingPromo: async code => code ? promo : null, applyNewBookingPromo: async (...args) => { if (args[2]) appliedPromos.push(args); } },
-    "@/lib/server/swimming-rooms": { SwimmingRoomsError: class extends Error {}, quoteSwimmingRooms: async () => ({total:roomTotal}), finalizeSwimmingRooms: async (rid,actor,rooms,code,gross,net) => { finalizedRooms.push({rid,actor,rooms,gross,net}); if (code) appliedPromos.push([rid,actor,code,gross,!manual,net]); } },
+    "@/lib/server/swimming-rooms": { SwimmingRoomsError: class extends Error {}, quoteSwimmingRooms: async () => ({total:roomTotal}), finalizeSwimmingRooms: async (rid,actor,rooms,code,gross,net,eligibleGuests=0) => { finalizedRooms.push({rid,actor,rooms,gross,net,...(eligibleGuests?{eligibleGuests}:{})}); if (code) appliedPromos.push([rid,actor,code,gross,!manual,net]); } },
     "@/lib/supabase/server": { createClient: async () => client },
     "@/lib/server/role-permissions": { staffHasPermission: async () => permitted },
     "@/lib/server/admin-audit": { requireActiveStaff: async () => ({ supabase: client, staffUser: { role: "admin", id: "staff" } }), createAuditLog: async () => true },
@@ -183,6 +183,25 @@ test("reservation creation stamps its schedule and bills server prices rather th
   assert.equal(h.writes.find(w => w.table === "reservations").payload.privacy_policy_id, legalPoliciesFixture().privacy.policy_id);
   assert.equal(h.writes.find(w => w.table === "transactions").payload.total_amount, 4568.15);
   assert.equal(h.writes.some(w => w.table === "reservation_units"), false, "Private cottages are included without claiming a catalog room");
+});
+
+test('private bookings calculate the declared PWD/senior discount and reject invalid counts before writes', async () => {
+  const h = bookingHarness();
+  const response = await h.save({ eligibleGuests: 3, specialRequests: "Please prepare tables." });
+  assert.equal(response.status, 201);
+  const notes = h.writes.find(write => write.table === "reservations").payload.special_requests;
+  assert.match(notes, /Please prepare tables\./);
+  const saved = (await response.json()).reservation;
+  assert.equal(saved.totalAmount, 4450.3);
+  assert.equal(saved.discountAmount, 117.85);
+  assert.equal(saved.discountKind, "pwd_senior");
+  assert.equal(h.finalizedRooms[0].eligibleGuests, 3);
+  assert.equal(h.finalizedRooms[0].net, 4450.3);
+  for (const eligibleGuests of [-1, 1.5, 23, "2", null]) {
+    const invalid = bookingHarness();
+    assert.equal((await invalid.save({ eligibleGuests })).status, 400);
+    assert.equal(invalid.writes.length, 0);
+  }
 });
 
 test('customer and manual private bookings pass normalized room choices into atomic finalization and reject stale totals before writes',async()=>{
@@ -343,4 +362,22 @@ test("guest booking and manual entry reject malformed contact numbers before cre
   assert.deepEqual(guest.writes.find(write => write.table === "guests").payload, { phone_number: "+639171234567" });
   const staff = bookingHarness({ manual: true }); assert.equal((await staff.save()).status, 201);
   assert.equal(staff.writes.find(write => write.table === "walk_in_guests").payload.phone_number, "+639123456789");
+});
+
+
+test('private quotes compare PWD/senior savings with promos and exclude extra guests and services from the discount', () => {
+  const { computeBookingPricing } = loadTsModule('lib/booking/pricing.ts');
+  const rates = { weekday: { day: { baseRate: 10000, addOnPerHead: 100 } }, weekend: { day: { baseRate: 10000, addOnPerHead: 100 } } };
+  const input = { bookingMode: 'day', startDatetime: '2027-06-14T08:00:00+08:00', endDatetime: '2027-06-14T16:00:00+08:00', adultCount: 20, childCount: 0, eligibleGuests: 5, servicesTotal: 1000 };
+  for (const [promo, savings, kind] of [
+    [null, 500, 'pwd_senior'],
+    [{ code: 'SAVE10', discount_type: 'percent', discount_value: 10 }, 1000, 'promo'],
+    [{ code: 'TIE', discount_type: 'percent', discount_value: 5 }, 500, 'pwd_senior'],
+    [{ code: 'SMALL', discount_type: 'fixed', discount_value: 250 }, 500, 'pwd_senior'],
+  ]) {
+    const price = computeBookingPricing({ ...input, promo }, rates);
+    assert.equal(price.discountAmount, savings); assert.equal(price.discountKind, kind); assert.equal(price.total, 11000 - savings);
+  }
+  const price = computeBookingPricing({ ...input, adultCount: 22, eligibleGuests: 22 }, rates);
+  assert.equal(price.discountAmount, 2000); assert.equal(price.extraGuestTotal, 200); assert.equal(price.total, 9200);
 });

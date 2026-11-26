@@ -3,15 +3,17 @@ import { useEffect, useState } from "react";
 import BookingDateCalendar from "@/components/booking/BookingDateCalendar";
 import { formatManilaDate, formatManilaDateTime, formatManilaTime, manilaDateKey } from "@/lib/booking/manila-date";
 import { isPublicSwimmingStartAllowed, publicSwimmingAvailabilityLabel, publicSwimmingDateLabel, publicSwimmingSessionLabel, publicSwimmingWindow,
-  type PublicSwimmingCatalog, type PublicSwimmingSlot, type PublicSwimmingType } from "@/lib/booking/public-swimming";
+  type PublicSwimmingCatalog, type PublicSwimmingSession, type PublicSwimmingSlot, type PublicSwimmingType } from "@/lib/booking/public-swimming";
 
 const compactStatus: Record<string, string> = {
-  "Partially Available": "Partial", "Unavailable — Private Reservation": "Private",
+  "Unavailable — Private Reservation": "Private",
   "Unavailable — Maintenance": "Maintenance", "Not Yet Open for Booking": "Not yet open",
   "Booking Cutoff Passed": "Cutoff passed", "Past Date": "Past date", "Fully Booked": "Full",
   "Unavailable — Session Disabled": "Disabled",
 };
 export type PublicSwimmingSelectionChange = (selection: { type: PublicSwimmingType; slot: PublicSwimmingSlot } | null, catalog: PublicSwimmingCatalog | null) => void;
+const isSessionBookable = (session?: PublicSwimmingSession) => Boolean(session?.eligibility === "eligible" && session.availability === "available"
+  && session.remainingCapacity > 0 && isPublicSwimmingStartAllowed(session.startDatetime, Date.now(), session.cutoffAt));
 export default function PublicSwimmingSelection({ onChoose, appearance = "customer", onSelectionChange }: {
   onChoose?: (type: PublicSwimmingType, slot: PublicSwimmingSlot) => void;
   appearance?: "customer" | "admin";
@@ -37,24 +39,48 @@ export default function PublicSwimmingSelection({ onChoose, appearance = "custom
     return () => { controller.abort(); window.clearInterval(timer); window.removeEventListener("focus", load); };
   }, [retry, month]);
   const dateSessions = (day: string) => catalog?.sessions.filter(s => s.date === day) ?? [];
+  const calendarSessions = (day: string) => dateSessions(day).filter(session => !typeId || session.typeId === typeId);
+  const dateUnavailableReason = (day: string) => {
+    const sessions = calendarSessions(day);
+    if (typeId && !sessions.length) return "Session unavailable";
+    if (typeId && sessions.some(isSessionBookable)) return null;
+    if (typeId && sessions.some(session => session.eligibility === "eligible" && session.availability === "available" && session.remainingCapacity > 0)) return "Booking Cutoff Passed";
+    const label = publicSwimmingDateLabel(sessions);
+    return label === "Available" || label === "Partially Available" ? null : label;
+  };
+  const dateAvailabilityLabel = (day: string) => {
+    const sessions = calendarSessions(day);
+    const availableModes = new Set(sessions
+      .filter(isSessionBookable)
+      .map(session => catalog?.types.find(type => type.type_id === session.typeId)?.mode));
+    if (availableModes.has("day") && availableModes.has("night")) return "Day & Night available";
+    if (availableModes.has("day")) return "Day available";
+    if (availableModes.has("night")) return "Night available";
+    const label = publicSwimmingDateLabel(sessions);
+    return compactStatus[label] ?? label;
+  };
+  const hasOneSessionAvailable = (day: string) => ["Day available", "Night available"].includes(dateAvailabilityLabel(day));
   const selectedSessions = dateSessions(date);
   const selected = selectedSessions.find(s => s.typeId === typeId);
-  const slot = selected?.eligibility === "eligible" && selected.availability === "available" && selected.remainingCapacity > 0
-    && isPublicSwimmingStartAllowed(selected.startDatetime, Date.now(), selected.cutoffAt) ? selected : undefined;
+  const slot = isSessionBookable(selected) ? selected : undefined;
   const type = catalog?.types.find(t => t.type_id === typeId);
+  const changeType = (nextTypeId: string) => {
+    setTypeId(nextTypeId);
+    if (date && nextTypeId && !isSessionBookable(dateSessions(date).find(session => session.typeId === nextTypeId))) setDate("");
+  };
   useEffect(() => {
     if (appearance === "admin") onSelectionChange?.(!loading && !error && type && slot ? { type, slot } : null, catalog);
   }, [appearance, onSelectionChange, catalog, loading, error, type, slot]);
   const changeMonth = (next: string) => { setMonth(next); setDate(""); setLoading(true); };
   if (appearance === "admin") return <div className="grid min-w-0 gap-4 md:grid-cols-2" aria-label="Public swimming session selection">
-    <BookingDateCalendar value={date} onChange={setDate} title="Booking date" allowUnavailableSelection
+    <BookingDateCalendar value={date} onChange={setDate} title="Booking date" allowUnavailableSelection={!typeId}
       visibleMonth={month} onMonthChange={changeMonth} disabled={loading}
-      getUnavailableReason={day => { const label = publicSwimmingDateLabel(dateSessions(day)); return ["Available", "Partially Available"].includes(label) ? null : label; }}
-      getDateHint={day => compactStatus[publicSwimmingDateLabel(dateSessions(day))] ?? publicSwimmingDateLabel(dateSessions(day))}
-      isPartiallyAvailable={day => publicSwimmingDateLabel(dateSessions(day)) === "Partially Available"}
+      getUnavailableReason={dateUnavailableReason}
+      getDateHint={dateAvailabilityLabel}
+      isPartiallyAvailable={typeId ? undefined : hasOneSessionAvailable}
       footnote="Browse any month. Session access modes, capacity and booking cutoffs apply in Philippine time." />
     <div className="min-w-0 space-y-3">
-      <label className="block text-sm text-neutral">Swimming session<select className="admin-field mt-1 w-full" value={typeId} disabled={loading} onChange={event => setTypeId(event.target.value)}>
+      <label className="block text-sm text-neutral">Swimming session<select className="admin-field mt-1 w-full" value={typeId} disabled={loading} onChange={event => changeType(event.target.value)}>
         <option value="">Select Day or Night</option>{catalog?.types.map(t => <option key={t.type_id} value={t.type_id}>{t.name}</option>)}
       </select></label>
       {loading && <p role="status" className="text-sm text-neutral/60">Checking session availability...</p>}
@@ -77,11 +103,11 @@ export default function PublicSwimmingSelection({ onChoose, appearance = "custom
     {catalog && !error && <section data-booking-guide="public-times" className="rounded-2xl bg-primary/5 p-4 sm:p-5">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-neutral">Select Booking Mode</h2>
-        <p aria-live="polite" className="text-sm text-neutral/70">{date ? `${formatManilaDate(date)} · ${publicSwimmingDateLabel(selectedSessions)}` : "Select a date to view session availability."}</p>
+        <p aria-live="polite" className="text-sm text-neutral/70">{date ? `${formatManilaDate(date)} · ${dateAvailabilityLabel(date)}` : "Select a date to view session availability."}</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">{catalog.types.map(t => {
         const window = publicSwimmingWindow(date || catalog.today, t), session = selectedSessions.find(s => s.typeId === t.type_id);
-        return <button key={t.type_id} type="button" data-public-session={t.mode} aria-pressed={typeId === t.type_id} onClick={() => setTypeId(t.type_id)}
+        return <button key={t.type_id} type="button" data-public-session={t.mode} aria-pressed={typeId === t.type_id} onClick={() => changeType(t.type_id)}
           className={`rounded-xl border px-4 py-3 text-left text-neutral transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${typeId === t.type_id ? "border-primary bg-white" : "border-neutral/20 bg-white/60 hover:border-primary/40"}`}>
           <span className="block font-semibold">{t.name}</span>
           <span className="block text-sm text-neutral/70">{formatManilaTime(window.startDatetime)} – {formatManilaTime(window.endDatetime)}</span>
@@ -103,15 +129,12 @@ export default function PublicSwimmingSelection({ onChoose, appearance = "custom
       <div className="min-w-0 space-y-6 lg:col-span-2">
         {loading && !catalog ? <section className="rounded-3xl bg-white p-4 shadow-xl sm:p-8"><h2 className="text-xl font-bold sm:text-3xl">Select Public Swimming Date</h2><div role="status" className="mt-5 h-80 animate-pulse rounded-2xl bg-base" aria-label="Loading public swimming dates" /></section> : error ? <section className="rounded-3xl bg-white p-5 shadow-xl sm:p-8"><p role="alert" className="text-red-700">{error}</p><button type="button" className="mt-4 min-h-11 rounded-lg border border-neutral/20 px-4 py-2 text-sm font-semibold text-neutral hover:bg-base" onClick={() => { setLoading(true); setRetry(n => n + 1); }}>Retry availability</button></section> : catalog && <>
           <div data-booking-guide="dates-calendar">
-            <BookingDateCalendar value={date} onChange={setDate} appearance="customer" allowUnavailableSelection
-              title="Select Booking Date" description="Browse any month. Select a date to inspect each session's access mode, booking opening date and capacity (Philippine time)."
+            <BookingDateCalendar value={date} onChange={setDate} appearance="customer" allowUnavailableSelection={!typeId}
+              title="Select Booking Date" description={type ? `Showing available dates for ${type.name}. Grayed-out dates are unavailable for this session (Philippine time).` : "Browse any month. Select Day or Night to filter available dates, or select a date to inspect both sessions (Philippine time)."}
               visibleMonth={month} onMonthChange={changeMonth} disabled={loading}
-              getUnavailableReason={day => {
-                const label = publicSwimmingDateLabel(dateSessions(day));
-                return label === "Available" || label === "Partially Available" ? null : label;
-              }}
-              getDateHint={day => { const label = publicSwimmingDateLabel(dateSessions(day)); return compactStatus[label] ?? label; }}
-              isPartiallyAvailable={day => publicSwimmingDateLabel(dateSessions(day)) === "Partially Available"}
+              getUnavailableReason={dateUnavailableReason}
+              getDateHint={dateAvailabilityLabel}
+              isPartiallyAvailable={typeId ? undefined : hasOneSessionAvailable}
               emptyLabel="Select a date to inspect the sessions."
               footnote="Public opening dates follow each session's access mode and configured booking window. Future Flexible availability is tentative. Active payment holds allocate the pool or public capacity."
               className="min-w-0 rounded-3xl bg-white p-4 shadow-xl sm:p-8" />

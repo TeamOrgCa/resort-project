@@ -85,6 +85,35 @@ async function mount(fetcher = async () => Response.json({ refunds: [], eligible
 }
 const options = reference => document.querySelector(`button[aria-label="Options for ${reference}"]`);
 
+test("manage records show eight cards per page and return to the first page when filters change", async () => {
+  const originalLength = rows.length;
+  rows.push(...Array.from({ length: 15 }, (_, index) => ({ ...rows[0], reservation_id: `extra-${index}`, reference_number: `MV-EXTRA-${index}` })));
+  const h = await mount();
+  try {
+    const cards = () => [...h.container.querySelectorAll("article")];
+    const pager = () => h.container.querySelector('[aria-label="Booking records pagination"]');
+    assert.equal(cards().length, 8);
+    assert.match(pager().textContent, /Showing 1–8 of 18/);
+    assert.equal(button(pager(), "Previous").disabled, true);
+    await click(button(pager(), "Next"));
+    assert.equal(cards().length, 8);
+    assert.match(pager().textContent, /Showing 9–16 of 18/);
+    await click(button(pager(), "Next"));
+    assert.equal(cards().length, 2);
+    assert.match(pager().textContent, /Page 3 of 3/);
+    assert.equal(button(pager(), "Next").disabled, true);
+    await value(h.container.querySelector('[aria-label="Filter by status"]'), "confirmed");
+    assert.equal(cards().length, 8);
+    assert.match(pager().textContent, /Showing 1–8 of 16/);
+    await value(h.container.querySelector('input[type="search"]'), "MV-CLOSED");
+    assert.equal(cards().length, 0);
+    assert.equal(pager(), null);
+    await click(button(h.container, "Clear filters"));
+    assert.equal(cards().length, 8);
+    assert.match(pager().textContent, /Page 1 of 3/);
+  } finally { await h.close(); rows.splice(originalLength); }
+});
+
 test("booking notifications open the right details for direct reservations, confirmed payments and both reschedule ID formats", async () => {
   rows.push({ ...rows[0], reservation_id: "saved", reference_number: "MV-SAVED", status: "pending" });
   try {

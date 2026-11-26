@@ -1,4 +1,5 @@
 "use client";
+import { swimmingRoomDescription } from "@/lib/booking/swimming-rooms";
 import RoomBookingForm from "@/components/booking/RoomBookingForm";
 import PublicSwimmingForm from "@/components/booking/PublicSwimmingForm";
 import PromoCodeInput from "@/components/booking/PromoCodeInput";
@@ -76,9 +77,8 @@ function BookingFormContent() {
   const bookingDraft = useBookingStore((state) => state.bookingDraft);
   const [checkingPromo, setCheckingPromo] = useState(false);
   const [promo, setPromo] = useState<PromoQuote | null>(bookingDraft.promo ?? null);
+  const [eligibleGuests, setEligibleGuests] = useState(bookingDraft.eligibleGuests ?? 0);
   const [swimmingRooms, setSwimmingRooms] = useState<RoomSelection[]>(bookingDraft.swimmingRooms ?? []);
-  const roomsState = useSwimmingRooms(bookingDraft.startDatetime, bookingDraft.endDatetime, swimmingRooms, true);
-  const roomsTotal = roomsState.quote?.total ?? 0;
   const setBookingDraft = useBookingStore((state) => state.setBookingDraft);
   const [formData, setFormData] = useState({
     firstName: bookingDraft.firstName || "",
@@ -89,6 +89,8 @@ function BookingFormContent() {
     childCount: 0,
     specialRequests: bookingDraft.specialRequests || "",
   });
+  const roomsState = useSwimmingRooms(bookingDraft.startDatetime, bookingDraft.endDatetime, swimmingRooms, true, formData.adultCount + formData.childCount);
+  const roomsTotal = roomsState.quote?.total ?? 0;
   const [address, setAddress] = useState(() => parsePhilippineAddress(bookingDraft.address || ""));
 
   const [serviceQuantities, setServiceQuantities] = useState<Record<string, number>>(() => Object.fromEntries(bookingDraft.services.map(service => [service.id, service.quantity ?? 1])));
@@ -224,13 +226,14 @@ function BookingFormContent() {
     services.map(service => ({ service_id: service.id, name: service.name, max_quantity: service.maxQuantity, billing_type: service.billingType })));
   const amenitiesTotal = selectedServiceItems.reduce((total, service) => total + service.price * Math.max(0, Number.isFinite(service.quantity) ? service.quantity : 0), 0);
   const guestCountsValid = isValidGuestCounts(formData.adultCount, formData.childCount);
+  const eligibleGuestsValid = Number.isSafeInteger(eligibleGuests) && eligibleGuests >= 0 && eligibleGuests <= formData.adultCount + formData.childCount;
   const pricing = computeBookingPricing({
     bookingMode: bookingDraft.bookingMode,
     startDatetime: effectiveStartDate.toISOString(),
     endDatetime: effectiveEndDate.toISOString(),
     adultCount: formData.adultCount,
     childCount: formData.childCount,
-    servicesTotal: amenitiesTotal, promo,
+    servicesTotal: amenitiesTotal, promo, eligibleGuests: eligibleGuestsValid ? eligibleGuests : 0,
   }, packageSchedule.rates);
   const subtotal = pricing.subtotal + roomsTotal;
   const tax = pricing.tax;
@@ -252,6 +255,10 @@ function BookingFormContent() {
     }
     if (!guestCountsValid) {
       setFormError(`Enter at least one guest and no more than ${MAX_GUESTS} guests in total.`);
+      return;
+    }
+    if (!eligibleGuestsValid) {
+      setFormError("PWD / senior guests must be between 0 and the total number of guests. Count each guest once.");
       return;
     }
     if (!isValidName(formData.firstName.trim()) || !isValidName(formData.lastName.trim())) {
@@ -287,6 +294,9 @@ function BookingFormContent() {
       address: addressValidation.value,
       adultCount: formData.adultCount,
       childCount: formData.childCount,
+      eligibleGuests,
+      discountAmount: pricing.discountAmount,
+      discountKind: pricing.discountKind,
       unitId: "",
       roomName: "All cottages included",
       roomPrice: pricing.packageRate,
@@ -320,7 +330,6 @@ function BookingFormContent() {
             <div ref={bookingFormRef} onFocusCapture={captureInitial} onPointerDownCapture={captureInitial} onChangeCapture={captureChange} onInputCapture={captureChange} onClickCapture={captureClick} className="min-w-0 lg:col-span-2">
               <div className="bg-white rounded-3xl shadow-xl p-4 sm:p-8">
                 <h2 className="mb-6 text-2xl font-bold text-neutral sm:mb-8 sm:text-3xl">Reservation Details</h2>
-                <PrivatePackageDetails />
 
                 {/* Personal Information */}
                 <div data-booking-guide="guest-personal" className="mb-8">
@@ -384,7 +393,7 @@ function BookingFormContent() {
                   <p className="mt-4 text-sm text-neutral/70">All cottages are included with your private swimming reservation.</p>
                 </div>
 
-                <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={bookingDraft.startDatetime} end={bookingDraft.endDatetime} privateSwimming />
+                <SwimmingRoomSelection state={roomsState} value={swimmingRooms} onChange={setSwimmingRooms} start={bookingDraft.startDatetime} end={bookingDraft.endDatetime} guestCount={formData.adultCount + formData.childCount} privateSwimming />
                 {/* Additional Services */}
                 <div data-booking-guide="guest-services" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Additional Services & Amenities</h3>
@@ -406,7 +415,16 @@ function BookingFormContent() {
                   {quantityError && <p role="alert" className="mt-3 text-sm text-red-700">{quantityError}</p>}
                 </div>
 
-                <div className="mb-6"><PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />{pricing.discountAmount > 0 && <p className="mt-2 text-sm font-semibold text-primary">Promo discount: -{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(pricing.discountAmount)}</p>}<p className="mt-2 text-xs text-neutral/65">PWD / senior discounts can be verified by resort staff. Only the larger discount applies to the pool package. Additional rooms and services are charged separately.</p></div>
+                <section className="mb-8 space-y-4">
+                  <h3 className="text-xl font-semibold text-neutral">PWD / Senior and Promo Discounts</h3>
+                  <label className="block max-w-sm text-sm font-medium text-neutral/70">PWD / senior guests
+                    <GuestCountInput name="eligibleGuests" aria-label="PWD / senior guests" value={eligibleGuests} onValueChange={value => { setEligibleGuests(value); setFormError(null); }} min={0} max={formData.adultCount + formData.childCount} step={1} required className="mt-2 w-full rounded-lg border border-neutral/20 px-4 py-3" />
+                  </label>
+                  {!eligibleGuestsValid && <p role="alert" className="text-sm text-red-700">The PWD / senior count cannot exceed your total guests. Count each guest once.</p>}
+                  <p className="text-sm text-neutral/70">The 20% PWD / senior discount is proportional to eligible guests and applies to the pool package. Only the larger of this discount or a promo applies; extra guests, rooms and services are charged separately. Bring valid IDs for staff verification at arrival.</p>
+                  <PromoCodeInput promo={promo} onChange={setPromo} onBusyChange={setCheckingPromo} />
+                  <BookingPromoDiscount code={promo?.code ?? null} amount={pricing.discountAmount} kind={pricing.discountKind} />
+                </section>
                 {/* Special Requests */}
                 <div data-booking-guide="guest-requests" className="mb-8">
                   <h3 className="text-xl font-semibold text-neutral mb-4">Special Requests</h3>
@@ -429,7 +447,7 @@ function BookingFormContent() {
                   </Link>
                   <div className="flex-1">
                     <button data-booking-guide="guest-continue" type="button" onClick={handleContinueToPayment}
-                      disabled={checkingPromo || catalogLoading || roomsState.loading || !!roomsState.error || !roomsState.quote || Boolean(catalogError) || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || Boolean(quantityError)}
+                      disabled={checkingPromo || catalogLoading || roomsState.loading || !!roomsState.error || !roomsState.quote || Boolean(catalogError) || formData.adultCount < 1 || (formData.adultCount + formData.childCount) === 0 || !eligibleGuestsValid || Boolean(quantityError)}
                       className="w-full bg-primary text-base px-6 py-4 rounded-full font-semibold hover:bg-primary/90 transition-all transform sm:hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       Review Full Details
@@ -443,6 +461,7 @@ function BookingFormContent() {
             <div className="min-w-0 lg:col-span-1">
               <div data-booking-guide="guest-summary" className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-6">Billing Summary</h3>
+                <PrivatePackageDetails />
 
                 <div className="space-y-4 mb-6">
                   <div className="pb-4 border-b border-neutral/10">
@@ -492,7 +511,8 @@ function BookingFormContent() {
                   </div>
 
                   <div className="flex justify-between text-sm"><span>2 Standard rooms</span><span className="font-semibold text-primary">Included</span></div>
-                  {roomsState.quote?.selections.map(r => <div key={r.classificationId} className="flex justify-between gap-3 text-sm"><span>Extra {r.name} × {r.quantity}</span><span className="whitespace-nowrap">₱{(r.unitPrice * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
+                  <div className="flex justify-between gap-3 text-sm"><span>PWD / senior guests</span><span className="font-semibold text-neutral">{eligibleGuests}</span></div>
+                  {roomsState.quote?.selections.map((r, index) => <div key={index} className="flex justify-between gap-3 text-sm"><span>{swimmingRoomDescription(r, index)}</span><span className="whitespace-nowrap">₱{(r.unitPrice * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>)}
                   {selectedServiceItems.length > 0 && (
                     <div className="pb-4 border-b border-neutral/10">
                       <p className="text-sm font-semibold text-neutral mb-2">Additional Services</p>
@@ -509,7 +529,7 @@ function BookingFormContent() {
 
                   <div className="pb-4 border-b border-neutral/10">
                     <div className="flex justify-between mb-2">
-                      <span className="text-neutral/70">Subtotal (before promo)</span>
+                      <span className="text-neutral/70">Subtotal (before discount)</span>
                       <span className="whitespace-nowrap font-semibold text-neutral">₱{subtotal.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     {tax > 0 && <div className="flex justify-between">
@@ -518,7 +538,7 @@ function BookingFormContent() {
                     </div>}
                   </div>
 
-                  <BookingPromoDiscount code={promo?.code ?? null} amount={pricing.discountAmount} />
+                  <BookingPromoDiscount code={promo?.code ?? null} amount={pricing.discountAmount} kind={pricing.discountKind} />
 
                   <div className="flex justify-between text-xl font-bold">
                     <span className="text-neutral">Total</span>

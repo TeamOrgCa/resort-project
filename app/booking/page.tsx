@@ -17,7 +17,6 @@ import Footer from "@/components/Footer";
 import { useBookingStore } from "@/lib/stores/booking-store";
 import { DEFAULT_PACKAGE_TIMES, PACKAGE_TIME_KEYS, packageTimeSlot, formatPackageTimeSlot, packageTimesLabel } from "@/lib/booking/package-times";
 import { buildBookingWindow, validateBookingWindow, type BookingMode, type WholeDayVariant } from "@/lib/booking/policy";
-import PrivatePackageDetails from "@/components/booking/PrivatePackageDetails";
 import type { CustomerRoomInventory } from "@/lib/booking/customer-rooms";
 import { buildRoomStayWindow, isRoomBookingStartAllowed, ROOM_BOOKING_LEAD_MESSAGE, ROOM_CHECK_IN_TIMES, type RoomDurationHours } from "@/lib/booking/room-stay";
 import { BOOKING_LEAD_MESSAGE, isBookingStartAllowed, isOcularSlotStartAllowed } from "@/lib/booking/start-time";
@@ -98,6 +97,18 @@ export default function Booking() {
   const [availabilityError, setAvailabilityError] = useState(false);
   const [bookedOcularSlotsByDate, setBookedOcularSlotsByDate] = useState<Record<string, string[]>>({});
   const [availableTimes, setAvailableTimes] = useState<string[]>([]);
+
+  useEffect(() => {
+    const showOptions = () => {
+      setSelectedBookingOption(null);
+      setVisitScheduled(false);
+      setStayError(null);
+      setOcularError(null);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    window.addEventListener("booking:show-options", showOptions);
+    return () => window.removeEventListener("booking:show-options", showOptions);
+  }, []);
 
   useEffect(() => {
     const refreshClock = () => setNow(Date.now());
@@ -699,7 +710,6 @@ export default function Booking() {
           }} />}
           {bookingType === "stay" && !isRoomBooking && selectedBookingOption !== "public" && (
             <div data-booking-guide="booking-mode" className="bg-primary/5 p-4 sm:p-5 rounded-2xl mb-6">
-              <PrivatePackageDetails />
               <h3 className="font-bold text-neutral mb-3">Select Booking Mode</h3>
               <div className={`grid gap-3 ${ENABLE_CUSTOM_BOOKING ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
                 {(() => {
@@ -848,12 +858,6 @@ export default function Booking() {
                   </div>
                 </div>
 
-                {selectedBookingOption === "private" && <div className="mb-4 rounded-xl bg-primary/5 p-3 text-sm">
-                  <p className="mb-2 font-semibold">Private swimming session availability</p>
-                  <div className="max-h-64 space-y-2 overflow-y-auto">{swimmingSessions.filter(s => s.booking_date.startsWith(toDateKey(currentMonth).slice(0, 7))).map(s => <p key={`${s.booking_date}-${s.period}`}>
-                    {s.booking_date} · {s.period === "day" ? "Day" : "Night / Overnight"}: {s.reason ?? "Available"} · {SWIMMING_MODE_LABELS[s.access_mode]}
-                  </p>)}</div>
-                </div>}
                 {bookingType === "stay" && <p className="mb-4 text-sm text-neutral/70" aria-live="polite">{isRoomBooking ? "Select a date to see 3-hour and 12-hour room stays" : `Showing dates available for ${selectedModeLabel}`}, through {maxBookingDate}. Unavailable dates are disabled.</p>}
                 <div className="mb-6">
                   <h3 className="text-lg sm:text-2xl font-semibold text-neutral text-center mb-2">

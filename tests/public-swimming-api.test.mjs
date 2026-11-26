@@ -3,6 +3,16 @@ import assert from 'node:assert/strict';
 import {loadTsModule} from './helpers/load-ts-module.mjs';
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const body={requestId:id(1),typeId:id(2),pricingVersion:1,firstName:'Maria',lastName:'Cruz',phone:'09171234567',address:'Street, City, Province, 1234',startDatetime:'2030-01-01T08:00:00+08:00',endDatetime:'2030-01-01T16:00:00+08:00',adultCount:2,childCount:1,eligibleGuests:0,selectedServices:[],expectedTotal:420,bookingPolicyVersion:1,acceptedPoliciesVersion:'current'};
+
+test('public booking rejects room guests above admissions before sending any database mutation',async()=>{
+ const h=harness(),room={classificationId:id(40),quantity:1,pricingVersion:1,durationHours:8,occupants:6};
+ for(const swimmingRooms of [[room],[{...room,occupants:4},{...room,occupants:2}]]){
+  const response=await h.post({...body,adultCount:5,childCount:0,swimmingRooms});assert.equal(response.status,400);
+  const error=await response.json();assert.equal(error.field,'swimmingRooms');assert.match(error.message,/cannot exceed/);
+ }
+ assert.equal(h.calls.length,0);
+ assert.equal((await h.post({...body,adultCount:5,childCount:0,swimmingRooms:[{...room,occupants:5}]})).status,201);
+});
 function harness({customer=true,error=null}={}){
  const calls=[];
  const route=loadTsModule('app/api/reservations/public-swimming/route.ts',{

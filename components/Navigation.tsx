@@ -10,6 +10,10 @@ export default function Navigation() {
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
   const closeMenu = () => setIsMenuOpen(false);
+  const showBookingOptions = () => {
+    closeMenu();
+    window.dispatchEvent(new window.Event("booking:show-options"));
+  };
 
   return (
     <nav className="fixed top-0 w-full bg-base/95 backdrop-blur-sm z-50 border-b border-neutral/10">
@@ -22,7 +26,7 @@ export default function Navigation() {
           {/* Desktop Navigation */}
           <div className="hidden lg:flex space-x-8">
             <Link href="/about" className="text-neutral hover:text-primary transition-colors">About</Link>
-            <Link href="/booking" className="text-neutral hover:text-primary transition-colors">Book Now</Link>
+            <Link href="/booking" onClick={showBookingOptions} className="text-neutral hover:text-primary transition-colors">Book Now</Link>
             <Link href="/manage" className="text-neutral hover:text-primary transition-colors">Manage Booking</Link>
             <Link href="/reviews" className="text-neutral hover:text-primary transition-colors">Reviews</Link>
           </div>
@@ -67,7 +71,7 @@ export default function Navigation() {
             <Link 
               href="/booking" 
               className="block text-neutral hover:text-primary hover:bg-primary/5 px-4 py-3 rounded-lg transition-colors"
-              onClick={closeMenu}
+              onClick={showBookingOptions}
             >
               Book Now
             </Link>

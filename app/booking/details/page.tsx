@@ -1,4 +1,5 @@
 "use client";
+import { swimmingRoomDescription } from "@/lib/booking/swimming-rooms";
 
 import { serviceCount } from "@/lib/booking/service-billing";
 
@@ -15,6 +16,7 @@ import PolicyAgreement from "@/components/legal/PolicyAgreement";
 import BookingPromoDiscount from "@/components/booking/BookingPromoDiscount";
 import { requiresFullBookingPayment } from "@/lib/booking/commercial-types";
 import PrivatePackageDetails from "@/components/booking/PrivatePackageDetails";
+import { roomSelectionLabel, summarizeRoomSelections } from "@/lib/booking/room-selection-summary";
 
 const parseDateTimeString = (value: string | null) => {
   if (!value) return null;
@@ -62,6 +64,7 @@ function BookingDetailsContent() {
   const downPayment = requiresFullPayment ? Number(bookingDraft.total || 0) : downPaymentAmount(Number(bookingDraft.total || 0));
   const remainingBalance = Math.max(Number(bookingDraft.total || 0) - downPayment, 0);
   const costSummary = buildBookingCostSummary(bookingDraft);
+  const roomGroups = summarizeRoomSelections(bookingDraft.roomSelections ?? []);
 
    // FIXED ghost saved state
   const isAlreadySaved =
@@ -113,6 +116,7 @@ function BookingDetailsContent() {
           acceptedPoliciesVersion: legalPolicyVersion, bookingPolicyVersion,
         } : {
           swimmingRooms: bookingDraft.swimmingRooms ?? [], expectedTotal: bookingDraft.total,
+          eligibleGuests: bookingDraft.eligibleGuests ?? 0,
           promoCode: bookingDraft.promoCode ?? null,
           bookingMode: bookingDraft.bookingMode,
           packageRateVersion: bookingDraft.packageRateVersion,
@@ -143,6 +147,9 @@ function BookingDetailsContent() {
               id?: string;
               referenceNumber?: string;
               totalAmount?: number;
+              discountAmount?: number;
+              discountKind?: string;
+              eligibleGuests?: number;
               paymentDeadlineAt?: string | null;
             };
           }
@@ -164,6 +171,7 @@ function BookingDetailsContent() {
         ...(Number.isFinite(json.reservation.totalAmount)
           ? { total: Number(json.reservation.totalAmount), downPayment: requiresFullPayment ? Number(json.reservation.totalAmount) : downPaymentAmount(Number(json.reservation.totalAmount)) }
           : {}),
+        ...(Number.isFinite(json.reservation.discountAmount) ? { discountAmount: Number(json.reservation.discountAmount), discountKind: json.reservation.discountKind ?? "none", eligibleGuests: json.reservation.eligibleGuests ?? bookingDraft.eligibleGuests ?? 0 } : {}),
       });
       setPaymentDeadlineAt(json.reservation.paymentDeadlineAt ?? null);
       setSaveSuccess(Number(json.reservation.totalAmount) === 0 ? "Booking confirmed. Your promo covers the bill; no payment is needed." : "Booking saved successfully. Continue to payment to secure your reservation.");
@@ -231,7 +239,7 @@ function BookingDetailsContent() {
                         End: <span className="font-semibold text-neutral">{endDateTime?.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) || "-"}</span>
                       </p>
                       <p>Mode: <span className="font-semibold text-neutral">{isRoomBooking ? "Room accommodation" : bookingDraft.bookingMode === "whole_day" ? bookingDraft.wholeDayVariant === "day_to_night" ? "Whole Day – Daytime" : "Whole Day – Overnight" : { day: "Day", night: "Night", custom: "Custom" }[bookingDraft.bookingMode]}</span></p>
-                      {isRoomBooking ? <p>Accommodation: <span className="font-semibold text-neutral">{bookingDraft.roomName}</span></p> : !isPublicBooking && <p>Cottages: <span className="font-semibold text-neutral">All included</span></p>}
+                      {isRoomBooking ? <p>Accommodation: <span className="font-semibold text-neutral">{roomSelectionLabel(bookingDraft.roomSelections ?? []) || bookingDraft.roomName}</span></p> : !isPublicBooking && <p>Cottages: <span className="font-semibold text-neutral">All included</span></p>}
                       <p>Duration: <span className="font-semibold text-neutral">{durationHours === null ? "Unavailable" : `${durationHours.toLocaleString("en-PH", { maximumFractionDigits: 2 })} ${durationHours === 1 ? "hr" : "hrs"}`}</span></p>
 
 
@@ -239,9 +247,9 @@ function BookingDetailsContent() {
                     </div>
                   </div>
 
-                  {!isRoomBooking && !isPublicBooking && <PrivatePackageDetails />}
-                  {!isRoomBooking && !!bookingDraft.swimmingRooms?.length && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="mb-3 text-lg font-semibold">Additional Rooms</h3><ul className="space-y-2 text-sm">{bookingDraft.swimmingRooms.map(r => <li key={r.classificationId}>{r.name} × {r.quantity} · ₱{(Number(r.unitPrice || 0) * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2 })} for the full swimming session</li>)}</ul></section>}
-                  {isRoomBooking && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="mb-3 text-lg font-semibold">Selected Rooms</h3><ul className="space-y-2 text-sm">{bookingDraft.roomSelections?.map((r, i) => <li key={i}>Room {i + 1}: {r.name} &middot; {r.occupants} guest(s) &middot; {durationHours} hours</li>)}</ul><p className="mt-3 text-sm">Declared PWD / senior guests: {bookingDraft.eligibleGuests ?? 0}. Bring valid IDs for staff verification at arrival.</p></section>}
+                  {!isRoomBooking && !!bookingDraft.swimmingRooms?.length && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="mb-3 text-lg font-semibold">Additional Rooms</h3><ul className="space-y-2 text-sm">{bookingDraft.swimmingRooms.map((r, index) => <li key={index}>{swimmingRoomDescription(r, index)} · ₱{(Number(r.unitPrice || 0) * r.quantity).toLocaleString("en-PH", { minimumFractionDigits: 2 })}{r.durationHours === undefined ? " for the full swimming session" : ` · Extra guests: ${r.extraGuests ?? 0} (₱${Number(r.additionalGuestCharge || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })})`}</li>)}</ul></section>}
+                  {isRoomBooking && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="mb-3 text-lg font-semibold">Selected Rooms</h3><ul className="space-y-2 text-sm">{roomGroups.map(room => <li key={room.classificationId}>{room.name} × {room.quantity} &middot; {room.guests} guest(s) total &middot; {durationHours} hours</li>)}</ul><p className="mt-3 text-sm">Declared PWD / senior guests: {bookingDraft.eligibleGuests ?? 0}. Bring valid IDs for staff verification at arrival.</p></section>}
+                  {!isRoomBooking && !isPublicBooking && <p className="text-sm text-neutral/80">Declared PWD / senior guests: {bookingDraft.eligibleGuests ?? 0}. Your total includes the larger of the PWD / senior discount or promo. Bring valid IDs for staff verification at arrival.</p>}
                   {isPublicBooking && <section className="rounded-xl border border-neutral/10 p-4"><h3 className="font-semibold">{bookingDraft.publicSwimmingType?.name ?? "Public Swimming"}</h3><p className="mt-2 text-sm">{bookingDraft.adultCount} adults · {bookingDraft.childCount} children · {bookingDraft.eligibleGuests ?? 0} PWD / senior guests. Bring valid IDs for staff verification.</p></section>}
                   <div className="rounded-xl border border-neutral/10 p-4">
                     <h3 className="text-lg font-semibold text-neutral mb-3">Selected Services</h3>
@@ -303,6 +311,7 @@ function BookingDetailsContent() {
             <div className="lg:col-span-1">
               <div className="bg-white rounded-3xl shadow-xl booking-summary p-4 sm:p-8 lg:sticky lg:top-28">
                 <h3 className="text-2xl font-bold text-neutral mb-4">Quick Summary</h3>
+                {!isRoomBooking && !isPublicBooking && <PrivatePackageDetails />}
                 <div className="space-y-3 text-sm text-neutral/80">
                   <BookingPromoDiscount code={costSummary.promoCode} amount={costSummary.discountAmount} kind={costSummary.discountKind} />
                   <div className="flex justify-between"><span>Total</span><span className="font-semibold text-neutral">₱{Number(bookingDraft.total || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
