@@ -8,19 +8,19 @@ const c=swimmingRoomCatalog.classifications[0],start='2030-06-01T08:00:00+08:00'
 test('custom duration quotes honor edited hourly rates and reject unconfigured base or extension prices',()=>{
  const {swimmingRoomStayPrice}=loadTsModule('lib/booking/swimming-rooms.ts');
  const rates={...c,rate_3_hours:300,rate_8_hours:900,rate_12_hours:1200,extension_hourly_rate:150};
- for(const [hours,baseHours,extensionHours,total] of [[1,3,0,300],[3,3,0,300],[4,3,1,450],[5,3,2,600],[7,3,4,900],[8,8,0,900],[10,8,2,1200],[12,12,0,1200],[14,12,2,1500]]){
+ for(const [hours,baseHours,extensionHours,total] of [[3,3,0,300],[4,3,1,450],[5,3,2,600],[7,3,4,900],[8,8,0,900],[10,8,2,1200],[12,12,0,1200],[14,12,2,1500]]){
   const quote=swimmingRoomStayPrice(rates,hours);assert.equal(quote.baseHours,baseHours);assert.equal(quote.extensionHours,extensionHours);assert.equal(quote.accommodation,total);
  }
  assert.equal(swimmingRoomStayPrice({...rates,extension_hourly_rate:175},5).accommodation,650);
  assert.throws(()=>swimmingRoomStayPrice({...rates,extension_hourly_rate:0},5),/extension rate is not configured/);
  assert.throws(()=>swimmingRoomStayPrice({...rates,rate_8_hours:null},9),/8-hour room rate/);
  assert.equal(swimmingRoomStayPrice({...rates,rate_8_hours:null},5).accommodation,600);
- for(const hours of [0.5,4.5,6.25])assert.throws(()=>swimmingRoomStayPrice(rates,hours),/whole room hours/);
+ for(const hours of [0,1,2,0.5,4.5,6.25])assert.throws(()=>swimmingRoomStayPrice(rates,hours),/whole room hours/);
 });
 
 test('custom room sessions follow configured bases, extensions and exact checkout including minutes',()=>{
  const {swimmingRoomEnd,swimmingRoomDurationLabel}=loadTsModule('lib/booking/swimming-rooms.ts');
- for(const [hours,price] of [[2,300],[4,400],[6,600],[7,700],[10,600],[14,800],[22,1600]]){
+ for(const [hours,price] of [[3,300],[4,400],[6,600],[7,700],[10,600],[14,800],[22,1600]]){
   const room={classificationId:standardId,quantity:1,pricingVersion:1,occupants:2,durationHours:hours};
   const quote=swimmingRoomsQuote(swimmingRoomCatalog,[room],start,end(hours),false,2);
   assert.equal(quote.total,price);assert.equal(swimmingRoomEnd(start,end(hours),room),end(hours));
@@ -51,7 +51,7 @@ test('room quotes reject guests exceeding booking admissions, including totals s
 test('individual room requests retain guests and duration while rejecting incomplete or grouped entries',()=>{
  const row={classificationId:standardId,quantity:1,pricingVersion:1,occupants:3,durationHours:3};
  assert.deepEqual(parseSwimmingRooms([{...row,unitPrice:1,additionalGuestCharge:0},{...row,durationHours:12}]),[row,{...row,durationHours:12}]);
- for(const patch of [{quantity:2},{occupants:0},{occupants:2.5},{durationHours:0},{durationHours:4.5},{durationHours:25},{durationHours:"6"},{occupants:undefined},{durationHours:undefined}]) assert.equal(parseSwimmingRooms([{...row,...patch}]),null);
+ for(const patch of [{quantity:2},{occupants:0},{occupants:2.5},{durationHours:0},{durationHours:1},{durationHours:2},{durationHours:4.5},{durationHours:25},{durationHours:"6"},{occupants:undefined},{durationHours:undefined}]) assert.equal(parseSwimmingRooms([{...row,...patch}]),null);
  assert.deepEqual(parseSwimmingRooms([{...row,durationHours:5}]),[{...row,durationHours:5}]);
  const legacy={classificationId:standardId,quantity:1,pricingVersion:1};
  assert.equal(parseSwimmingRooms([legacy,legacy]),null);assert.equal(parseSwimmingRooms([row,legacy]),null);
@@ -125,3 +125,12 @@ test('private eligibility is sent only to the new atomic discount RPC signature'
    }
   }
  });
+
+test('public and private additional rooms require at least three whole hours',()=>{
+ const room={classificationId:standardId,quantity:1,pricingVersion:1,occupants:1};
+ for(const privateSwimming of [false,true]){
+  for(const durationHours of [1,2])
+   assert.throws(()=>swimmingRoomsQuote(swimmingRoomCatalog,[{...room,durationHours}],start,end(8),privateSwimming,1),/minimum 3/);
+  assert.equal(swimmingRoomsQuote(swimmingRoomCatalog,[{...room,durationHours:3}],start,end(3),privateSwimming,1).total,300);
+ }
+});

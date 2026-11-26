@@ -1,5 +1,5 @@
 -- Apply AFTER public-swimming-session-room-migration.sql.
--- Public and private additional rooms may use any positive whole-hour duration within swimming checkout.
+-- Public and private additional rooms may use any whole-hour duration of at least 3 hours within swimming checkout.
 -- Individual rooms use the preceding 3/8/12-hour base rate plus rounded-up hourly extensions.
 -- Grouped legacy requests retain their pricing; saved charges and stays are not rewritten.
 begin;
@@ -41,9 +41,9 @@ begin
       raise exception 'Room rates changed. Refresh your room choices' using errcode='40001'; end if;
     individual:=item ? 'occupants' or item ? 'durationHours';
     if individual and (p_included or qty<>1 or jsonb_typeof(item->'durationHours') is distinct from 'number'
-      or case when jsonb_typeof(item->'durationHours')='number' then (item->>'durationHours')::numeric<1 or (item->>'durationHours')::numeric>24 or (item->>'durationHours')::numeric<>trunc((item->>'durationHours')::numeric) else true end or jsonb_typeof(item->'occupants') is distinct from 'number'
+      or case when jsonb_typeof(item->'durationHours')='number' then (item->>'durationHours')::numeric<3 or (item->>'durationHours')::numeric>24 or (item->>'durationHours')::numeric<>trunc((item->>'durationHours')::numeric) else true end or jsonb_typeof(item->'occupants') is distinct from 'number'
       or coalesce(item->>'occupants','') !~ '^[0-9]+$') then
-      raise exception 'Choose a guest count and whole room hours within your swimming stay' using errcode='22023'; end if;
+      raise exception 'Choose a guest count and whole room hours (minimum 3) within your swimming stay' using errcode='22023'; end if;
     hours:=case when individual then (item->>'durationHours')::numeric else session_hours end;
     -- Normalize JSON fractional hours to the exact swimming checkout when equal.
     if individual and abs(hours-session_hours)<=0.000000001 then hours:=trim_scale(session_hours); end if;

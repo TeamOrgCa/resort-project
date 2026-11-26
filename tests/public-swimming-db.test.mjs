@@ -663,7 +663,7 @@ test('public five-hour room stays use hourly extensions, reserve exactly to nigh
  const roomPrices=[standard,family].map(c=>300+2*Number(c.extension_hourly_rate));
  const body=await input({typeId:type.type_id,pricingVersion:Number(type.pricing_version),startDatetime:night.starts_at,endDatetime:night.ends_at,
   adultCount:5,childCount:0,swimmingRooms:rooms,expectedTotal:5*Number(type.adult_rate)+roomPrices.reduce((a,b)=>a+b,0)});
- for(const durationHours of [4.5,5.25])await assert.rejects(()=>save({...body,swimmingRooms:[{...rooms[0],durationHours}]}),e=>e.code==='22023'&&/whole room hours/.test(e.message));
+ for(const durationHours of [1,2,4.5,5.25])await assert.rejects(()=>save({...body,swimmingRooms:[{...rooms[0],durationHours}]}),e=>e.code==='22023'&&/whole room hours/.test(e.message));
  const result=await save(body);assert.equal((await save(body)).id,result.id);
  const assignments=(await db.query('select * from room_assignments where reservation_id=$1',[result.id])).rows;
  assert.equal(assignments.length,2);assert.ok(assignments.every(a=>a.pricing_snapshot.duration_hours===5&&a.pricing_snapshot.extension_hours===2&&Date.parse(a.expected_checkout)===Date.parse(night.ends_at)));
@@ -694,13 +694,13 @@ test('full-session public rooms follow edited night configuration across midnigh
 test('private swimming supports independent custom durations and commits itemized extensions and extra pax once',async()=>{
  await db.exec("update room_classifications set rate_3_hours=300,rate_8_hours=900,rate_12_hours=1200,extension_hourly_rate=150,additional_guest_rate=200 where code='standard'");
  const r=await privateWithRooms('whole_day'),c=await roomClass(),rid=r.reservation_id;
- const rooms=[[1,1],[5,3],[8,2],[10,2],[12,2],[14,2]].map(([durationHours,occupants])=>({...roomChoice(c),durationHours,occupants}));
- for(const durationHours of [1.5,4.25,6.5])await assert.rejects(()=>db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,11000,11000)',[rid,id(100),JSON.stringify([{...rooms[0],durationHours}])]),e=>e.code==='22023'&&/whole room hours/.test(e.message));
+ const rooms=[[3,1],[5,3],[8,2],[10,2],[12,2],[14,2]].map(([durationHours,occupants])=>({...roomChoice(c),durationHours,occupants}));
+ for(const durationHours of [1,2,1.5,4.25,6.5])await assert.rejects(()=>db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,11000,11000)',[rid,id(100),JSON.stringify([{...rooms[0],durationHours}])]),e=>e.code==='22023'&&/whole room hours/.test(e.message));
  await assert.rejects(()=>db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,15901,15901)',[rid,id(100),JSON.stringify(rooms)]),denied('40001'));
  assert.equal((await one('select count(*)::int n from room_charges where reservation_id=$1',[rid])).n,0);
  await db.query('select swimming_finalize_booking($1,$2,$3::jsonb,null,15900,15900)',[rid,id(100),JSON.stringify(rooms)]);
  const assigned=(await db.query("select * from room_assignments where reservation_id=$1 and pricing_snapshot->>'included'='false' order by expected_checkout",[rid])).rows;
- assert.deepEqual(assigned.map(a=>[Number(a.pricing_snapshot.duration_hours),Number(a.pricing_snapshot.base_hours),Number(a.pricing_snapshot.extension_hours),Number(a.pricing_snapshot.accommodation)]),[[1,3,0,300],[5,3,2,600],[8,8,0,900],[10,8,2,1200],[12,12,0,1200],[14,12,2,1500]]);
+ assert.deepEqual(assigned.map(a=>[Number(a.pricing_snapshot.duration_hours),Number(a.pricing_snapshot.base_hours),Number(a.pricing_snapshot.extension_hours),Number(a.pricing_snapshot.accommodation)]),[[3,3,0,300],[5,3,2,600],[8,8,0,900],[10,8,2,1200],[12,12,0,1200],[14,12,2,1500]]);
  for(const assignment of assigned)assert.equal((Date.parse(assignment.expected_checkout)-Date.parse(assignment.starts_at))/3600000,Number(assignment.pricing_snapshot.duration_hours));
  assert.equal(Number((await one("select sum(amount) n from room_charges where reservation_id=$1 and kind='extension'",[rid])).n),900);
  assert.equal(Number((await one("select sum(amount) n from room_charges where reservation_id=$1 and kind='additional_guest'",[rid])).n),200);

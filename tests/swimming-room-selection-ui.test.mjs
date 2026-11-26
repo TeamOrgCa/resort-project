@@ -35,8 +35,8 @@ test('public and private room durations accept custom hours and use configured e
   try{
    await click(button(h.host,'Add room'));const duration=field(h,1,'duration');
    assert.equal(duration.tagName,'INPUT');assert.equal(duration.type,'number');assert.equal(duration.max,'6');assert.equal(duration.step,'1');
-   assert.equal(Number(duration.value),6);assert.match(h.host.textContent,/Room total:.*600\.00/);
-   await change(duration,4.5);assert.equal(Number(duration.value),6);
+   assert.equal(duration.min,'3');assert.equal(Number(duration.value),3);assert.match(h.host.textContent,/Room total:.*300\.00/);
+   await change(duration,4.5);assert.equal(Number(duration.value),3);
    await change(duration,5);assert.equal(h.selections[0].durationHours,5);
    assert.match(h.host.textContent,/Base accommodation \(3 hours\):.*300\.00/);
    assert.match(h.host.textContent,/Room extension \(2 billed hours at.*100\.00.*200\.00/);
@@ -44,7 +44,7 @@ test('public and private room durations accept custom hours and use configured e
    await change(duration,9);assert.equal(Number(duration.value),6);
    await change(duration,3);await click(h.host.querySelector('[aria-label="Use maximum room hours for additional room 1"]'));
    assert.equal(h.selections[0].durationHours,6);
-   await change(duration,0);assert.ok(h.host.querySelector('[role="alert"]'));assert.equal(button(h.host,'Add room').disabled,true);
+   await change(duration,2);assert.match(h.host.querySelector('[role="alert"]').textContent,/minimum 3/);assert.equal(duration.validity.rangeUnderflow,true);assert.equal(button(h.host,'Add room').disabled,true);
    await change(duration,5);assert.equal(h.host.querySelector('[role="alert"]'),null);assert.match(h.host.textContent,/Room total:.*500\.00/);
   }finally{await h.close();}
  }
@@ -65,7 +65,7 @@ test('public and private swimming add independent room stays and configured extr
       if(privateSwimming)assert.match(capacity().textContent,/up to 6 guests.*4 guests included/);else assert.equal(capacity(),null);
       await click(button(h.host,'Add room'));
       assert.match(capacity().textContent,new RegExp(`up to ${privateSwimming?9:3} guests.*${privateSwimming?6:2} guests included`));
-      assert.equal(field(h,1,'duration').value,'8');assert.equal(field(h,1,'guests').max,'3');
+      assert.equal(field(h,1,'duration').value,'3');assert.equal(field(h,1,'guests').max,'3');
       await change(field(h,1,'duration'),3);await change(field(h,1,'guests'),3);
       assert.match(h.host.textContent,/Extra guests \(1\):.*100\.00/);assert.match(h.host.textContent,/Room total:.*400\.00/);
       await click(button(h.host,'Add room'));
@@ -114,7 +114,7 @@ test('additional room controls stop at available general inventory and release r
 test('legacy grouped room drafts become individual entries and retain the 20-room limit',async()=>{
   const rooms=Array.from({length:25},(_,n)=>({room_id:`room-${n}`,classification_id:standardId,unavailable:false,blocks:[]}));
   const h=await mount(false,{...swimmingRoomCatalog,rooms},[{classificationId:standardId,quantity:20,pricingVersion:1}]);
-  try {assert.equal(h.selections.length,20);assert.ok(h.selections.every(r=>r.quantity===1&&r.durationHours===8));assert.equal(button(h.host,'Add room').disabled,true);
+  try {assert.equal(h.selections.length,20);assert.ok(h.selections.every(r=>r.quantity===1&&r.durationHours===3));assert.equal(button(h.host,'Add room').disabled,true);
     await click(h.host.querySelector('[aria-label="Remove additional room 1"]'));assert.equal(button(h.host,'Add room').disabled,false);
   } finally {await h.close();}
 });
@@ -123,8 +123,9 @@ test('room duration fields and full-stay shortcuts follow configured public and 
  for(const privateSwimming of [false,true]) for(const sessionHours of [2,3,5,6.5,8,12,22]) {
   const h=await mount(privateSwimming,swimmingRoomCatalog,[],sessionHours);
   try {
+   if(sessionHours<3){assert.equal(button(h.host,'Add room').disabled,true);assert.match(h.host.textContent,/at least 3 hours/);continue;}
    await click(button(h.host,'Add room'));
-   const duration=field(h,1,'duration');assert.equal(Number(duration.value),privateSwimming?Math.min(Math.floor(sessionHours),12):Math.floor(sessionHours));
+   const duration=field(h,1,'duration');assert.equal(Number(duration.value),3);assert.equal(duration.min,'3');
    assert.equal(Number(duration.max),Math.floor(sessionHours));
    await click(h.host.querySelector('[aria-label="Use maximum room hours for additional room 1"]'));assert.equal(h.selections[0].durationHours,Math.floor(sessionHours));
    assert.match(h.host.textContent,/extensions must end by swimming checkout/);
