@@ -69,6 +69,8 @@ before(async()=>{
   await db.exec(readFileSync('docs/public-swimming-five-hour-room-migration.sql','utf8'));
   await db.exec(readFileSync('docs/swimming-flexible-room-duration-migration.sql','utf8'));
   await db.exec(readFileSync('docs/swimming-flexible-room-duration-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-staff-room-extension-migration.sql','utf8'));
+  await db.exec(readFileSync('docs/swimming-staff-room-extension-migration.sql','utf8'));
   await db.exec(readFileSync('docs/room-settings-save-migration.sql','utf8'));
   await db.exec(readFileSync('docs/room-settings-save-migration.sql','utf8'));
   assert.deepEqual(await one('select * from reservations where reservation_id=$1',[existing.reservation_id]),existing);
@@ -603,8 +605,8 @@ test('rooms exceeding swimming duration are rejected atomically and shorter stay
   assert.equal((await one('select count(*)::int n from room_assignments where reservation_id=$1',[saved.id])).n,1);
 });
 
-for(const privateSwimming of [false,true]) test(`${privateSwimming?'private':'public'} room extensions stop at swimming checkout and reject later charges atomically`,async()=>{
-  await db.exec("update staff_users set role='admin' where id='00000000-0000-4000-8000-000000000001'");
+for(const [privateSwimming,included] of [[false,false],[true,false],[true,true]]) test(`${privateSwimming?'private':'public'} ${included?'included':'additional'} rooms allow staff extensions beyond swimming checkout with availability and billing checks`,async()=>{
+  await db.exec("update role_permissions set permissions=array_append(permissions,'room_operations') where role='staff'");
   const c=await roomClass(),rooms=[{...roomChoice(c),occupants:2,durationHours:3}];
   let rid;
   if(privateSwimming){
@@ -614,23 +616,34 @@ for(const privateSwimming of [false,true]) test(`${privateSwimming?'private':'pu
   }else{
     const body=await input({swimmingRooms:rooms});body.expectedTotal+=Number(c.rate_3_hours);rid=(await save(body)).id;
   }
-  const assignment=await one("select * from room_assignments where reservation_id=$1 and pricing_snapshot->>'included'='false'",[rid]);
+  const assignment=await one("select * from room_assignments where reservation_id=$1 and (pricing_snapshot->>'included')::boolean=$2 order by room_id limit 1",[rid,included]);
   const reservation=await one('select * from reservations where reservation_id=$1',[rid]);
   await db.query("update room_assignments set state='occupied',checked_in_at=clock_timestamp() where assignment_id=$1",[assignment.assignment_id]);
   await db.query("update physical_rooms set status='occupied' where room_id=$1",[assignment.room_id]);
   const extend=(checkout,hours)=>db.query("select room_operate($1,$2,'extend',$3::jsonb)",[id(1),assignment.room_id,JSON.stringify({assignment_id:assignment.assignment_id,expected_checkout:checkout,hours,hourly_rate:Number(c.extension_hourly_rate)})]);
   try{
-    const hours=(Date.parse(reservation.end_datetime)-Date.parse(assignment.expected_checkout))/3600000;
+    const hours=(Date.parse(reservation.end_datetime)-Date.parse(assignment.expected_checkout))/3600000+1;
+    const extendedEnd=new Date(Date.parse(reservation.end_datetime)+3600000).toISOString();
+    await assert.rejects(()=>db.query('update room_assignments set expected_checkout=$1 where assignment_id=$2',[extendedEnd,assignment.assignment_id]),denied('22023'));
+    await assert.rejects(()=>db.query("select room_operate($1,$2,'extend',$3::jsonb)",[id(2),assignment.room_id,JSON.stringify({assignment_id:assignment.assignment_id,expected_checkout:assignment.expected_checkout,hours,hourly_rate:Number(c.extension_hourly_rate)})]),denied('42501'));
     await extend(assignment.expected_checkout,hours);
     const saved=await one('select * from room_assignments where assignment_id=$1',[assignment.assignment_id]);
-    assert.equal(Date.parse(saved.expected_checkout),Date.parse(reservation.end_datetime));
+    assert.equal(Date.parse(saved.expected_checkout),Date.parse(extendedEnd));
     const bill=await one('select * from transactions where reservation_id=$1',[rid]);
     const charges=(await db.query('select * from room_charges where reservation_id=$1 order by charge_id',[rid])).rows;
-    await assert.rejects(()=>extend(saved.expected_checkout,1),e=>e.code==='22023'&&/within the swimming session/.test(e.message));
+    const approval=await one('select * from room_extensions where assignment_id=$1',[assignment.assignment_id]);
+    assert.equal(Number(approval.hours),hours);assert.equal(approval.approved_by,id(1));
+    assert.equal(Number(charges.find(c=>c.charge_id===approval.charge_id).amount),hours*Number(c.extension_hourly_rate));
+    assert.deepEqual(await one('select * from reservations where reservation_id=$1',[rid]),reservation);
+    assert.equal((await one("select current_setting('app.staff_room_extension_assignment',true) scope")).scope,'');
+    const bufferedMaintenance=new Date(Date.parse(extendedEnd)+Number(c.cleaning_buffer_minutes)*60000+1800000).toISOString();
+    await db.query("insert into room_maintenance(room_id,starts_at,ends_at,reason,created_by) values($1,$2,$2::timestamptz+interval '2 hours','Scheduled maintenance',$3)",[assignment.room_id,bufferedMaintenance,id(1)]);
+    await assert.rejects(()=>extend(saved.expected_checkout,1),denied('40001'));
     assert.deepEqual(await one('select * from transactions where reservation_id=$1',[rid]),bill);
     assert.deepEqual((await db.query('select * from room_charges where reservation_id=$1 order by charge_id',[rid])).rows,charges);
     assert.equal((await one('select count(*)::int n from room_extensions where assignment_id=$1',[assignment.assignment_id])).n,1);
     assert.deepEqual(await one('select * from room_assignments where assignment_id=$1',[assignment.assignment_id]),saved);
+
   }finally{await db.query("update physical_rooms set status='vacant' where room_id=$1",[assignment.room_id]);}
 });
 

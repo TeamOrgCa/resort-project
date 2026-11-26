@@ -12,7 +12,7 @@ export default function PrivatePackageDetails({ compact = false }: { compact?: b
       <p className="mt-3 text-sm font-semibold">2 Standard rooms included at no extra charge for your swimming session.</p>
       <p className="mt-2 text-sm text-neutral/80">These two rooms are dedicated to private swimming packages and are unavailable for public swimming or room-only bookings.</p>
       {!compact && <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-neutral/80">{contentText(content, "content.about.inclusions").split("\n").filter(line => line.trim()).map(line => <li key={line}>{line}</li>)}</ul>}
-      <p className="mt-3 text-sm text-neutral/70">The two included rooms are available for your swimming session. Additional rooms are optional and charged for the chosen duration, hourly extensions and extra guests at configured rates. All rooms and extensions must end by swimming checkout.</p>
+      <p className="mt-3 text-sm text-neutral/70">The two included rooms are available for your swimming session. Additional rooms are optional and charged for the chosen duration, hourly extensions and extra guests at configured rates. When booking, all rooms and extensions must end by swimming checkout. Staff can arrange later room extensions, subject to availability and hourly charges.</p>
     </details>
   </section>;
 }
