@@ -14,7 +14,7 @@ export function parseSwimmingRooms(value: unknown): SwimmingRoomSelection[] | nu
       || !Number.isSafeInteger(room.pricingVersion) || room.pricingVersion < 1) return null;
     const individual = room.occupants !== undefined || room.durationHours !== undefined;
     const classificationId = room.classificationId.toLowerCase();
-    if (individual && (room.quantity !== 1 || (typeof room.durationHours !== "number" || !Number.isSafeInteger(room.durationHours) || room.durationHours <= 0 || room.durationHours > 24) || !Number.isSafeInteger(room.occupants) || room.occupants < 1 || room.occupants > 100)) return null;
+    if (individual && (room.quantity !== 1 || (typeof room.durationHours !== "number" || !Number.isSafeInteger(room.durationHours) || room.durationHours < 3 || room.durationHours > 24) || !Number.isSafeInteger(room.occupants) || room.occupants < 1 || room.occupants > 100)) return null;
     if (seen.has(classificationId) && (!individual || seen.get(classificationId) === false)) return null;
     seen.set(classificationId, individual);
     rooms.push({ classificationId, quantity: room.quantity, pricingVersion: room.pricingVersion,
@@ -42,7 +42,7 @@ export function swimmingRoomPrice(c: RoomClass, start: string, end: string) {
   return Math.round(amount * 100) / 100;
 }
 export function swimmingRoomStayPrice(c: RoomClass, hours: number) {
-  if (!Number.isSafeInteger(hours) || hours < 1 || hours > 24) throw new Error("Choose whole room hours within your swimming stay (1 to 24 hours).");
+  if (!Number.isSafeInteger(hours) || hours < 3 || hours > 24) throw new Error("Choose whole room hours within your swimming stay (3 to 24 hours).");
   const baseHours = hours >= 12 ? 12 : hours >= 8 ? 8 : 3;
   const rate = c[baseHours === 3 ? "rate_3_hours" : baseHours === 8 ? "rate_8_hours" : "rate_12_hours"];
   if (rate == null || !Number.isFinite(Number(rate)) || Number(rate) <= 0) throw new Error(`The ${baseHours}-hour room rate is not configured. Please contact the resort.`);
@@ -62,7 +62,7 @@ export function swimmingRoomsQuote(catalog: CustomerRoomCatalog, rooms: Swimming
     const c = catalog.classifications.find(c => c.classification_id === room.classificationId);
     if (!c || Number(c.pricing_version) !== room.pricingVersion) throw new Error("Room rates changed. Refresh your room choices.");
     const individual = room.durationHours !== undefined || room.occupants !== undefined;
-    if (individual && (room.quantity !== 1 || typeof room.durationHours !== "number" || !Number.isSafeInteger(room.durationHours) || room.durationHours <= 0 || room.durationHours > 24 || !Number.isSafeInteger(room.occupants) || room.occupants! < 1 || room.occupants! > c.maximum_capacity)) throw new Error(`Choose valid guests and whole room hours within your swimming stay for ${c.name}.`);
+    if (individual && (room.quantity !== 1 || typeof room.durationHours !== "number" || !Number.isSafeInteger(room.durationHours) || room.durationHours < 3 || room.durationHours > 24 || !Number.isSafeInteger(room.occupants) || room.occupants! < 1 || room.occupants! > c.maximum_capacity)) throw new Error(`Choose valid guests and whole room hours (minimum 3) within your swimming stay for ${c.name}.`);
     const roomEnd = swimmingRoomEnd(start, end, room);
     if (Date.parse(roomEnd) > Date.parse(end)) throw new Error("Additional rooms must end within the swimming session. Choose a shorter room duration.");
     const stay = individual ? swimmingRoomStayPrice(c, room.durationHours!) : null;

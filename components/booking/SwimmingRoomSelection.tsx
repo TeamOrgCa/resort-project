@@ -33,7 +33,7 @@ export default function SwimmingRoomSelection({ state, value, onChange, start, e
   const money = (n: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(n);
   const sessionHours = (Date.parse(end) - Date.parse(start)) / 3600000;
   const maximumDuration = Math.max(0, Math.min(24, Math.floor(sessionHours)));
-  const defaultDuration = privateSwimming ? Math.min(maximumDuration, 12) : maximumDuration;
+  const defaultDuration = 3;
   const assignedGuests = value.reduce((total, room) => total + (room.occupants ?? 1) * room.quantity, 0);
   const roomGuestLimit = (index: number, capacity: number) => Math.max(0, Math.min(capacity, guestCount - value.reduce((total, room, i) => total + (i === index ? 0 : (room.occupants ?? 1) * room.quantity), 0)));
   const standard = state.catalog?.classifications.find(c => c.code === "standard");
@@ -45,7 +45,7 @@ export default function SwimmingRoomSelection({ state, value, onChange, start, e
       occupants: room.occupants ?? 1, durationHours: room.durationHours ?? defaultDuration }))));
   }, [state.catalog, value, onChange, defaultDuration]);
   const newRoom = state.catalog?.classifications.flatMap(c => {
-    const durations = [...new Set([defaultDuration, 3, 8, 12, Math.min(1, maximumDuration)])];
+    const durations = [defaultDuration];
     for (const durationHours of durations) {
       const candidate: SwimmingRoomSelection = { classificationId: c.classification_id, quantity: 1, pricingVersion: Number(c.pricing_version), occupants: 1, durationHours };
       try { swimmingRoomsQuote(state.catalog!, [...value, candidate], start, end, privateSwimming, guestCount); return [candidate]; } catch { /* Try another configured duration or room type. */ }
@@ -56,7 +56,7 @@ export default function SwimmingRoomSelection({ state, value, onChange, start, e
   return <section data-booking-guide="guest-rooms" className="mb-8">
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h3 className="text-xl font-semibold text-neutral">Additional Rooms</h3><button type="button" disabled={state.loading} onClick={state.refresh} className="text-sm font-semibold text-primary underline">Refresh rooms</button></div>
     <p className="mb-4 text-sm text-neutral/70">{privateSwimming ? "Two Standard rooms are included at no extra charge for your swimming session. Add only the extra rooms you need below." : "Public admission does not include a room. Add a room if you need one, or continue without rooms."} Each additional room starts at swimming check-in. Choose its guests and an available room duration within your swimming session. Rooms and extensions must end by swimming checkout.</p>
-    <p className="mb-4 text-sm text-neutral/70">Choose whole room hours within your swimming stay. Custom durations use the preceding 3-, 8- or 12-hour room rate plus the configured hourly extension rate. Shorter stays have a minimum 3-hour room charge.</p>
+    <p className="mb-4 text-sm text-neutral/70">Additional rooms start at 3 hours, the resort minimum. Choose whole room hours within your swimming stay. Custom durations use the preceding 3-, 8- or 12-hour room rate plus the configured hourly extension rate.</p>
     {state.loading && <p role="status" className="text-sm text-neutral/70">Checking room availability...</p>}
     {state.error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{state.error}</p>}
     <p aria-live="polite" className="mb-4 text-sm text-neutral/70">Guests assigned to additional rooms: {assignedGuests} of {guestCount}. Combined room guests cannot exceed your booking&apos;s guest count.</p>
@@ -76,11 +76,11 @@ export default function SwimmingRoomSelection({ state, value, onChange, start, e
             const next = state.catalog?.classifications.find(c => c.classification_id === event.target.value);
             if (next) updateRoom(index, { classificationId: next.classification_id, pricingVersion: Number(next.pricing_version), occupants: Math.min(room.occupants ?? 1, roomGuestLimit(index, next.maximum_capacity)) });
           }}>{state.catalog?.classifications.map(c => <option key={c.classification_id} value={c.classification_id}>{c.name}</option>)}</select></label>
-          <div><label className="block font-medium">Room duration (hours)<input aria-label={`Additional room ${index + 1} duration`} required type="number" inputMode="numeric" min={1} max={maximumDuration} step={1} value={room.durationHours ?? defaultDuration} className="mt-2 min-h-12 w-full rounded-lg border border-neutral/20 bg-white px-4 py-3" onKeyDown={event => { if ([".", ",", "e", "E", "+", "-"].includes(event.key)) event.preventDefault(); }} onChange={event => {
+          <div><label className="block font-medium">Room duration (hours)<input aria-label={`Additional room ${index + 1} duration`} required type="number" inputMode="numeric" min={3} max={maximumDuration} step={1} value={room.durationHours ?? defaultDuration} className="mt-2 min-h-12 w-full rounded-lg border border-neutral/20 bg-white px-4 py-3" onKeyDown={event => { if ([".", ",", "e", "E", "+", "-"].includes(event.key)) event.preventDefault(); }} onChange={event => {
               if (!/^\d{0,2}$/.test(event.currentTarget.value)) { event.currentTarget.value = String(room.durationHours ?? defaultDuration); return; }
               updateRoom(index, { durationHours: Math.min(Number(event.currentTarget.value), maximumDuration), pricingVersion: Number(c?.pricing_version ?? room.pricingVersion) });
             }} /></label>
-            <p className="mt-1 text-xs text-neutral/65">Whole hours only, up to {swimmingRoomDurationLabel(maximumDuration)} within your swimming stay.</p>
+            <p className="mt-1 text-xs text-neutral/65">Whole hours only, from 3 hours up to {swimmingRoomDurationLabel(maximumDuration)} within your swimming stay.</p>
             <button type="button" aria-label={`Use maximum room hours for additional room ${index + 1}`} className="mt-2 min-h-11 font-semibold text-primary underline" onClick={() => updateRoom(index, { durationHours: maximumDuration, pricingVersion: Number(c?.pricing_version ?? room.pricingVersion) })}>Use maximum room hours</button>
           </div>
           <label className="block font-medium">Guests in this room<input aria-label={`Additional room ${index + 1} guests`} required type="number" inputMode="numeric" min={1} max={roomGuestLimit(index, c?.maximum_capacity ?? 0)} step={1} value={room.occupants ?? 1} className="mt-2 min-h-12 w-full rounded-lg border border-neutral/20 bg-white px-4 py-3" onChange={event => updateRoom(index, { occupants: Math.max(0, Math.min(Math.floor(Number(event.target.value)), roomGuestLimit(index, c?.maximum_capacity ?? 0))), pricingVersion: Number(c?.pricing_version ?? room.pricingVersion) })} /></label>
@@ -91,6 +91,6 @@ export default function SwimmingRoomSelection({ state, value, onChange, start, e
       </fieldset>;
     })}</div>
     <button type="button" disabled={state.loading || value.length >= 20 || !newRoom} onClick={() => { if (newRoom) onChange([...value, newRoom]); }} className="mt-4 min-h-12 rounded-full border border-primary px-5 py-3 font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Add room</button>
-    {!state.loading && !newRoom && value.length < 20 && <p className="mt-2 text-sm text-neutral/60">{assignedGuests >= guestCount ? "All booking guests are assigned. Reduce guests in an existing room to add another room." : "No more rooms are available for these dates and configured durations."}</p>}
+    {!state.loading && !newRoom && value.length < 20 && <p className="mt-2 text-sm text-neutral/60">{maximumDuration < 3 ? "Additional rooms require a swimming stay of at least 3 hours." : assignedGuests >= guestCount ? "All booking guests are assigned. Reduce guests in an existing room to add another room." : "No more rooms are available for these dates and configured durations."}</p>}
   </section>;
 }
