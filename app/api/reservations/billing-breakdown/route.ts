@@ -25,7 +25,7 @@ export async function GET(request: Request) {
       admin.from("reservation_services").select("quantity,price_at_time,billing_type,services(name)").eq("reservation_id", id),
       admin.from("reservation_reschedules").select("reschedule_fee,rate_adjustment").eq("reservation_id", id).eq("status", "approved"),
       admin.from("reservation_reschedule_adjustments").select("notice_fee,rate_adjustment").eq("reservation_id", id),
-      admin.from("room_charges").select("description,amount").eq("reservation_id", id),
+      admin.from("room_charges").select("kind,description,amount").eq("reservation_id", id),
     ]);
     if ([bill, services, guestChanges, staffChanges].some(result => result.error) || !bill.data) throw new Error("Billing details unavailable");
     const r = owned.data;
@@ -41,10 +41,10 @@ export async function GET(request: Request) {
         quantity: Number(row.quantity), priceAtBooking: Number(row.price_at_time), billingType: row.billing_type,
       })),
       discount: billingDiscountSnapshot(bill.data, Number(r.adult_count) + Number(r.child_count)),
-      roomCharges: (roomCharges.data ?? []).map(charge => ({ description: charge.description, amount: Number(charge.amount) })),
+      roomCharges: (roomCharges.data ?? []).map(charge => ({ kind: charge.kind, description: charge.description, amount: Number(charge.amount) })),
       recordedTotal: Number(bill.data.total_amount), rescheduleFees: fee, dateRateAdjustment: rate,
     });
-    if (breakdown.lines.some(line => !Number.isFinite(line.amount) || (line.amount < 0 && line.kind !== "discount"))) throw new Error("Inconsistent billing details");
+    if (breakdown.lines.some(line => !Number.isFinite(line.amount) || (line.amount < 0 && line.kind !== "discount" && line.kind !== "room_credit"))) throw new Error("Inconsistent billing details");
     return NextResponse.json({ breakdown }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ message: "Unable to load the amount breakdown. Please retry." }, { status: 503 });

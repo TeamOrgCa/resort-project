@@ -18,7 +18,7 @@ export type ReservationEdit = {
   lateRescheduleAcknowledged?: boolean;
 };
 export type EditableReservation = {
-  swimming_room_choices?: { classificationId: string; quantity: number; pricingVersion: number }[] | null;
+  swimming_room_choices?: { classificationId: string; quantity: number; pricingVersion: number; occupants?: number; durationHours?: number }[] | null;
   public_type_id?: string | null;
   public_pricing_snapshot?: { adult_rate: number; child_rate: number } | null;
   public_admission_amount?: number | null;

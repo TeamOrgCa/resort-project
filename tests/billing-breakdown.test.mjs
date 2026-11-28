@@ -109,3 +109,13 @@ test("reschedule fees and date-rate adjustments are separate additions, not hidd
   assert.deepEqual(fallback.lines.map(line => line.amount), [7400, 600, 500, 200]);
   assert.equal(fallback.lines.reduce((sum, line) => sum + line.amount, 0), fallback.total);
 });
+
+
+test("room edit credits reconcile as credits while original charges and discounts remain visible",()=>{
+ const result=buildBillingBreakdown({...booking,units:[],services:[],adultRate:null,recordedTotal:7900,discountAmount:100,
+  roomCharges:[{kind:"accommodation",description:"Original room",amount:300},{kind:"room_adjustment",description:"Room removed",amount:-300},{kind:"accommodation",description:"Replacement room",amount:500}]});
+ const credit=result.lines.find(line=>line.kind==="room_credit");
+ assert.equal(credit.amount,-300);assert.equal(result.lines.find(line=>line.description==="Original room").amount,300);
+ assert.equal(result.lines.reduce((sum,line)=>sum+line.amount,0),7900);
+ assert.equal(result.lines.filter(line=>line.kind==="discount").length,1);
+});

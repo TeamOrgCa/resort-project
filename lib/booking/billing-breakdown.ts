@@ -2,7 +2,7 @@ import { serviceBilling } from "./service-billing";
 import { formatHourDurations } from "@/lib/format-hour-durations";
 import { describeBillingDiscount, type BillingDiscountSnapshot } from "./billing-discount";
 export type BillingLine = {
-  kind?: "discount";
+  kind?: "discount" | "room_credit";
   description: string;
   detail: string;
   quantity: number;
@@ -29,7 +29,7 @@ type BreakdownInput = {
   childRate: number | null;
   units: BilledUnit[];
   services: BilledService[];
-  roomCharges?: { description: string; amount: number }[];
+  roomCharges?: { description: string; amount: number; kind?: string }[];
   recordedTotal: number;
   discountAmount?: number;
   discountKind?: string;
@@ -81,6 +81,7 @@ export function buildBillingBreakdown(input: BreakdownInput): BillingBreakdown {
     quantity: 1, unitPrice: -money(discountAmount), amount: -money(discountAmount),
   }] : [];
   const roomLines: BillingLine[] = (input.roomCharges ?? []).map(charge => ({
+    ...(charge.kind === "room_adjustment" && Number(charge.amount) < 0 ? { kind: "room_credit" as const } : {}),
     description: formatHourDurations(charge.description), detail: "Room operations · recorded charge", quantity: 1,
     unitPrice: money(Number(charge.amount)), amount: money(Number(charge.amount)),
   }));

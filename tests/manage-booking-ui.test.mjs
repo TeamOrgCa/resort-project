@@ -54,9 +54,14 @@ function client() {
     },
   };
 }
-async function mount(fetcher = async () => Response.json({ refunds: [], eligible: [] }), availabilityFetcher = async () => Response.json({ reservations: [], blockedDates: [] }), pricingFetcher) {
+async function mount(fetcher = async () => Response.json({ refunds: [], eligible: [] }), availabilityFetcher = async () => Response.json({ reservations: [], blockedDates: [] }), pricingFetcher, roomFetcher) {
   const original = globalThis.fetch;
   globalThis.fetch = (url, options) => {
+    if (url.startsWith("/api/reservations/reschedule-availability")) {
+      if(roomFetcher) return roomFetcher(url,options);
+      const month=new URL(url,"http://localhost").searchParams.get("month");
+      return Promise.resolve(Response.json({dates:Array.from({length:31},(_,n)=>({date:month+"-"+String(n+1).padStart(2,"0"),available:true,reason:null}))}));
+    }
     if (url.startsWith("/api/reservations/billing-breakdown")) return Promise.resolve(Response.json({ breakdown: { total: 3000, lines: [
       {description:"Private pool package and guest charges",quantity:1,unitPrice:2300,amount:2300},
       {description:"Extra table",quantity:2,unitPrice:100,amount:200},
@@ -191,7 +196,7 @@ test("booking actions open a focused dialog without inline details and restore t
     await action("MV-CONFIRMED", "View");
     assert.ok(dialog()); assert.equal(h.container.contains(dialog()), false); assert.equal(document.body.style.overflow, "hidden");
     assert.match(dialog().textContent, /Reservation details/); assert.match(dialog().textContent, /Extra table/);
-    assert.match(dialog().textContent, /3 adults, 1 child/);
+    assert.match(dialog().textContent, /4 guests/);
     const breakdown = dialog().querySelector('[aria-label="Amount breakdown"]');
     assert.match(breakdown.textContent, /Reschedule fees \(non-refundable\)/);
     assert.match(breakdown.textContent, /2,300/); assert.match(breakdown.textContent, /500/);
@@ -298,7 +303,7 @@ test("service errors and recalculated amounts remain visible in the selected dia
     await click(button(dialog(), "Add Service"));
     await value(dialog().querySelector('[aria-label="Quantity for Extra table"]'), "2");
     await click(button(dialog(), "Save Reservation Changes")); await click([...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Confirm changes")); assert.match(dialog().querySelector('[role="alert"]').textContent, /Service not available/);
-    assert.deepEqual(calls[0].body, { adultCount: 3, childCount: 1, services: [{ serviceId, quantity: 2 }, { serviceId: karaokeId, quantity: 1 }], expectedTotal: 3600, version: "a".repeat(64) });
+    assert.deepEqual(calls[0].body, { adultCount: 4, childCount: 0, services: [{ serviceId, quantity: 2 }, { serviceId: karaokeId, quantity: 1 }], expectedTotal: 3600, version: "a".repeat(64) });
     rejectSave = false; await click(button(dialog(), "Save Reservation Changes")); await click([...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Confirm changes"));
     assert.equal(dialog().getAttribute("aria-busy"), "true"); assert.equal(button(dialog(), "Close").disabled, true);
     await key(dialog(), "Escape"); assert.ok(dialog()); await act(async () => resolveSave());
@@ -310,22 +315,21 @@ test("service errors and recalculated amounts remain visible in the selected dia
   } finally { await h.close(); }
 });
 
-test("a paid-downpayment booking opens edits from View and carries saved adult/child counts into balance payment", async () => {
+test("a private paid-downpayment booking edits its guest count and carries saved counts into balance payment", async () => {
   let posted;
   const h = await mount(async (url, options) => {
     if (!options?.method) return Response.json({ refunds: [], eligible: [] });
     posted = JSON.parse(options.body);
-    return Response.json({ success: true, adultCount: 5, childCount: 2, services: [], totalAmount: 2900, paidAmount: 600, remainingBalance: 2300, message: "Booking updated" });
+    return Response.json({ success: true, adultCount: 7, childCount: 0, services: [], totalAmount: 2900, paidAmount: 600, remainingBalance: 2300, message: "Booking updated" });
   });
   try {
     await action("MV-CONFIRMED", "View"); await click(button(dialog(), "Edit reservation"));
-    await value(dialog().querySelector('[aria-label="Adults"]'), "5"); await value(dialog().querySelector('[aria-label="Children"]'), "2");
+    await value(dialog().querySelector('[aria-label="Number of guests"]'), "7");
     await click(dialog().querySelector('[aria-label="Remove Extra table"]'));
     await click(button(dialog(), "Save Reservation Changes")); await click([...document.querySelectorAll('[role="alertdialog"] button')].find(button => button.textContent === "Confirm changes"));
-    assert.equal(posted.adultCount, 5); assert.equal(posted.childCount, 2); assert.deepEqual(posted.services, []);
+    assert.equal(posted.adultCount, 7); assert.equal(posted.childCount, 0); assert.deepEqual(posted.services, []);
     assert.match(dialog().textContent, /7 guests/); assert.match(dialog().textContent, /No services selected/);
-    assert.match(dialog().textContent, /5 adults, 2 children/);
-    await click(button(dialog(), "Continue to Payment")); assert.equal(h.drafts[0].adultCount, 5); assert.equal(h.drafts[0].childCount, 2);
+    await click(button(dialog(), "Continue to Payment")); assert.equal(h.drafts[0].adultCount, 7); assert.equal(h.drafts[0].childCount, 0);
     assert.equal(h.drafts[0].bookingMode, "day"); assert.equal(h.drafts[0].roomPrice, 2300);
   } finally { await h.close(); }
 });
@@ -754,4 +758,39 @@ test("a no-show is a closed guest record with its status, historical bill and no
     for(const label of ["Edit reservation","Reschedule","Cancel reservation","Continue to Payment"])assert.equal(button(dialog(),label),undefined,label);
     assert.equal(h.pushes.length,0);
   }finally{await h.close();rows[2]=original;}
+});
+
+
+test("public swimming reschedule preview works with null private package rates",async()=>{
+ const previous={...rows[0]},target=day(25);
+ Object.assign(rows[0],{commercial_type:"public_swimming",start_datetime:day(20)+"T18:00:00+08:00",end_datetime:day(20)+"T23:00:00+08:00"});
+ const h=await mount(undefined,async()=>Response.json({reservations:[],blockedDates:[]}),async()=>Response.json({packageRates:null,reservation:rows[0]}));
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=(url,options)=>{
+  if(url.startsWith("/api/booking/public-swimming"))return Promise.resolve(Response.json({success:true,types:[],dates:[target],sessions:[],slots:[{startDatetime:target+"T10:00:00.000Z",endDatetime:target+"T15:00:00.000Z",remainingCapacity:30}]}));
+  return originalFetch(url,options);
+ };
+ try{
+  await action("MV-CONFIRMED","Reschedule");
+  await chooseDate(target);
+  assert.doesNotMatch(dialog().textContent,/Unable to load the booked prices|Retry charge preview/);
+  assert.match(dialog().textContent,/Additional charge/);
+  await value(dialog().querySelector('[name="rescheduleReason"]'),"Family schedule changed");
+  assert.equal(button(dialog(),"Confirm Reschedule").disabled,false);
+ }finally{Object.assign(rows[0],previous);delete rows[0].commercial_type;await h.close();}
+});
+
+test("private swimming reschedule calendar disables a free pool date when booked rooms are unavailable",async()=>{
+ const blocked=day(25);
+ const h=await mount(undefined,undefined,undefined,async url=>{
+  const month=new URL(url,"http://localhost").searchParams.get("month");
+  return Response.json({dates:Array.from({length:31},(_,n)=>{const date=month+"-"+String(n+1).padStart(2,"0");return{date,available:date!==blocked,reason:date===blocked?"Not enough Family rooms are available":null};})});
+ });
+ try{
+  await action("MV-CONFIRMED","Reschedule");
+  const cell=dialog().querySelector('[data-date="'+blocked+'"]');
+  assert.equal(cell.disabled,true);assert.match(cell.getAttribute("aria-label"),/Not enough Family rooms/);
+  await chooseDate(day(26));
+  assert.match(dialog().textContent,/Additional charge/);
+ }finally{await h.close();}
 });

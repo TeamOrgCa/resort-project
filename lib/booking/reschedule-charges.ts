@@ -15,21 +15,23 @@ export function calculateRescheduleCharges(input: {
   childCount: number;
   now?: number;
   discount?: DiscountState;
-  rates: PackageRates;
+  rates: PackageRates | null;
 }) {
   const noticeFee = rescheduleNoticeFee(input.originalStart, input.now);
   if (input.commercialType === "public_swimming") return { noticeFee, rateAdjustment: 0, discountAdjustment: 0, totalAdditional: noticeFee };
+  if (!input.rates) throw new Error("The booked private package rates are unavailable. Reload the reservation.");
+  const rates = input.rates;
   const priceFor = (startDatetime: string, endDatetime: string) => computeBookingPricing({
     bookingMode: input.bookingMode,
     startDatetime,
     endDatetime,
     adultCount: input.adultCount,
     childCount: input.childCount,
-  }, input.rates).total;
+  }, rates).total;
   const oldPrice = priceFor(input.originalStart, input.originalEnd);
   const newPrice = priceFor(input.newStart, input.newEnd);
   const rateAdjustment = positiveRateAdjustment(oldPrice, newPrice);
-  const nextDiscount = input.discount ? calculateBookingDiscount(computeBookingPricing({ ...input, startDatetime: input.newStart, endDatetime: input.newEnd }, input.rates).packageRate, input.adultCount + input.childCount, Number(input.discount.discount_eligible_guests ?? 0), savedPromo(input.discount)).amount : 0;
+  const nextDiscount = input.discount ? calculateBookingDiscount(computeBookingPricing({ ...input, startDatetime: input.newStart, endDatetime: input.newEnd }, rates).packageRate, input.adultCount + input.childCount, Number(input.discount.discount_eligible_guests ?? 0), savedPromo(input.discount)).amount : 0;
   const discountAdjustment = input.discount ? Number(input.discount.discount_amount ?? 0) - nextDiscount : 0;
   return { noticeFee, rateAdjustment, discountAdjustment, totalAdditional: Math.round((noticeFee + rateAdjustment + discountAdjustment) * 100) / 100 };
 }

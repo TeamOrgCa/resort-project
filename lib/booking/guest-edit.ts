@@ -1,13 +1,15 @@
 import type { Bill, CatalogService, CatalogUnit, EditableReservation, SelectedService, SelectedUnit } from "./reservation-edit";
 import type { PackageRates } from "./package-rates";
 import { isValidGuestCounts } from "./guest-count";
+import { parseSwimmingRooms, type SwimmingRoomSelection } from "./swimming-rooms";
 
-export type GuestBookingEdit = { adultCount: number; childCount: number; unitId?: string | null; services: { serviceId: string; quantity: number }[]; version: string; expectedTotal: number };
+export type GuestBookingEdit = { adultCount: number; childCount: number; unitId?: string | null; swimmingRooms?: SwimmingRoomSelection[]; services: { serviceId: string; quantity: number }[]; version: string; expectedTotal: number };
 export type GuestEditDetail = {
   reservation: EditableReservation; services: SelectedService[]; catalogServices: CatalogService[];
   bill: Bill; packageRates: PackageRates | null;
   version: string; lockedReason: string | null; canChangeGuests: boolean; canReduceServices: boolean;
   units?: SelectedUnit[]; catalogUnits?: CatalogUnit[]; canChangeAccommodation?: boolean;
+  additionalRooms?: SwimmingRoomSelection[]; canChangeRooms?: boolean;
 };
 export type GuestEditResult = { totalAmount: number; paidAmount: number; remainingBalance: number; overpaidAmount: number;
   adultCount: number; childCount: number; message: string;
@@ -16,6 +18,19 @@ export type GuestEditResult = { totalAmount: number; paidAmount: number; remaini
 export function parseGuestBookingEdit(value: unknown): GuestBookingEdit | null {
   if (!value || typeof value !== "object") return null;
   const b = value as GuestBookingEdit;
+  let swimmingRooms: SwimmingRoomSelection[] | undefined;
+  if (b.swimmingRooms !== undefined) {
+    const parsed = parseSwimmingRooms(b.swimmingRooms);
+    if (!parsed || parsed.some(room => room.quantity !== 1 || room.occupants === undefined || room.durationHours === undefined)) return null;
+    const ids = new Set<string>();
+    swimmingRooms = [];
+    for (let i = 0; i < parsed.length; i++) {
+      const id = b.swimmingRooms[i].assignmentId;
+      if (id !== undefined && (typeof id !== "string" || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(id) || ids.has(id.toLowerCase()))) return null;
+      if (id) ids.add(id.toLowerCase());
+      swimmingRooms.push({ ...parsed[i], ...(id ? { assignmentId: id.toLowerCase() } : {}) });
+    }
+  }
   if (b.unitId !== undefined && b.unitId !== null && (typeof b.unitId !== "string" || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(b.unitId))) return null;
   if (!isValidGuestCounts(b.adultCount, b.childCount) || !Array.isArray(b.services) || b.services.length > 100 ||
     typeof b.version !== "string" || !/^[a-f0-9]{64}$/.test(b.version) ||
@@ -27,12 +42,16 @@ export function parseGuestBookingEdit(value: unknown): GuestBookingEdit | null {
     seen.add(service.serviceId.toLowerCase());
   }
   return { adultCount: b.adultCount, childCount: b.childCount, ...(b.unitId !== undefined ? { unitId: b.unitId?.toLowerCase() ?? null } : {}), version: b.version, expectedTotal: b.expectedTotal,
+    ...(swimmingRooms !== undefined ? { swimmingRooms } : {}),
     services: b.services.map(s => ({ serviceId: s.serviceId.toLowerCase(), quantity: s.quantity })) };
 }
 
 export function guestEditRestriction(detail: GuestEditDetail, edit: GuestBookingEdit): string | null {
   if (detail.lockedReason) return detail.lockedReason;
   const r = detail.reservation;
+  if (edit.swimmingRooms !== undefined && !detail.canChangeRooms) return "Additional rooms can only be changed before check-in. Reload your booking or contact resort staff.";
+  const roomGuests = (edit.swimmingRooms ?? r.swimming_room_choices ?? []).reduce((sum, room) => sum + (room.occupants ?? 0) * room.quantity, 0);
+  if (edit.adultCount + edit.childCount < roomGuests) return "Guest count cannot be less than the guests assigned to additional rooms. Reduce room guests or remove a room first.";
   const originalUnit = detail.units?.length === 1 && detail.units[0].quantity === 1 ? detail.units[0].unit_id : null;
   if (edit.unitId !== undefined && edit.unitId !== originalUnit) {
     if ((r.commercial_type ?? "private_swimming") === "private_swimming" && !r.room_pricing) return "All cottages are included with private swimming. An accommodation selection is not required.";

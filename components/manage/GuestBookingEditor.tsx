@@ -10,6 +10,8 @@ import LoadingState from "@/components/ui/LoadingState";
 import { guestEditRestriction, parseGuestBookingEdit, type GuestEditDetail, type GuestEditResult } from "@/lib/booking/guest-edit";
 import { previewReservationEdit } from "@/lib/booking/reservation-edit";
 import { isValidGuestCounts, MAX_GUESTS } from "@/lib/booking/guest-count";
+import SwimmingRoomSelection, { useSwimmingRooms } from "@/components/booking/SwimmingRoomSelection";
+import { swimmingRoomsChanged, type SwimmingRoomSelection as RoomSelection } from "@/lib/booking/swimming-rooms";
 
 const currency = (amount: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(amount);
 const inputClass = "mt-1 min-h-11 w-full min-w-0 rounded-lg border border-neutral/20 bg-white px-3 py-2 text-[16px] text-black disabled:bg-neutral/5 disabled:text-neutral/60 focus:outline-none focus:ring-2 focus:ring-primary";
@@ -22,6 +24,7 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
   const [confirming, setConfirming] = useState(false);
   const [counts, setCounts] = useState({ adultCount: 1, childCount: 0 });
   const [services, setServices] = useState<{ serviceId: string; quantity: number }[]>([]);
+  const [rooms, setRooms] = useState<RoomSelection[]>([]);
   const [newService, setNewService] = useState(""), [quantity, setQuantity] = useState("1");
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null), [reload, setReload] = useState(0), [stale, setStale] = useState(false);
@@ -38,27 +41,39 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
       setUnitId(next.units?.length === 1 ? next.units[0].unit_id : next.units ? null : undefined);
       setDetail(next); setCounts(next.reservation.commercial_type === "public_swimming" ? { adultCount: next.reservation.adult_count, childCount: next.reservation.child_count } : { adultCount: next.reservation.adult_count + next.reservation.child_count, childCount: 0 });
       setServices(next.services.map(service => ({ serviceId: service.service_id, quantity: service.quantity })));
+      setRooms(next.additionalRooms ?? []);
       setNewService(""); setQuantity("1"); setStale(false); setError(null);
     }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load your booking."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [endpoint, reload]);
   const refresh = () => { setLoading(true); setDetail(null); setError(null); setReload(value => value + 1); };
+  const roomsState = useSwimmingRooms(detail?.canChangeRooms ? detail.reservation.start_datetime : "", detail?.canChangeRooms ? detail.reservation.end_datetime : "", rooms,
+    detail?.reservation.commercial_type !== "public_swimming", counts.adultCount + counts.childCount,
+    detail?.canChangeRooms ? { reservationId, savedRooms: detail.additionalRooms ?? [] } : undefined);
   if (loading) return <LoadingState title="Loading your booking and payment records..." description="Checking your guests, services and remaining balance." />;
   if (!detail) return <div><p role="alert" className="rounded-xl border-2 border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p><button type="button" onClick={refresh} className="mt-3 min-h-11 rounded-lg border px-4 py-2">Retry booking details</button></div>;
   const r = detail.reservation;
   const isReservation = r.status?.toLowerCase() === "confirmed";
   const recordName = isReservation ? "reservation" : "booking";
+  const roomsChanged = Boolean(detail.canChangeRooms && swimmingRoomsChanged(detail.additionalRooms ?? [], rooms));
   let preview: ReturnType<typeof previewReservationEdit> | null = null, previewError: string | null = null;
   if (!detail.lockedReason && isValidGuestCounts(counts.adultCount, counts.childCount)) {
     try { preview = previewReservationEdit(r, detail.bill, detail.services, detail.catalogServices,
-      { ...counts, services, bookingMode: r.booking_mode, startDatetime: r.start_datetime, endDatetime: r.end_datetime }, detail.packageRates); }
+      { ...counts, services, bookingMode: r.booking_mode, startDatetime: r.start_datetime, endDatetime: r.end_datetime }, detail.packageRates);
+      if (roomsChanged) {
+        if (!roomsState.quote || roomsState.error || roomsState.loading) throw new Error(roomsState.error || "Checking your additional rooms...");
+        const previousRooms = (detail.additionalRooms ?? []).reduce((sum, room) => sum + Number(room.unitPrice ?? 0), 0);
+        const total = Math.round((preview.total + roomsState.quote.total - previousRooms) * 100) / 100;
+        preview = { ...preview, total, balance: Math.max(0, total - preview.paid), overpaid: Math.max(0, preview.paid - total) };
+      }
+    }
     catch (cause) { previewError = cause instanceof Error ? cause.message : "Unable to calculate the bill."; }
   }
   const choices = detail.catalogServices.filter(service => service.is_active || detail.services.some(old => old.service_id === service.service_id));
-  const unchanged = (unitId === (detail.units?.length === 1 ? detail.units[0].unit_id : detail.units ? null : undefined)) && counts.adultCount + counts.childCount === r.adult_count + r.child_count && services.length === detail.services.length
+  const unchanged = !roomsChanged && (unitId === (detail.units?.length === 1 ? detail.units[0].unit_id : detail.units ? null : undefined)) && counts.adultCount + counts.childCount === r.adult_count + r.child_count && services.length === detail.services.length
     && services.every(service => detail.services.some(old => old.service_id === service.serviceId && old.quantity === service.quantity));
-  const edit = preview ? parseGuestBookingEdit({ ...counts, ...(unitId !== undefined ? { unitId } : {}), services, expectedTotal: preview.total, version: detail.version }) : null;
+  const edit = preview && !previewError ? parseGuestBookingEdit({ ...counts, ...(unitId !== undefined ? { unitId } : {}), ...(roomsChanged ? { swimmingRooms: rooms } : {}), services, expectedTotal: preview.total, version: detail.version }) : null;
   const restriction = edit ? guestEditRestriction(detail, edit) : null;
 
   async function save() {
@@ -76,6 +91,7 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
 
   return <form onSubmit={event => { event.preventDefault(); if (!restriction && !unchanged) setConfirming(true); }} className="min-w-0 space-y-5">
     <div><h3 className="text-lg font-semibold text-neutral">Edit {recordName}</h3><p className="mt-1 text-sm text-neutral/70">Review the recalculated bill before saving. Your package and schedule stay fixed; use Reschedule to request another date.</p></div>
+    {Boolean(r.swimming_room_choices?.length) && <p className="rounded-xl bg-base p-4 text-sm text-neutral/70">Unchanged additional room stays and charges are retained. Before check-in, you can add or remove rooms and change their guests or duration. New or changed rooms use the current room rates.</p>}
     {detail.lockedReason && <p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{detail.lockedReason}</p>}
     <fieldset disabled={busy || Boolean(detail.lockedReason) || stale} className="min-w-0 space-y-5">
       {(r.commercial_type === "room_accommodation" || r.room_pricing) && detail.catalogUnits && <label className="block text-sm font-medium text-neutral">Accommodation type<select aria-label="Accommodation type" className={inputClass} value={unitId ?? ""} disabled={!detail.canChangeAccommodation} onChange={event => setUnitId(event.target.value || null)}><option value="" disabled>Select accommodation</option>{detail.catalogUnits.filter(unit => unit.unit_id === unitId || unit.is_active && !unit.archived_at).map(unit => <option key={unit.unit_id} value={unit.unit_id} disabled={!unit.is_active || Boolean(unit.archived_at)}>{unit.name}</option>)}</select></label>}
@@ -86,6 +102,7 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
         {r.commercial_type === "public_swimming" ? <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Adults<GuestCountInput aria-label="Adults" min={1} max={MAX_GUESTS} step={1} required disabled={!detail.canChangeGuests} className={inputClass} value={counts.adultCount} onValueChange={adultCount => setCounts(c => ({ ...c, adultCount }))} /></label><label className="text-sm font-medium">Children<GuestCountInput aria-label="Children" min={0} max={MAX_GUESTS - counts.adultCount} step={1} required disabled={!detail.canChangeGuests} className={inputClass} value={counts.childCount} onValueChange={childCount => setCounts(c => ({ ...c, childCount }))} /></label></div> : <label className="mt-3 block text-sm font-medium text-neutral">Number of guests<GuestCountInput aria-label="Number of guests" min={1} max={MAX_GUESTS} step={1} required disabled={!detail.canChangeGuests} className={inputClass} value={counts.adultCount} onValueChange={adultCount => setCounts({ adultCount, childCount: 0 })} /></label>}
         {!isValidGuestCounts(counts.adultCount, counts.childCount) && <p role="alert" className="mt-3 text-sm font-medium text-red-700">Include at least one guest and no more than {MAX_GUESTS} guests in total.</p>}
       </section>
+      {detail.canChangeRooms && <SwimmingRoomSelection state={roomsState} value={rooms} onChange={setRooms} start={r.start_datetime} end={r.end_datetime} guestCount={counts.adultCount + counts.childCount} privateSwimming={r.commercial_type !== "public_swimming"} />}
       <section className="space-y-3"><h4 className="font-semibold text-neutral">Services</h4>
         <p className="text-sm text-neutral/65">{detail.canReduceServices ? "You can add, reduce or remove services while a balance remains and before check-in." : "You can add services or increase quantities. Reductions after full payment or check-in require resort staff."}</p>
         {!services.length && <p className="rounded-xl bg-base p-4 text-sm text-neutral/65">No services selected. Services are optional.</p>}
@@ -117,6 +134,6 @@ export default function GuestBookingEditor({ reservationId, onSaved, onBusyChang
     {(error || previewError || restriction) && <p role="alert" className="rounded-xl border-2 border-red-200 bg-red-50 p-4 text-sm text-red-800">{error ?? previewError ?? restriction}</p>}
     {stale && <button type="button" disabled={busy} onClick={refresh} className="min-h-11 rounded-lg border px-4 py-2 text-sm font-semibold">Reload {recordName} and bill</button>}
     <button type="submit" disabled={busy || stale || !edit || unchanged || Boolean(restriction)} className="min-h-12 w-full rounded-xl bg-primary px-5 py-3 font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">{busy ? "Saving..." : isReservation ? "Save Reservation Changes" : "Save Booking Changes"}</button>
-    <ConfirmationDialog isOpen={confirming} title={`Confirm ${recordName} changes`} message={`Save your guest counts and services?\nNew total: ${currency(preview?.total ?? 0)}\nRemaining balance: ${currency(preview?.balance ?? 0)}${preview?.overpaid ? `\nExcess paid: ${currency(preview.overpaid)}. Refunds must be requested separately.` : ""}`} confirmText="Confirm changes" isConfirming={busy} onConfirm={() => void save()} onCancel={() => setConfirming(false)} />
+    <ConfirmationDialog isOpen={confirming} title={`Confirm ${recordName} changes`} message={`Save your guest counts, rooms and services?\nNew total: ${currency(preview?.total ?? 0)}\nRemaining balance: ${currency(preview?.balance ?? 0)}${preview?.overpaid ? `\nExcess paid: ${currency(preview.overpaid)}. Refunds must be requested separately.` : ""}`} confirmText="Confirm changes" isConfirming={busy} onConfirm={() => void save()} onCancel={() => setConfirming(false)} />
   </form>;
 }
