@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 import { legacyRates } from "./helpers/package-rates.mjs";
+import { swimmingRoomCatalog, standardId, familyId } from "./helpers/swimming-rooms.mjs";
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/manage" });
 globalThis.window = dom.window; globalThis.document = dom.window.document; globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client"); after(() => dom.window.close());
@@ -16,8 +17,8 @@ const button = (c, text) => [...c.querySelectorAll("button")].find(button => but
 const click = element => act(async () => { assert.ok(element); assert.equal(element.disabled, false); element.click(); });
 async function input(el, value) { await act(async () => { const proto = el.tagName === "SELECT" ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, "value").set.call(el, String(value)); el.dispatchEvent(new window.Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true })); }); }
-async function mount({ loaded = detail, fetcher = async () => Response.json({ success: true }) } = {}) {
-  const original = globalThis.fetch; globalThis.fetch = (url, options) => options?.method ? fetcher(url, options) : Promise.resolve(Response.json(loaded));
+async function mount({ loaded = detail, fetcher = async () => Response.json({ success: true }), roomCatalog = swimmingRoomCatalog } = {}) {
+  const original = globalThis.fetch; globalThis.fetch = (url, options) => options?.method ? fetcher(url, options) : Promise.resolve(Response.json(url.startsWith("/api/booking/rooms?") ? { success:true,...roomCatalog } : loaded));
   const c = document.createElement("div"); document.body.append(c); const root = createRoot(c); const busy = [], saved = [];
   await act(async () => root.render(createElement(Component, { reservationId: "booking", onBusyChange: value => busy.push(value), onSaved: result => saved.push(result) })));
   return { c, busy, saved, close: async () => { await act(async () => root.unmount()); c.remove(); globalThis.fetch = original; } };
@@ -116,4 +117,47 @@ test("private swimming includes cottages and preserves historical unit records w
  }finally{await h.close();}
  const locked=await mount({loaded:{...loaded,canChangeAccommodation:false}});
  try{assert.equal(locked.c.querySelector('[aria-label="Accommodation type"]'),null);}finally{await locked.close();}
+});
+
+
+test('private guests can edit bookings with paid room add-ons without lowering admissions below room guests',async()=>{
+ let posted;
+ const loaded={...detail,reservation:{...detail.reservation,commercial_type:"private_swimming",swimming_room_choices:[{classificationId:service,quantity:1,pricingVersion:1,occupants:3,durationHours:3}]},
+  bill:{...detail.bill,total_amount:8900}};
+ const h=await mount({loaded,fetcher:async(_url,options)=>{posted=JSON.parse(options.body);return Response.json({success:true,totalAmount:8650});}});
+ try{
+  assert.match(h.c.textContent,/additional room stays and charges are retained/);
+  await input(h.c.querySelector('[aria-label="Number of guests"]'),2);
+  assert.equal(button(h.c,"Save Reservation Changes").disabled,true);assert.match(h.c.textContent,/guests assigned to additional rooms/);
+  await input(h.c.querySelector('[aria-label="Number of guests"]'),20);
+  assert.match(h.c.querySelector('[aria-label="Updated bill preview"]').textContent,/8,650/);
+  await click(button(h.c,"Save Reservation Changes"));await click(button(document.body,"Confirm changes"));
+  assert.equal(posted.adultCount,20);assert.equal(posted.expectedTotal,8650);
+ }finally{await h.close();}
+});
+
+
+for(const commercial_type of ["private_swimming","public_swimming"])test(commercial_type+" guests edit individual room type, hours and occupants, add rooms and remove them before confirmation",async()=>{
+ const assignmentId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+ const original={assignmentId,classificationId:standardId,quantity:1,pricingVersion:1,occupants:2,durationHours:3,unitPrice:250,accommodation:250,additionalGuestCharge:0};
+ const publicBooking=commercial_type==="public_swimming";
+ const loaded={...detail,canChangeRooms:true,additionalRooms:[original],reservation:{...detail.reservation,commercial_type,adult_count:8,child_count:0,swimming_room_choices:[original],public_pricing_snapshot:{adult_rate:150,child_rate:120},public_admission_amount:1200},
+  bill:{total_amount:publicBooking?1650:7950,paid_amount:600,status:"partial"},packageRates:publicBooking?null:legacyRates};
+ let posted;
+ const h=await mount({loaded,fetcher:async(_url,options)=>{posted=JSON.parse(options.body);return Response.json({success:true,totalAmount:posted.expectedTotal});}});
+ try{
+  assert.equal(h.c.querySelector('[aria-label="Additional room 1 duration"]').value,"3");
+  await input(h.c.querySelector('[aria-label="Additional room 1 type"]'),familyId);
+  await input(h.c.querySelector('[aria-label="Additional room 1 duration"]'),5);
+  await input(h.c.querySelector('[aria-label="Additional room 1 guests"]'),6);
+  await click(button(h.c,"Add room"));
+  assert.equal(h.c.querySelector('[aria-label="Additional room 2 duration"]').value,"3");
+  await click(h.c.querySelector('[aria-label="Remove additional room 2"]'));
+  assert.equal(h.c.querySelector('[aria-label="Additional room 2 duration"]'),null);
+  assert.match(h.c.querySelector('[aria-label="Updated bill preview"]').textContent,publicBooking?/2,300/:/8,600/);
+  await click(button(h.c,"Save Reservation Changes"));assert.equal(posted,undefined);
+  await click(button(document.body,"Confirm changes"));
+  assert.deepEqual(posted.swimmingRooms,[{assignmentId,classificationId:familyId,quantity:1,pricingVersion:1,occupants:6,durationHours:5}]);
+  assert.equal(posted.expectedTotal,publicBooking?2300:8600);
+ }finally{await h.close();}
 });

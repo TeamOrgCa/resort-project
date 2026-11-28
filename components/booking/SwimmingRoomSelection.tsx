@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { availableRoomCount, type CustomerRoomCatalog } from "@/lib/booking/customer-rooms";
 import { PRIVATE_SWIMMING_INCLUDED_ROOMS, swimmingRoomEnd, swimmingRoomDurationLabel, swimmingRoomsQuote, type SwimmingRoomSelection } from "@/lib/booking/swimming-rooms";
 
-export function useSwimmingRooms(start: string, end: string, rooms: SwimmingRoomSelection[], privateSwimming: boolean, guestCount: number) {
+export function useSwimmingRooms(start: string, end: string, rooms: SwimmingRoomSelection[], privateSwimming: boolean, guestCount: number, editor?: { reservationId: string; savedRooms: SwimmingRoomSelection[] }) {
+  const editorReservationId = editor?.reservationId;
   const [catalog, setCatalog] = useState<CustomerRoomCatalog | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -12,7 +13,7 @@ export function useSwimmingRooms(start: string, end: string, rooms: SwimmingRoom
     setLoading(true); setCatalog(null);
     async function load() {
       try {
-        const response = await fetch(`/api/booking/rooms?startDatetime=${encodeURIComponent(start)}&endDatetime=${encodeURIComponent(end)}`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(`/api/booking/rooms?startDatetime=${encodeURIComponent(start)}&endDatetime=${encodeURIComponent(end)}${editorReservationId ? `&excludeReservationId=${encodeURIComponent(editorReservationId)}` : ""}`, { cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (!response.ok || !data.success || !Array.isArray(data.classifications) || !Array.isArray(data.rooms)) throw new Error(data.message || "Unable to load rooms. Please refresh room availability.");
         if (!controller.signal.aborted) { setCatalog(data); setError(""); }
@@ -21,10 +22,11 @@ export function useSwimmingRooms(start: string, end: string, rooms: SwimmingRoom
     }
     void load();
     return () => controller.abort();
-  }, [start, end, retry]);
+  }, [start, end, retry, editorReservationId]);
+  const quoteRooms = (choices: SwimmingRoomSelection[]) => swimmingRoomsQuote(catalog!, choices, start, end, privateSwimming, guestCount, editor?.savedRooms);
   let quote: ReturnType<typeof swimmingRoomsQuote> | null = null, issue = error;
-  if (catalog) { try { quote = swimmingRoomsQuote(catalog, rooms, start, end, privateSwimming, guestCount); } catch (e) { issue = e instanceof Error ? e.message : "Review your room choices."; } }
-  return { catalog, loading, error: issue, quote, refresh: () => setRetry(n => n + 1) };
+  if (catalog) { try { quote = quoteRooms(rooms); } catch (e) { issue = e instanceof Error ? e.message : "Review your room choices."; } }
+  return { catalog, loading, error: issue, quote, quoteRooms, refresh: () => setRetry(n => n + 1) };
 }
 export default function SwimmingRoomSelection({ state, value, onChange, start, end, guestCount, privateSwimming = false }: {
   state: ReturnType<typeof useSwimmingRooms>; value: SwimmingRoomSelection[]; onChange: (rooms: SwimmingRoomSelection[]) => void;
@@ -48,7 +50,7 @@ export default function SwimmingRoomSelection({ state, value, onChange, start, e
     const durations = [defaultDuration];
     for (const durationHours of durations) {
       const candidate: SwimmingRoomSelection = { classificationId: c.classification_id, quantity: 1, pricingVersion: Number(c.pricing_version), occupants: 1, durationHours };
-      try { swimmingRoomsQuote(state.catalog!, [...value, candidate], start, end, privateSwimming, guestCount); return [candidate]; } catch { /* Try another configured duration or room type. */ }
+      try { if (state.quoteRooms) state.quoteRooms([...value, candidate]); else swimmingRoomsQuote(state.catalog!, [...value, candidate], start, end, privateSwimming, guestCount); return [candidate]; } catch { /* Try another configured duration or room type. */ }
     }
     return [];
   })[0];

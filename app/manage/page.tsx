@@ -266,7 +266,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
   const [isSavingServices, setIsSavingServices] = useState(false);
   const [rescheduleFormError, setRescheduleFormError] = useState<string | null>(null);
   const [rescheduleMessage, setRescheduleMessage] = useState<string | null>(null);
-  const [rescheduleRates, setRescheduleRates] = useState<{ reservationId: string; rates: PackageRates } | null>(null);
+  const [rescheduleRates, setRescheduleRates] = useState<{ reservationId: string; rates: PackageRates | null } | null>(null);
   const [reschedulePricingError, setReschedulePricingError] = useState<string | null>(null);
   const [reschedulePricingAttempt, setReschedulePricingAttempt] = useState(0);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
@@ -305,7 +305,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
         const response = await fetch(`/api/reservations/edit?reservationId=${encodeURIComponent(selectedBookingId!)}`, { cache: "no-store", signal: controller.signal });
         const result = await response.json() as { packageRates?: unknown; message?: string };
         const rates = parsePackageRates(result.packageRates);
-        if (!response.ok || !rates) throw new Error(result.message || "Unable to load the booked prices. Please retry.");
+        if (!response.ok || selectedBooking?.commercialType !== "public_swimming" && !rates) throw new Error(result.message || "Unable to load the booked prices. Please retry.");
         if (active) setRescheduleRates({ reservationId: selectedBookingId!, rates });
       } catch (error) {
         if (active) setReschedulePricingError(error instanceof Error ? error.message : "Unable to load the booked prices.");
@@ -313,7 +313,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
     }
     void loadRates();
     return () => { active = false; controller.abort(); };
-  }, [recordMode, selectedBookingId, canRequestReschedule, reschedulePricingAttempt]);
+  }, [recordMode, selectedBookingId, selectedBooking?.commercialType, canRequestReschedule, reschedulePricingAttempt]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000);
     return () => window.clearInterval(timer);
@@ -1051,6 +1051,7 @@ const [ocularCancelError, setOcularCancelError] = useState<string | null>(null);
 
               <div className="rounded-xl border border-neutral/10 bg-white p-3 text-sm text-neutral">
                 <p>{selectedBooking.commercialType === "public_swimming" ? "Choose an available date according to the session's configured access mode, booking window and cutoff. Your booked public session and admission rates stay the same." : RESCHEDULE_POLICY_TEXT}</p><p className="mt-2">{RESCHEDULE_FEE_TEXT}</p>
+                <p className="mt-2">Any booked rooms must also be available for their saved stay durations. Room charges stay the same, and a suitable room of the same type may be assigned on the new date.</p>
                 <p className="mt-2 font-medium">Notice fee for this booking: {formatCurrency(selectedReschedulePolicy?.noticeFee ?? 0)}. {selectedBooking.commercialType === "public_swimming" ? "Public cancellations follow the 80% refund policy, subject to manager-approved exceptions." : "Reschedule fees are non-refundable."}</p>
                 {canRequestReschedule && !selectedReschedulePolicy?.allowed && <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">Short-notice rescheduling is automatically approved when the selected date is available. The applicable notice fee and any higher date rate are added immediately when you save.</p>}
               </div>

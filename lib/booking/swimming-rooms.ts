@@ -3,7 +3,13 @@ import { availableRoomCount } from "./customer-rooms";
 import type { RoomClass } from "@/lib/rooms/types";
 
 export const PRIVATE_SWIMMING_INCLUDED_ROOMS = 2;
-export type SwimmingRoomSelection = { classificationId: string; quantity: number; pricingVersion: number; occupants?: number; durationHours?: number; name?: string; unitPrice?: number; accommodation?: number; additionalGuestCharge?: number; extraGuests?: number; baseHours?: number; baseRate?: number; extensionHours?: number; extensionHourlyRate?: number; extensionCharge?: number };
+export type SwimmingRoomSelection = { assignmentId?: string; classificationId: string; quantity: number; pricingVersion: number; occupants?: number; durationHours?: number; name?: string; unitPrice?: number; accommodation?: number; additionalGuestCharge?: number; extraGuests?: number; baseHours?: number; baseRate?: number; extensionHours?: number; extensionHourlyRate?: number; extensionCharge?: number };
+export function sameSwimmingRoom(a: SwimmingRoomSelection, b: SwimmingRoomSelection) {
+  return a.assignmentId === b.assignmentId && a.classificationId === b.classificationId && a.quantity === b.quantity && a.occupants === b.occupants && a.durationHours === b.durationHours;
+}
+export function swimmingRoomsChanged(before: SwimmingRoomSelection[], after: SwimmingRoomSelection[]) {
+  return before.length !== after.length || after.some(room => !room.assignmentId || !before.some(old => sameSwimmingRoom(old, room)));
+}
 export function parseSwimmingRooms(value: unknown): SwimmingRoomSelection[] | null {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 20) return null;
@@ -51,7 +57,7 @@ export function swimmingRoomStayPrice(c: RoomClass, hours: number) {
   const extensionCharge = Math.round(extensionHours * (extensionHours > 0 ? extensionHourlyRate : 0) * 100) / 100;
   return { baseHours, baseRate, extensionHours, extensionHourlyRate, extensionCharge, accommodation: Math.round((baseRate + extensionCharge) * 100) / 100 };
 }
-export function swimmingRoomsQuote(catalog: CustomerRoomCatalog, rooms: SwimmingRoomSelection[], start: string, end: string, privateSwimming: boolean, guestCount?: number) {
+export function swimmingRoomsQuote(catalog: CustomerRoomCatalog, rooms: SwimmingRoomSelection[], start: string, end: string, privateSwimming: boolean, guestCount?: number, savedRooms: SwimmingRoomSelection[] = []) {
   if (rooms.length > 20 || rooms.some(room => !Number.isSafeInteger(room.quantity) || room.quantity < 1) || rooms.reduce((sum, room) => sum + room.quantity, 0) > 20) throw new Error("Choose up to 20 additional rooms.");
   if (guestCount !== undefined && (!Number.isSafeInteger(guestCount) || guestCount < 1 || rooms.reduce((sum, room) => sum + (room.occupants ?? 0) * room.quantity, 0) > guestCount)) throw new Error("Guests across additional rooms cannot exceed the booking's total number of guests. Review your room guest counts.");
   const standard = catalog.classifications.find(c => c.code === "standard");
@@ -60,6 +66,8 @@ export function swimmingRoomsQuote(catalog: CustomerRoomCatalog, rooms: Swimming
   }
   const selections = rooms.map(room => {
     const c = catalog.classifications.find(c => c.classification_id === room.classificationId);
+    const saved = room.assignmentId ? savedRooms.find(old => sameSwimmingRoom(old, room)) : undefined;
+    if (saved && c && Number.isFinite(saved.unitPrice)) return { ...saved, unitPrice: Number(saved.unitPrice) };
     if (!c || Number(c.pricing_version) !== room.pricingVersion) throw new Error("Room rates changed. Refresh your room choices.");
     const individual = room.durationHours !== undefined || room.occupants !== undefined;
     if (individual && (room.quantity !== 1 || typeof room.durationHours !== "number" || !Number.isSafeInteger(room.durationHours) || room.durationHours < 3 || room.durationHours > 24 || !Number.isSafeInteger(room.occupants) || room.occupants! < 1 || room.occupants! > c.maximum_capacity)) throw new Error(`Choose valid guests and whole room hours (minimum 3) within your swimming stay for ${c.name}.`);

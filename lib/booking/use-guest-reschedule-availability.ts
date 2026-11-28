@@ -13,7 +13,26 @@ import { isPublicSwimmingStartAllowed, publicSwimmingSessionLabel, type PublicSw
 
 export function useGuestRescheduleAvailability(start: string, end: string, month: string, selectedDate: string, enabled: boolean, commercialType?: string, reservationId?: string) {
   const publicBooking = commercialType === "public_swimming";
+  const roomKey = `${reservationId ?? ""}|${month}`;
+  const checkRooms = enabled && Boolean(reservationId) && commercialType !== "room_accommodation";
+  const [roomData, setRoomData] = useState<{ key: string; dates: { date: string; available: boolean; reason: string | null }[]; error: string | null } | null>(null);
   const [publicData, setPublicData] = useState<PublicSwimmingCatalog | null>(null), [publicError, setPublicError] = useState<string | null>(null), [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (!checkRooms || !month) return;
+    let active = true;
+    let controller: AbortController | null = null;
+    async function load() {
+      controller?.abort(); const current = new AbortController(); controller = current;
+      try {
+        const response = await fetch(`/api/reservations/reschedule-availability?reservationId=${encodeURIComponent(reservationId!)}&month=${month}`, { cache: "no-store", signal: current.signal });
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.dates)) throw new Error(data.message || "Unable to check the booked rooms. Please retry.");
+        if (active && !current.signal.aborted) setRoomData({ key: roomKey, dates: data.dates, error: null });
+      } catch (error) { if (active && !current.signal.aborted) setRoomData({ key: roomKey, dates: [], error: error instanceof Error ? error.message : "Unable to check the booked rooms." }); }
+    }
+    void load(); const timer = window.setInterval(load, 15000); window.addEventListener("focus", load);
+    return () => { active = false; controller?.abort(); window.clearInterval(timer); window.removeEventListener("focus", load); };
+  }, [checkRooms, reservationId, month, roomKey, revision]);
   useEffect(() => {
     if (!enabled || !publicBooking) return;
     const controller = new AbortController();
@@ -56,6 +75,13 @@ export function useGuestRescheduleAvailability(start: string, end: string, month
       new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) return "Choose a valid date.";
     if (!(duration > 0)) return "Unable to determine the original booking times. Contact the resort.";
     if (date === manilaDateKey(start)) return "Current reservation date";
+    if (checkRooms) {
+      if (roomData?.key !== roomKey) return requireReady ? "Checking availability for your booked rooms..." : null;
+      if (roomData.error) return roomData.error;
+      const day = roomData.dates.find(day => day.date === date);
+      if (!day) return "Room availability has not loaded for this date.";
+      if (!day.available) return day.reason ?? "Your booked rooms are unavailable on this date.";
+    }
     if (publicBooking) {
       if (publicError) return publicError;
       if (!publicData) return requireReady ? "Loading public swimming dates..." : null;
@@ -73,6 +99,11 @@ export function useGuestRescheduleAvailability(start: string, end: string, month
     return null;
   }
 
-  return { ...availability, ...(publicBooking ? { ready: !!publicData && !publicError, error: publicError, maxBookingDate: publicData?.dates.at(-1), refresh: () => setRevision(n => n + 1) } : {}),
+  const roomReady = !checkRooms || roomData?.key === roomKey && !roomData.error;
+  const roomError = checkRooms && roomData?.key === roomKey ? roomData.error : null;
+  return { ...availability, ...(publicBooking ? { maxBookingDate: publicData?.dates.at(-1) } : {}),
+    ready: Boolean(roomReady && (publicBooking ? !!publicData && !publicError : availability.ready)),
+    error: roomError ?? (publicBooking ? publicError : availability.error),
+    refresh: () => { setRoomData(null); setRevision(n => n + 1); availability.refresh(); },
     firstBookingDate: publicBooking ? publicData?.dates[0] : undefined, dateIssue, calendarDateIssue: (date: string) => dateIssue(date, false) };
 }

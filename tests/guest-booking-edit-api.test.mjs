@@ -2,13 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadTsModule } from "./helpers/load-ts-module.mjs";
 import { legacyRates } from "./helpers/package-rates.mjs";
+import { swimmingRoomCatalog, standardId, familyId } from "./helpers/swimming-rooms.mjs";
 const id = "33333333-3333-4333-8333-333333333333", guest = "guest", service = "44444444-4444-4444-8444-444444444444";
 const version = "a".repeat(64);
 const reservation = { reservation_id: id, guest_id: guest, reference_number: "MV-TEST", status: "confirmed", booking_mode: "day",
   start_datetime: "2027-06-14T08:00:00+08:00", end_datetime: "2027-06-14T16:00:00+08:00", adult_count: 22, child_count: 0 };
-function harness({ authenticated = true, owned = true, full = false, locked = null, refunds = [], rpcError = null, notifyFails = false, emailSent = true, committedTotal = 8150, maxQuantity = 10000, units = [], catalogUnits = [], canChangeDetails = true } = {}) {
+function harness({ authenticated = true, owned = true, full = false, locked = null, refunds = [], rpcError = null, notifyFails = false, emailSent = true, committedTotal = 8150, maxQuantity = 10000, units = [], catalogUnits = [], canChangeDetails = true, additionalRooms = [], catalogError = null } = {}) {
   const calls = [], reads = [], emails = [];
-  const loaded = { reservation, units, catalogUnits, services: [{ service_id: service, quantity: 2, price_at_time: 100 }], catalogServices: [{ service_id: service, name: "Table", is_active: false, price: 999, max_quantity:maxQuantity }],
+  const loaded = { reservation, additionalRooms, units, catalogUnits, services: [{ service_id: service, quantity: 2, price_at_time: 100 }], catalogServices: [{ service_id: service, name: "Table", is_active: false, price: 999, max_quantity:maxQuantity }],
     bill: { total_amount: 8600, paid_amount: full ? 8600 : 1720, status: full ? "paid" : "partial" }, lockedReason: locked, canChangeDetails,
     version, snapshot: { fixture: "server snapshot" }, packageRates: legacyRates };
   const routes = loadTsModule("app/api/reservations/edit/route.ts", {
@@ -16,7 +17,7 @@ function harness({ authenticated = true, owned = true, full = false, locked = nu
       from: () => { const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ error: null, data: owned ? { reservation_id: id } : null }) }; return q; } }) },
     "@/lib/server/reservation-editor": { loadReservationEditor: async value => { reads.push(value); return loaded; } },
     "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => { const q = { select: () => q, eq: () => q, in: () => q, limit: async () => ({ data: refunds, error: null }) }; return q; },
-      rpc: async (name, args) => { calls.push({ name, args }); return { data: { totalAmount: committedTotal, paidAmount: 1720, remainingBalance: 6430, overpaidAmount: 0, adultCount: 20, childCount: 0, services: [] }, error: rpcError }; } }) },
+      rpc: async (name, args) => { calls.push({ name, args }); if(name==="swimming_room_edit_catalog") return {data:swimmingRoomCatalog,error:catalogError}; return { data: { totalAmount: committedTotal, paidAmount: 1720, remainingBalance: 6430, overpaidAmount: 0, adultCount: 20, childCount: 0, services: [] }, error: rpcError }; } }) },
     "@/lib/server/billing-email": { emailUpdatedBillingStatement: async (...args) => { emails.push(args); return { sent: emailSent, ...(emailSent ? {} : { error: "Email unavailable." }) }; } },
     "@/lib/notifications": { NOTIFICATION_AUDIENCES: { reservation: [] }, createNotifications: async () => { if (notifyFails) throw Error("Unavailable"); return { error: null }; } },
   });
@@ -74,4 +75,26 @@ test("private swimming rejects forged accommodation changes without changing its
   assert.equal(response.status,409);assert.match((await response.json()).message,/All cottages are included/);assert.equal(h.calls.length,0);assert.equal(h.emails.length,0);
   const during=harness({...options,canChangeDetails:false});assert.equal((await during.post({unitId:next})).status,409);assert.equal(during.calls.length,0);
   const unavailable=harness({...options,catalogUnits:[{unit_id:next,is_active:false,archived_at:null}]});assert.equal((await unavailable.post({unitId:next})).status,409);assert.equal(unavailable.calls.length,0);
+});
+
+
+test('room edits check authoritative inventory and commit rooms, guest/service changes and the final bill once',async()=>{
+ const original={assignmentId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",classificationId:standardId,quantity:1,pricingVersion:7,occupants:2,durationHours:3,unitPrice:250};
+ const added={classificationId:familyId,quantity:1,pricingVersion:1,occupants:4,durationHours:3};
+ const h=harness({additionalRooms:[original],committedTotal:8900});
+ const response=await h.post({adultCount:22,services:[{serviceId:service,quantity:2}],swimmingRooms:[{...original,unitPrice:1},added],expectedTotal:8900});
+ assert.equal(response.status,200);assert.equal(h.calls.length,2);assert.equal(h.calls[0].name,"swimming_room_edit_catalog");assert.equal(h.calls[1].name,"edit_guest_swimming_rooms");
+ assert.equal(h.calls[1].args.p_expected_final,8900);assert.equal(h.calls[1].args.p_patch.expectedTotal,8600);
+ assert.equal(h.calls[1].args.p_rooms[0].unitPrice,undefined);assert.equal(h.calls[1].args.p_rooms[0].assignmentId,original.assignmentId);
+ assert.deepEqual(h.emails,[[id,8900]]);
+});
+
+test('room edits reject duplicate assignments, invalid durations, forbidden edits and changed quotes before saving',async()=>{
+ const row={assignmentId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",classificationId:standardId,quantity:1,pricingVersion:1,occupants:2,durationHours:3};
+ for(const swimmingRooms of [[row,row],[{...row,durationHours:2}],[{...row,durationHours:3.5}]]){
+  const h=harness();assert.equal((await h.post({swimmingRooms})).status,400);assert.equal(h.calls.length,0);
+ }
+ const locked=harness({canChangeDetails:false});assert.equal((await locked.post({swimmingRooms:[]})).status,409);
+ const stale=harness();assert.equal((await stale.post({swimmingRooms:[{...row,assignmentId:undefined}],expectedTotal:1})).status,409);
+ assert.ok(!stale.calls.some(c=>c.name==="edit_guest_swimming_rooms"));assert.equal(stale.emails.length,0);
 });

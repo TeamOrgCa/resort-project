@@ -7,6 +7,7 @@ import { previewReservationEdit, serviceSelectionsChanged, uuidPattern } from "@
 import { guestEditRestriction, parseGuestBookingEdit, type GuestEditDetail } from "@/lib/booking/guest-edit";
 import { createNotifications, NOTIFICATION_AUDIENCES } from "@/lib/notifications";
 import { emailUpdatedBillingStatement } from "@/lib/server/billing-email";
+import { swimmingRoomsQuote, swimmingRoomsChanged } from "@/lib/booking/swimming-rooms";
 
 async function ownedDetail(request: Request) {
   const id = new URL(request.url).searchParams.get("reservationId") ?? "";
@@ -17,7 +18,7 @@ async function ownedDetail(request: Request) {
   const owner = await client.from("reservations").select("reservation_id").eq("reservation_id", id).eq("guest_id", user.id).maybeSingle();
   if (owner.error) return { error: NextResponse.json({ message: "Unable to verify your booking. Please retry." }, { status: 503 }) };
   if (!owner.data) return { error: NextResponse.json({ message: "Booking not found for this account." }, { status: 403 }) };
-  const loaded = await loadReservationEditor(id);
+  const loaded = await loadReservationEditor(id, { allowSwimmingRooms: true });
   if (!loaded || loaded.reservation.guest_id !== user.id) return { error: NextResponse.json({ message: "Booking not found." }, { status: 404 }) };
   const refunds = await createAdminClient().from("refund_requests").select("refund_id").eq("reservation_id", id).in("status", ["pending", "reviewed", "approved", "payout_submitted"]).limit(1);
   if (refunds.error) throw new Error("Unable to check open refunds. Please retry.");
@@ -25,6 +26,8 @@ async function ownedDetail(request: Request) {
   const detail: GuestEditDetail = { reservation: loaded.reservation, services: loaded.services,
     units: loaded.units, catalogUnits: loaded.reservation.commercial_type === "room_accommodation" || loaded.reservation.room_pricing ? loaded.catalogUnits : undefined,
     canChangeAccommodation: false,
+    additionalRooms: loaded.additionalRooms,
+    canChangeRooms: !lockedReason && loaded.canChangeDetails && !loaded.reservation.room_pricing && ["private_swimming", "public_swimming"].includes(loaded.reservation.commercial_type ?? "private_swimming"),
     catalogServices: loaded.catalogServices.filter(service => service.is_active || loaded.services.some(old => old.service_id === service.service_id)),
     bill: loaded.bill, packageRates: loaded.packageRates, version: loaded.version, lockedReason,
     canChangeGuests: !lockedReason && loaded.canChangeDetails,
@@ -55,23 +58,34 @@ export async function POST(request: Request) {
     if (quantityError) return NextResponse.json({ message: quantityError }, { status: 400 });
     const preview = previewReservationEdit(r, detail.bill, detail.services, detail.catalogServices,
       { ...edit, bookingMode: r.booking_mode, startDatetime: r.start_datetime, endDatetime: r.end_datetime }, detail.packageRates);
-    if (Math.abs(preview.total - edit.expectedTotal) > 0.001) return NextResponse.json({ message: "The bill changed. Reload and review the new total." }, { status: 409 });
+    let roomDelta = 0;
+    const roomsChanged = edit.swimmingRooms !== undefined && swimmingRoomsChanged(detail.additionalRooms ?? [], edit.swimmingRooms);
+    if (roomsChanged) {
+      const { data: catalog, error } = await createAdminClient().rpc("swimming_room_edit_catalog", { p_reservation: id });
+      if (error || !catalog) return NextResponse.json({ message: "Unable to check room availability. Apply swimming-guest-room-edit-migration.sql and retry." }, { status: 503 });
+      try {
+        const quote = swimmingRoomsQuote(catalog, edit.swimmingRooms!, r.start_datetime, r.end_datetime, r.commercial_type !== "public_swimming", edit.adultCount + edit.childCount, detail.additionalRooms);
+        roomDelta = quote.total - (detail.additionalRooms ?? []).reduce((sum, room) => sum + Number(room.unitPrice ?? 0), 0);
+      } catch (error) { return NextResponse.json({ message: error instanceof Error ? error.message : "Review your room choices." }, { status: 409 }); }
+    }
+    if (Math.abs(preview.total + roomDelta - edit.expectedTotal) > 0.001) return NextResponse.json({ message: "The bill changed. Reload and review the new total." }, { status: 409 });
     if (r.commercial_type !== "public_swimming" && edit.adultCount + edit.childCount === r.adult_count + r.child_count) { edit.adultCount = r.adult_count; edit.childCount = r.child_count; }
-    const { data, error } = await createAdminClient().rpc(r.commercial_type === "public_swimming" ? "public_edit_booking" : preview.hasDiscount ? "edit_guest_reservation_bill_with_discount" : "edit_guest_reservation_bill", { p_reservation: id, p_guest: user.id,
+    const { data, error } = await createAdminClient().rpc(roomsChanged ? "edit_guest_swimming_rooms" : r.commercial_type === "public_swimming" ? "public_edit_booking" : preview.hasDiscount ? "edit_guest_reservation_bill_with_discount" : "edit_guest_reservation_bill", { p_reservation: id, p_guest: user.id,
+      ...(roomsChanged ? { p_rooms: edit.swimmingRooms, p_expected_final: edit.expectedTotal } : {}),
       p_expected: loaded.snapshot, p_patch: { adultCount: edit.adultCount, childCount: edit.childCount, ...(edit.unitId !== undefined ? { unitId: edit.unitId } : {}), services: edit.services, packageDelta: preview.packageDelta, expectedTotal: preview.interimTotal } });
     if (error) {
       const missing = ["PGRST202", "42883"].includes(error.code);
-      return NextResponse.json({ message: missing ? "Booking editing needs the guest-booking-edit migration. Contact the resort administrator." : error.message },
+      return NextResponse.json({ message: missing ? roomsChanged ? "Room editing needs swimming-guest-room-edit-migration.sql. Contact the resort administrator." : "Booking editing needs the guest-booking-edit migration. Contact the resort administrator." : error.message },
         { status: missing ? 503 : error.code === "42501" ? 403 : ["40001", "23505"].includes(error.code) ? 409 : error.code === "22023" ? 400 : 503 });
     }
     try {
       await createNotifications({ actorId: user.id, guestId: user.id, staffRoles: NOTIFICATION_AUDIENCES.reservation,
-        title: "Booking updated", message: `Guest counts or services for ${r.reference_number} were updated. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
+        title: "Booking updated", message: `Guest counts, rooms or services for ${r.reference_number} were updated. Remaining balance: PHP ${Number(data.remainingBalance).toFixed(2)}.`,
         entityType: "reservation", entityId: id, guestActionUrl: "/manage", staffActionUrl: "/admin/reservations" });
     } catch { /* The audited bill is committed; notification delivery must not prompt duplicate saves. */ }
     const originalUnit = detail.units?.length === 1 && detail.units[0].quantity === 1 ? detail.units[0].unit_id : null;
     const billChanged = (edit.unitId !== undefined && edit.unitId !== originalUnit) || r.adult_count !== edit.adultCount || r.child_count !== edit.childCount
-      || serviceSelectionsChanged(detail.services, edit.services) || Number(data.totalAmount) !== Number(detail.bill.total_amount);
+      || roomsChanged || serviceSelectionsChanged(detail.services, edit.services) || Number(data.totalAmount) !== Number(detail.bill.total_amount);
     const billingEmail = billChanged ? await emailUpdatedBillingStatement(id, Number(data.totalAmount)) : undefined;
     const emailMessage = billingEmail ? (billingEmail.sent ? " Updated billing statement emailed." : ` Updated billing statement was not emailed. ${billingEmail.error ?? "Check email delivery settings."}`) : "";
     return NextResponse.json({ success: true, ...data, billingEmail,

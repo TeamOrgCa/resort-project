@@ -117,7 +117,7 @@ export async function emailBillingDocuments(
       .eq("reservation_id", reservation.reservation_id),
     // Read optional provider/beta metadata without requiring a new schema migration.
     options.invoiceOnly ? Promise.resolve({ data: null, error: null }) : supabase.from("payments").select("*,payment_methods(name)").eq("payment_id",paymentId).maybeSingle(),
-    supabase.from("room_charges").select("description,amount,created_at").eq("reservation_id", reservation.reservation_id),
+    supabase.from("room_charges").select("kind,description,amount,created_at").eq("reservation_id", reservation.reservation_id),
   ]);
   const { data: receipt } = receiptResult;
   const { data: issuedInvoice } = invoiceResult;
@@ -184,7 +184,7 @@ export async function emailBillingDocuments(
     childRate: charges.commercial_type === "public_swimming" ? Number(charges.public_pricing_snapshot?.child_rate ?? 0) : charges.child_rate_at_booking === null ? null : Number(charges.child_rate_at_booking),
     units,
     services,
-    roomCharges: (roomChargesResult.data ?? []).map(charge => ({ description: charge.description, amount: Number(charge.amount) })),
+    roomCharges: (roomChargesResult.data ?? []).map(charge => ({ kind: charge.kind, description: charge.description, amount: Number(charge.amount) })),
   };
 
   if (receipt && !receipt.email_sent) {
@@ -199,7 +199,7 @@ export async function emailBillingDocuments(
       totalAmount: Number(receipt.transaction_total_at_time ?? totalAmount),
       balance: Number(receipt.balance_after_payment ?? balance),
       breakdown: buildBillingBreakdown({ ...breakdownInput,
-        roomCharges: (roomChargesResult.data ?? []).filter(charge => Date.parse(charge.created_at) <= Date.parse(receipt.issued_at)).map(charge => ({ description: charge.description, amount: Number(charge.amount) })),
+        roomCharges: (roomChargesResult.data ?? []).filter(charge => Date.parse(charge.created_at) <= Date.parse(receipt.issued_at)).map(charge => ({ kind: charge.kind, description: charge.description, amount: Number(charge.amount) })),
         discount: savedDiscount,
         ...(savedDiscount ? { adultCount: savedDiscount.headCount, childCount: 0 } : {}),
         recordedTotal: Number(receipt.transaction_total_at_time ?? totalAmount),
